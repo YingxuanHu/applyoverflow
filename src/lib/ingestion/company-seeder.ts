@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { ensureCompanyRecord, assignCanonicalJobsToCompany } from "@/lib/ingestion/company-records";
+import { upsertCompanySourceByIdentity } from "@/lib/ingestion/company-source-upsert";
 import {
   buildDiscoveredSourceUrl,
   type DiscoveredSourceCandidate,
@@ -179,8 +180,13 @@ export async function seedCompanySourcesFromExistingAts(options: {
     await assignCanonicalJobsToCompany(company.id, row.companyKey);
     companySeededCount += 1;
 
-    await prisma.companySource.upsert({
-      where: { sourceName: row.sourceName },
+    await upsertCompanySourceByIdentity({
+      identity: {
+        companyId: company.id,
+        sourceName: row.sourceName,
+        connectorName: parsed.connectorName,
+        token: parsed.token,
+      },
       create: {
         companyId: company.id,
         sourceName: row.sourceName,

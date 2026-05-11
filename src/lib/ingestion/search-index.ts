@@ -5,8 +5,79 @@ import {
   computeRankingScore,
   computeTrustScore,
 } from "@/lib/ingestion/quality";
+import { inferGeoScope, isExplicitlyOutOfScopeGeoScope } from "@/lib/geo-scope";
+import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
+
+const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
+const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
+const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
+
+function shouldExcludeFromFeedIndex(input: {
+  location: string;
+  region: "US" | "CA" | null;
+  workMode: string;
+  status: string;
+  availabilityScore: number;
+  applyUrl: string;
+  company: string;
+  deadline: Date | null;
+  deadSignalAt: Date | null;
+  lastSourceSeenAt: Date | null;
+  lastConfirmedAliveAt: Date | null;
+  now: Date;
+}) {
+  if (input.status !== "LIVE") {
+    return true;
+  }
+
+  if (input.deadSignalAt) {
+    return true;
+  }
+
+  if (input.availabilityScore < JOB_BOARD_MIN_AVAILABILITY_SCORE) {
+    return true;
+  }
+
+  if (input.deadline && input.deadline.getTime() < input.now.getTime()) {
+    return true;
+  }
+
+  if (!/^https?:\/\//i.test(input.applyUrl)) {
+    return true;
+  }
+
+  if (hasUnresolvedGenericCompanyName(input.company, input.applyUrl)) {
+    return true;
+  }
+
+  const normalizedCompany = input.company.trim().toLowerCase();
+  if (
+    (normalizedCompany === "jooble" || normalizedCompany === "jooble.org") &&
+    /jooble\.org/i.test(input.applyUrl)
+  ) {
+    return true;
+  }
+
+  const geoScope = inferGeoScope(input.location, input.region);
+  if (isExplicitlyOutOfScopeGeoScope(geoScope)) {
+    return true;
+  }
+
+  if (input.region == null && input.workMode !== "REMOTE") {
+    return true;
+  }
+
+  const recentSourceCutoff = new Date(input.now.getTime() - RECENT_SOURCE_EVIDENCE_MAX_AGE_MS);
+  const recentAliveCutoff = new Date(input.now.getTime() - RECENT_ALIVE_EVIDENCE_MAX_AGE_MS);
+
+  return !(
+    (input.lastSourceSeenAt && input.lastSourceSeenAt >= recentSourceCutoff) ||
+    (input.lastConfirmedAliveAt && input.lastConfirmedAliveAt >= recentAliveCutoff)
+  );
+}
 
 export async function upsertJobFeedIndex(canonicalJobId: string) {
+  const now = new Date();
   const canonical = await prisma.jobCanonical.findUniqueOrThrow({
     where: { id: canonicalJobId },
     include: {
@@ -33,6 +104,22 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
     status: canonical.status,
     deadline: canonical.deadline,
   });
+  const indexStatus = shouldExcludeFromFeedIndex({
+    location: canonical.location,
+    region: canonical.region,
+    workMode: canonical.workMode,
+    status: canonical.status,
+    availabilityScore: canonical.availabilityScore,
+    applyUrl: canonical.applyUrl,
+    company: canonical.company,
+    deadline: canonical.deadline,
+    deadSignalAt: canonical.deadSignalAt,
+    lastSourceSeenAt: canonical.lastSourceSeenAt,
+    lastConfirmedAliveAt: canonical.lastConfirmedAliveAt,
+    now,
+  })
+    ? "REMOVED"
+    : canonical.status;
   const qualityScore = canonical.qualityScore;
   const rankingScore = computeRankingScore({
     qualityScore,
@@ -54,7 +141,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       where: { canonicalJobId },
       create: {
         canonicalJobId,
-        status: canonical.status,
+        status: indexStatus,
         submissionCategory: canonical.eligibility?.submissionCategory ?? null,
         title: canonical.title,
         company: canonical.company,
@@ -92,7 +179,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
         indexedAt: new Date(),
       },
       update: {
-        status: canonical.status,
+        status: indexStatus,
         submissionCategory: canonical.eligibility?.submissionCategory ?? null,
         title: canonical.title,
         company: canonical.company,
@@ -131,4 +218,17 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       },
     }),
   ]);
+}
+
+export async function upsertJobFeedIndexes(
+  canonicalJobIds: string[],
+  options: { concurrency?: number } = {}
+) {
+  const uniqueIds = [...new Set(canonicalJobIds)].filter(Boolean);
+  const concurrency = Math.max(1, options.concurrency ?? 8);
+
+  for (let start = 0; start < uniqueIds.length; start += concurrency) {
+    const chunk = uniqueIds.slice(start, start + concurrency);
+    await Promise.all(chunk.map((id) => upsertJobFeedIndex(id)));
+  }
 }

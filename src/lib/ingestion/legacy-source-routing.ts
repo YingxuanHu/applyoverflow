@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { ensureCompanyRecord, assignCanonicalJobsToCompany } from "@/lib/ingestion/company-records";
+import { upsertCompanySourceByIdentity } from "@/lib/ingestion/company-source-upsert";
 import { buildCompanyKey, cleanCompanyName } from "@/lib/ingestion/discovery/company-corpus";
 import { buildDiscoveredSourceUrl } from "@/lib/ingestion/discovery/sources";
 import { enqueueUniqueSourceTask } from "@/lib/ingestion/task-queue";
@@ -91,8 +92,13 @@ export async function routeLegacyScheduledConnectorToCompanySource(
 
   await assignCanonicalJobsToCompany(company.id, company.companyKey);
 
-  const companySource = await prisma.companySource.upsert({
-    where: { sourceName: definition.connector.sourceName },
+  const companySource = await upsertCompanySourceByIdentity({
+    identity: {
+      companyId: company.id,
+      sourceName: definition.connector.sourceName,
+      connectorName: parsed.connectorName,
+      token: parsed.token,
+    },
     create: {
       companyId: company.id,
       sourceName: definition.connector.sourceName,

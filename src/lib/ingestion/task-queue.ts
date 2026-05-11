@@ -316,7 +316,8 @@ export async function claimSourceTasks(
       await prisma.sourceTask.updateMany({
         where: {
           id: task.id,
-          status: "PENDING",
+          status: "RUNNING",
+          startedAt: now,
         },
         data: {
           status: "SKIPPED",
@@ -341,7 +342,8 @@ export async function claimSourceTasks(
       await prisma.sourceTask.updateMany({
         where: {
           id: task.id,
-          status: "PENDING",
+          status: "RUNNING",
+          startedAt: now,
         },
         data: {
           status: "SKIPPED",

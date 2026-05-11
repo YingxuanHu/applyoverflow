@@ -1,9 +1,9 @@
 "use server";
 
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
-import { revalidatePath } from "next/cache";
 
 import { createTrackedApplication } from "@/lib/queries/tracker";
+import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 
 type TrackerActionState = {
   error: string | null;
@@ -31,13 +31,6 @@ function parseDate(rawValue: FormDataEntryValue | null) {
   }
 
   return parsed;
-}
-
-function revalidateTrackerPaths() {
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-  revalidatePath("/notifications");
 }
 
 function toActionState(error: unknown): TrackerActionState {
@@ -75,7 +68,7 @@ export async function createTrackedApplicationAction(
       notes,
     });
 
-    revalidateTrackerPaths();
+    revalidateTrackerOverviewViews();
     return {
       error: null,
       success: "Tracked application added.",

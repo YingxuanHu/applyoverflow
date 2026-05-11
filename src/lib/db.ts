@@ -17,6 +17,15 @@ type DatabaseProcessRole =
   | "expansion_pipeline"
   | "other";
 
+const PRIVATE_DATABASE_ROLES = new Set<DatabaseProcessRole>([
+  "daemon",
+  "recovery_poll",
+  "recovery_validation",
+  "recovery_discovery",
+  "bulk_recovery",
+  "expansion_pipeline",
+]);
+
 function readPositiveIntegerEnv(name: string) {
   const raw = process.env[name]?.trim();
   if (!raw) return null;
@@ -114,11 +123,42 @@ function getDatabaseConnectionTimeoutMs() {
   return readPositiveIntegerEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS") ?? 3_000;
 }
 
+function shouldPreferPrivateDatabaseUrl(role: DatabaseProcessRole) {
+  const explicitPreference = process.env.DATABASE_PREFER_PRIVATE_FOR_WORKERS?.trim();
+  if (explicitPreference === "0" || explicitPreference === "false") {
+    return false;
+  }
+
+  if (!process.env.DATABASE_URL_DO_PRIVATE?.trim()) {
+    return false;
+  }
+
+  return PRIVATE_DATABASE_ROLES.has(role);
+}
+
+function resolveDatabaseConnectionString(role: DatabaseProcessRole) {
+  const preferredPrivateUrl = process.env.DATABASE_URL_DO_PRIVATE?.trim();
+  if (preferredPrivateUrl && shouldPreferPrivateDatabaseUrl(role)) {
+    return preferredPrivateUrl;
+  }
+
+  const defaultUrl = process.env.DATABASE_URL?.trim();
+  if (defaultUrl) {
+    return defaultUrl;
+  }
+
+  if (preferredPrivateUrl) {
+    return preferredPrivateUrl;
+  }
+
+  throw new Error("DATABASE_URL is not set");
+}
+
 function createPrismaClient() {
   const role = detectDatabaseProcessRole();
   const adapter = new PrismaPg(
     {
-      connectionString: process.env.DATABASE_URL!,
+      connectionString: resolveDatabaseConnectionString(role),
       max: getDatabasePoolMax(role),
       idleTimeoutMillis: getDatabaseIdleTimeoutMs(),
       connectionTimeoutMillis: getDatabaseConnectionTimeoutMs(),

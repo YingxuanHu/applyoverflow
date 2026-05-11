@@ -10,7 +10,11 @@ import {
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
-import { inferGeoScope } from "@/lib/geo-scope";
+import {
+  OUT_OF_SCOPE_GEO_MARKERS,
+  inferGeoScope,
+  isExplicitlyOutOfScopeGeoScope,
+} from "@/lib/geo-scope";
 import {
   normalizeEducations,
   normalizeExperiences,
@@ -32,10 +36,37 @@ import {
 const MAX_SEARCH_LENGTH = 200;
 const MAX_SEARCH_TOKENS = 12;
 const NO_VIEWER_PROFILE_ID = "__viewer_none__";
-const DEFAULT_VISIBLE_JOB_STATUSES = ["LIVE", "AGING"] as const;
-const DEFAULT_SEARCH_VISIBLE_JOB_STATUSES = ["LIVE", "AGING", "STALE"] as const;
-const DEFAULT_MIN_AVAILABILITY_SCORE = 35;
-const DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE = 20;
+const DEFAULT_VISIBLE_JOB_STATUSES = ["LIVE"] as const;
+const DEFAULT_SEARCH_VISIBLE_JOB_STATUSES = DEFAULT_VISIBLE_JOB_STATUSES;
+const DEFAULT_MIN_AVAILABILITY_SCORE = 60;
+const DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE = DEFAULT_MIN_AVAILABILITY_SCORE;
+const JOB_STATUS_FILTER_VALUES = new Set([
+  "AGING",
+  "LIVE",
+  "EXPIRED",
+  "REMOVED",
+  "STALE",
+]);
+const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
+const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
+const UNKNOWN_COMPANY_VISIBILITY_BLOCKLIST = [
+  "",
+  "unknown",
+  "unknown company",
+  "jooble",
+  "jooble.org",
+];
+const GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS = [
+  { company: "ashbyhq", applyUrlContains: "ashbyhq.com" },
+  { company: "greenhouse", applyUrlContains: "greenhouse.io" },
+  { company: "lever", applyUrlContains: "lever.co" },
+  { company: "myworkdayjobs", applyUrlContains: "myworkdayjobs.com" },
+  { company: "smartrecruiters", applyUrlContains: "smartrecruiters.com" },
+  { company: "workable", applyUrlContains: "workable.com" },
+  { company: "icims", applyUrlContains: "icims.com" },
+  { company: "jobvite", applyUrlContains: "jobvite.com" },
+  { company: "bamboohr", applyUrlContains: "bamboohr.com" },
+];
 const JOB_FEED_SUMMARY_TTL_MS = 60_000;
 const JOB_FEED_QUERY_TTL_MS = 15_000;
 const HOT_FEED_QUERY_TTL_MS = 120_000;
@@ -106,16 +137,91 @@ function withSanitizedJobPresentation<
 
 function buildAvailabilityVisibilityWhere(minScore: number): PrismaTypes.JobCanonicalWhereInput {
   return {
+    availabilityScore: { gte: minScore },
+  };
+}
+
+function buildApplyableVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
+  return {
+    deadSignalAt: null,
     OR: [
-      { availabilityScore: { gte: minScore } },
+      { applyUrl: { startsWith: "http://" } },
+      { applyUrl: { startsWith: "https://" } },
+    ],
+  };
+}
+
+function buildNorthAmericaVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
+  const outOfScopeLocationClauses = OUT_OF_SCOPE_GEO_MARKERS.map((marker) => ({
+    location: { contains: marker, mode: "insensitive" as const },
+  }));
+
+  return {
+    OR: [
+      { region: { in: ["US", "CA"] } },
       {
         AND: [
-          { availabilityScore: { lte: 0 } },
-          { lastApplyCheckAt: null },
-          { lastConfirmedAliveAt: null },
-          { deadSignalAt: null },
+          { region: null },
+          { workMode: "REMOTE" },
+          {
+            NOT: {
+              OR: outOfScopeLocationClauses,
+            },
+          },
         ],
       },
+    ],
+  };
+}
+
+function buildRecentApplyEvidenceWhere(now: Date = new Date()): PrismaTypes.JobCanonicalWhereInput {
+  return {
+    OR: [
+      {
+        lastConfirmedAliveAt: {
+          gte: new Date(now.getTime() - RECENT_ALIVE_EVIDENCE_MAX_AGE_MS),
+        },
+      },
+      {
+        lastSourceSeenAt: {
+          gte: new Date(now.getTime() - RECENT_SOURCE_EVIDENCE_MAX_AGE_MS),
+        },
+      },
+    ],
+  };
+}
+
+function buildCompanyVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
+  return {
+    NOT: {
+      OR: [
+        ...UNKNOWN_COMPANY_VISIBILITY_BLOCKLIST.map((company) => ({
+          company: { equals: company, mode: "insensitive" as const },
+        })),
+        ...GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS.map((entry) => ({
+          AND: [
+            { company: { equals: entry.company, mode: "insensitive" as const } },
+            { applyUrl: { contains: entry.applyUrlContains, mode: "insensitive" as const } },
+          ],
+        })),
+      ],
+    },
+  };
+}
+
+function buildDefaultJobBoardVisibilityWhere(
+  now: Date = new Date(),
+  minAvailabilityScore: number = DEFAULT_MIN_AVAILABILITY_SCORE
+): PrismaTypes.JobCanonicalWhereInput {
+  return {
+    AND: [
+      { status: { in: [...DEFAULT_VISIBLE_JOB_STATUSES] } },
+      buildAvailabilityVisibilityWhere(minAvailabilityScore),
+      buildApplyableVisibilityWhere(),
+      buildCompanyVisibilityWhere(),
+      buildNorthAmericaVisibilityWhere(),
+      buildVisibleDeadlineWhere(now),
+      buildRecentApplyEvidenceWhere(now),
     ],
   };
 }
@@ -134,6 +240,11 @@ function toTsQuery(raw: string): string {
 
 function splitFilterValues(value?: string) {
   return value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
+}
+
+function normalizeJobStatusFilter(value?: string) {
+  if (!value || !JOB_STATUS_FILTER_VALUES.has(value)) return null;
+  return value as "AGING" | "LIVE" | "EXPIRED" | "REMOVED" | "STALE";
 }
 
 function buildKeywordContainsClauses(
@@ -375,23 +486,18 @@ async function getJobsFromFeedIndex(input: {
     }
   }
 
+  const requestedStatus = normalizeJobStatusFilter(filters.status);
   if (filters.status) {
-    where.status = filters.status as
-      | "AGING"
-      | "LIVE"
-      | "EXPIRED"
-      | "REMOVED"
-      | "STALE";
+    where.status = requestedStatus ?? { in: [] };
   } else {
     where.status = {
       in: [...DEFAULT_VISIBLE_JOB_STATUSES],
     };
-    appendAndCondition(
-      canonicalRelationWhere,
-      buildAvailabilityVisibilityWhere(DEFAULT_MIN_AVAILABILITY_SCORE)
-    );
-    appendAndCondition(canonicalRelationWhere, buildVisibleDeadlineWhere());
   }
+  appendAndCondition(
+    canonicalRelationWhere,
+    buildDefaultJobBoardVisibilityWhere(new Date(), DEFAULT_MIN_AVAILABILITY_SCORE)
+  );
 
   if (Object.keys(canonicalRelationWhere).length > 0) {
     where.canonicalJob = {
@@ -1397,15 +1503,23 @@ function isDemoOnlySourceMappings(sourceMappings: DemoSourceMapping[]) {
   );
 }
 
-function isExplicitlyOutOfScopeGeoScope(
-  scope: ReturnType<typeof inferGeoScope>
-) {
-  return (
-    scope === "EUROPE" ||
-    scope === "LATAM" ||
-    scope === "APAC" ||
-    scope === "MIDDLE_EAST_AFRICA"
-  );
+function buildDemoOnlySourceWhere(): PrismaTypes.JobCanonicalWhereInput | null {
+  if (!DEMO_SOURCE_NAMES[0]) return null;
+
+  return {
+    sourceMappings: {
+      some: {
+        sourceName: {
+          in: [...DEMO_SOURCE_NAMES],
+        },
+      },
+      none: {
+        sourceName: {
+          notIn: [...DEMO_SOURCE_NAMES],
+        },
+      },
+    },
+  };
 }
 
 function buildVisibleDeadlineWhere(now: Date = new Date()): PrismaTypes.JobCanonicalWhereInput {
@@ -1421,7 +1535,8 @@ async function getHiddenDemoOnlySummaryCounts(
   startOfToday: Date,
   now: Date
 ): Promise<JobFeedSummary> {
-  if (!DEMO_SOURCE_NAMES[0]) {
+  const demoOnlyWhere = buildDemoOnlySourceWhere();
+  if (!demoOnlyWhere) {
     return {
       liveJobCount: 0,
       addedTodayCount: 0,
@@ -1430,58 +1545,48 @@ async function getHiddenDemoOnlySummaryCounts(
     };
   }
 
-  // A job is "demo-only" if every source mapping belongs to a demo source.
-  // Expressed as: has at least one demo mapping AND has no non-demo mappings.
-  const demoSourceList = Prisma.join(
-    DEMO_SOURCE_NAMES.map((sourceName) => Prisma.sql`${sourceName}`)
-  );
-
-  const [row] = await prisma.$queryRaw<
-    Array<{
-      liveJobCount: number;
-      addedTodayCount: number;
-      expiredTodayCount: number;
-      removedTodayCount: number;
-    }>
-  >(Prisma.sql`
-    SELECT
-      COUNT(*) FILTER (
-        WHERE jc.status IN ('LIVE', 'AGING')
-          AND (jc."deadline" IS NULL OR jc."deadline" >= ${now})
-      )::integer AS "liveJobCount",
-      COUNT(*) FILTER (
-        WHERE jc.status IN ('LIVE', 'AGING')
-          AND jc."firstSeenAt" >= ${startOfToday}
-          AND (jc."deadline" IS NULL OR jc."deadline" >= ${now})
-      )::integer AS "addedTodayCount",
-      COUNT(*) FILTER (
-        WHERE jc.status = 'EXPIRED'
-          AND jc."expiredAt" >= ${startOfToday}
-      )::integer AS "expiredTodayCount",
-      COUNT(*) FILTER (
-        WHERE jc.status = 'REMOVED'
-          AND jc."removedAt" >= ${startOfToday}
-      )::integer AS "removedTodayCount"
-    FROM "JobCanonical" jc
-    WHERE EXISTS (
-      SELECT 1
-      FROM "JobSourceMapping" demo_map
-      WHERE demo_map."canonicalJobId" = jc.id
-        AND demo_map."sourceName" IN (${demoSourceList})
-    )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "JobSourceMapping" real_map
-        WHERE real_map."canonicalJobId" = jc.id
-          AND real_map."sourceName" NOT IN (${demoSourceList})
-      )
-  `);
+  const visibleWhere = buildDefaultJobBoardVisibilityWhere(now);
+  const [liveJobCount, addedTodayCount, expiredTodayCount, removedTodayCount] =
+    await Promise.all([
+      prisma.jobCanonical.count({
+        where: {
+          AND: [visibleWhere, demoOnlyWhere],
+        },
+      }),
+      prisma.jobCanonical.count({
+        where: {
+          AND: [
+            visibleWhere,
+            demoOnlyWhere,
+            { firstSeenAt: { gte: startOfToday } },
+          ],
+        },
+      }),
+      prisma.jobCanonical.count({
+        where: {
+          AND: [
+            demoOnlyWhere,
+            { status: "EXPIRED" },
+            { expiredAt: { gte: startOfToday } },
+          ],
+        },
+      }),
+      prisma.jobCanonical.count({
+        where: {
+          AND: [
+            demoOnlyWhere,
+            { status: "REMOVED" },
+            { removedAt: { gte: startOfToday } },
+          ],
+        },
+      }),
+    ]);
 
   return {
-    liveJobCount: row?.liveJobCount ?? 0,
-    addedTodayCount: row?.addedTodayCount ?? 0,
-    expiredTodayCount: row?.expiredTodayCount ?? 0,
-    removedTodayCount: row?.removedTodayCount ?? 0,
+    liveJobCount,
+    addedTodayCount,
+    expiredTodayCount,
+    removedTodayCount,
   };
 }
 
@@ -1563,39 +1668,37 @@ async function getJobFeedSummary() {
   const now = new Date();
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
-  const [summaryRow] = await prisma.$queryRaw<
-    Array<{
-      liveJobCount: number;
-      addedTodayCount: number;
-      expiredTodayCount: number;
-      removedTodayCount: number;
-    }>
-  >(Prisma.sql`
-    SELECT
-      COUNT(*) FILTER (
-        WHERE status IN ('LIVE', 'AGING')
-          AND ("deadline" IS NULL OR "deadline" >= ${now})
-      )::integer AS "liveJobCount",
-      COUNT(*) FILTER (
-        WHERE status IN ('LIVE', 'AGING')
-          AND "firstSeenAt" >= ${startOfToday}
-          AND ("deadline" IS NULL OR "deadline" >= ${now})
-      )::integer AS "addedTodayCount",
-      COUNT(*) FILTER (
-        WHERE status = 'EXPIRED'
-          AND "expiredAt" >= ${startOfToday}
-      )::integer AS "expiredTodayCount",
-      COUNT(*) FILTER (
-        WHERE status = 'REMOVED'
-          AND "removedAt" >= ${startOfToday}
-      )::integer AS "removedTodayCount"
-    FROM "JobCanonical"
-  `);
-  const hiddenDemoCounts = await getHiddenDemoOnlySummaryCounts(startOfToday, now);
-  const liveJobCount = summaryRow?.liveJobCount ?? 0;
-  const addedTodayCount = summaryRow?.addedTodayCount ?? 0;
-  const expiredTodayCount = summaryRow?.expiredTodayCount ?? 0;
-  const removedTodayCount = summaryRow?.removedTodayCount ?? 0;
+  const visibleWhere = buildDefaultJobBoardVisibilityWhere(now);
+  const [
+    liveJobCount,
+    addedTodayCount,
+    expiredTodayCount,
+    removedTodayCount,
+    hiddenDemoCounts,
+  ] = await Promise.all([
+    prisma.jobCanonical.count({ where: visibleWhere }),
+    prisma.jobCanonical.count({
+      where: {
+        AND: [
+          visibleWhere,
+          { firstSeenAt: { gte: startOfToday } },
+        ],
+      },
+    }),
+    prisma.jobCanonical.count({
+      where: {
+        status: "EXPIRED",
+        expiredAt: { gte: startOfToday },
+      },
+    }),
+    prisma.jobCanonical.count({
+      where: {
+        status: "REMOVED",
+        removedAt: { gte: startOfToday },
+      },
+    }),
+    getHiddenDemoOnlySummaryCounts(startOfToday, now),
+  ]);
 
   return writeTimedCache("jobs:summary", {
     liveJobCount: Math.max(0, liveJobCount - hiddenDemoCounts.liveJobCount),
@@ -1980,29 +2083,25 @@ export async function getJobs(
       }
     }
 
+    const requestedStatus = normalizeJobStatusFilter(filters.status);
     if (filters.status) {
-      where.status = filters.status as
-        | "AGING"
-        | "LIVE"
-        | "EXPIRED"
-        | "REMOVED"
-        | "STALE";
+      where.status = requestedStatus ?? { in: [] };
     } else {
       where.status = {
         in: filters.search
           ? [...DEFAULT_SEARCH_VISIBLE_JOB_STATUSES]
           : [...DEFAULT_VISIBLE_JOB_STATUSES],
       };
-      appendAndCondition(
-        where,
-        buildAvailabilityVisibilityWhere(
-          filters.search
-            ? DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE
-            : DEFAULT_MIN_AVAILABILITY_SCORE
-        )
-      );
-      appendAndCondition(where, buildVisibleDeadlineWhere());
     }
+    appendAndCondition(
+      where,
+      buildDefaultJobBoardVisibilityWhere(
+        new Date(),
+        filters.search
+          ? DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE
+          : DEFAULT_MIN_AVAILABILITY_SCORE
+      )
+    );
 
     if (!filters.sortBy || filters.sortBy === "relevance") {
       if (shouldUseJobFeedIndex(filters)) {

@@ -27,10 +27,13 @@ import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
 } from "../src/lib/ingestion/capacity";
+import { installProcessDiagnostics } from "./_process-diagnostics";
 import { syncProductiveAtsTenantsToDiscoveryStore } from "../src/lib/ingestion/ats-tenant-store";
 import { runScheduledIngestion } from "../src/lib/ingestion/scheduler";
 import { prisma } from "../src/lib/db";
 import type { SourceTaskKind } from "../src/generated/prisma/client";
+
+installProcessDiagnostics({ processName: "ingest-daemon" });
 
 const DEFAULT_INTERVAL_MINUTES = 10;
 const MIN_INTERVAL_MINUTES = 5;

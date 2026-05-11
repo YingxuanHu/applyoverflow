@@ -26,6 +26,7 @@ import {
   seedCompaniesFromCanonicalInventory,
   seedCompanySourcesFromExistingAts,
 } from "@/lib/ingestion/company-seeder";
+import { upsertCompanySourceByIdentity } from "@/lib/ingestion/company-source-upsert";
 import {
   ingestConnector,
   recoverStaleRunningIngestionRuns,
@@ -153,6 +154,10 @@ const RECOVERY_CONNECTOR_POLL_CYCLE_CAPS: Record<string, number> = {
 };
 
 const CONNECTOR_POLL_CYCLE_CAPS: Record<string, number> = {
+  "company-site": readConnectorPollCycleCapEnv(
+    getConnectorPollCycleCapEnvName("company-site"),
+    IN_RECOVERY_MODE ? 2 : 4
+  ),
   workday: readConnectorPollCycleCapEnv(
     "WORKDAY_CONNECTOR_POLL_CYCLE_CAP",
     IN_RECOVERY_MODE ? RECOVERY_CONNECTOR_POLL_CYCLE_CAPS.workday : 4
@@ -3289,88 +3294,59 @@ async function persistAtsCandidate(
     });
   }
 
-  const existingSourceByTenant = candidate.atsTenantId
-    ? await prisma.companySource.findUnique({
-        where: { atsTenantId: candidate.atsTenantId },
-        select: {
-          id: true,
-          sourceName: true,
-        },
-      })
-    : null;
-
-  const companySource = existingSourceByTenant
-    ? await prisma.companySource.update({
-        where: { id: existingSourceByTenant.id },
-        data: {
-          companyId,
-          boardUrl: candidate.boardUrl,
-          status: "PROVISIONED",
-          validationState: "UNVALIDATED",
-          pollState: "READY",
-          sourceType: "ATS",
-          extractionRoute: "ATS_NATIVE",
-          parserVersion: "ats-native:v1",
-          priorityScore: Math.max(0.95, 0.9),
-          sourceQualityScore: Math.max(0.8, 0.75),
-          yieldScore: Math.max(0.56, 0.75 * 0.7),
-          lastProvisionedAt: now,
-          lastDiscoveryAt: now,
-          lastValidatedAt: null,
-          lastHttpStatus: null,
-          consecutiveFailures: 0,
-          failureStreak: 0,
-          validationMessage: null,
-          metadataJson: candidateMetadata,
-        },
-      })
-    : await prisma.companySource.upsert({
-        where: { sourceName: candidate.sourceName },
-        create: {
-          companyId,
-          atsTenantId: candidate.atsTenantId ?? null,
-          sourceName: candidate.sourceName,
-          connectorName: candidate.connectorName,
-          token: candidate.token,
-          boardUrl: candidate.boardUrl,
-          status: "PROVISIONED",
-          validationState: "UNVALIDATED",
-          pollState: "READY",
-          sourceType: "ATS",
-          extractionRoute: "ATS_NATIVE",
-          parserVersion: "ats-native:v1",
-          pollingCadenceMinutes: DEFAULT_SOURCE_POLL_CADENCE_MINUTES,
-          priorityScore: 0.95,
-          sourceQualityScore: 0.8,
-          yieldScore: 0.56,
-          firstSeenAt: now,
-          lastProvisionedAt: now,
-          lastDiscoveryAt: now,
-          metadataJson: candidateMetadata,
-        },
-        update: {
-          companyId,
-          atsTenantId: candidate.atsTenantId ?? null,
-          boardUrl: candidate.boardUrl,
-          status: "PROVISIONED",
-          validationState: "UNVALIDATED",
-          pollState: "READY",
-          sourceType: "ATS",
-          extractionRoute: "ATS_NATIVE",
-          parserVersion: "ats-native:v1",
-          priorityScore: Math.max(0.95, 0.9),
-          sourceQualityScore: Math.max(0.8, 0.75),
-          yieldScore: Math.max(0.56, 0.75 * 0.7),
-          lastProvisionedAt: now,
-          lastDiscoveryAt: now,
-          lastValidatedAt: null,
-          lastHttpStatus: null,
-          consecutiveFailures: 0,
-          failureStreak: 0,
-          validationMessage: null,
-          metadataJson: candidateMetadata,
-        },
-      });
+  const companySource = await upsertCompanySourceByIdentity({
+    identity: {
+      companyId,
+      atsTenantId: candidate.atsTenantId ?? null,
+      sourceName: candidate.sourceName,
+      connectorName: candidate.connectorName,
+      token: candidate.token,
+    },
+    create: {
+      companyId,
+      atsTenantId: candidate.atsTenantId ?? null,
+      sourceName: candidate.sourceName,
+      connectorName: candidate.connectorName,
+      token: candidate.token,
+      boardUrl: candidate.boardUrl,
+      status: "PROVISIONED",
+      validationState: "UNVALIDATED",
+      pollState: "READY",
+      sourceType: "ATS",
+      extractionRoute: "ATS_NATIVE",
+      parserVersion: "ats-native:v1",
+      pollingCadenceMinutes: DEFAULT_SOURCE_POLL_CADENCE_MINUTES,
+      priorityScore: 0.95,
+      sourceQualityScore: 0.8,
+      yieldScore: 0.56,
+      firstSeenAt: now,
+      lastProvisionedAt: now,
+      lastDiscoveryAt: now,
+      metadataJson: candidateMetadata,
+    },
+    update: {
+      companyId,
+      atsTenantId: candidate.atsTenantId ?? null,
+      boardUrl: candidate.boardUrl,
+      status: "PROVISIONED",
+      validationState: "UNVALIDATED",
+      pollState: "READY",
+      sourceType: "ATS",
+      extractionRoute: "ATS_NATIVE",
+      parserVersion: "ats-native:v1",
+      priorityScore: Math.max(0.95, 0.9),
+      sourceQualityScore: Math.max(0.8, 0.75),
+      yieldScore: Math.max(0.56, 0.75 * 0.7),
+      lastProvisionedAt: now,
+      lastDiscoveryAt: now,
+      lastValidatedAt: null,
+      lastHttpStatus: null,
+      consecutiveFailures: 0,
+      failureStreak: 0,
+      validationMessage: null,
+      metadataJson: candidateMetadata,
+    },
+  });
 
   await enqueueUniqueSourceTask({
     kind: "SOURCE_VALIDATION",
@@ -3420,8 +3396,13 @@ async function provisionCompanySiteSource(
       ? `CompanyJson:${companyKey}`
       : `CompanyHtml:${companyKey}`;
 
-  const companySource = await prisma.companySource.upsert({
-    where: { sourceName },
+  const companySource = await upsertCompanySourceByIdentity({
+    identity: {
+      companyId,
+      sourceName,
+      connectorName: "company-site",
+      token: companyKey,
+    },
     create: {
       companyId,
       sourceName,

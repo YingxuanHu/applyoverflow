@@ -13,6 +13,7 @@ type ParsedArgs = {
   cycles: number;
   validationLimit: number;
   pollLimit: number;
+  pollConcurrency: number;
   maxWallClockMs: number;
   frontierOnly: boolean;
 };
@@ -23,6 +24,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     arg.startsWith("--validation-limit=")
   );
   const pollLimitArg = argv.find((arg) => arg.startsWith("--poll-limit="));
+  const pollConcurrencyArg = argv.find((arg) =>
+    arg.startsWith("--poll-concurrency=")
+  );
   const maxWallClockArg = argv.find((arg) =>
     arg.startsWith("--max-wall-clock-ms=")
   );
@@ -40,6 +44,18 @@ function parseArgs(argv: string[]): ParsedArgs {
     pollLimit: pollLimitArg
       ? Math.max(1, Number.parseInt(pollLimitArg.slice("--poll-limit=".length), 10) || 1)
       : 80,
+    pollConcurrency: pollConcurrencyArg
+      ? Math.max(
+          1,
+          Math.min(
+            12,
+            Number.parseInt(
+              pollConcurrencyArg.slice("--poll-concurrency=".length),
+              10
+            ) || 1
+          )
+        )
+      : 4,
     maxWallClockMs: maxWallClockArg
       ? Math.max(
           120_000,
@@ -153,7 +169,7 @@ async function runCycle(args: ParsedArgs, cycle: number) {
     limit: args.pollLimit,
     now: new Date(),
     maxRuntimeMs: Math.min(args.maxWallClockMs, 180_000),
-    concurrency: 1,
+    concurrency: args.pollConcurrency,
   });
 
   return {
@@ -198,6 +214,7 @@ async function main() {
         ok: true,
         startedAt: startedAt.toISOString(),
         frontierOnly: args.frontierOnly,
+        pollConcurrency: args.pollConcurrency,
         visibleBefore,
         visibleAfter,
         visibleDelta: visibleAfter - visibleBefore,

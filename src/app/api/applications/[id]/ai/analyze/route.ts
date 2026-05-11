@@ -1,18 +1,10 @@
-import { revalidatePath } from "next/cache";
 import { errorResponse, successResponse } from "@/lib/api-utils";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { formatFitAnalysisForStorage } from "@/lib/ai/fit-analysis-format";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { UnauthorizedError, requireCurrentAuthUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
-
-function revalidateApplication(applicationId: string) {
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-  revalidatePath(`/applications/${applicationId}`);
-  revalidatePath(`/dashboard/${applicationId}`);
-}
+import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
 
 async function buildTrackedApplicationJobContext(
   applicationId: string,
@@ -106,7 +98,7 @@ export async function POST(
       },
     });
 
-    revalidateApplication(id);
+    revalidateApplicationWorkspaceViews(id);
     return successResponse(result);
   } catch (error) {
     if (error instanceof UnauthorizedError) {

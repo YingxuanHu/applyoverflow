@@ -430,6 +430,9 @@ async function getMutableApplicationContext(jobId: string) {
   ) {
     return null;
   }
+  if (!isReadyToApplyJob(job)) {
+    return null;
+  }
 
   return {
     job,
@@ -440,6 +443,20 @@ async function getMutableApplicationContext(jobId: string) {
     latestPackage: job.applicationPackages[0] ?? null,
     latestSubmission: job.applicationSubmissions[0] ?? null,
   };
+}
+
+function isReadyToApplyJob(job: {
+  status: string;
+  applyUrl: string;
+  deadline: Date | null;
+  deadSignalAt: Date | null;
+}) {
+  return (
+    job.status === "LIVE" &&
+    /^https?:\/\//i.test(job.applyUrl) &&
+    job.deadSignalAt === null &&
+    (!job.deadline || job.deadline.getTime() >= Date.now())
+  );
 }
 
 async function upsertApplicationPackage({

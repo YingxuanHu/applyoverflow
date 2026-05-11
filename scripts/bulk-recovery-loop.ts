@@ -3,11 +3,21 @@ import "dotenv/config";
 import process from "node:process";
 import { prisma } from "@/lib/db";
 import { ingestConnector } from "@/lib/ingestion/pipeline";
+import { installProcessDiagnostics } from "./_process-diagnostics";
+
+const bulkRecoveryProcessName = (() => {
+  const keys = process.env.BULK_RECOVERY_LOOP_KEYS?.trim();
+  if (!keys) return "bulk-recovery-loop";
+  const slug = keys.replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
+  return `bulk-recovery-loop-${slug}`;
+})();
+installProcessDiagnostics({ processName: bulkRecoveryProcessName });
 import {
   createAdzunaConnector,
   createHimalayasConnector,
   createJobBankConnector,
   createJobicyConnector,
+  createJoobleConnector,
   createMuseConnector,
   createRemoteOkConnector,
   createRemotiveConnector,
@@ -35,6 +45,19 @@ type ParsedArgs = {
 function parsePositiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseCsv(value: string | undefined, fallback: string[]) {
+  const parsed = (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return parsed.length > 0 ? parsed : fallback;
+}
+
+function normalizeKeySegment(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "feed";
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -183,6 +206,22 @@ function getBulkRecoveryEntries(): Entry[] {
     process.env.BULK_RECOVERY_JOBICY_MAX_RUNTIME_MS,
     90 * 1000
   );
+  const joobleCadence = parsePositiveInteger(
+    process.env.BULK_RECOVERY_JOOBLE_CADENCE_MINUTES,
+    60
+  );
+  const joobleRuntimeMs = parsePositiveInteger(
+    process.env.BULK_RECOVERY_JOOBLE_MAX_RUNTIME_MS,
+    6 * 60 * 1000
+  );
+  const joobleLimit = parsePositiveInteger(
+    process.env.BULK_RECOVERY_JOOBLE_LIMIT,
+    1_000
+  );
+  const joobleProfiles = parseCsv(
+    process.env.BULK_RECOVERY_JOOBLE_PROFILES,
+    ["feed"]
+  );
 
   const usaJobsKeywords = (
     process.env.BULK_RECOVERY_USAJOBS_KEYWORDS ??
@@ -271,6 +310,13 @@ function getBulkRecoveryEntries(): Entry[] {
       cadenceMinutes: jobicyCadence,
       maxRuntimeMs: jobicyRuntimeMs,
     },
+    ...joobleProfiles.map((profile) => ({
+      key: `jooble:${normalizeKeySegment(profile)}`,
+      connector: createJoobleConnector({ profile }),
+      cadenceMinutes: joobleCadence,
+      maxRuntimeMs: joobleRuntimeMs,
+      limit: joobleLimit,
+    })),
     {
       key: "remotive:feed",
       connector: createRemotiveConnector(),

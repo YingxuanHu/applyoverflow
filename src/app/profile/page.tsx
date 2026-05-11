@@ -3,6 +3,7 @@ import { FileText, Mail, Star, User2 } from "lucide-react";
 
 import { prisma } from "@/lib/db";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
+import { formatFileSize, formatMediumDateTimeEnCa } from "@/lib/formatting";
 import { buildProfileFormValues } from "@/lib/profile";
 import { type ResumeImportSummary } from "@/lib/resume-shared";
 import { getStorageReadiness } from "@/lib/storage";
@@ -10,25 +11,6 @@ import { CoverLetterManager } from "@/components/profile/cover-letter-manager";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { ResumeManager } from "@/components/profile/resume-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-function formatBytes(sizeBytes: number) {
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-
-  if (sizeBytes < 1024 * 1024) {
-    return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value);
-}
 
 type ProfileSummary = {
   headline: boolean;
@@ -228,8 +210,8 @@ export default async function ProfilePage() {
                 title: resume.title,
                 originalFileName: resume.originalFileName,
                 mimeType: resume.mimeType,
-                sizeLabel: formatBytes(resume.sizeBytes),
-                createdAtLabel: formatDateTime(resume.createdAt),
+                sizeLabel: formatFileSize(resume.sizeBytes),
+                createdAtLabel: formatMediumDateTimeEnCa(resume.createdAt),
                 isPrimary: resume.isPrimary,
                 downloadHref: `/api/profile/documents/${resume.id}/download`,
                 importSummary:
@@ -257,8 +239,8 @@ export default async function ProfilePage() {
                 title: coverLetter.title,
                 originalFileName: coverLetter.originalFileName,
                 mimeType: coverLetter.mimeType,
-                sizeLabel: formatBytes(coverLetter.sizeBytes),
-                createdAtLabel: formatDateTime(coverLetter.createdAt),
+                sizeLabel: formatFileSize(coverLetter.sizeBytes),
+                createdAtLabel: formatMediumDateTimeEnCa(coverLetter.createdAt),
                 downloadHref: `/api/profile/documents/${coverLetter.id}/download`,
               }))}
               storageConfigured={storageReadiness.configured}

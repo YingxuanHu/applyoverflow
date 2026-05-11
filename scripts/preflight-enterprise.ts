@@ -18,6 +18,10 @@ import path from "node:path";
 import { previewSourceCandidates } from "../src/lib/ingestion/discovery/sources";
 import { discoverEnterpriseSearchCandidates } from "../src/lib/ingestion/discovery/enterprise-search";
 import {
+  promoteSourceCandidate,
+  registerSourceCandidate,
+} from "../src/lib/ingestion/discovery/source-registry";
+import {
   discoverEnterpriseCareerPageCandidates,
   type CareerPageDiscoveryRecord,
 } from "../src/lib/ingestion/discovery/career-pages";
@@ -36,6 +40,8 @@ type CliArgs = {
   "no-canada-weight"?: boolean;
   "include-known"?: boolean;
   "retest-search"?: boolean;
+  register?: boolean;
+  promote?: boolean;
   cache?: string;
 };
 
@@ -149,6 +155,14 @@ async function main() {
       return left.sourceKey.localeCompare(right.sourceKey);
     });
 
+  const persistenceSummary =
+    rawArgs.register === true || rawArgs.promote === true
+      ? await persistDiscoveredRecords(enrichedRecords, threshold, {
+          register: rawArgs.register === true || rawArgs.promote === true,
+          promote: rawArgs.promote === true,
+        })
+      : null;
+
   const outputFile = path.resolve(
     rawArgs.out ?? "data/discovery/seeds/enterprise-preflight-candidates.json"
   );
@@ -182,6 +196,7 @@ async function main() {
             boardUrl: record.boardUrl,
             matchedReasons: record.matchedReasons,
           })),
+        persistenceSummary,
       },
       null,
       2
@@ -258,6 +273,7 @@ async function main() {
           (searchDiscovery?.summary.skippedKnownCandidates ?? 0) +
           (careerDiscovery?.summary.skippedKnownCandidates ?? 0),
         previewedCount: previewResults.length,
+        persistenceSummary,
         recommendedPromotions: enrichedRecords
           .filter((record) => record.recommendedPromotion)
           .slice(0, 20),
@@ -344,6 +360,114 @@ function buildSourceName(connectorName: SupportedConnectorName, token: string) {
     default:
       return `${connectorName.charAt(0).toUpperCase()}${connectorName.slice(1)}:${token}`;
   }
+}
+
+async function persistDiscoveredRecords(
+  records: Array<{
+    boardUrl: string;
+    sourceKey: string;
+    connectorName: SupportedConnectorName;
+    token: string;
+    companyNames: string[];
+    discoveredFromQueries: string[];
+    searchResultUrls: string[];
+    careerPageUrls: string[];
+    directAtsUrls: string[];
+    matchedReasons: string[];
+    knownStatus: KnownStatus | null;
+    preview: {
+      fetchedCount: number;
+      acceptedCount: number;
+      previewCreatedCount: number;
+      previewUpdatedCount: number;
+      dedupedCount: number;
+      rejectedCount: number;
+      sampleTitles: string[];
+      sampleLocations: string[];
+    } | null;
+    recommendedPromotion: boolean;
+  }>,
+  threshold: number,
+  options: {
+    register: boolean;
+    promote: boolean;
+  }
+) {
+  const summary = {
+    attempted: records.length,
+    registered: 0,
+    promoted: 0,
+    skippedPromotion: 0,
+    errors: [] as Array<{ sourceKey: string; stage: "register" | "promote"; error: string }>,
+  };
+
+  for (const record of records) {
+    let stage: "register" | "promote" = "register";
+    try {
+      const previewCreatedCount = record.preview?.previewCreatedCount ?? 0;
+      const acceptedCount = record.preview?.acceptedCount ?? 0;
+      const confidence = record.recommendedPromotion
+        ? 0.92
+        : acceptedCount > 0
+          ? 0.78
+          : 0.52;
+      const candidate = await registerSourceCandidate({
+        candidateUrl: record.boardUrl,
+        candidateType: "ATS_BOARD",
+        discoveryMode: record.recommendedPromotion ? "EXPLOITATION" : "EXPLORATION",
+        companyNameHint: record.companyNames[0] ?? null,
+        confidence,
+        noveltyScore: record.knownStatus === null ? 0.85 : 0.2,
+        coverageGapScore: record.recommendedPromotion ? 0.88 : 0.58,
+        potentialYieldScore: Math.min(1, previewCreatedCount / Math.max(threshold * 2, 1)),
+        sourceQualityScore:
+          record.connectorName === "workday" || record.connectorName === "successfactors"
+            ? 0.86
+            : 0.78,
+        status: acceptedCount > 0 ? "VALIDATED" : "NEW",
+        metadataJson: {
+          sourceKey: record.sourceKey,
+          knownStatus: record.knownStatus,
+          companyNames: record.companyNames,
+          discoveredFromQueries: record.discoveredFromQueries,
+          searchResultUrls: record.searchResultUrls,
+          careerPageUrls: record.careerPageUrls,
+          directAtsUrls: record.directAtsUrls,
+          matchedReasons: record.matchedReasons,
+          preview: record.preview,
+          threshold,
+        },
+      });
+      summary.registered += 1;
+
+      if (!options.promote) {
+        continue;
+      }
+
+      if (!record.recommendedPromotion || acceptedCount <= 0) {
+        summary.skippedPromotion += 1;
+        continue;
+      }
+
+      stage = "promote";
+      await promoteSourceCandidate({
+        sourceCandidateId: candidate.id,
+        connectorName: record.connectorName,
+        token: record.token,
+        sourceName: buildSourceName(record.connectorName, record.token),
+        boardUrl: record.boardUrl,
+      });
+      summary.promoted += 1;
+    } catch (error) {
+      summary.errors.push({
+        sourceKey: record.sourceKey,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return summary;
 }
 
 async function loadKnownSourceStatuses() {

@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import type {
   TrackedApplicationDocumentSlot,
   TrackedApplicationEventType,
@@ -31,6 +29,7 @@ import {
   updateTrackedApplicationField,
   updateTrackedApplicationStatus,
 } from "@/lib/queries/tracker";
+import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
 import {
   buildDocumentStorageKey,
   deleteFile,
@@ -87,15 +86,6 @@ const allowedSlots = new Set<TrackedApplicationDocumentSlot>([
   "SENT_RESUME",
   "SENT_COVER_LETTER",
 ]);
-
-function revalidateApplication(applicationId: string) {
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-  revalidatePath("/profile");
-  revalidatePath(`/applications/${applicationId}`);
-  revalidatePath(`/dashboard/${applicationId}`);
-}
 
 function toActionState(error: unknown): ActionState {
   return {
@@ -159,7 +149,7 @@ export async function updateApplicationField(
       value: String(formData.get("value") ?? ""),
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 
     const labels = {
       notes: "Notes",
@@ -194,7 +184,7 @@ export async function updateApplicationStatus(
       status,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 
     return {
       error: null,
@@ -243,7 +233,7 @@ export async function addTimelineEvent(
       reminderAt,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Event added." };
   } catch (error) {
     return toActionState(error);
@@ -267,7 +257,7 @@ export async function deleteTimelineEvent(
       eventId,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Event deleted." };
   } catch (error) {
     return toActionState(error);
@@ -293,7 +283,7 @@ export async function linkDocument(
       slot: slotRaw as TrackedApplicationDocumentSlot,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Document linked." };
   } catch (error) {
     return toActionState(error);
@@ -317,7 +307,7 @@ export async function unlinkDocument(
       slot: slotRaw as TrackedApplicationDocumentSlot,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Document unlinked." };
   } catch (error) {
     return toActionState(error);
@@ -477,7 +467,7 @@ export async function uploadWorkspaceDocument(
       };
     }
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return {
       error: null,
       success: `${documentType === "RESUME" ? "Resume" : "Cover letter"} uploaded and linked.`,
@@ -507,7 +497,7 @@ export async function addTag(
       name,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: `Tag "${result.name}" added.` };
   } catch (error) {
     return toActionState(error);
@@ -531,7 +521,7 @@ export async function removeTag(
       tagId,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Tag removed." };
   } catch (error) {
     return toActionState(error);
@@ -679,7 +669,7 @@ export async function importJobDescription(
       value: formatted,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Job description imported and organized." };
   } catch (error) {
     return toActionState(error);

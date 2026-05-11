@@ -757,6 +757,7 @@ model IngestionRun {
   updatedAt                  DateTime           @updatedAt
 
   @@index([startedAt(sort: Desc)])
+  @@index([connectorKey, startedAt(sort: Desc)])
   @@index([sourceName, startedAt(sort: Desc)])
   @@index([status, startedAt(sort: Desc)])
   @@index([runMode, startedAt(sort: Desc)])

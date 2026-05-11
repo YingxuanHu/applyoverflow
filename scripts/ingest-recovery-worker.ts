@@ -13,6 +13,13 @@ import {
 } from "../src/lib/ingestion/company-discovery";
 import { resolveScaledInteger } from "../src/lib/ingestion/capacity";
 import { prisma } from "../src/lib/db";
+import { installProcessDiagnostics } from "./_process-diagnostics";
+
+const recoveryRoleArg =
+  process.argv.find((a) => a.startsWith("--role="))?.split("=")[1] ?? "all";
+installProcessDiagnostics({
+  processName: `ingest-recovery-worker-${recoveryRoleArg}`,
+});
 
 type WorkerRole = "poll" | "validation" | "discovery" | "all";
 
@@ -215,7 +222,10 @@ async function main() {
       );
     }
 
-    const backlog = await getRelevantBacklog(args.role, new Date());
+    const backlog = await getRelevantBacklog(args.role, new Date()).catch((e: unknown) => {
+      console.error(`[recovery-worker] backlog query failed:`, e instanceof Error ? e.message : e);
+      return -1;
+    });
     const elapsedMs = Date.now() - startedAt;
     const nextSleepMs =
       backlog > 0 ? Math.max(5_000, args.intervalSeconds * 1_000) : Math.max(30_000, args.intervalSeconds * 2_000);

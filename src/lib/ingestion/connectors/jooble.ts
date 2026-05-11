@@ -30,6 +30,7 @@ const JOOBLE_DEFAULT_RATE_DELAY_MS = 750;
 const JOOBLE_DEFAULT_RESULTS_PER_PAGE = 75;
 const JOOBLE_DEFAULT_MAX_PAGES = 4;
 const JOOBLE_DEFAULT_SEARCHES_PER_RUN = 6;
+const JOOBLE_PLACEHOLDER_COMPANIES = new Set(["jooble", "jooble.org"]);
 
 const DEFAULT_JOOBLE_KEYWORDS = [
   "software engineer",
@@ -48,6 +49,82 @@ const DEFAULT_JOOBLE_LOCATIONS = [
   "Remote",
   "United States",
   "Canada",
+];
+
+const JOOBLE_TECH_KEYWORDS = [
+  "software engineer",
+  "software developer",
+  "frontend engineer",
+  "backend engineer",
+  "full stack engineer",
+  "data engineer",
+  "data scientist",
+  "machine learning engineer",
+  "ai engineer",
+  "devops engineer",
+  "cloud engineer",
+  "security engineer",
+  "cybersecurity analyst",
+  "product manager",
+  "technical program manager",
+  "business analyst",
+  "qa engineer",
+];
+
+const JOOBLE_FINANCE_KEYWORDS = [
+  "financial analyst",
+  "finance manager",
+  "investment analyst",
+  "quantitative analyst",
+  "risk analyst",
+  "accountant",
+  "controller",
+  "auditor",
+  "tax analyst",
+  "treasury analyst",
+  "fp&a analyst",
+  "business analyst finance",
+];
+
+const JOOBLE_OPERATIONS_KEYWORDS = [
+  "operations manager",
+  "project manager",
+  "program manager",
+  "customer success manager",
+  "implementation consultant",
+  "solutions consultant",
+  "sales engineer",
+  "revenue operations",
+  "marketing analyst",
+];
+
+const JOOBLE_US_TECH_HUBS = [
+  "New York, NY",
+  "San Francisco, CA",
+  "San Jose, CA",
+  "Seattle, WA",
+  "Austin, TX",
+  "Boston, MA",
+  "Chicago, IL",
+  "Los Angeles, CA",
+  "Denver, CO",
+  "Atlanta, GA",
+  "Dallas, TX",
+  "Washington, DC",
+  "Raleigh, NC",
+  "Pittsburgh, PA",
+  "Minneapolis, MN",
+  "Philadelphia, PA",
+];
+
+const JOOBLE_CANADA_TECH_HUBS = [
+  "Toronto, ON",
+  "Vancouver, BC",
+  "Montreal, QC",
+  "Ottawa, ON",
+  "Waterloo, ON",
+  "Calgary, AB",
+  "Edmonton, AB",
 ];
 
 type JoobleJob = {
@@ -78,7 +155,78 @@ type JoobleSearchSpec = {
   location: string | null;
 };
 
-export function createJoobleConnector(): SourceConnector {
+type JoobleConnectorOptions = {
+  profile?: string;
+  keywords?: string[];
+  locations?: Array<string | null>;
+};
+
+type JoobleProfileDefaults = {
+  keywords: string[];
+  locations: Array<string | null>;
+};
+
+const JOOBLE_PROFILE_DEFAULTS: Record<string, JoobleProfileDefaults> = {
+  feed: {
+    keywords: DEFAULT_JOOBLE_KEYWORDS,
+    locations: DEFAULT_JOOBLE_LOCATIONS,
+  },
+  "all-na": {
+    keywords: [""],
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "tech-na": {
+    keywords: JOOBLE_TECH_KEYWORDS,
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "finance-na": {
+    keywords: JOOBLE_FINANCE_KEYWORDS,
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "operations-na": {
+    keywords: JOOBLE_OPERATIONS_KEYWORDS,
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "tech-cities-us": {
+    keywords: JOOBLE_TECH_KEYWORDS,
+    locations: JOOBLE_US_TECH_HUBS,
+  },
+  "tech-cities-ca": {
+    keywords: JOOBLE_TECH_KEYWORDS,
+    locations: JOOBLE_CANADA_TECH_HUBS,
+  },
+  "finance-cities-us": {
+    keywords: JOOBLE_FINANCE_KEYWORDS,
+    locations: JOOBLE_US_TECH_HUBS,
+  },
+  "early-career-na": {
+    keywords: [
+      "new grad software engineer",
+      "entry level software engineer",
+      "junior software developer",
+      "junior data analyst",
+      "data analyst",
+      "business analyst",
+      "financial analyst",
+      "junior accountant",
+      "software engineer intern",
+      "data science intern",
+    ],
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "remote-broad-na": {
+    keywords: [
+      ...JOOBLE_TECH_KEYWORDS,
+      ...JOOBLE_FINANCE_KEYWORDS,
+      ...JOOBLE_OPERATIONS_KEYWORDS,
+    ],
+    locations: ["Remote", "Remote United States", "Remote Canada", "Remote North America"],
+  },
+};
+
+export function createJoobleConnector(
+  options: JoobleConnectorOptions = {}
+): SourceConnector {
   const apiKey = process.env.JOOBLE_API_KEY?.trim() ?? "";
   if (!apiKey) {
     throw new Error(
@@ -86,19 +234,20 @@ export function createJoobleConnector(): SourceConnector {
     );
   }
 
+  const profile = normalizeProfileName(options.profile ?? "feed");
   const fetchCache = new Map<string, Promise<SourceConnectorFetchResult>>();
 
   return {
-    key: "jooble:feed",
-    sourceName: "Jooble:feed",
+    key: `jooble:${profile}`,
+    sourceName: "Jooble",
     sourceTier: "TIER_3",
     freshnessMode: "FULL_SNAPSHOT",
     async fetchJobs(
-      options: SourceConnectorFetchOptions
+      fetchOptions: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
       const cacheKey = JSON.stringify({
-        limit: options.limit ?? "all",
-        checkpoint: options.checkpoint ?? null,
+        limit: fetchOptions.limit ?? "all",
+        checkpoint: fetchOptions.checkpoint ?? null,
       });
       const existing = fetchCache.get(cacheKey);
       if (existing) {
@@ -107,13 +256,17 @@ export function createJoobleConnector(): SourceConnector {
 
       const request = fetchJoobleJobs({
         apiKey,
-        now: options.now,
-        limit: options.limit,
-        signal: options.signal,
-        log: options.log,
-        checkpoint: parseCheckpoint(options.checkpoint),
-        onCheckpoint: options.onCheckpoint,
+        profile,
+        keywords: options.keywords,
+        locations: options.locations,
+        now: fetchOptions.now,
+        limit: fetchOptions.limit,
+        signal: fetchOptions.signal,
+        log: fetchOptions.log,
+        checkpoint: parseCheckpoint(fetchOptions.checkpoint),
+        onCheckpoint: fetchOptions.onCheckpoint,
       });
+      request.catch(() => fetchCache.delete(cacheKey));
       fetchCache.set(cacheKey, request);
       return request;
     },
@@ -122,6 +275,9 @@ export function createJoobleConnector(): SourceConnector {
 
 async function fetchJoobleJobs(input: {
   apiKey: string;
+  profile: string;
+  keywords?: string[];
+  locations?: Array<string | null>;
   now: Date;
   limit?: number;
   signal?: AbortSignal;
@@ -129,7 +285,11 @@ async function fetchJoobleJobs(input: {
   checkpoint?: JoobleCheckpoint | null;
   onCheckpoint?: (checkpoint: Prisma.InputJsonValue | null) => Promise<void> | void;
 }): Promise<SourceConnectorFetchResult> {
-  const searches = buildSearchSpecs();
+  const searches = buildSearchSpecs({
+    profile: input.profile,
+    keywords: input.keywords,
+    locations: input.locations,
+  });
   const resultsPerPage = readPositiveIntEnv(
     "JOOBLE_RESULTS_PER_PAGE",
     JOOBLE_DEFAULT_RESULTS_PER_PAGE
@@ -155,6 +315,7 @@ async function fetchJoobleJobs(input: {
     page: 1,
   };
   let searchesProcessed = 0;
+  let filteredForQualityCount = 0;
 
   for (
     let searchIndex = input.checkpoint?.searchIndex ?? 0;
@@ -172,6 +333,7 @@ async function fetchJoobleJobs(input: {
         : 1;
     let pagesFetchedForSearch = 0;
     let fetchedForSearch = 0;
+    let filteredForQualityForSearch = 0;
 
     for (
       let page = startPage;
@@ -203,6 +365,12 @@ async function fetchJoobleJobs(input: {
       }
 
       for (const entry of entries) {
+        if (!isAcceptableJoobleEntry(entry)) {
+          filteredForQualityCount += 1;
+          filteredForQualityForSearch += 1;
+          continue;
+        }
+
         const sourceId = buildSourceId(entry);
         if (!sourceId || seenIds.has(sourceId)) {
           continue;
@@ -236,6 +404,7 @@ async function fetchJoobleJobs(input: {
       location: search.location,
       fetchedCount: fetchedForSearch,
       pagesFetched: pagesFetchedForSearch,
+      filteredForQualityCount: filteredForQualityForSearch,
     });
     searchesProcessed += 1;
 
@@ -261,6 +430,7 @@ async function fetchJoobleJobs(input: {
       nextCheckpoint.searchIndex >= searches.length,
     metadata: {
       apiBaseUrl: JOOBLE_API_BASE,
+      profile: input.profile,
       fetchedAt: input.now.toISOString(),
       searchCount: searches.length,
       searchesProcessed,
@@ -268,6 +438,7 @@ async function fetchJoobleJobs(input: {
       resultsPerPage,
       maxPages,
       rateDelayMs,
+      filteredForQualityCount,
       searchSummaries,
       attribution: {
         required: false,
@@ -275,6 +446,15 @@ async function fetchJoobleJobs(input: {
       },
     } as Prisma.InputJsonValue,
   };
+}
+
+function isAcceptableJoobleEntry(job: JoobleJob) {
+  const title = job.title?.trim();
+  const company = job.company?.trim();
+  if (!title || !company) return false;
+
+  const normalizedCompany = company.toLowerCase().replace(/^www\./, "");
+  return !JOOBLE_PLACEHOLDER_COMPANIES.has(normalizedCompany);
 }
 
 async function fetchJoobleSearchPage(input: {
@@ -330,9 +510,32 @@ function parseCheckpoint(value: Prisma.InputJsonValue | null | undefined) {
   } satisfies JoobleCheckpoint;
 }
 
-function buildSearchSpecs() {
-  const rawKeywords = readCsvEnv("JOOBLE_KEYWORDS", DEFAULT_JOOBLE_KEYWORDS);
-  const rawLocations = readCsvEnv("JOOBLE_LOCATIONS", DEFAULT_JOOBLE_LOCATIONS);
+function buildSearchSpecs(input: {
+  profile: string;
+  keywords?: string[];
+  locations?: Array<string | null>;
+}) {
+  const profileDefaults =
+    JOOBLE_PROFILE_DEFAULTS[input.profile] ?? JOOBLE_PROFILE_DEFAULTS.feed;
+  const envPrefix = input.profile.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  const rawKeywords =
+    input.keywords ??
+    readCsvEnv(
+      input.profile === "feed"
+        ? "JOOBLE_KEYWORDS"
+        : `JOOBLE_${envPrefix}_KEYWORDS`,
+      profileDefaults.keywords
+    );
+  const rawLocations =
+    input.locations ??
+    readCsvEnv(
+      input.profile === "feed"
+        ? "JOOBLE_LOCATIONS"
+        : `JOOBLE_${envPrefix}_LOCATIONS`,
+      profileDefaults.locations.filter(
+        (location): location is string => typeof location === "string"
+      )
+    );
   const keywords =
     rawKeywords.length === 1 && rawKeywords[0] === "ALL"
       ? [""]
@@ -340,7 +543,11 @@ function buildSearchSpecs() {
   const locations =
     rawLocations.length === 1 && rawLocations[0] === "ALL"
       ? [null]
-      : rawLocations.map((location) => location.trim()).filter(Boolean);
+      : rawLocations
+          .map((location) =>
+            typeof location === "string" ? location.trim() : null
+          )
+          .filter((location): location is string => Boolean(location));
 
   const specs: JoobleSearchSpec[] = [];
 
@@ -354,6 +561,11 @@ function buildSearchSpecs() {
   }
 
   return specs.filter((spec) => spec.keyword.length > 0 || spec.location != null);
+}
+
+function normalizeProfileName(profile: string) {
+  const normalized = profile.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return normalized || "feed";
 }
 
 function buildSourceId(job: JoobleJob) {

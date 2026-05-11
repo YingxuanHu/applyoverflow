@@ -97,6 +97,13 @@ const MEA_MARKERS = [
   "EGYPT",
 ];
 
+export const OUT_OF_SCOPE_GEO_MARKERS = [
+  ...EUROPE_MARKERS,
+  ...LATAM_MARKERS,
+  ...APAC_MARKERS,
+  ...MEA_MARKERS,
+] as const;
+
 const GLOBAL_MARKERS = [
   "GLOBAL",
   "WORLDWIDE",
@@ -130,6 +137,15 @@ export function inferGeoScope(location: string, region: Region | null): GeoScope
   }
 
   return "UNKNOWN";
+}
+
+export function isExplicitlyOutOfScopeGeoScope(scope: GeoScope) {
+  return (
+    scope === "EUROPE" ||
+    scope === "LATAM" ||
+    scope === "APAC" ||
+    scope === "MIDDLE_EAST_AFRICA"
+  );
 }
 
 export function formatGeoScopeLabel(scope: GeoScope) {

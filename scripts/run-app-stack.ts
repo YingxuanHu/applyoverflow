@@ -4,6 +4,9 @@ import path from "node:path";
 import process from "node:process";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { installProcessDiagnostics } from "./_process-diagnostics";
+
+installProcessDiagnostics({ processName: "run-app-stack" });
 
 type Mode = "dev" | "start";
 

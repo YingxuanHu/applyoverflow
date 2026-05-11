@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { Prisma } from "@/generated/prisma/client";
 import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
@@ -14,6 +12,7 @@ import {
   normalizeSkills,
   parseJsonPayload,
 } from "@/lib/profile";
+import { revalidateProfileViews } from "@/lib/revalidation";
 import {
   buildDocumentStorageKey,
   deleteFile,
@@ -55,13 +54,6 @@ async function requireProfileForAction() {
     }
     throw error;
   }
-}
-
-function revalidateProfileViews() {
-  revalidatePath("/profile");
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
 }
 
 function inferMimeType(fileName: string, mimeType: string) {

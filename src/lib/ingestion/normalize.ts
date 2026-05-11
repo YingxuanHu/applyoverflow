@@ -22,6 +22,7 @@ import {
 import { classifyNonJobPosting } from "@/lib/job-integrity";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
 import { inferExperienceLevel } from "@/lib/career-stage";
+import { inferGeoScope, isExplicitlyOutOfScopeGeoScope } from "@/lib/geo-scope";
 
 const US_STATE_CODES = new Set([
   "AL",
@@ -644,6 +645,13 @@ export function normalizeSourceJob({
     };
   }
 
+  if (!isApplyableHttpUrl(applyUrl)) {
+    return {
+      kind: "rejected",
+      reason: "invalid_apply_url",
+    };
+  }
+
   if (isObviouslyJunkJob({ title, description, applyUrl })) {
     return {
       kind: "rejected",
@@ -685,6 +693,13 @@ export function normalizeSourceJob({
     employmentType,
     roleFamily
   );
+  if (shouldRejectOutOfScopeLocation({ location, region, workMode })) {
+    return {
+      kind: "rejected",
+      reason: "out_of_scope_location",
+    };
+  }
+
   const postedAt = job.postedAt ?? fetchedAt;
   const deadline =
     job.deadline && job.deadline.getTime() > fetchedAt.getTime() ? job.deadline : null;
@@ -735,6 +750,19 @@ export function normalizeSourceJob({
     kind: "accepted",
     job: normalized,
   };
+}
+
+function shouldRejectOutOfScopeLocation(input: {
+  location: string;
+  region: Region | null;
+  workMode: WorkMode;
+}) {
+  const geoScope = inferGeoScope(input.location, input.region);
+  if (isExplicitlyOutOfScopeGeoScope(geoScope)) {
+    return true;
+  }
+
+  return input.region == null && input.workMode !== "REMOTE";
 }
 
 export function inferRegion(location: string): Region | null {
@@ -890,11 +918,7 @@ function inferEmploymentType(
 
   const combinedText = `${title} ${description}`.toLowerCase();
 
-  if (
-    combinedText.includes("intern") ||
-    combinedText.includes("internship") ||
-    combinedText.includes("co-op")
-  ) {
+  if (/\bintern(ship)?\b|\bco[- ]?op\b/.test(combinedText)) {
     return "INTERNSHIP";
   }
   if (
@@ -984,6 +1008,15 @@ function isObviouslyDeadAtIntake(input: {
   fetchedAt: Date;
 }) {
   return detectDeadSignal(input).detected;
+}
+
+function isApplyableHttpUrl(url: string) {
+  try {
+    const protocol = new URL(url).protocol.toLowerCase();
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function detectDeadSignal(input: {

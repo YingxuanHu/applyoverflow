@@ -1,9 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { saveTrackerSettings } from "@/lib/queries/tracker";
 import { UnauthorizedError } from "@/lib/current-user";
+import { revalidatePaths } from "@/lib/revalidation";
 
 import type { SettingsActionState } from "./action-state";
 
@@ -37,8 +36,7 @@ export async function saveAccountSettings(
     }
 
     await saveTrackerSettings({ name });
-    revalidatePath("/settings");
-    revalidatePath("/profile");
+    revalidatePaths(["/settings", "/profile"]);
     return { error: null, success: "Account details updated." };
   } catch (error) {
     return handleError(error);
@@ -97,9 +95,7 @@ export async function savePreferencesSettings(
           ? String(formData.get("workAuthorization"))
           : undefined,
     });
-    revalidatePath("/settings");
-    revalidatePath("/profile");
-    revalidatePath("/jobs");
+    revalidatePaths(["/settings", "/profile", "/jobs"]);
     return { error: null, success: "Job preferences saved." };
   } catch (error) {
     return handleError(error);
@@ -122,8 +118,7 @@ export async function saveAutomationSettings(
               | "STRICT_AUTO_APPLY")
           : "REVIEW_BEFORE_SUBMIT",
     });
-    revalidatePath("/settings");
-    revalidatePath("/jobs");
+    revalidatePaths(["/settings", "/jobs"]);
     return { error: null, success: "Automation mode updated." };
   } catch (error) {
     return handleError(error);
@@ -139,8 +134,7 @@ export async function saveNotificationSettings(
       emailNotificationsEnabled:
         formData.get("emailNotificationsEnabled") === "on",
     });
-    revalidatePath("/settings");
-    revalidatePath("/notifications");
+    revalidatePaths(["/settings", "/notifications"]);
     return { error: null, success: "Notification preferences saved." };
   } catch (error) {
     return handleError(error);

@@ -21,6 +21,38 @@ const COMMON_SECOND_LEVEL_TLDS = new Set([
   "ac",
 ]);
 
+const COMPANY_HOST_BLOCKLIST = new Set([
+  "ashbyhq",
+  "greenhouse",
+  "jobvite",
+  "jooble",
+  "lever",
+  "myworkdayjobs",
+  "smartrecruiters",
+  "workable",
+]);
+
+const UNKNOWN_COMPANY_NAMES = new Set([
+  "",
+  "unknown",
+  "unknown company",
+]);
+
+const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
+  company: string;
+  hostPattern: RegExp;
+}> = [
+  { company: "ashbyhq", hostPattern: /ashbyhq\.com/i },
+  { company: "greenhouse", hostPattern: /greenhouse\.io/i },
+  { company: "lever", hostPattern: /lever\.co/i },
+  { company: "myworkdayjobs", hostPattern: /myworkdayjobs\.com/i },
+  { company: "smartrecruiters", hostPattern: /smartrecruiters\.com/i },
+  { company: "workable", hostPattern: /workable\.com/i },
+  { company: "icims", hostPattern: /icims\.com/i },
+  { company: "jobvite", hostPattern: /jobvite\.com/i },
+  { company: "bamboohr", hostPattern: /bamboohr\.com/i },
+];
+
 const CHROME_LINE_PATTERNS = [
   /^skip to main content$/i,
   /^close search$/i,
@@ -182,6 +214,22 @@ export function sanitizeJobDescriptionText(
   return kept.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+export function hasUnresolvedGenericCompanyName(
+  company: string,
+  applyUrl?: string | null
+) {
+  const normalizedCompany = normalizeComparable(company);
+  if (UNKNOWN_COMPANY_NAMES.has(normalizedCompany)) {
+    return true;
+  }
+
+  const url = applyUrl ?? "";
+  return GENERIC_ATS_COMPANY_HOST_PATTERNS.some(
+    (entry) =>
+      normalizedCompany === entry.company && entry.hostPattern.test(url)
+  );
+}
+
 function scoreTitleCandidate(candidate: string) {
   let score = 0;
   if (candidate.length >= 4 && candidate.length <= 100) score += 2;
@@ -221,7 +269,14 @@ function deriveCompanyNameFromUrls(urls: Array<string | null | undefined>) {
   for (const value of urls) {
     if (!value) continue;
     try {
-      const hostname = new URL(value).hostname.replace(/^www\./i, "").toLowerCase();
+      const url = new URL(value);
+      const hostname = url.hostname.replace(/^www\./i, "").toLowerCase();
+      const pathParts = url.pathname.split("/").map((part) => part.trim()).filter(Boolean);
+      const atsCandidate = deriveKnownAtsCompanyName(hostname, pathParts);
+      if (atsCandidate) {
+        return atsCandidate;
+      }
+
       const labels = hostname.split(".").filter(Boolean);
       if (labels.length === 0) continue;
 
@@ -236,14 +291,68 @@ function deriveCompanyNameFromUrls(urls: Array<string | null | undefined>) {
       }
 
       if (!rootLabel || /^(jobs?|careers?|app|apply|business)$/.test(rootLabel)) continue;
-      if (rootLabel.length <= 4) return rootLabel.toUpperCase();
-      return rootLabel.charAt(0).toUpperCase() + rootLabel.slice(1);
+      if (COMPANY_HOST_BLOCKLIST.has(rootLabel)) continue;
+      return formatCompanySlug(rootLabel);
     } catch {
       continue;
     }
   }
 
   return null;
+}
+
+function deriveKnownAtsCompanyName(hostname: string, pathParts: string[]) {
+  if (hostname === "jobs.ashbyhq.com" && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname.endsWith(".greenhouse.io") && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname === "jobs.lever.co" && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname === "apply.workable.com" && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname === "jobs.smartrecruiters.com" && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname.endsWith(".myworkdayjobs.com")) {
+    const subdomain = hostname.split(".")[0] ?? "";
+    const tenant = subdomain.replace(/\.?wd\d*$/i, "");
+    return formatCompanySlug(tenant || pathParts[0] || "");
+  }
+
+  if (hostname.endsWith(".bamboohr.com")) {
+    return formatCompanySlug(hostname.split(".")[0] ?? "");
+  }
+
+  if (hostname.includes(".icims.com")) {
+    const subdomain = hostname.split(".")[0] ?? "";
+    return formatCompanySlug(subdomain.replace(/^careers[-.]?/i, ""));
+  }
+
+  if (hostname === "jobs.jobvite.com" && pathParts[0]) {
+    return formatCompanySlug(pathParts[0]);
+  }
+
+  return null;
+}
+
+function formatCompanySlug(value: string) {
+  const compacted = value
+    .replace(/[-_]+/g, " ")
+    .replace(/\b(careers?|jobs?|external|career site)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!compacted) return null;
+  if (compacted.length <= 4) return compacted.toUpperCase();
+  return compacted.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function normalizeComparable(value: string) {

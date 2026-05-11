@@ -1,18 +1,11 @@
-import { revalidatePath } from "next/cache";
 import { type NextRequest } from "next/server";
 
 import { errorResponse, successResponse } from "@/lib/api-utils";
 import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { importUploadedResumeForProfile } from "@/lib/profile-resume-service";
+import { revalidateProfileViews } from "@/lib/revalidation";
 import { getStorageReadiness } from "@/lib/storage";
-
-function revalidateProfileViews() {
-  revalidatePath("/profile");
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-}
 
 export async function GET() {
   try {

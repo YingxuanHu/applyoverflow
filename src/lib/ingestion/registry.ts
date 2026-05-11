@@ -154,7 +154,10 @@ export function resolveConnectors(
   }
 
   if (connectorName === "jooble") {
-    return [createJoobleConnector()];
+    const profiles = resolveTokens(
+      args.sources ?? args.source ?? process.env.JOOBLE_PROFILES ?? "feed"
+    );
+    return profiles.map((profile) => createJoobleConnector({ profile }));
   }
 
   if (connectorName === "jobvite") {
@@ -675,15 +678,16 @@ function resolveOptionalJoobleScheduledConnectors() {
   if (!isSourceFamilyEnabled("jooble")) return [];
   if (!(process.env.JOOBLE_API_KEY ?? "").trim()) return [];
 
-  return [
-    {
-      connector: createJoobleConnector(),
-      cadenceMinutes: resolveCadenceMinutes(
-        process.env.JOOBLE_SCHEDULE_MINUTES,
-        360
-      ),
-    },
-  ];
+  const profiles = resolveTokens(process.env.JOOBLE_SCHEDULE_PROFILES ?? "feed");
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.JOOBLE_SCHEDULE_MINUTES,
+    360
+  );
+
+  return profiles.map((profile) => ({
+    connector: createJoobleConnector({ profile }),
+    cadenceMinutes,
+  }));
 }
 
 function resolveOptionalRemotiveScheduledConnectors() {

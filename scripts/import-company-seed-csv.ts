@@ -15,6 +15,7 @@ import {
   type DiscoveredSourceCandidate,
 } from "../src/lib/ingestion/discovery/sources";
 import { inspectCompanySiteRoute } from "../src/lib/ingestion/connectors";
+import { upsertCompanySourceByIdentity } from "../src/lib/ingestion/company-source-upsert";
 import { enqueueUniqueSourceTask } from "../src/lib/ingestion/task-queue";
 import type { ExtractionRouteKind, Prisma } from "../src/generated/prisma/client";
 
@@ -392,8 +393,17 @@ async function upsertAtsSource(input: {
   csvVendors: string[];
   now: Date;
 }) {
-  const existing = await prisma.companySource.findUnique({
-    where: { sourceName: input.candidate.sourceName },
+  const existing = await prisma.companySource.findFirst({
+    where: {
+      OR: [
+        { sourceName: input.candidate.sourceName },
+        {
+          companyId: input.companyId,
+          connectorName: input.candidate.connectorName,
+          token: input.candidate.token,
+        },
+      ],
+    },
     select: { id: true, companyId: true },
   });
 
@@ -405,8 +415,13 @@ async function upsertAtsSource(input: {
     directAtsUrls: input.sourceInputUrls,
   } satisfies Prisma.InputJsonValue;
 
-  const companySource = await prisma.companySource.upsert({
-    where: { sourceName: input.candidate.sourceName },
+  const companySource = await upsertCompanySourceByIdentity({
+    identity: {
+      companyId: input.companyId,
+      sourceName: input.candidate.sourceName,
+      connectorName: input.candidate.connectorName,
+      token: input.candidate.token,
+    },
     create: {
       companyId: input.companyId,
       sourceName: input.candidate.sourceName,
@@ -452,7 +467,6 @@ async function upsertAtsSource(input: {
       validationMessage: null,
       metadataJson,
     },
-    select: { id: true },
   });
 
   await enqueueUniqueSourceTask({
@@ -495,8 +509,17 @@ async function upsertCompanySiteSource(input: {
       ? `CompanyJson:${input.companyKey}`
       : `CompanyHtml:${input.companyKey}`;
 
-  const existing = await prisma.companySource.findUnique({
-    where: { sourceName },
+  const existing = await prisma.companySource.findFirst({
+    where: {
+      OR: [
+        { sourceName },
+        {
+          companyId: input.companyId,
+          connectorName: "company-site",
+          token: input.companyKey,
+        },
+      ],
+    },
     select: { id: true },
   });
 
@@ -508,8 +531,13 @@ async function upsertCompanySiteSource(input: {
     ...input.route.metadata,
   } satisfies Prisma.InputJsonValue;
 
-  const companySource = await prisma.companySource.upsert({
-    where: { sourceName },
+  const companySource = await upsertCompanySourceByIdentity({
+    identity: {
+      companyId: input.companyId,
+      sourceName,
+      connectorName: "company-site",
+      token: input.companyKey,
+    },
     create: {
       companyId: input.companyId,
       sourceName,
@@ -561,7 +589,6 @@ async function upsertCompanySiteSource(input: {
       validationMessage: null,
       metadataJson,
     },
-    select: { id: true },
   });
 
   await enqueueUniqueSourceTask({

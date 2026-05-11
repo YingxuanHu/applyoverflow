@@ -10,6 +10,7 @@ import {
   isCanonicalMatchCompatible,
   type CanonicalMatchResult,
 } from "@/lib/ingestion/dedupe";
+import { getLifecycleProfile } from "@/lib/ingestion/lifecycle-config";
 import { detectDeadSignal, normalizeSourceJob } from "@/lib/ingestion/normalize";
 import { upsertNormalizedJobRecordFromSourceJob } from "@/lib/ingestion/normalized-records";
 import { computeNormalizedQualityScore } from "@/lib/ingestion/quality";
@@ -39,8 +40,15 @@ import { Prisma } from "@/generated/prisma/client";
 
 const RUNNING_LOCK_WINDOW_MINUTES = 30;
 const RUNNING_PROGRESS_STALE_MINUTES = 15;
-const APPLY_URL_CHECK_INTERVAL_HOURS = 18;
 const APPLY_URL_CHECK_TIMEOUT_MS = 5000;
+const LIFECYCLE_PROFILE = getLifecycleProfile();
+const RAW_PAYLOAD_FINGERPRINT_IGNORED_KEYS = new Set([
+  "fetchedAt",
+  // Aggregator records can surface the same provider job through many search
+  // frontiers. These fields describe how we found the row, not the row itself.
+  "searchKeyword",
+  "searchLocation",
+]);
 
 type IngestConnectorOptions = {
   now?: Date;
@@ -414,10 +422,20 @@ export async function bulkSyncCanonicalStatuses(options: {
 } = {}) {
   const now = options.now ?? new Date();
   const perJobLimit = options.perJobLimit ?? 3_000;
+  const confirmationLiveCutoff = new Date(
+    now.getTime() - LIFECYCLE_PROFILE.confirmationWindowsDays.liveFloor * 24 * 60 * 60 * 1000
+  );
+  const {
+    liveMinScore,
+    agingMinScore,
+    staleMinScore,
+  } = LIFECYCLE_PROFILE.statusThresholds;
+  const { live: liveConfirmationFloor } = LIFECYCLE_PROFILE.confirmationFloorScores;
 
   // 1. Bulk SQL status sync based on stored availabilityScore.
   //    Also applies the confirmation floor inline: a URL-confirmed-alive job within
-  //    3 days always has its availabilityScore bumped to at least 72 (LIVE floor from
+  //    the configured live confirmation window always has its availabilityScore bumped
+  //    to the configured LIVE floor (from
   //    getRecentAliveConfirmationFloor), so status correctly reflects the confirmation.
   //    This avoids needing a per-job refresh for every recently-confirmed job.
   //    REMOVED jobs are never touched.
@@ -425,18 +443,35 @@ export async function bulkSyncCanonicalStatuses(options: {
     UPDATE "JobCanonical"
     SET
       "availabilityScore" = CASE
-        WHEN "lastConfirmedAliveAt" >= NOW() - INTERVAL '3 days'
-          THEN GREATEST("availabilityScore", 72)
+        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+          THEN GREATEST("availabilityScore", ${liveConfirmationFloor})
         ELSE "availabilityScore"
       END,
       status = CASE
-        WHEN "lastConfirmedAliveAt" >= NOW() - INTERVAL '3 days' THEN 'LIVE'::"JobStatus"
-        WHEN "availabilityScore" >= 72 THEN 'LIVE'::"JobStatus"
-        WHEN "availabilityScore" >= 48 THEN 'AGING'::"JobStatus"
-        WHEN "availabilityScore" >= 22 THEN 'STALE'::"JobStatus"
+        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
+        WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+        WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+        WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
         ELSE                                'EXPIRED'::"JobStatus"
       END
     WHERE status != 'REMOVED'::"JobStatus"
+  `;
+
+  const feedVisibilitySyncResult = await prisma.$executeRaw`
+    UPDATE "JobFeedIndex" jfi
+    SET
+      status = 'REMOVED'::"JobStatus",
+      "updatedAt" = NOW()
+    FROM "JobCanonical" jc
+    WHERE jfi."canonicalJobId" = jc.id
+      AND jfi.status = 'LIVE'::"JobStatus"
+      AND (
+        jc.status != 'LIVE'::"JobStatus"
+        OR jc."availabilityScore" < 60
+        OR jc."deadSignalAt" IS NOT NULL
+        OR (jc.deadline IS NOT NULL AND jc.deadline < ${now})
+        OR jc."applyUrl" !~* '^https?://'
+      )
   `;
 
   // 2. Incremental per-job refresh for AGING/STALE cohort — these are most
@@ -479,7 +514,10 @@ export async function bulkSyncCanonicalStatuses(options: {
     staleCount,
     expiredCount,
     removedCount: 0,
-    updatedCount: (syncResult as number) + tally.updatedCount,
+    updatedCount:
+      (syncResult as number) +
+      (feedVisibilitySyncResult as number) +
+      tally.updatedCount,
   };
 }
 
@@ -631,6 +669,41 @@ async function performConnectorIngestion(
       summary.rawCreatedCount += 1;
     } else {
       summary.rawUpdatedCount += 1;
+    }
+
+    if (!rawJobResult.created && rawJobResult.unchanged) {
+      const refreshResult = await refreshUnchangedMappedRawJob({
+        rawJobId: rawJobResult.rawJob.id,
+        now,
+      });
+
+      if (refreshResult) {
+        summary.acceptedCount += 1;
+        summary.minimallyAcceptedCount += 1;
+        summary.canonicalUpdatedCount += 1;
+        summary.sourceMappingUpdatedCount += 1;
+
+        if (refreshResult.region === "CA") {
+          summary.acceptedCanadaCount += 1;
+          if (refreshResult.workMode === "REMOTE") {
+            summary.acceptedCanadaRemoteCount += 1;
+          }
+        }
+
+        freshnessCandidateIds.add(refreshResult.canonicalId);
+        processedCount += 1;
+        if (processedCount % 25 === 0) {
+          await onHeartbeat?.({
+            acceptedCount: summary.acceptedCount,
+            canonicalCreatedCount: summary.canonicalCreatedCount,
+            fetchedCount: summary.fetchedCount,
+            processedCount,
+            rejectedCount: summary.rejectedCount,
+            stage: "processing",
+          });
+        }
+        continue;
+      }
     }
 
     const normalizationResult = normalizeSourceJob({
@@ -1113,15 +1186,108 @@ async function upsertRawJob({
   } satisfies Prisma.JobRawUncheckedCreateInput;
 
   if (existingRawJob) {
+    const nextRawPayload = data.rawPayload;
+    const unchanged = rawPayloadsEquivalent(existingRawJob.rawPayload, nextRawPayload);
     const rawJob = await prisma.jobRaw.update({
       where: { id: existingRawJob.id },
       data,
     });
-    return { rawJob, created: false as const };
+    return { rawJob, created: false as const, unchanged };
   }
 
   const rawJob = await prisma.jobRaw.create({ data });
-  return { rawJob, created: true as const };
+  return { rawJob, created: true as const, unchanged: false };
+}
+
+async function refreshUnchangedMappedRawJob({
+  rawJobId,
+  now,
+}: {
+  rawJobId: string;
+  now: Date;
+}) {
+  const mapping = await prisma.jobSourceMapping.findFirst({
+    where: { rawJobId },
+    select: {
+      id: true,
+      canonicalJobId: true,
+      removedAt: true,
+      canonicalJob: {
+        select: {
+          region: true,
+          workMode: true,
+          availabilityScore: true,
+        },
+      },
+    },
+  });
+
+  if (!mapping) return null;
+
+  await prisma.jobSourceMapping.update({
+    where: { id: mapping.id },
+    data: {
+      lastSeenAt: now,
+      removedAt: null,
+    },
+  });
+
+  if (mapping.removedAt) {
+    await refreshPrimarySourceMapping(mapping.canonicalJobId);
+  }
+
+  await prisma.jobCanonical.update({
+    where: { id: mapping.canonicalJobId },
+    data: {
+      status: "LIVE",
+      lastSeenAt: now,
+      lastSourceSeenAt: now,
+      lastConfirmedAliveAt: now,
+      availabilityScore: mapping.canonicalJob.availabilityScore ?? 100,
+      deadSignalAt: null,
+      deadSignalReason: null,
+      staleAt: null,
+      expiredAt: null,
+      removedAt: null,
+    },
+  });
+
+  return {
+    canonicalId: mapping.canonicalJobId,
+    region: mapping.canonicalJob.region,
+    workMode: mapping.canonicalJob.workMode,
+  };
+}
+
+function rawPayloadsEquivalent(
+  currentPayload: Prisma.JsonValue,
+  nextPayload: Prisma.InputJsonValue
+) {
+  return (
+    stableRawPayloadFingerprint(currentPayload) ===
+    stableRawPayloadFingerprint(nextPayload)
+  );
+}
+
+function stableRawPayloadFingerprint(value: Prisma.JsonValue | Prisma.InputJsonValue) {
+  return JSON.stringify(normalizeRawPayloadForFingerprint(value));
+}
+
+function normalizeRawPayloadForFingerprint(value: unknown): unknown {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeRawPayloadForFingerprint(entry));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !RAW_PAYLOAD_FINGERPRINT_IGNORED_KEYS.has(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, normalizeRawPayloadForFingerprint(entry)])
+  );
 }
 
 export async function findMappedCanonical(rawJobId: string) {
@@ -1906,6 +2072,11 @@ function computeLifecycleState({
     activeMappings.length,
     now
   );
+  const {
+    liveMinScore,
+    agingMinScore,
+    staleMinScore,
+  } = LIFECYCLE_PROFILE.statusThresholds;
 
   const availabilityScore = Math.max(
     confirmationFloor,
@@ -1916,9 +2087,9 @@ function computeLifecycleState({
   const strongRemovalEvidence = hasStrongRemovalEvidence(removedMappings, now);
 
   let status: JobStatus;
-  if (availabilityScore >= 72) status = "LIVE";
-  else if (availabilityScore >= 48) status = "AGING";
-  else if (availabilityScore >= 22) status = "STALE";
+  if (availabilityScore >= liveMinScore) status = "LIVE";
+  else if (availabilityScore >= agingMinScore) status = "AGING";
+  else if (availabilityScore >= staleMinScore) status = "STALE";
   else if (activeMappings.length === 0 && strongRemovalEvidence) status = "REMOVED";
   else status = "EXPIRED";
 
@@ -1935,18 +2106,19 @@ function scoreActiveMappingEvidence(
   now: Date
 ) {
   const hoursSinceSeen = (now.getTime() - sourceMapping.lastSeenAt.getTime()) / 3_600_000;
+  const recencyWindows = LIFECYCLE_PROFILE.activeMappingRecencyHours;
   const recencyFactor =
-    hoursSinceSeen <= 12
+    hoursSinceSeen <= recencyWindows.hottest
       ? 1
-      : hoursSinceSeen <= 48
+      : hoursSinceSeen <= recencyWindows.warm
         ? 0.92
-        : hoursSinceSeen <= 24 * 7
+        : hoursSinceSeen <= recencyWindows.recent
           ? 0.78
-          : hoursSinceSeen <= 24 * 14
+          : hoursSinceSeen <= recencyWindows.aging
             ? 0.6
-            : hoursSinceSeen <= 24 * 30
+            : hoursSinceSeen <= recencyWindows.stale
               ? 0.42
-              : hoursSinceSeen <= 24 * 60
+              : hoursSinceSeen <= recencyWindows.longTail
                 ? 0.24
                 : 0.12;
 
@@ -2014,7 +2186,12 @@ function computeRemovalPenalty(
     0
   );
 
-  return Math.min(activeMappingsCount > 0 ? 28 : 70, rawPenalty);
+  return Math.min(
+    activeMappingsCount > 0
+      ? LIFECYCLE_PROFILE.removalPenaltyCaps.withActiveMappings
+      : LIFECYCLE_PROFILE.removalPenaltyCaps.withoutActiveMappings,
+    rawPenalty
+  );
 }
 
 function scoreConfirmationEvidence(lastConfirmedAliveAt: Date | null, now: Date) {
@@ -2022,12 +2199,13 @@ function scoreConfirmationEvidence(lastConfirmedAliveAt: Date | null, now: Date)
 
   const daysSinceConfirmed =
     (now.getTime() - lastConfirmedAliveAt.getTime()) / (24 * 60 * 60 * 1000);
+  const bonusWindows = LIFECYCLE_PROFILE.confirmationBonusDays;
 
-  if (daysSinceConfirmed <= 1) return 15;
-  if (daysSinceConfirmed <= 3) return 12;
-  if (daysSinceConfirmed <= 7) return 8;
-  if (daysSinceConfirmed <= 14) return 4;
-  if (daysSinceConfirmed <= 30) return 1;
+  if (daysSinceConfirmed <= bonusWindows.hottest) return 15;
+  if (daysSinceConfirmed <= bonusWindows.warm) return 12;
+  if (daysSinceConfirmed <= bonusWindows.recent) return 8;
+  if (daysSinceConfirmed <= bonusWindows.aging) return 4;
+  if (daysSinceConfirmed <= bonusWindows.stale) return 1;
   return 0;
 }
 
@@ -2040,21 +2218,27 @@ function getRecentAliveConfirmationFloor(
 
   const daysSinceConfirmed =
     (now.getTime() - lastConfirmedAliveAt.getTime()) / (24 * 60 * 60 * 1000);
+  const windows = LIFECYCLE_PROFILE.confirmationWindowsDays;
+  const floors = LIFECYCLE_PROFILE.confirmationFloorScores;
 
-  // A URL confirmed alive within 3 days is the strongest freshness signal —
+  // A URL confirmed alive within the live-floor window is the strongest freshness signal —
   // treat as LIVE regardless of whether sources are currently listing the job.
   // Aggregator/board sources routinely drop and re-add listings without the
   // underlying job closing, so active mapping count is a poor proxy for liveness.
-  if (daysSinceConfirmed <= 3) {
-    return 72;
+  if (daysSinceConfirmed <= windows.liveFloor) {
+    return floors.live;
   }
 
-  if (daysSinceConfirmed <= 7) {
-    return activeMappingsCount > 0 ? 60 : 48;
+  if (daysSinceConfirmed <= windows.agingFloor) {
+    return activeMappingsCount > 0
+      ? floors.agingWithActiveMappings
+      : floors.agingWithoutActiveMappings;
   }
 
-  if (daysSinceConfirmed <= 14) {
-    return activeMappingsCount > 0 ? 48 : 30;
+  if (daysSinceConfirmed <= windows.staleFloor) {
+    return activeMappingsCount > 0
+      ? floors.staleWithActiveMappings
+      : floors.staleWithoutActiveMappings;
   }
 
   return 0;
@@ -2079,7 +2263,7 @@ function hasStrongRemovalEvidence(
     const daysSinceRemoved =
       (now.getTime() - sourceMapping.removedAt.getTime()) / (24 * 60 * 60 * 1000);
     return (
-      daysSinceRemoved <= 21 &&
+      daysSinceRemoved <= LIFECYCLE_PROFILE.strongRemovalEvidenceWindowDays &&
       sourceMapping.isFullSnapshot &&
       sourceMapping.sourceReliability >= 0.8 &&
       (sourceMapping.sourceType === "ATS" ||
@@ -2119,11 +2303,14 @@ function shouldRunApplyUrlCheck({
     ? (now.getTime() - canonicalJob.lastApplyCheckAt.getTime()) / 3_600_000
     : Number.POSITIVE_INFINITY;
 
-  if (hoursSinceLastApplyCheck < APPLY_URL_CHECK_INTERVAL_HOURS) {
+  if (hoursSinceLastApplyCheck < LIFECYCLE_PROFILE.applyUrlCheckIntervalHours) {
     return false;
   }
 
-  return activeMappingsCount === 0 || provisionalScore < 48;
+  return (
+    activeMappingsCount === 0 ||
+    provisionalScore < LIFECYCLE_PROFILE.statusThresholds.agingMinScore
+  );
 }
 
 async function checkApplyUrlAvailability(

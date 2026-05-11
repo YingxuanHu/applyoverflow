@@ -35,6 +35,10 @@ Current implemented slice:
 
 Copy `.env.example` to `.env` and fill in your values. AI features degrade gracefully when `OPENAI_API_KEY` is absent — all other functionality is unaffected.
 
+For split web / worker deployments, keep the web node on `DISABLE_INGEST_DAEMON=1`, set `DATABASE_URL_DO_PRIVATE` for the DigitalOcean VPC database endpoint, and record the worker IPs with `DO_WORKER_DROPLET_IPV4` / `DO_WORKER_DROPLET_PRIVATE_IPV4`. Worker-side Prisma roles now prefer `DATABASE_URL_DO_PRIVATE` automatically unless `DATABASE_PREFER_PRIVATE_FOR_WORKERS=0`.
+
+Lifecycle tuning is now profile-driven through `LIFECYCLE_PROFILE=aggressive|balanced|conservative`, so expiration experiments no longer require editing `src/lib/ingestion/pipeline.ts` directly.
+
 ## Local development
 
 Run the app:
@@ -69,6 +73,16 @@ Validate the repo state:
 npm run lint
 npm run typecheck
 npm run build
+```
+
+Operational growth tooling:
+
+```bash
+npm run source:report-lifecycle -- --days=60
+npm run source:benchmark-dedupe -- --sample-size=100
+npm run source:audit-classifier -- --families=usajobs,jobbank,successfactors
+npm run source:demote-stale -- --recent-success-days=7 --no-mapping-days=14
+npm run enterprise:preflight -- --family=workday --limit=50 --register --promote
 ```
 
 Seed the local database:

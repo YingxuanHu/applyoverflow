@@ -356,7 +356,14 @@ async function fetchAdzunaJobs({
         if (typeof limit === "number" && allJobs.length >= limit) break;
       }
 
-      if (categoryJobs.rawCount < ADZUNA_PAGE_SIZE || state.page >= maxPages) {
+      if (categoryJobs.retryableError) {
+        // API errors should be retried from the same page on the next cycle.
+        break outer;
+      } else if (
+        categoryJobs.rawCount < ADZUNA_PAGE_SIZE ||
+        categoryJobs.jobs.length === 0 ||
+        state.page >= maxPages
+      ) {
         state.exhausted = true;
       } else {
         state.page++;
@@ -487,6 +494,7 @@ async function fetchCategoryPage({
   rawCount: number;
   staffingFilteredCount: number;
   rateLimited: boolean;
+  retryableError: boolean;
 }> {
   const url = buildSearchUrl(country, category, appId, appKey, page, maxDaysOld);
 
@@ -520,6 +528,7 @@ async function fetchCategoryPage({
           rawCount: 0,
           staffingFilteredCount: 0,
           rateLimited: true,
+          retryableError: true,
         };
       }
       log(`[adzuna:${country}] API error ${response.status} on ${category} page ${page}`);
@@ -529,6 +538,7 @@ async function fetchCategoryPage({
         rawCount: 0,
         staffingFilteredCount: 0,
         rateLimited: false,
+        retryableError: true,
       };
     }
 
@@ -541,6 +551,7 @@ async function fetchCategoryPage({
         rawCount: 0,
         staffingFilteredCount: 0,
         rateLimited: false,
+        retryableError: true,
       };
     }
 
@@ -564,6 +575,7 @@ async function fetchCategoryPage({
       rawCount: results.length,
       staffingFilteredCount,
       rateLimited: false,
+      retryableError: false,
     };
   }
 
@@ -573,6 +585,7 @@ async function fetchCategoryPage({
     rawCount: 0,
     staffingFilteredCount: 0,
     rateLimited: true,
+    retryableError: true,
   };
 }
 

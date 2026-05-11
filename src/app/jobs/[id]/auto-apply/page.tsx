@@ -74,8 +74,8 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
   // else should use the /jobs/[id]/apply review workspace instead.
   const isAutoEligible =
     job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" &&
-    job.status !== "EXPIRED" &&
-    job.status !== "REMOVED";
+    job.status === "LIVE" &&
+    /^https?:\/\//i.test(job.applyUrl);
 
   if (!isAutoEligible) {
     redirect(`/jobs/${job.id}/apply`);

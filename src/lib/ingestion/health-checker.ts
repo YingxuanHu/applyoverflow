@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { detectDeadSignal } from "@/lib/ingestion/normalize";
 import { reconcileCanonicalLifecycleByIds } from "@/lib/ingestion/pipeline";
+import { upsertJobFeedIndexes } from "@/lib/ingestion/search-index";
 import { resolveScaledInteger } from "@/lib/ingestion/capacity";
 import {
   claimSourceTasks,
@@ -172,7 +173,9 @@ export async function runUrlHealthTaskQueue(options: {
   }
 
   if (checkedJobIds.size > 0) {
-    await reconcileCanonicalLifecycleByIds([...checkedJobIds], { now });
+    const checkedIds = [...checkedJobIds];
+    await reconcileCanonicalLifecycleByIds(checkedIds, { now });
+    await upsertJobFeedIndexes(checkedIds);
   }
 
   return {
@@ -194,10 +197,9 @@ export async function runJobHealthChecks(options: {
   }
 
   if (results.length > 0) {
-    await reconcileCanonicalLifecycleByIds(
-      results.map((result) => result.canonicalJobId),
-      { now }
-    );
+    const checkedIds = results.map((result) => result.canonicalJobId);
+    await reconcileCanonicalLifecycleByIds(checkedIds, { now });
+    await upsertJobFeedIndexes(checkedIds);
   }
 
   return results;
@@ -417,7 +419,7 @@ async function checkUrlHealth(input: {
 
   if (!input.url || !/^https?:\/\//i.test(input.url)) {
     return {
-      result: "ERROR",
+      result: "DEAD",
       statusCode: null,
       finalUrl: null,
       checkedAt,

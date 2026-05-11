@@ -35,29 +35,39 @@ export type ScheduledIngestionResult = {
   };
 };
 
-const DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS = 60_000;
-const DEFAULT_ADZUNA_RUNTIME_BUDGET_MS = 45_000;
+// Per-connector soft budgets. The 60s/45s defaults that lived here were set
+// when the DB pool was effectively single-connection — they killed connectors
+// before they finished their first page of upserts. Now that the pool is
+// healthy, give connectors a realistic envelope: 3 minutes for legacy ATS
+// connectors (Greenhouse/Lever/iCIMS/Workday/Ashby/etc.) and 4 minutes for
+// Adzuna's paginated fetches. Both are env-overridable for tuning in prod.
+const DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS = 180_000;
+const DEFAULT_ADZUNA_RUNTIME_BUDGET_MS = 240_000;
 // Hard wall-clock cap per connector: even if the internal AbortController is
 // ignored (e.g. Playwright IPC hangs), this Promise.race fires and lets the
-// scheduler move on. Set to 2× the soft budget plus a generous buffer.
-const LEGACY_CONNECTOR_HARD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes absolute max
+// scheduler move on. Set to ~2× the soft budget plus a generous buffer.
+const LEGACY_CONNECTOR_HARD_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes absolute max
+
+function readPositiveIntEnv(name: string) {
+  const raw = process.env[name]?.trim() ?? "";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 function getLegacyConnectorRuntimeBudgetMs(sourceName: string) {
   const connectorFamily = sourceName.split(":")[0]?.toLowerCase();
-  const adzunaBudgetOverride = Number.parseInt(
-    process.env.ADZUNA_RUNTIME_BUDGET_MS ?? "",
-    10
-  );
-  const adzunaRuntimeBudgetMs =
-    Number.isFinite(adzunaBudgetOverride) && adzunaBudgetOverride > 0
-      ? adzunaBudgetOverride
-      : DEFAULT_ADZUNA_RUNTIME_BUDGET_MS;
 
   if (connectorFamily === "adzuna") {
-    return adzunaRuntimeBudgetMs;
+    return (
+      readPositiveIntEnv("ADZUNA_RUNTIME_BUDGET_MS") ??
+      DEFAULT_ADZUNA_RUNTIME_BUDGET_MS
+    );
   }
 
-  return DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS;
+  return (
+    readPositiveIntEnv("LEGACY_CONNECTOR_RUNTIME_BUDGET_MS") ??
+    DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS
+  );
 }
 
 async function countCanonicalStatusSnapshot() {

@@ -1,15 +1,7 @@
-import { revalidatePath } from "next/cache";
-
 import { errorResponse, successResponse } from "@/lib/api-utils";
 import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
 import { syncStoredResumeForProfile } from "@/lib/profile-resume-service";
-
-function revalidateProfileViews() {
-  revalidatePath("/profile");
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-}
+import { revalidateProfileViews } from "@/lib/revalidation";
 
 export async function POST(
   _request: Request,
