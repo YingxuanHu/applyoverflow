@@ -204,7 +204,7 @@ function mapHiringCafeHit(
       ? v5.yearly_max_compensation
       : null;
   const salaryCurrency =
-    sanitizeText(v5.compensation_currency) ??
+    sanitizeText(v5.compensation_currency ?? undefined) ??
     (salaryMin || salaryMax ? inferCurrencyFromLocation(location) : null);
 
   return {
