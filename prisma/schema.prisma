@@ -42,6 +42,12 @@ enum Region {
 enum Industry {
   TECH
   FINANCE
+  // White-collar / office roles outside tech & finance: marketing, sales, ops,
+  // HR, legal, consulting, design, comms, customer success, education admin,
+  // healthcare admin (non-clinical), media, supply chain analytics, etc.
+  // Quality filter excludes blue-collar, retail, food service, clinical
+  // patient-facing, manual trades, and manufacturing/production line roles.
+  GENERAL
 }
 
 enum SubmissionCategory {
@@ -429,6 +435,14 @@ model Document {
   sizeBytes        Int
   storageKey       String       @unique
   isPrimary        Boolean      @default(false)
+  // True when this document was produced by the app (tailored resume,
+  // generated cover letter, etc.) rather than uploaded by the user. The
+  // Documents tab uses this to separate "Uploaded by you" from
+  // "AI generated" so users can find each kind at a glance.
+  isAiGenerated    Boolean      @default(false)
+  // When the document was generated from a specific tracked application,
+  // store the application id so the UI can deep-link back.
+  sourceApplicationId String?
   extractedText    String?
   extractedAt      DateTime?
   createdAt        DateTime     @default(now())
@@ -442,6 +456,7 @@ model Document {
   @@index([userId, type])
   @@index([userId, type, createdAt])
   @@index([userId, type, isPrimary])
+  @@index([userId, type, isAiGenerated, createdAt])
 }
 
 model DocumentAnalysis {
@@ -1206,4 +1221,21 @@ model Verification {
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+/// Pre-aggregated summary counts for the /jobs page header.
+///
+/// Refreshed by a systemd timer every ~5 minutes via
+/// scripts/refresh-job-feed-summary.ts. The user-facing page reads this row
+/// instead of running 8 parallel COUNT(*) queries on JobCanonical (which
+/// take 14-60+ seconds when ingestion workers are competing for I/O).
+///
+/// Singleton row — id is always "singleton".
+model JobFeedSummaryCache {
+  id                  String   @id
+  liveJobCount        Int
+  addedTodayCount     Int
+  expiredTodayCount   Int
+  removedTodayCount   Int
+  computedAt          DateTime @default(now()) @updatedAt
 }

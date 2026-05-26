@@ -312,28 +312,16 @@ export function PreferencesForm({
 
 const AUTOMATION_MODE_OPTIONS = [
   {
-    value: "DISCOVERY_ONLY",
-    label: "Discovery only",
-    description:
-      "Surface and rank relevant jobs. Never prepare or submit an application on your behalf.",
-  },
-  {
-    value: "ASSIST",
-    label: "Assist",
-    description:
-      "Pre-fill application materials and draft tailored content. You review and submit every application.",
-  },
-  {
     value: "REVIEW_BEFORE_SUBMIT",
-    label: "Review before submit",
+    label: "Manual review",
     description:
-      "Prepare and stage applications automatically. Final submission waits for your approval.",
+      "Show job matches and prepare materials. You open and submit applications yourself.",
   },
   {
     value: "STRICT_AUTO_APPLY",
     label: "Strict auto-apply",
     description:
-      "Auto-submit only for jobs that meet every quality guardrail. Review-required jobs still wait on you.",
+      "Submit only supported Greenhouse, Lever, and Ashby forms that pass quality guardrails.",
   },
 ] as const;
 
@@ -342,6 +330,11 @@ export function AutomationForm({
 }: {
   currentMode: string;
 }) {
+  const normalizedCurrentMode = AUTOMATION_MODE_OPTIONS.some(
+    (option) => option.value === currentMode
+  )
+    ? currentMode
+    : "REVIEW_BEFORE_SUBMIT";
   const [state, formAction] = useActionState(
     saveAutomationSettings,
     initialSettingsState
@@ -356,7 +349,7 @@ export function AutomationForm({
         role="radiogroup"
       >
         {AUTOMATION_MODE_OPTIONS.map((option) => {
-          const isActive = currentMode === option.value;
+          const isActive = normalizedCurrentMode === option.value;
           return (
             <label
               className={cn(

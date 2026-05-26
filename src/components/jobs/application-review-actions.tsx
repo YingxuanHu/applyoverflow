@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ApplicationReviewState, ApplicationSubmissionSummary } from "@/types";
 
@@ -12,10 +12,6 @@ type ApplicationReviewActionsProps = {
   latestPackageId: string | null;
   latestSubmission: ApplicationSubmissionSummary | null;
   canCreatePackage: boolean;
-  /** Whether a registered ATS filler can handle this job's apply URL */
-  atsSupported?: boolean;
-  /** Name of the ATS filler (e.g. "Greenhouse") */
-  atsName?: string | null;
 };
 
 /** Parse a JSON error body or truncate raw text to a user-friendly message. */
@@ -70,13 +66,10 @@ export function ApplicationReviewActions({
   latestPackageId,
   latestSubmission,
   canCreatePackage,
-  atsSupported = false,
-  atsName = null,
 }: ApplicationReviewActionsProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [autoApplyStatus, setAutoApplyStatus] = useState<"idle" | "running" | "done">("idle");
 
   const step = getWorkflowStep(
     reviewState,
@@ -130,36 +123,9 @@ export function ApplicationReviewActions({
     });
   }
 
-  function triggerAutoApply(mode: "dry_run" | "fill_only" | "fill_and_submit") {
-    if (isPending || autoApplyStatus === "running") return;
-    setError(null);
-    setAutoApplyStatus("running");
-    startTransition(async () => {
-      try {
-        const res = await fetch(`/api/jobs/${jobId}/auto-apply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error ?? "Auto-apply failed");
-        }
-        setAutoApplyStatus("done");
-        router.refresh();
-      } catch (e) {
-        setAutoApplyStatus("idle");
-        setError(e instanceof Error ? e.message : "Auto-apply failed. Try again.");
-      }
-    });
-  }
-
-  const spinner = isPending && autoApplyStatus !== "running"
+  const spinner = isPending
     ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
     : null;
-  const autoSpinner = autoApplyStatus === "running"
-    ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-    : <Bot className="h-3.5 w-3.5" />;
 
   // ── Render per step ──────────────────────────────────────────────────────
 
@@ -178,7 +144,7 @@ export function ApplicationReviewActions({
         <a href="/profile" className="underline underline-offset-2 hover:text-foreground">
           your profile
         </a>{" "}
-        before preparing a package.
+        before continuing.
       </p>
     );
   }
@@ -191,23 +157,13 @@ export function ApplicationReviewActions({
           <Button onClick={() => post("prepare")} disabled={isPending}>
             {spinner}
             {hasFailed
-              ? "Prepare again"
+              ? "Try again"
               : isManual
-                ? "Prepare application notes"
+                ? "Record manual attempt"
                 : latestPackageId
-                  ? "Update package"
-                  : "Prepare package"}
+                  ? "Update application"
+                  : "Start application"}
           </Button>
-          {atsSupported && !isManual ? (
-            <Button
-              variant="outline"
-              onClick={() => triggerAutoApply("fill_only")}
-              disabled={isPending || autoApplyStatus === "running"}
-            >
-              {autoSpinner}
-              Auto-fill{atsName ? ` (${atsName})` : ""}
-            </Button>
-          ) : null}
           <Button variant="ghost" onClick={() => post("submit")} disabled={isPending}>
             {spinner}
             {isManual ? "Mark submitted manually" : "Mark submitted"}
@@ -215,12 +171,7 @@ export function ApplicationReviewActions({
         </div>
         {hasFailed ? (
           <p className="text-xs text-muted-foreground">
-            Previous submission was marked as failed. Prepare a fresh package or record a new attempt.
-          </p>
-        ) : null}
-        {atsSupported && !isManual ? (
-          <p className="text-xs text-muted-foreground">
-            Auto-fill opens the application form and fills fields automatically. You can review before submitting.
+            Previous submission was marked as failed. Start a fresh attempt or record a new submission.
           </p>
         ) : null}
         {error ? <p aria-live="polite" className="text-xs text-destructive">{error}</p> : null}
@@ -232,28 +183,19 @@ export function ApplicationReviewActions({
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          Package is ready.{" "}
+          Application details are ready.{" "}
           {isManual
             ? "Submit the application manually, then record it here."
             : "When you have actually submitted the application, record it below."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          {atsSupported && !isManual ? (
-            <Button
-              onClick={() => triggerAutoApply("fill_only")}
-              disabled={isPending || autoApplyStatus === "running"}
-            >
-              {autoSpinner}
-              Auto-fill{atsName ? ` (${atsName})` : ""}
-            </Button>
-          ) : null}
-          <Button variant={atsSupported && !isManual ? "outline" : "default"} onClick={() => post("submit")} disabled={isPending}>
+          <Button onClick={() => post("submit")} disabled={isPending}>
             {spinner}
             {isManual ? "Mark submitted manually" : "Mark as submitted"}
           </Button>
           <Button variant="ghost" onClick={() => post("prepare")} disabled={isPending}>
             {spinner}
-            Update package
+            Update application
           </Button>
           <Button variant="ghost" onClick={() => patch("withdraw")} disabled={isPending}>
             {spinner}

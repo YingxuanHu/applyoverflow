@@ -15,6 +15,18 @@ import type { CoverLetterResult, FitAnalysis } from "@/lib/ai/types";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+type ResumeOption = {
+  id: string;
+  title: string;
+  isPrimary: boolean;
+};
+
+type CoverLetterState = CoverLetterResult & {
+  documentId?: string | null;
+  title?: string | null;
+  downloadHref?: string | null;
+};
+
 type Props = {
   jobId?: string;
   jobTitle: string;
@@ -25,7 +37,18 @@ type Props = {
   canAnalyzeFit?: boolean;
   fitUnavailableMessage?: string;
   onFitAnalysisGenerated?: (analysis: FitAnalysis) => void;
+  initialCoverLetter?: CoverLetterState | null;
   sectionTitleClassName?: string;
+  // List of the user's resume documents. When provided and the user picks
+  // one, the resumeId is included in the fit-analysis request so the API
+  // can ground the analysis in that specific resume's extracted text
+  // instead of (or in addition to) the structured profile.
+  userResumes?: ResumeOption[];
+  fixedResumeId?: string | null;
+  showResumeSelector?: boolean;
+  // Hide the cover-letter sub-section when false. Used on /jobs/[id] where
+  // the section was removed; the application workspace still renders it.
+  showCoverLetter?: boolean;
 };
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -40,8 +63,20 @@ export function AIWorkspace({
   canAnalyzeFit = true,
   fitUnavailableMessage = "Add a job description first.",
   onFitAnalysisGenerated,
+  initialCoverLetter = null,
   sectionTitleClassName,
+  userResumes = [],
+  fixedResumeId = null,
+  showResumeSelector = true,
+  showCoverLetter = true,
 }: Props) {
+  // Default to the primary resume (workspace's existing convention); user
+  // can override before clicking Analyze fit.
+  const primaryResume = userResumes.find((entry) => entry.isPrimary);
+  const [selectedResumeId, setSelectedResumeId] = useState<string>(
+    primaryResume?.id ?? userResumes[0]?.id ?? ""
+  );
+  const analysisResumeId = fixedResumeId ?? (showResumeSelector ? selectedResumeId : "");
   const initialFitData = useMemo(
     () => parseStoredFitAnalysis(initialFitAnalysisText),
     [initialFitAnalysisText]
@@ -53,7 +88,7 @@ export function AIWorkspace({
   const [fitLoading, setFitLoading] = useState(false);
   const [fitError, setFitError] = useState<string | null>(null);
 
-  const [clData, setClData] = useState<CoverLetterResult | null>(null);
+  const [clData, setClData] = useState<CoverLetterState | null>(initialCoverLetter);
   const [clLoading, setClLoading] = useState(false);
   const [clError, setClError] = useState<string | null>(null);
   const [clCopied, setClCopied] = useState(false);
@@ -71,7 +106,11 @@ export function AIWorkspace({
     setFitLoading(true);
     setFitError(null);
     try {
-      const res = await fetch(resolvedFitEndpoint, { method: "POST" });
+      const res = await fetch(resolvedFitEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(analysisResumeId ? { resumeId: analysisResumeId } : {}),
+      });
       if (!res.ok) {
         const d = await res.json().catch(() => null);
         throw new Error(d?.error ?? "Analysis failed");
@@ -101,7 +140,13 @@ export function AIWorkspace({
         const d = await res.json().catch(() => null);
         throw new Error(d?.error ?? "Generation failed");
       }
-      setClData(await res.json());
+      const data = (await res.json()) as CoverLetterState;
+      setClData({
+        ...data,
+        downloadHref: data.documentId
+          ? `/api/profile/documents/${data.documentId}/download`
+          : data.downloadHref,
+      });
     } catch (e) {
       setClError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -126,6 +171,30 @@ export function AIWorkspace({
         defaultOpen
         titleClassName={sectionTitleClassName}
       >
+        {showResumeSelector && canAnalyzeFit && userResumes.length > 0 ? (
+          <div className="mb-3 flex flex-col gap-1.5 sm:max-w-sm">
+            <label
+              className="text-xs font-medium text-muted-foreground"
+              htmlFor={`fit-resume-${jobId ?? "workspace"}`}
+            >
+              Analyze based on
+            </label>
+            <select
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:border-foreground/40"
+              id={`fit-resume-${jobId ?? "workspace"}`}
+              onChange={(event) => setSelectedResumeId(event.target.value)}
+              value={selectedResumeId}
+            >
+              {userResumes.map((resume) => (
+                <option key={resume.id} value={resume.id}>
+                  {resume.title}
+                  {resume.isPrimary ? " (Primary)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         {!fitData && !legacyFitText ? (
           canAnalyzeFit ? (
             <div className="flex items-center gap-3">
@@ -186,9 +255,11 @@ export function AIWorkspace({
       </Collapsible>
 
       {/* ── Cover letter ── */}
+      {showCoverLetter ? (
       <Collapsible
-        label="Cover letter"
+        label="Tailored cover letter"
         icon={<Sparkles className="h-3.5 w-3.5" />}
+        defaultOpen
         titleClassName={sectionTitleClassName}
       >
         {!clData ? (
@@ -221,6 +292,7 @@ export function AIWorkspace({
           />
         )}
       </Collapsible>
+      ) : null}
     </div>
   );
 }
@@ -403,7 +475,7 @@ function CoverLetterResult({
   onCopy,
   onRerun,
 }: {
-  data: CoverLetterResult;
+  data: CoverLetterState;
   jobTitle: string;
   company: string;
   copied: boolean;
@@ -417,6 +489,14 @@ function CoverLetterResult({
           {jobTitle} · {company} · {data.wordCount} words
         </p>
         <div className="flex items-center gap-2">
+          {data.downloadHref ? (
+            <a
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              href={data.downloadHref}
+            >
+              Download
+            </a>
+          ) : null}
           <button
             type="button"
             onClick={onCopy}
@@ -439,11 +519,17 @@ function CoverLetterResult({
         </div>
       </div>
 
-      <div className="rounded-md border border-border/60 bg-muted/30 p-3">
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-          {data.text}
+      {data.text.trim() ? (
+        <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {data.text}
+          </p>
+        </div>
+      ) : (
+        <p className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+          Tailored cover letter is saved for this application.
         </p>
-      </div>
+      )}
     </div>
   );
 }

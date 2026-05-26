@@ -37,9 +37,9 @@ export function JobsFeedList({
   }
 
   return (
-    <div className="space-y-4">
+    <ul className="divide-y divide-border/60">
       {jobs.map((job) => (
-        <div key={job.id}>
+        <li className="py-4 first:pt-0 last:pb-0" key={job.id}>
           <JobSummaryCard
             footerActions={
               <JobCardActions
@@ -53,8 +53,8 @@ export function JobsFeedList({
             job={job}
             referenceNow={referenceNow}
           />
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

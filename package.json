@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
+    "predev": "prisma generate",
+    "prebuild": "prisma generate",
+    "db:generate": "prisma generate",
     "dev": "tsx -r dotenv/config scripts/run-app-stack.ts --mode=dev",
     "dev:web": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next dev --webpack",
     "dev:fresh": "rm -rf .next && npm run dev",
@@ -11,6 +15,7 @@
     "build": "next build",
     "start": "tsx -r dotenv/config scripts/run-app-stack.ts --mode=start",
     "start:web": "next start",
+    "test:unit": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "db:backup": "bash scripts/db-backup.sh",

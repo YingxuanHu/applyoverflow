@@ -48,6 +48,8 @@ export async function seedCompaniesFromCanonicalInventory(options: {
   const limit = Math.max(100, options.limit ?? 5_000);
   const includeHistorical = options.includeHistorical ?? true;
 
+  // Pre-filter to unseeded companies BEFORE the expensive aggregate + LEFT JOIN.
+  // Without this, the inner CTE groups all ~256K canonical rows and then filters at the end.
   const rows = (await prisma.$queryRaw`
     WITH grouped AS (
       SELECT
@@ -67,6 +69,9 @@ export async function seedCompaniesFromCanonicalInventory(options: {
        AND m."removedAt" IS NULL
       WHERE j."companyKey" <> ''
         AND (${includeHistorical} OR j.status IN ('LIVE', 'AGING', 'STALE'))
+        AND NOT EXISTS (
+          SELECT 1 FROM "Company" c WHERE c."companyKey" = j."companyKey"
+        )
       GROUP BY 1, 2
     )
     SELECT
@@ -77,10 +82,7 @@ export async function seedCompaniesFromCanonicalInventory(options: {
       g."totalJobs",
       g."liveJobs"
     FROM grouped g
-    LEFT JOIN "Company" c
-      ON c."companyKey" = g."companyKey"
     WHERE g.rank = 1
-      AND c.id IS NULL
     ORDER BY g."liveJobs" DESC, g."totalJobs" DESC, g."companyKey"
     LIMIT ${limit}
   `) as CanonicalCompanySeedRow[];
@@ -119,6 +121,8 @@ export async function seedCompanySourcesFromExistingAts(options: {
   const limit = Math.max(100, options.limit ?? 1_500);
   const families = Object.keys(ATS_PREFIX_TO_CONNECTOR);
 
+  // Pre-filter to sourceNames not yet provisioned in CompanySource. Without this,
+  // the inner aggregate joins all ~697K JobSourceMapping × 256K JobCanonical rows.
   const rows = (await prisma.$queryRaw`
     WITH ranked AS (
       SELECT
@@ -138,6 +142,9 @@ export async function seedCompanySourcesFromExistingAts(options: {
       WHERE m."removedAt" IS NULL
         AND j."companyKey" <> ''
         AND split_part(m."sourceName", ':', 1) = ANY(${families})
+        AND NOT EXISTS (
+          SELECT 1 FROM "CompanySource" cs WHERE cs."sourceName" = m."sourceName"
+        )
       GROUP BY 1, 2
     )
     SELECT

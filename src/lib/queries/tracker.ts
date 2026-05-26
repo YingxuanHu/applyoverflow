@@ -299,7 +299,7 @@ export async function getTrackedApplicationWorkspace(id: string) {
     requireCurrentProfileId(),
   ]);
 
-  const [application, unreadNotificationCount, userDocuments, userTags] =
+  const [application, unreadNotificationCount, userDocuments, generatedDocuments, userTags] =
     await Promise.all([
       prisma.trackedApplication.findFirst({
         where: { id, userId: authUserId },
@@ -348,6 +348,8 @@ export async function getTrackedApplicationWorkspace(id: string) {
                   id: true,
                   title: true,
                   type: true,
+                  isAiGenerated: true,
+                  isPrimary: true,
                   analysis: {
                     select: {
                       documentId: true,
@@ -384,11 +386,36 @@ export async function getTrackedApplicationWorkspace(id: string) {
           id: true,
           title: true,
           type: true,
+          isAiGenerated: true,
+          isPrimary: true,
           analysis: {
             select: {
               documentId: true,
             },
           },
+        },
+      }),
+      prisma.document.findMany({
+        where: {
+          userId: profileId,
+          isAiGenerated: true,
+          sourceApplicationId: id,
+          type: {
+            in: ["RESUME", "COVER_LETTER"],
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          filename: true,
+          originalFileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          extractedText: true,
+          createdAt: true,
         },
       }),
       prisma.tag.findMany({
@@ -407,6 +434,7 @@ export async function getTrackedApplicationWorkspace(id: string) {
     application,
     unreadNotificationCount,
     userDocuments,
+    generatedDocuments,
     userTags,
   };
 }
@@ -705,19 +733,74 @@ export async function upsertTrackedApplicationFromJob(input: {
   };
 }
 
+// Fields the user can edit on the application detail page. `notes`,
+// `jobDescription`, `fitAnalysis` are free-form text and may be cleared
+// (treated as null when blank). `company` and `roleTitle` are identity
+// fields and cannot be blank. `roleUrl` is optional but must look like a URL
+// when provided.
+export type EditableTrackedApplicationField =
+  | "notes"
+  | "jobDescription"
+  | "fitAnalysis"
+  | "company"
+  | "roleTitle"
+  | "roleUrl";
+
+const NULLABLE_TRACKED_FIELDS = new Set<EditableTrackedApplicationField>([
+  "notes",
+  "jobDescription",
+  "fitAnalysis",
+  "roleUrl",
+]);
+
+const REQUIRED_TRACKED_FIELDS = new Set<EditableTrackedApplicationField>([
+  "company",
+  "roleTitle",
+]);
+
 export async function updateTrackedApplicationField(input: {
   applicationId: string;
-  field: "notes" | "jobDescription" | "fitAnalysis";
+  field: EditableTrackedApplicationField;
   value?: string | null;
 }) {
   const userId = await requireCurrentAuthUserId();
+
+  const trimmed = input.value?.trim() ?? "";
+  const isEmpty = trimmed.length === 0;
+
+  if (isEmpty && REQUIRED_TRACKED_FIELDS.has(input.field)) {
+    throw new Error(`${input.field} cannot be empty.`);
+  }
+
+  if (input.field === "roleUrl" && !isEmpty) {
+    // Lightweight URL validation — accept http(s) only; reject obvious junk.
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+      throw new Error("Job link must start with http:// or https://");
+    }
+  }
+
+  // Cap text length to avoid pathological inputs blowing the row.
+  if (input.field === "company" && trimmed.length > 200) {
+    throw new Error("Company name is too long (max 200 chars).");
+  }
+  if (input.field === "roleTitle" && trimmed.length > 300) {
+    throw new Error("Job title is too long (max 300 chars).");
+  }
+  if (input.field === "roleUrl" && trimmed.length > 2000) {
+    throw new Error("Job link is too long (max 2000 chars).");
+  }
+
+  const nextValue = NULLABLE_TRACKED_FIELDS.has(input.field)
+    ? (isEmpty ? null : trimmed)
+    : trimmed;
+
   const result = await prisma.trackedApplication.updateMany({
     where: {
       id: input.applicationId,
       userId,
     },
     data: {
-      [input.field]: input.value?.trim() || null,
+      [input.field]: nextValue,
       updatedAt: new Date(),
     },
   });

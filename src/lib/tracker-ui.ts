@@ -11,25 +11,32 @@ export const TRACKED_STATUS_LABEL: Record<TrackedApplicationStatus, string> = {
   WITHDRAWN: "Withdrawn",
 };
 
+// Status pill colors:
+//   Yellow  → Preparing (warm "in-flight" tone, signals "not yet sent")
+//   Green   → Screen / Interview / Offer (positive momentum stages)
+//   Red     → Rejected (terminal negative)
+//   Neutral → Wishlist / Applied / Withdrawn (default, no positive or
+//             negative signal yet)
+const NEUTRAL = "bg-secondary text-secondary-foreground";
+const POSITIVE = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+const PREPARING = "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+const REJECTED = "bg-destructive/10 text-destructive";
+
 export function trackedStatusClass(status: TrackedApplicationStatus) {
   switch (status) {
     case "PREPARING":
-      return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
-    case "OFFER":
-      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    case "INTERVIEW":
-      return "bg-blue-500/10 text-blue-700 dark:text-blue-300";
+      return PREPARING;
     case "SCREEN":
-      return "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300";
-    case "APPLIED":
-      return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "INTERVIEW":
+    case "OFFER":
+      return POSITIVE;
     case "REJECTED":
-      return "bg-destructive/10 text-destructive";
-    case "WITHDRAWN":
-      return "bg-muted text-muted-foreground";
+      return REJECTED;
     case "WISHLIST":
+    case "APPLIED":
+    case "WITHDRAWN":
     default:
-      return "bg-secondary text-secondary-foreground";
+      return NEUTRAL;
   }
 }
 

@@ -136,10 +136,24 @@ export async function getApplicationReviewData(
     latestPackage?.resumeVariant ??
     selectRecommendedResumeVariant(job.roleFamily, profile.resumeVariants);
 
+  const atsFiller = resolveATSFiller(job.applyUrl);
   const detailJob = serializeJobDetail(job);
+
+  if (
+    !atsFiller &&
+    detailJob.eligibility?.submissionCategory === "AUTO_SUBMIT_READY"
+  ) {
+    detailJob.eligibility = {
+      ...detailJob.eligibility,
+      submissionCategory: "MANUAL_ONLY",
+      reasonCode: "unsupported_submit_filler",
+      reasonDescription:
+        "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
+    };
+  }
+
   const packagePreview = buildPackagePreview(detailJob, profile, recommendedResume);
   const reviewState = getApplicationReviewState(detailJob);
-  const atsFiller = resolveATSFiller(job.applyUrl);
 
   return {
     job: detailJob,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,10 +10,14 @@ import {
   FileText,
   LoaderCircle,
   Lock,
+  Pencil,
   XCircle,
 } from "lucide-react";
 
+import { updateAutoApplyContactAction } from "@/app/profile/actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useNotifications } from "@/components/ui/notification-provider";
 import { cn } from "@/lib/utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -55,7 +59,7 @@ export type AutoApplyWorkspaceProps = {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-type SubmitMode = "fill_and_submit" | "fill_only";
+type SubmitMode = "fill_and_submit";
 
 type ResultState =
   | { kind: "idle" }
@@ -70,6 +74,7 @@ type ResultState =
       blockers: Array<{ type: string; detail: string }>;
       durationMs: number;
       submittedAt: string | null;
+      applicationId: string | null;
     }
   | { kind: "error"; message: string };
 
@@ -80,7 +85,10 @@ export function AutoApplyWorkspace({
   defaultResumeId,
 }: AutoApplyWorkspaceProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  // Renamed to disambiguate from the React-imported `startTransition` we use
+  // below for the inline contact-edit action.
+  const [isSubmitPending, startSubmitTransition] = useTransition();
+  const { notify } = useNotifications();
 
   // Resume — required. Default to primary, otherwise first.
   const [selectedResumeId, setSelectedResumeId] = useState<string | null>(
@@ -95,10 +103,87 @@ export function AutoApplyWorkspace({
   // Expandable review section showing what we'll submit.
   const [showReview, setShowReview] = useState(false);
 
+  // Inline editing of the review-section contact fields. The user can fix
+  // Phone / Location / LinkedIn / Portfolio / Work auth right here without
+  // leaving the auto-apply flow.
+  const [editingContact, setEditingContact] = useState(false);
+  const [draftPhone, setDraftPhone] = useState(profilePreview.phone ?? "");
+  const [draftLocation, setDraftLocation] = useState(profilePreview.location ?? "");
+  const [draftLinkedin, setDraftLinkedin] = useState(profilePreview.linkedinUrl ?? "");
+  const [draftPortfolio, setDraftPortfolio] = useState(profilePreview.portfolioUrl ?? "");
+  const [draftWorkAuth, setDraftWorkAuth] = useState(
+    profilePreview.workAuthorization ?? ""
+  );
+
+  const [contactState, contactAction, contactPending] = useActionState(
+    updateAutoApplyContactAction,
+    { error: null, success: null }
+  );
+
+  // Reset drafts whenever the server-rendered preview changes (e.g. after
+  // router.refresh() following a successful save).
+  useEffect(() => {
+    setDraftPhone(profilePreview.phone ?? "");
+    setDraftLocation(profilePreview.location ?? "");
+    setDraftLinkedin(profilePreview.linkedinUrl ?? "");
+    setDraftPortfolio(profilePreview.portfolioUrl ?? "");
+    setDraftWorkAuth(profilePreview.workAuthorization ?? "");
+  }, [
+    profilePreview.phone,
+    profilePreview.location,
+    profilePreview.linkedinUrl,
+    profilePreview.portfolioUrl,
+    profilePreview.workAuthorization,
+  ]);
+
+  // Surface the action result via toast + refresh on success.
+  useEffect(() => {
+    if (contactState.success) {
+      notify({
+        title: "Details updated",
+        message: contactState.success,
+        tone: "success",
+      });
+      setEditingContact(false);
+      router.refresh();
+    } else if (contactState.error) {
+      notify({
+        title: "Couldn't update details",
+        message: contactState.error,
+        tone: "error",
+      });
+    }
+    // notify identity is stable; depending only on `contactState` ensures
+    // one toast per server-action result.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactState]);
+
+  function handleSaveContact() {
+    if (contactPending) return;
+    const formData = new FormData();
+    formData.set("phone", draftPhone);
+    formData.set("location", draftLocation);
+    formData.set("linkedinUrl", draftLinkedin);
+    formData.set("portfolioUrl", draftPortfolio);
+    formData.set("workAuthorization", draftWorkAuth);
+    startTransition(() => {
+      contactAction(formData);
+    });
+  }
+
+  function handleCancelContactEdit() {
+    setEditingContact(false);
+    setDraftPhone(profilePreview.phone ?? "");
+    setDraftLocation(profilePreview.location ?? "");
+    setDraftLinkedin(profilePreview.linkedinUrl ?? "");
+    setDraftPortfolio(profilePreview.portfolioUrl ?? "");
+    setDraftWorkAuth(profilePreview.workAuthorization ?? "");
+  }
+
   const [result, setResult] = useState<ResultState>({ kind: "idle" });
 
   const hasResume = resumes.length > 0;
-  const canSubmit = hasResume && selectedResumeId !== null && !isPending;
+  const canSubmit = hasResume && selectedResumeId !== null && !isSubmitPending;
 
   const selectedResume = useMemo(
     () => resumes.find((resume) => resume.id === selectedResumeId) ?? null,
@@ -109,7 +194,7 @@ export function AutoApplyWorkspace({
     if (!canSubmit || !selectedResumeId) return;
     setResult({ kind: "running", mode });
 
-    startTransition(async () => {
+    startSubmitTransition(async () => {
       try {
         const response = await fetch(`/api/jobs/${job.id}/auto-apply`, {
           method: "POST",
@@ -142,6 +227,7 @@ export function AutoApplyWorkspace({
           blockers: Array.isArray(data?.blockers) ? data.blockers : [],
           durationMs: Number(data?.durationMs ?? 0),
           submittedAt: data?.submittedAt ?? null,
+          applicationId: typeof data?.applicationId === "string" ? data.applicationId : null,
         });
         router.refresh();
       } catch (error) {
@@ -171,7 +257,7 @@ export function AutoApplyWorkspace({
             Auto-apply to this job
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            We'll fill the application form for {job.company} using your profile
+            We&apos;ll fill the application form for {job.company} using your profile
             and submit it for you.
           </p>
         </div>
@@ -189,7 +275,7 @@ export function AutoApplyWorkspace({
               </span>
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              We'll attach this file to the application.
+              We&apos;ll attach this file to the application.
             </p>
           </div>
           <Link
@@ -297,10 +383,10 @@ export function AutoApplyWorkspace({
         >
           <div>
             <p className="text-sm font-medium text-foreground">
-              Review what we'll submit
+              Review what we&apos;ll submit
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Pulled from your profile. We'll fill the rest of the form from here.
+              Pulled from your profile. We&apos;ll fill the rest of the form from here.
             </p>
           </div>
           <ChevronDown
@@ -311,50 +397,118 @@ export function AutoApplyWorkspace({
           />
         </button>
         {showReview ? (
-          <div className="grid gap-3 border-t border-border/60 p-4 sm:grid-cols-2">
-            <PreviewField label="Full name" value={profilePreview.fullName} />
-            <PreviewField label="Email" value={profilePreview.email} />
-            <PreviewField
-              label="Phone"
-              value={profilePreview.phone ?? "Not set"}
-              muted={!profilePreview.phone}
-            />
-            <PreviewField
-              label="Location"
-              value={profilePreview.location ?? "Not set"}
-              muted={!profilePreview.location}
-            />
-            <PreviewField
-              label="Work authorization"
-              value={profilePreview.workAuthorization ?? "Not set"}
-              muted={!profilePreview.workAuthorization}
-            />
-            <PreviewField
-              label="LinkedIn"
-              value={profilePreview.linkedinUrl ?? "Not set"}
-              muted={!profilePreview.linkedinUrl}
-            />
-            <PreviewField
-              label="Portfolio"
-              value={profilePreview.portfolioUrl ?? "Not set"}
-              muted={!profilePreview.portfolioUrl}
-            />
-            <PreviewField
-              label="Resume attached"
-              value={selectedResume?.label ?? "None selected"}
-              muted={!selectedResume}
-            />
-            <div className="col-span-full pt-1 text-xs text-muted-foreground">
-              Any additional screening questions on the form (work auth, relocation,
-              custom prompts) will be filled from your profile where possible. If a
-              field can't be answered automatically, it will be flagged for review.{" "}
-              <Link
-                href="/profile"
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                Edit profile →
-              </Link>
-            </div>
+          <div className="border-t border-border/60 p-4">
+            {editingContact ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <PreviewField label="Full name" value={profilePreview.fullName} />
+                <PreviewField label="Email" value={profilePreview.email} />
+                <EditableField
+                  label="Phone"
+                  value={draftPhone}
+                  onChange={setDraftPhone}
+                  placeholder="(555) 555-5555"
+                  type="tel"
+                />
+                <EditableField
+                  label="Location"
+                  value={draftLocation}
+                  onChange={setDraftLocation}
+                  placeholder="City, State"
+                />
+                <EditableField
+                  label="Work authorization"
+                  value={draftWorkAuth}
+                  onChange={setDraftWorkAuth}
+                  placeholder="e.g. US Citizen / H1B"
+                />
+                <EditableField
+                  label="LinkedIn"
+                  value={draftLinkedin}
+                  onChange={setDraftLinkedin}
+                  placeholder="https://linkedin.com/in/…"
+                  type="url"
+                />
+                <EditableField
+                  label="Portfolio"
+                  value={draftPortfolio}
+                  onChange={setDraftPortfolio}
+                  placeholder="https://your-site.com"
+                  type="url"
+                />
+                <PreviewField
+                  label="Resume attached"
+                  value={selectedResume?.label ?? "None selected"}
+                  muted={!selectedResume}
+                />
+                <div className="col-span-full flex items-center justify-end gap-2 pt-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelContactEdit}
+                    disabled={contactPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={handleSaveContact} disabled={contactPending}>
+                    {contactPending ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    Save details
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <PreviewField label="Full name" value={profilePreview.fullName} />
+                  <PreviewField label="Email" value={profilePreview.email} />
+                  <PreviewField
+                    label="Phone"
+                    value={profilePreview.phone ?? "Not set"}
+                    muted={!profilePreview.phone}
+                  />
+                  <PreviewField
+                    label="Location"
+                    value={profilePreview.location ?? "Not set"}
+                    muted={!profilePreview.location}
+                  />
+                  <PreviewField
+                    label="Work authorization"
+                    value={profilePreview.workAuthorization ?? "Not set"}
+                    muted={!profilePreview.workAuthorization}
+                  />
+                  <PreviewField
+                    label="LinkedIn"
+                    value={profilePreview.linkedinUrl ?? "Not set"}
+                    muted={!profilePreview.linkedinUrl}
+                  />
+                  <PreviewField
+                    label="Portfolio"
+                    value={profilePreview.portfolioUrl ?? "Not set"}
+                    muted={!profilePreview.portfolioUrl}
+                  />
+                  <PreviewField
+                    label="Resume attached"
+                    value={selectedResume?.label ?? "None selected"}
+                    muted={!selectedResume}
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+                  <span>
+                    Any additional screening questions on the form will be filled
+                    from your profile where possible.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingContact(true)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    <Pencil className="h-3 w-3" />
+	                    Edit details
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : null}
       </section>
@@ -369,9 +523,8 @@ export function AutoApplyWorkspace({
       {/* Not ATS-supported warning */}
       {!job.atsSupported ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
-          We don't yet have an automated filler for this application form. Use{" "}
-          <span className="font-medium">Prepare Documentation</span> instead, then
-          submit via the employer's site.
+          We don&apos;t yet have an automated filler for this application form. Open
+          the original posting and submit via the employer&apos;s site.
         </div>
       ) : null}
 
@@ -381,20 +534,9 @@ export function AutoApplyWorkspace({
           {job.atsName
             ? `This form is powered by ${job.atsName}.`
             : "We'll detect the application form when you submit."}
-          {" "}You can withdraw any time.
+          {" "}Only supported forms are submitted automatically.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => submit("fill_only")}
-            disabled={!canSubmit || !job.atsSupported}
-          >
-            {result.kind === "running" && result.mode === "fill_only" ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            Fill only, I'll review
-          </Button>
           <Button
             size="sm"
             onClick={() => submit("fill_and_submit")}
@@ -508,7 +650,7 @@ function SuccessPanel({
         {result.unfillableFieldCount > 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">
             {result.unfillableFieldCount} field
-            {result.unfillableFieldCount === 1 ? "" : "s"} couldn't be filled
+            {result.unfillableFieldCount === 1 ? "" : "s"} couldn&apos;t be filled
             automatically.
           </p>
         ) : null}
@@ -521,7 +663,7 @@ function SuccessPanel({
         <Button
           size="sm"
           variant="outline"
-          render={<Link href="/applications" />}
+          render={<Link href={result.applicationId ? `/applications/${result.applicationId}` : "/applications"} />}
         >
           View applications
         </Button>
@@ -533,7 +675,7 @@ function SuccessPanel({
               <a href={job.applyUrl} target="_blank" rel="noreferrer noopener" />
             }
           >
-            Open form on employer's site
+            Open form on employer&apos;s site
           </Button>
         ) : null}
       </div>
@@ -563,6 +705,33 @@ function PreviewField({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function EditableField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        type={type}
+        className="mt-1 h-9 text-sm"
+      />
     </div>
   );
 }

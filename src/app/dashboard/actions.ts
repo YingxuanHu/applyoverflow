@@ -48,7 +48,7 @@ export async function createTrackedApplicationAction(
     const company = String(formData.get("company") ?? "").trim();
     const roleTitle = String(formData.get("roleTitle") ?? "").trim();
     const roleUrl = String(formData.get("roleUrl") ?? "").trim() || null;
-    const statusRaw = String(formData.get("status") ?? "WISHLIST").trim().toUpperCase();
+    const statusRaw = String(formData.get("status") ?? "APPLIED").trim().toUpperCase();
     const notes = String(formData.get("notes") ?? "").trim() || null;
 
     if (!company || !roleTitle) {

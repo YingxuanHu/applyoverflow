@@ -19,7 +19,10 @@ export function DeleteApplicationButton({
   applicationId,
   redirectToList = false,
   size = "sm",
-  variant = "ghost",
+  // Default to the destructive (red) variant so delete actions are visually
+  // distinct from neutral actions across the app. Callers can still opt into
+  // a quieter variant by passing `variant="ghost"` explicitly.
+  variant = "destructive",
   className,
 }: DeleteApplicationButtonProps) {
   const router = useRouter();

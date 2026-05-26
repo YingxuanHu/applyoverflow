@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Bot } from "lucide-react";
+import { AIWorkspace } from "@/components/jobs/ai-workspace";
+import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
-import { JobDetailActions } from "@/components/jobs/job-detail-actions";
 import { ManualApplyMenu } from "@/components/jobs/manual-apply-menu";
 import { JobMetaRow } from "@/components/jobs/job-meta-row";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,8 @@ import {
   shouldShowSubmissionMeta,
 } from "@/lib/job-display";
 import { cn } from "@/lib/utils";
-import { getOptionalSessionUser } from "@/lib/current-user";
+import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
+import { prisma } from "@/lib/db";
 import { getApplicationReviewData } from "@/lib/queries/applications";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
 
@@ -39,7 +41,17 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     notFound();
   }
 
-  const { job, reviewState, submissions } = detailData;
+  // List the user's resumes so the AI workspace can offer a picker. We only
+  // need id/title for the dropdown; extractedText is loaded server-side at
+  // analysis time by the API endpoint.
+  const profileId = await requireCurrentProfileId();
+  const userResumes = await prisma.document.findMany({
+    where: { userId: profileId, type: "RESUME" },
+    orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
+    select: { id: true, title: true, isPrimary: true },
+  });
+
+  const { atsSupported, job, reviewState, submissions } = detailData;
   const latestSubmission = submissions[0] ?? null;
   const submissionMeta = getSubmissionMeta(job);
   const reviewStateMeta = APPLICATION_REVIEW_STATE_META[reviewState];
@@ -109,7 +121,13 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
 
         {canStartApplyFlow ? (
           <div className="flex shrink-0 items-center gap-2">
-            {reviewState === "MANUAL_ONLY" ? (
+            <JobCardActions
+              align="end"
+              compact
+              initialSaved={job.isSaved}
+              jobId={job.id}
+            />
+            {reviewState === "MANUAL_ONLY" || !atsSupported ? (
               <ManualApplyMenu
                 align="end"
                 applyHref={manualApplyHref}
@@ -117,18 +135,9 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                 jobId={job.id}
               />
             ) : job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" ? (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  render={<Link href={`/jobs/${job.id}/apply`} />}
-                >
-                  Prepare documentation
-                </Button>
-                <Button size="sm" render={<Link href={`/jobs/${job.id}/auto-apply`} />}>
-                  Auto apply
-                </Button>
-              </>
+              <Button size="sm" render={<Link href={`/jobs/${job.id}/auto-apply`} />}>
+                Auto apply
+              </Button>
             ) : (
               <Button size="sm" render={<Link href={`/jobs/${job.id}/apply`} />}>
                 Apply
@@ -197,20 +206,38 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         <Field label="Automation" value={reviewStateMeta.label} />
       </div>
 
-      {/* Save / Pass + submission status */}
-      <div className="flex items-center justify-between border-t border-border py-3">
-        <JobDetailActions jobId={job.id} initialSaved={job.isSaved} />
-        {latestSubmission ? (
+      {latestSubmission ? (
+        <div className="flex items-center justify-end border-t border-border py-3">
           <p className="text-xs text-muted-foreground">
             {formatDisplayLabel(latestSubmission.status)}
             {latestSubmission.submittedAt
               ? ` · submitted ${formatPostedAge(latestSubmission.submittedAt)}`
               : ""}
           </p>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <JobDescriptionSection job={job} />
+
+      {/* "Fit analysis" section — moved from /jobs/[id]/apply. Title styled
+          to match the Description heading. Cover letter rendering is hidden
+          here (showCoverLetter=false); the workspace page still uses it. */}
+      {process.env.OPENAI_API_KEY ? (
+        <div className="border-t border-border py-4">
+          <p className="text-[15px] font-medium text-muted-foreground">
+            Fit analysis
+          </p>
+          <div className="mt-4">
+            <AIWorkspace
+              company={job.company}
+              jobId={job.id}
+              jobTitle={job.title}
+              showCoverLetter={false}
+              userResumes={userResumes}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

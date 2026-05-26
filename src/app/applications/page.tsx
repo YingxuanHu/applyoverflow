@@ -1,19 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ApplicationListCard } from "@/components/applications/application-list-card";
 import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
-import { DeleteApplicationButton } from "@/components/applications/delete-application-button";
+import { SearchParamMemory } from "@/components/navigation/search-param-memory";
+import { Button } from "@/components/ui/button";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import {
   getTrackedDashboardData,
   type TrackerDeadlineFilter,
   type TrackerSortFilter,
 } from "@/lib/queries/tracker";
-import {
-  formatTrackerDate,
-  TRACKED_STATUS_LABEL,
-  trackedStatusClass,
-} from "@/lib/tracker-ui";
 
 type ApplicationsSearchParams = {
   status?: string;
@@ -124,6 +121,10 @@ export default async function ApplicationsPage({
 
   return (
     <div className="app-page space-y-6">
+      <SearchParamMemory
+        basePath="/applications"
+        storageKey="autoapplication.applications.filters"
+      />
       <div className="page-header">
         <div>
           <h1 className="page-title">Applications</h1>
@@ -236,12 +237,14 @@ export default async function ApplicationsPage({
               Apply
             </button>
             {hasActiveFilters ? (
-              <Link
-                href="/applications"
-                className="text-sm text-muted-foreground hover:text-foreground"
+              <Button
+                className="h-9"
+                render={<Link href="/applications?reset=1" />}
+                size="sm"
+                variant="outline"
               >
                 Reset
-              </Link>
+              </Button>
             ) : null}
           </div>
         </form>
@@ -290,95 +293,7 @@ export default async function ApplicationsPage({
                   className="py-4 first:pt-0 last:pb-0"
                   id={`application-${application.id}`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/applications/${application.id}`}
-                          className="inline-block max-w-full truncate text-base font-semibold text-foreground transition hover:underline"
-                        >
-                          {application.company}
-                        </Link>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${trackedStatusClass(application.status)}`}
-                        >
-                          {TRACKED_STATUS_LABEL[application.status]}
-                        </span>
-                        {application.canonicalJob ? (
-                          <span className="text-xs text-muted-foreground">
-                            Feed-linked
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        <Link
-                          href={`/applications/${application.id}`}
-                          className="transition hover:text-foreground"
-                        >
-                          {application.roleTitle}
-                        </Link>
-                        {application.canonicalJob?.location
-                          ? ` · ${application.canonicalJob.location}`
-                          : ""}
-                        {application.canonicalJob?.workMode
-                          ? ` · ${application.canonicalJob.workMode.toLowerCase()}`
-                          : ""}
-                      </p>
-                      {application.roleUrl ? (
-                        <a
-                          className="mt-0.5 inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                          href={application.roleUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Posting
-                        </a>
-                      ) : null}
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Deadline: {formatTrackerDate(application.deadline)}
-                      </p>
-                      {application.notes ? (
-                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                          {application.notes}
-                        </p>
-                      ) : null}
-                      {application.tags.length > 0 ? (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {application.tags.map(({ tag }) => (
-                            <span
-                              key={tag.id}
-                              className="rounded-full border border-border/70 px-2.5 py-0.5 text-xs text-muted-foreground"
-                            >
-                              {tag.name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-                      <Link
-                        href={`/applications/${application.id}`}
-                        className="text-sm font-medium text-foreground hover:underline"
-                      >
-                        Open workspace
-                      </Link>
-                      {application.canonicalJobId ? (
-                        <Link
-                          href={`/jobs/${application.canonicalJobId}`}
-                          className="text-sm text-muted-foreground hover:text-foreground"
-                        >
-                          Open job
-                        </Link>
-                      ) : null}
-                      <DeleteApplicationButton
-                        applicationId={application.id}
-                        className="px-0 text-sm text-muted-foreground hover:text-destructive"
-                        size="sm"
-                        variant="ghost"
-                      />
-                    </div>
-                  </div>
+                  <ApplicationListCard application={application} />
                 </li>
               ))}
             </ul>

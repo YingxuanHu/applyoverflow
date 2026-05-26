@@ -66,6 +66,11 @@ export default async function ProfilePage() {
         location: true,
         headline: true,
         summary: true,
+        phone: true,
+        linkedinUrl: true,
+        githubUrl: true,
+        portfolioUrl: true,
+        workAuthorization: true,
         skillsText: true,
         experienceText: true,
         educationText: true,
@@ -88,6 +93,7 @@ export default async function ProfilePage() {
         sizeBytes: true,
         createdAt: true,
         isPrimary: true,
+        isAiGenerated: true,
         analysis: {
           select: {
             importSummaryJson: true,
@@ -116,6 +122,7 @@ export default async function ProfilePage() {
         mimeType: true,
         sizeBytes: true,
         createdAt: true,
+        isAiGenerated: true,
       },
     }),
   ]);
@@ -127,10 +134,17 @@ export default async function ProfilePage() {
   const resumeCount = resumes.length;
   const primaryResume = resumes.find((resume) => resume.isPrimary) ?? null;
   const coverLetterCount = coverLetters.length;
+  const missingApplicationDetails =
+    !initialValues.contact.phone.trim() ||
+    !initialValues.contact.linkedInUrl.trim() ||
+    !initialValues.contact.portfolioUrl.trim() ||
+    !initialValues.workAuthorization.trim();
 
   // Pick a sensible default tab: resumes if none uploaded yet, else About-you
   // if profile is incomplete, else resumes.
-  const defaultTab = resumeCount === 0
+  const defaultTab = missingApplicationDetails
+    ? "about"
+    : resumeCount === 0
     ? "resumes"
     : completeness.pct < 70
     ? "about"
@@ -199,7 +213,7 @@ export default async function ProfilePage() {
         <TabsList className="w-full justify-start">
           <TabsTrigger value="resumes">Resumes &amp; templates</TabsTrigger>
           <TabsTrigger value="cover-letters">Cover letters</TabsTrigger>
-          <TabsTrigger value="about">About you</TabsTrigger>
+          <TabsTrigger value="about">Application details</TabsTrigger>
         </TabsList>
 
         <TabsContent value="resumes" className="mt-4">
@@ -213,6 +227,7 @@ export default async function ProfilePage() {
                 sizeLabel: formatFileSize(resume.sizeBytes),
                 createdAtLabel: formatMediumDateTimeEnCa(resume.createdAt),
                 isPrimary: resume.isPrimary,
+                isAiGenerated: resume.isAiGenerated,
                 downloadHref: `/api/profile/documents/${resume.id}/download`,
                 importSummary:
                   (resume.analysis?.importSummaryJson as ResumeImportSummary | null) ?? null,
@@ -241,6 +256,7 @@ export default async function ProfilePage() {
                 mimeType: coverLetter.mimeType,
                 sizeLabel: formatFileSize(coverLetter.sizeBytes),
                 createdAtLabel: formatMediumDateTimeEnCa(coverLetter.createdAt),
+                isAiGenerated: coverLetter.isAiGenerated,
                 downloadHref: `/api/profile/documents/${coverLetter.id}/download`,
               }))}
               storageConfigured={storageReadiness.configured}
@@ -256,6 +272,7 @@ export default async function ProfilePage() {
                 headline: initialValues.headline,
                 summary: initialValues.summary,
                 location: initialValues.location,
+                workAuthorization: initialValues.workAuthorization,
                 contact: initialValues.contact,
                 skills: initialValues.skills,
                 educations: initialValues.educations,

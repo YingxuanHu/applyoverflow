@@ -28,6 +28,7 @@ type CoverLetterRecord = {
   sizeLabel: string;
   createdAtLabel: string;
   downloadHref: string;
+  isAiGenerated: boolean;
 };
 
 type CoverLetterManagerProps = {
@@ -180,40 +181,74 @@ function AddCoverLetterForm({
 
 export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLetterManagerProps) {
   const [showAdd, setShowAdd] = useState(false);
+  const uploadedCoverLetters = coverLetters.filter(
+    (coverLetter) => !coverLetter.isAiGenerated
+  );
+  const aiCoverLetters = coverLetters.filter(
+    (coverLetter) => coverLetter.isAiGenerated
+  );
 
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Cover letters</h3>
-        <span className="text-xs text-muted-foreground">{coverLetters.length}</span>
+    <div className="grid gap-6">
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Uploaded by you
+          </h3>
+          <span className="text-xs text-muted-foreground">{uploadedCoverLetters.length}</span>
+        </div>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Upload cover letter versions to your library and attach them to applications from the workspace.
+        </p>
+
+        {uploadedCoverLetters.length === 0 && !showAdd ? (
+          <p className="py-2 text-sm italic text-muted-foreground">
+            No uploaded cover letters yet.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {uploadedCoverLetters.map((coverLetter) => (
+              <CoverLetterRow coverLetter={coverLetter} key={coverLetter.id} />
+            ))}
+          </div>
+        )}
+
+        {showAdd ? (
+          <div className="mt-2">
+            <AddCoverLetterForm
+              onDone={() => setShowAdd(false)}
+              storageConfigured={storageConfigured}
+            />
+          </div>
+        ) : (
+          <button
+            className="mt-2 rounded-md px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+            onClick={() => setShowAdd(true)}
+            type="button"
+          >
+            + Add cover letter
+          </button>
+        )}
       </div>
-      <p className="mb-2 text-xs text-muted-foreground">
-        Upload cover letter versions to your library and attach them to applications from the workspace.
-      </p>
 
-      {coverLetters.length === 0 && !showAdd ? (
-        <p className="py-2 text-sm italic text-muted-foreground">No cover letters yet.</p>
-      ) : (
-        <div className="grid gap-2">
-          {coverLetters.map((cl) => (
-            <CoverLetterRow coverLetter={cl} key={cl.id} />
-          ))}
+      {aiCoverLetters.length > 0 ? (
+        <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              AI generated
+            </h3>
+            <span className="text-xs text-muted-foreground">{aiCoverLetters.length}</span>
+          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Cover letters produced by the app for specific jobs.
+          </p>
+          <div className="grid gap-2">
+            {aiCoverLetters.map((coverLetter) => (
+              <CoverLetterRow coverLetter={coverLetter} key={coverLetter.id} />
+            ))}
+          </div>
         </div>
-      )}
-
-      {showAdd ? (
-        <div className="mt-2">
-          <AddCoverLetterForm onDone={() => setShowAdd(false)} storageConfigured={storageConfigured} />
-        </div>
-      ) : (
-        <button
-          className="mt-2 rounded-md px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
-          onClick={() => setShowAdd(true)}
-          type="button"
-        >
-          + Add cover letter
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }

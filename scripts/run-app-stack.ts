@@ -68,13 +68,18 @@ function parseArgs(rawArgs: string[]): ParsedArgs {
 }
 
 function startNext(mode: Mode) {
+  // Default to Turbopack (Next.js 16's bundler) — 10-30x faster route compile
+  // in dev than webpack. Set BUNDLER=webpack to fall back to the legacy
+  // bundler if you hit a Turbopack-specific bug.
+  const useWebpack = (process.env.BUNDLER ?? "").toLowerCase() === "webpack";
+
   const args =
     mode === "dev"
       ? [
           "--max-old-space-size=2048",
           "./node_modules/next/dist/bin/next",
           "dev",
-          "--webpack",
+          ...(useWebpack ? ["--webpack"] : []),
         ]
       : ["./node_modules/next/dist/bin/next", "start"];
 

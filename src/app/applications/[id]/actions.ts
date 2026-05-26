@@ -128,18 +128,72 @@ function inferDocumentMimeType(fileName: string, browserMime: string): string {
   return inferProfileDocumentMimeType(fileName, browserMime);
 }
 
+const EDITABLE_APPLICATION_FIELDS = [
+  "notes",
+  "jobDescription",
+  "fitAnalysis",
+  "company",
+  "roleTitle",
+  "roleUrl",
+] as const;
+type EditableApplicationField = (typeof EDITABLE_APPLICATION_FIELDS)[number];
+
+const APPLICATION_FIELD_LABELS: Record<EditableApplicationField, string> = {
+  notes: "Notes",
+  jobDescription: "Job description",
+  fitAnalysis: "Fit analysis",
+  company: "Company",
+  roleTitle: "Job title",
+  roleUrl: "Job link",
+};
+
+/**
+ * Update the three "header" identity fields (company, roleTitle, roleUrl)
+ * in a single submission. Backed by individual updateTrackedApplicationField
+ * calls so existing validation (required, URL format, length caps) is reused.
+ */
+export async function updateApplicationHeader(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const applicationId = String(formData.get("applicationId") ?? "").trim();
+    if (!applicationId) {
+      return { error: "Invalid parameters.", success: null };
+    }
+
+    const company = String(formData.get("company") ?? "");
+    const roleTitle = String(formData.get("roleTitle") ?? "");
+    const roleUrl = String(formData.get("roleUrl") ?? "");
+
+    // Update each field in turn so per-field validation messages surface
+    // accurately. The DB writes are tiny (one row, no FK joins) so the
+    // serialization cost is negligible.
+    await updateTrackedApplicationField({ applicationId, field: "company", value: company });
+    await updateTrackedApplicationField({ applicationId, field: "roleTitle", value: roleTitle });
+    await updateTrackedApplicationField({ applicationId, field: "roleUrl", value: roleUrl });
+
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
+
+    return {
+      error: null,
+      success: "Application details saved.",
+    };
+  } catch (error) {
+    return toActionState(error);
+  }
+}
+
 export async function updateApplicationField(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   try {
     const applicationId = String(formData.get("applicationId") ?? "").trim();
-    const field = String(formData.get("field") ?? "").trim();
+    const fieldRaw = String(formData.get("field") ?? "").trim();
+    const field = EDITABLE_APPLICATION_FIELDS.find((value) => value === fieldRaw);
 
-    if (
-      !applicationId ||
-      (field !== "notes" && field !== "jobDescription" && field !== "fitAnalysis")
-    ) {
+    if (!applicationId || !field) {
       return { error: "Invalid parameters.", success: null };
     }
 
@@ -151,15 +205,9 @@ export async function updateApplicationField(
 
     revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 
-    const labels = {
-      notes: "Notes",
-      jobDescription: "Job description",
-      fitAnalysis: "Fit analysis",
-    } as const;
-
     return {
       error: null,
-      success: `${labels[field]} saved.`,
+      success: `${APPLICATION_FIELD_LABELS[field]} saved.`,
     };
   } catch (error) {
     return toActionState(error);

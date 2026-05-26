@@ -4,6 +4,7 @@ import { ArrowUpDown, Check, ChevronDown, Search, SlidersHorizontal, X } from "l
 
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
+import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
@@ -115,21 +116,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const totalPages =
     jobsResult.total !== null ? Math.max(1, Math.ceil(jobsResult.total / jobsResult.pageSize)) : null;
   const navigationKey = buildSearchParamSignature(resolvedSearchParams);
-  const clearFiltersHref = buildJobsHref(resolvedSearchParams, {
-    page: undefined,
-    search: undefined,
-    region: undefined,
-    workMode: undefined,
-    industry: undefined,
-    roleFamily: undefined,
-    salaryMin: undefined,
-    experienceLevel: undefined,
-    expiry: undefined,
-    submissionCategory: undefined,
-  });
+  const clearFiltersHref = "/jobs?reset=1";
 
   return (
     <div className="app-page space-y-6">
+      <SearchParamMemory basePath="/jobs" storageKey="autoapplication.jobs.filters" />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
       <header className="page-header">
@@ -161,15 +152,12 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </span>
             <span className="text-muted-foreground">
               <span className="font-medium text-foreground">
-                {jobsResult.summary.expiredTodayCount.toLocaleString()}
+                {(
+                  jobsResult.summary.expiredTodayCount +
+                  jobsResult.summary.removedTodayCount
+                ).toLocaleString()}
               </span>{" "}
-              marked expired today
-            </span>
-            <span className="text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {jobsResult.summary.removedTodayCount.toLocaleString()}
-              </span>{" "}
-              removed today
+              expired/closed today
             </span>
           </div>
           {hasScopedResults &&
@@ -241,9 +229,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <p className="text-base font-medium text-foreground">Refine the feed</p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Keep each filter section collapsed until you want to open it.
-                              </p>
                             </div>
                             {activeFilterCount > 0 ? (
                               <span className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/40 px-3 text-xs font-medium text-foreground">
@@ -408,7 +393,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                   </details>
 
                   {hasScopedResults ? (
-                    <Button className="h-10 px-3" render={<Link href={clearFiltersHref} />} size="sm" variant="ghost">
+                    <Button className="h-10 px-3" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
                       <X className="h-3.5 w-3.5" />
                       Clear
                     </Button>
@@ -445,7 +430,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                 : "The live pool is refreshing. Check back in a moment."}
             </p>
             {hasScopedResults ? (
-              <Button className="mt-4" render={<Link href="/jobs" />} size="sm" variant="outline">
+              <Button className="mt-4" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
                 Clear filters
               </Button>
             ) : null}

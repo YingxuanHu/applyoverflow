@@ -1560,6 +1560,17 @@ function computePollEfficiencyScore(input: {
   return score / Math.max(input.estimatedRuntimeMs / 1000, 1);
 }
 
+// Process-local cache for recent-source-yield metrics. The underlying query is
+// a SUM/COUNT groupBy across ~685K IngestionRun rows. Without caching, every
+// daemon + recovery-poll worker re-runs it every cycle, creating concurrent
+// I/O contention. The metrics shift slowly (7-day window) so a 5-minute TTL
+// per source is safe.
+const RECENT_SOURCE_YIELD_TTL_MS = 5 * 60 * 1000;
+const recentSourceYieldCache = new Map<
+  string,
+  { value: RecentSourceYieldMetrics; expiresAt: number }
+>();
+
 async function buildRecentSourceYieldMetrics(
   sourceNames: string[],
   now: Date
@@ -1568,14 +1579,32 @@ async function buildRecentSourceYieldMetrics(
     return new Map<string, RecentSourceYieldMetrics>();
   }
 
+  const result = new Map<string, RecentSourceYieldMetrics>();
+  const missing: string[] = [];
+  const nowMs = now.getTime();
+
+  // Bucket by cache hit/miss first to keep the DB query as small as possible.
+  for (const sourceName of sourceNames) {
+    const cached = recentSourceYieldCache.get(sourceName);
+    if (cached && cached.expiresAt > nowMs) {
+      result.set(sourceName, cached.value);
+    } else {
+      missing.push(sourceName);
+    }
+  }
+
+  if (missing.length === 0) {
+    return result;
+  }
+
   const cutoff = new Date(
-    now.getTime() - COMPANY_SOURCE_RECENT_YIELD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
+    nowMs - COMPANY_SOURCE_RECENT_YIELD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
   );
   const rows = await prisma.ingestionRun.groupBy({
     by: ["sourceName"],
     where: {
       startedAt: { gte: cutoff },
-      sourceName: { in: sourceNames },
+      sourceName: { in: missing },
     },
     _sum: {
       canonicalCreatedCount: true,
@@ -1586,17 +1615,46 @@ async function buildRecentSourceYieldMetrics(
     },
   });
 
-  return new Map<string, RecentSourceYieldMetrics>(
-    rows.map((row) => [
-      row.sourceName,
-      {
-        sourceName: row.sourceName,
-        canonicalCreatedCount7d: row._sum.canonicalCreatedCount ?? 0,
-        acceptedCount7d: row._sum.acceptedCount ?? 0,
-        runCount7d: row._count._all,
-      },
-    ])
-  );
+  const fetched = new Set<string>();
+  const expiresAt = nowMs + RECENT_SOURCE_YIELD_TTL_MS;
+  for (const row of rows) {
+    const value: RecentSourceYieldMetrics = {
+      sourceName: row.sourceName,
+      canonicalCreatedCount7d: row._sum.canonicalCreatedCount ?? 0,
+      acceptedCount7d: row._sum.acceptedCount ?? 0,
+      runCount7d: row._count._all,
+    };
+    result.set(row.sourceName, value);
+    recentSourceYieldCache.set(row.sourceName, { value, expiresAt });
+    fetched.add(row.sourceName);
+  }
+
+  // Cache the empty result for sourceNames that had no recent runs so we don't
+  // keep re-asking the DB about cold sources.
+  for (const sourceName of missing) {
+    if (fetched.has(sourceName)) continue;
+    const empty: RecentSourceYieldMetrics = {
+      sourceName,
+      canonicalCreatedCount7d: 0,
+      acceptedCount7d: 0,
+      runCount7d: 0,
+    };
+    result.set(sourceName, empty);
+    recentSourceYieldCache.set(sourceName, { value: empty, expiresAt });
+  }
+
+  // Bound the cache. If it grows past ~50K entries, drop oldest 25%.
+  if (recentSourceYieldCache.size > 50_000) {
+    const drop = Math.floor(recentSourceYieldCache.size * 0.25);
+    let dropped = 0;
+    for (const key of recentSourceYieldCache.keys()) {
+      if (dropped >= drop) break;
+      recentSourceYieldCache.delete(key);
+      dropped += 1;
+    }
+  }
+
+  return result;
 }
 
 function computeQueuePriorityScore(input: {

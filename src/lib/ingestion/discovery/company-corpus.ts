@@ -60,6 +60,20 @@ type CatalogAliasEntry = {
 
 const catalogAliases = buildCatalogAliasEntries();
 
+// Process-local cache for the full discovery corpus result. The underlying
+// query runs three concurrent JobCanonical groupBys across ~345K rows, each
+// scanning ~2.4GB of table. Without caching, the daemon + recovery workers
+// thrash buffer pool every cycle. The corpus shifts on the order of hours, so
+// a 5-minute TTL is conservative.
+const COMPANY_DISCOVERY_CORPUS_TTL_MS = 5 * 60 * 1000;
+let companyDiscoveryCorpusCache: {
+  expiresAt: number;
+  // Full (unsliced) sorted corpus; callers re-apply their own limit.
+  fullCorpus: CompanyDiscoveryCorpusEntry[];
+  minCanadaRelevantCount: number;
+  minTotalLiveCount: number;
+} | null = null;
+
 export async function buildCompanyDiscoveryCorpus(options?: {
   limit?: number;
   minCanadaRelevantCount?: number;
@@ -67,6 +81,21 @@ export async function buildCompanyDiscoveryCorpus(options?: {
 }) {
   const minCanadaRelevantCount = options?.minCanadaRelevantCount ?? 1;
   const minTotalLiveCount = options?.minTotalLiveCount ?? 1;
+
+  // Reuse the cached corpus when the gating thresholds match. The bulk of the
+  // expense is the three groupBys; the post-filter cost is negligible.
+  const nowMs = Date.now();
+  if (
+    companyDiscoveryCorpusCache &&
+    companyDiscoveryCorpusCache.expiresAt > nowMs &&
+    companyDiscoveryCorpusCache.minCanadaRelevantCount === minCanadaRelevantCount &&
+    companyDiscoveryCorpusCache.minTotalLiveCount === minTotalLiveCount
+  ) {
+    const cached = companyDiscoveryCorpusCache.fullCorpus;
+    return typeof options?.limit === "number"
+      ? cached.slice(0, options.limit)
+      : cached;
+  }
 
   const [liveRows, canadaRows, canadaRemoteRows] = await Promise.all([
     prisma.jobCanonical.groupBy({
@@ -206,6 +235,13 @@ export async function buildCompanyDiscoveryCorpus(options?: {
       }
       return left.displayName.localeCompare(right.displayName);
     });
+
+  companyDiscoveryCorpusCache = {
+    expiresAt: nowMs + COMPANY_DISCOVERY_CORPUS_TTL_MS,
+    fullCorpus: corpus,
+    minCanadaRelevantCount,
+    minTotalLiveCount,
+  };
 
   return typeof options?.limit === "number" ? corpus.slice(0, options.limit) : corpus;
 }

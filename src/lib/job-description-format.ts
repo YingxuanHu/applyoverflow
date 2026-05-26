@@ -191,6 +191,59 @@ function normalizeHeadingKey(text: string) {
     .trim();
 }
 
+function normalizeCommonMojibake(text: string) {
+  return text
+    .replace(/â¦/g, "…")
+    .replace(/â/g, "–")
+    .replace(/â/g, "—")
+    .replace(/â/g, "'")
+    .replace(/â|â/g, '"')
+    .replace(/Â&nbsp;/g, " ")
+    .replace(/Â\s/g, " ");
+}
+
+function looksLikeIncompleteDescriptionSnippet(text: string) {
+  const normalized = normalizeCommonMojibake(text).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return true;
+  }
+
+  const lower = normalized.toLowerCase();
+  const hasRoleContent =
+    /\b(responsibilities|requirements|qualifications|you will|you'll|what you|this role|the role|candidate|as a|as an)\b/i.test(
+      normalized
+    );
+
+  if (
+    normalized.length < 360 &&
+    (/(\.\.\.|…)/.test(normalized) ||
+      /\b(?:see this and similar jobs|similar jobs on linkedin)\b/i.test(normalized) ||
+      /\b(?:at|to|and|with|for|of|in|the|a|an|our|their)$/i.test(normalized))
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.length < 360 &&
+    /^(company description|who are we|who we are|about [a-z0-9& .'-]+)\b/.test(lower) &&
+    !hasRoleContent
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.length < 240 &&
+    !hasRoleContent &&
+    /(work authorization|autorisation de travail|on-site expectation|onsite expectation)/i.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function decodeEmbeddedJsonString(value: string) {
   try {
     return JSON.parse(`"${value.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`) as string;
@@ -483,6 +536,7 @@ function cleanupJobDescription(raw: string) {
     .replace(/\n[ \t]+/g, "\n")
     .replace(/[ \t]{2,}/g, " ");
 
+  cleaned = normalizeCommonMojibake(cleaned);
   cleaned = decodeHtmlEntitiesFull(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
@@ -797,12 +851,119 @@ export function getJobDescriptionSummaryBlocks(raw: string, maxSections = 6) {
   return summary;
 }
 
+export function getCleanJobDescriptionDisplayBlocks(raw: string, maxSections = 8) {
+  if (!raw.trim()) {
+    return [];
+  }
+
+  const summaryBlocks = getJobDescriptionSummaryBlocks(raw, maxSections);
+  const sourceBlocks =
+    summaryBlocks.length > 0 ? summaryBlocks : parseJobDescriptionBlocks(raw);
+
+  return compactDescriptionBlocks(sourceBlocks);
+}
+
+function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
+  const compacted: DescriptionBlock[] = [];
+  const seenContent = new Set<string>();
+  let pendingHeader: string | null = null;
+
+  const pushHeader = () => {
+    if (!pendingHeader) return;
+    const previous = compacted[compacted.length - 1];
+    if (
+      previous?.kind !== "header" ||
+      normalizeHeadingKey(previous.text) !== normalizeHeadingKey(pendingHeader)
+    ) {
+      compacted.push({ kind: "header", text: pendingHeader });
+    }
+    pendingHeader = null;
+  };
+
+  for (const block of blocks) {
+    if (block.kind === "header") {
+      const header = normalizeHeadingText(block.text);
+      if (!header || isDescriptionNoiseText(header)) {
+        continue;
+      }
+      pendingHeader = header;
+      continue;
+    }
+
+    if (block.kind === "paragraph") {
+      const text = cleanDescriptionContentText(block.text);
+      const key = normalizeDescriptionContentKey(text);
+      if (!text || text.length < 35 || seenContent.has(key)) {
+        continue;
+      }
+
+      pushHeader();
+      seenContent.add(key);
+      compacted.push({
+        kind: "paragraph",
+        text: trimSummaryText(text, 420),
+      });
+      continue;
+    }
+
+    const items = block.items
+      .map(cleanDescriptionContentText)
+      .filter((item) => item.length >= 18 && !isDescriptionNoiseText(item))
+      .filter((item) => {
+        const key = normalizeDescriptionContentKey(item);
+        if (seenContent.has(key)) {
+          return false;
+        }
+        seenContent.add(key);
+        return true;
+      })
+      .map((item) => trimSummaryText(item, 260))
+      .slice(0, 6);
+
+    if (items.length === 0) {
+      continue;
+    }
+
+    pushHeader();
+    compacted.push({ kind: "list", items });
+  }
+
+  return compacted;
+}
+
+function cleanDescriptionContentText(text: string) {
+  return text
+    .replace(/^[•*–·-]\s+/, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function normalizeDescriptionContentKey(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
 export function isJobDescriptionSummaryUsable(raw: string | null | undefined) {
   if (!raw?.trim()) {
     return false;
   }
 
-  const blocks = getJobDescriptionSummaryBlocks(raw, 8);
+  const cleaned = cleanupJobDescription(raw);
+  if (
+    !cleaned ||
+    looksLikeIncompleteDescriptionSnippet(cleaned) ||
+    looksLikeWrongPageDescription(cleaned, raw) ||
+    hasDescriptionPollution(cleaned)
+  ) {
+    return false;
+  }
+
+  const blocks = getJobDescriptionSummaryBlocks(cleaned, 8);
   if (blocks.length === 0) {
     return false;
   }
@@ -1049,6 +1210,9 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
 
   const cleaned = cleanupJobDescription(raw);
   if (!cleaned) return true;
+  if (looksLikeIncompleteDescriptionSnippet(cleaned)) {
+    return true;
+  }
   if (looksLikeWrongPageDescription(cleaned, raw)) {
     return true;
   }

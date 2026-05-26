@@ -4,10 +4,13 @@ import {
 } from "@/lib/ingestion/html-description";
 
 const TITLE_ROLE_HINT_RE =
-  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|intern|administrator|technician|officer|developer relations|researcher)\b/i;
+  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|operations|lighter|trainer|student|co-?op)\b/i;
 
 const TITLE_BAD_MARKER_RE =
   /\b(work at|careers?\b|career page|find real[- ]time|parking|join (?:our )?team|we make work|intelligent parking|close search|skip to main content|about us|our current job openings|what do we offer)\b/i;
+
+const TITLE_LOCATION_ONLY_RE =
+  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore)(?:\s+(?:office|area|region|centre|center|city))?$/i;
 
 const COMPANY_BAD_MARKER_RE =
   /\b(jobs?|careers?|career page|work at|hiring|logo|intelligent parking|using ai|find real[- ]time|close search|skip to main content)\b/i;
@@ -88,18 +91,32 @@ export function sanitizeJobTitle(value: unknown) {
   if (!normalized) return "";
 
   const candidates = new Set<string>([normalized]);
+  const addCandidate = (candidate: string) => {
+    const compacted = compactWhitespace(candidate);
+    if (!compacted) return;
+    candidates.add(compacted);
+
+    const slashParts = compacted
+      .split(/\s+\/\s+/)
+      .map((part) => compactWhitespace(part))
+      .filter(Boolean);
+    for (const slashPart of slashParts) {
+      candidates.add(slashPart);
+    }
+  };
+
   const lookingForMatch = normalized.match(
     /\bwe (?:are|'re)\s+looking for (?:an?\s+)?(.+?)(?:\s*(?:[-–—|]|$))/i
   );
   if (lookingForMatch?.[1]) {
-    candidates.add(compactWhitespace(lookingForMatch[1]));
+    addCandidate(lookingForMatch[1]);
   }
 
   for (const segment of normalized
     .split(/\s+[|–—-]\s+/)
     .map((part) => compactWhitespace(part))
     .filter(Boolean)) {
-    candidates.add(segment);
+    addCandidate(segment);
   }
 
   let best = normalized;
@@ -232,9 +249,11 @@ export function hasUnresolvedGenericCompanyName(
 
 function scoreTitleCandidate(candidate: string) {
   let score = 0;
+  const locationCandidate = candidate.replace(/[()]/g, "").trim();
   if (candidate.length >= 4 && candidate.length <= 100) score += 2;
   if (TITLE_ROLE_HINT_RE.test(candidate)) score += 6;
   if (candidate.split(/\s+/).length <= 10) score += 1;
+  if (TITLE_LOCATION_ONLY_RE.test(locationCandidate)) score -= 10;
   if (TITLE_BAD_MARKER_RE.test(candidate)) score -= 8;
   if (/\?$/.test(candidate)) score -= 4;
   if (/^[a-z]/.test(candidate)) score -= 1;

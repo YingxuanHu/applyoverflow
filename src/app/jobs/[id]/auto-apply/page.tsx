@@ -82,13 +82,17 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
   }
 
   const atsFiller = resolveATSFiller(job.applyUrl);
+  if (!atsFiller) {
+    redirect(`/jobs/${job.id}`);
+  }
+
   const jobContext: AutoApplyJobContext = {
     id: job.id,
     title: job.title,
     company: job.company,
     applyUrl: job.applyUrl,
-    atsSupported: atsFiller !== null,
-    atsName: atsFiller?.atsName ?? null,
+    atsSupported: true,
+    atsName: atsFiller.atsName,
   };
 
   const resumes: AutoApplyResumeChoice[] = profile.resumeVariants.map((variant) => ({

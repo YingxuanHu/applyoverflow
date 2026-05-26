@@ -14,6 +14,8 @@ const bulkRecoveryProcessName = (() => {
 installProcessDiagnostics({ processName: bulkRecoveryProcessName });
 import {
   createAdzunaConnector,
+  createBuiltInConnector,
+  createHiringCafeConnector,
   createHimalayasConnector,
   createJobBankConnector,
   createJobicyConnector,
@@ -206,6 +208,33 @@ function getBulkRecoveryEntries(): Entry[] {
     process.env.BULK_RECOVERY_JOBICY_MAX_RUNTIME_MS,
     90 * 1000
   );
+  // BuiltIn: HTML-scrape + per-job JSON-LD parse. 8 listing pages × ~17 jobs ×
+  // ~0.6s per fetch (with rate delay) ≈ 90s, plus per-job description fetches
+  // run sequentially. Default 6-minute budget gives headroom; 60-min cadence
+  // gives ~8 cycles/day per lane.
+  const builtinCadence = parsePositiveInteger(
+    process.env.BULK_RECOVERY_BUILTIN_CADENCE_MINUTES,
+    60
+  );
+  const builtinRuntimeMs = parsePositiveInteger(
+    process.env.BULK_RECOVERY_BUILTIN_MAX_RUNTIME_MS,
+    6 * 60 * 1000
+  );
+  const builtinLimit = parsePositiveInteger(
+    process.env.BULK_RECOVERY_BUILTIN_LIMIT,
+    140
+  );
+  // Hiring.cafe: single fetch returns ~145 structured hits via __NEXT_DATA__.
+  // Fast (one request, parsed JSON, no per-job page fetches) — 30-min cadence
+  // gives 8x daily refresh. 90s budget is generous for the single request.
+  const hiringCafeCadence = parsePositiveInteger(
+    process.env.BULK_RECOVERY_HIRINGCAFE_CADENCE_MINUTES,
+    30
+  );
+  const hiringCafeRuntimeMs = parsePositiveInteger(
+    process.env.BULK_RECOVERY_HIRINGCAFE_MAX_RUNTIME_MS,
+    90 * 1000
+  );
   const joobleCadence = parsePositiveInteger(
     process.env.BULK_RECOVERY_JOOBLE_CADENCE_MINUTES,
     60
@@ -309,6 +338,19 @@ function getBulkRecoveryEntries(): Entry[] {
       connector: createJobicyConnector(),
       cadenceMinutes: jobicyCadence,
       maxRuntimeMs: jobicyRuntimeMs,
+    },
+    {
+      key: "builtin:feed",
+      connector: createBuiltInConnector(),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "hiringcafe:feed",
+      connector: createHiringCafeConnector(),
+      cadenceMinutes: hiringCafeCadence,
+      maxRuntimeMs: hiringCafeRuntimeMs,
     },
     ...joobleProfiles.map((profile) => ({
       key: `jooble:${normalizeKeySegment(profile)}`,

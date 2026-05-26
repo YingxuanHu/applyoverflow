@@ -481,55 +481,72 @@ const ROLE_PATTERNS: Array<{
     roleFamily: "Operations",
   },
 
-  // ── Cross-industry roles ──────────────────────────────────────────────────────
+  // ── White-collar cross-industry roles (Industry: GENERAL) ─────────────────────
+  // These were previously tagged TECH/FINANCE as a workaround. With GENERAL now
+  // available, route them honestly so the pool composition reflects reality.
 
+  // Marketing: brand, growth, content, demand gen, digital marketing
+  {
+    pattern:
+      /\b(marketing manager|marketing director|marketing coordinator|brand manager|brand director|growth marketing|demand generation|product marketing|content marketing|digital marketing|seo manager|sem manager|email marketing|performance marketing|lifecycle marketing|field marketing|marketing analyst|marketing specialist|copywriter|content strategist|marketing operations)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Marketing",
+  },
+  // HR / People: HR business partners, people ops, talent acquisition leaders
+  // (Previously excluded — restored as a legitimate white-collar function.)
+  {
+    pattern:
+      /\b(hr manager|hr director|hr generalist|hr partner|hr business partner|human resources|people partner|people operations|people ops|chief people officer|chro|head of people|talent acquisition|head of talent|talent partner|compensation analyst|benefits manager|hris analyst|hr analyst|hr coordinator|people analytics|learning and development|l&d manager|training manager|organizational development|culture manager|employee relations)\b/i,
+    industry: "GENERAL",
+    roleFamily: "HR / People",
+  },
   // Sales & Revenue: direct revenue-generating roles
   {
     pattern:
       /\b(account executive|sales manager|sales director|sales representatives?|sales lead|inside sales|outside sales|sales operations|revenue manager|revenue operations|sales development|sdr\b|bdr\b|business development representative|enterprise sales|regional sales|national sales|sales analyst|sales enablement|channel sales|partner sales|sales consultant|inbound sales|sales executive|sales team|sales trainer|vendeur|vendeuse|ventes|représentant.*ventes?)\b/i,
-    industry: "TECH",
+    industry: "GENERAL",
     roleFamily: "Sales",
   },
   // Business Development: partnerships, strategic BD
   {
     pattern:
       /\b(business development|partnerships manager|partnerships director|strategic partnerships|partner manager|alliances manager|channel manager|bd manager)\b/i,
-    industry: "TECH",
+    industry: "GENERAL",
     roleFamily: "Business Development",
   },
   // Consulting / Advisory: professional services, management consulting
   {
     pattern:
       /\b(consultant|consulting|advisory|practice lead|practice manager|engagement manager|managing consultant|principal consultant|senior consultant)\b/i,
-    industry: "TECH",
+    industry: "GENERAL",
     roleFamily: "Consulting",
   },
   // Legal: corporate legal, contracts, IP, regulatory counsel
   {
     pattern:
       /\b(attorney|lawyer|counsel|general counsel|paralegal|legal analyst|legal operations|legal manager|contracts manager|contract manager|ip counsel|corporate counsel|legal director)\b/i,
-    industry: "FINANCE",
+    industry: "GENERAL",
     roleFamily: "Legal",
   },
   // Supply Chain / Procurement: sourcing, logistics, procurement
   {
     pattern:
       /\b(supply chain|procurement|purchasing|logistics manager|logistics analyst|sourcing manager|sourcing analyst|inventory manager|demand planner|supply planner|materials manager|vendor manager)\b/i,
-    industry: "TECH",
+    industry: "GENERAL",
     roleFamily: "Supply Chain",
   },
   // Communications / PR: corporate communications and public relations
   {
     pattern:
-      /\b(communications manager|communications director|public relations|pr manager|corporate communications|internal communications|media relations|investor relations)\b/i,
-    industry: "TECH",
+      /\b(communications manager|communications director|public relations|pr manager|corporate communications|internal communications|media relations|investor relations|media manager|content manager|editorial|editor in chief|managing editor|publicist|spokesperson)\b/i,
+    industry: "GENERAL",
     roleFamily: "Communications",
   },
   // Administrative / Executive Support: EA, office management
   {
     pattern:
-      /\b(executive assistant|administrative assistant|office manager|office administrator|chief of staff|admin assistant|administrative coordinator)\b/i,
-    industry: "TECH",
+      /\b(executive assistant|administrative assistant|office manager|office administrator|chief of staff|admin assistant|administrative coordinator|operations coordinator|department coordinator)\b/i,
+    industry: "GENERAL",
     roleFamily: "Administrative",
   },
 
@@ -551,19 +568,20 @@ const ROLE_PATTERNS: Array<{
   // ── General Professional catch-all ─────────────────────────────────────────────
   // Matches any remaining title with common professional keywords.
   // Listed LAST so specific families above always take priority.
-  // This captures the long tail of legitimate business roles at tech/finance companies.
+  // Captures the long tail of white-collar roles that didn't match a more
+  // specific family above. Industry: GENERAL so the pool composition is honest
+  // (these aren't tech jobs, they're broader office/knowledge-worker roles).
   {
     pattern:
       /\b(manager|director|analyst|coordinator|specialist|advisor|officer|lead\b|head of|vp\b|vice president|associate|supervisor|administrator|strategist|planner|representative|clerk|technologist|receptionist|technician|assistant|operator|programmer|buyer|reviewer|trainer|consultant|executive|gestionnaire|analyste|conseill(?:er|ère)|comptable|responsable|coordonnateur|coordonnatrice|technicien(?:ne)?|agent(?:e)?|préposé|commis|adjoint(?:e)?|directeur|directrice|gérant(?:e)?|courtier|inspecteur|opérateur|webmestre|merchant|ambassador)\b/i,
-    industry: "TECH",
+    industry: "GENERAL",
     roleFamily: "General Professional",
   },
 ];
 
 export const EXCLUDED_TITLE_PATTERNS = [
-  // Recruiting / HR
-  /\b(recruiter|recruiting coordinator|recruiting ops|talent acquisition|technical recruiter|sourcer)\b/i,
-  /\b(people partner|people operations|people ops|hr business partner|human resources)\b/i,
+  // NOTE: HR/People/Recruiting roles were previously excluded but are now
+  // legitimate white-collar pool members under Industry=GENERAL. Removed.
   // Healthcare / Medical
   /\b(registered nurse|\bRN\b|nurse practitioner|nursing|physician|surgeon|medical director|pharmacist|pharmacy|dental|dentist|veterinar|therapist|physiotherapist|occupational therapist|radiolog|pathologist|optometrist|chiropract|paramedic|midwife|phlebotom|sonograph|respiratory|speech.lang|audiolog|dietitian|nutritionist|oncology|hematology|cardiolog|neurolog|dermatolog|psychiatr|anesthesi|medical science liaison|clinical research associate|clinical nurse)\b/i,
   // Trades / Manual labour

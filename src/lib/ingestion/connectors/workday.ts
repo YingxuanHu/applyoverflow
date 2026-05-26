@@ -11,6 +11,7 @@ import type {
 } from "@/lib/ingestion/types";
 import { sleepWithAbort, throwIfAborted } from "@/lib/ingestion/runtime-control";
 import { extractDescriptionFromHtml } from "@/lib/ingestion/html-description";
+import { selectWorkdayJobTitle } from "@/lib/ingestion/workday-title-parser";
 
 const WORKDAY_PAGE_SIZE = 20;
 const WORKDAY_DETAIL_CONCURRENCY = 6;
@@ -443,7 +444,17 @@ async function buildSourceJob({
       findReferenceId(job.bulletFields) ||
       job.externalPath,
     sourceUrl: detail.pageUrl,
-    title: readText(jsonLd?.title) || job.title,
+    // selectWorkdayJobTitle adds a location-fallback guard so jobs whose
+    // upstream title is a bare city name (e.g. "New York", "Montreal") get
+    // recovered from the apply URL instead of stored as the city.
+    title:
+      selectWorkdayJobTitle({
+        jsonLdTitle: readText(jsonLd?.title),
+        listTitle: job.title,
+        applyUrl: pageUrl,
+      }) ??
+      readText(jsonLd?.title) ??
+      job.title,
     company:
       readText(jsonLd?.hiringOrganization?.name) || fallbackCompanyName,
     location: buildLocation({

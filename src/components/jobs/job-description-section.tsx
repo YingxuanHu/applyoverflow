@@ -1,11 +1,13 @@
 import {
   fetchBestFormattedJobDescriptionFromUrls,
+  getCleanJobDescriptionDisplayBlocks,
   getJobDescriptionCandidateUrls,
+  isJobDescriptionSummaryUsable,
   isLowQualityJobDescription,
   isRenderableJobDescription,
-  parseJobDescriptionBlocks,
   pickBestFormattedJobDescription,
 } from "@/lib/job-description-format";
+import { ExternalLink } from "lucide-react";
 
 type JobDescriptionSectionProps = {
   title?: string;
@@ -32,16 +34,20 @@ export async function JobDescriptionSection({
     sourceMappings: job.sourceMappings,
   });
   const preferredSourceUrl = candidateUrls[0] ?? null;
-  const storedDescriptionLowQuality = isLowQualityJobDescription(job.description);
-  const fetchedDescription = storedDescriptionLowQuality
+  const storedDescriptionNeedsRepair =
+    isLowQualityJobDescription(job.description) ||
+    !isJobDescriptionSummaryUsable(job.description);
+  const fetchedDescription = storedDescriptionNeedsRepair
     ? await fetchBestFormattedJobDescriptionFromUrls(candidateUrls, 3)
     : null;
   const displayDescription =
     pickBestFormattedJobDescription([fetchedDescription, job.description]) ?? job.description;
-  const descriptionBlocks = parseJobDescriptionBlocks(displayDescription);
-  const descriptionUsable = isRenderableJobDescription(displayDescription);
-  const sourceAccessFailed =
-    storedDescriptionLowQuality && candidateUrls.length > 0 && fetchedDescription === null;
+  const descriptionBlocks = getCleanJobDescriptionDisplayBlocks(displayDescription, 8);
+  const descriptionUsable =
+    !isLowQualityJobDescription(displayDescription) &&
+    isRenderableJobDescription(displayDescription) &&
+    isJobDescriptionSummaryUsable(displayDescription);
+  const shouldShowDescription = descriptionUsable && descriptionBlocks.length > 0;
 
   return (
     <div className="border-t border-border py-4">
@@ -49,8 +55,8 @@ export async function JobDescriptionSection({
         <p className="text-[15px] font-medium text-muted-foreground">{title}</p>
       </div>
 
-      {descriptionUsable ? (
-        <div className="mt-4 space-y-4 text-sm text-foreground/85">
+      {shouldShowDescription ? (
+        <div className="mt-4 space-y-3.5 text-sm text-foreground/85">
           {descriptionBlocks.map((block, index) => {
             if (block.kind === "header") {
               return (
@@ -65,7 +71,10 @@ export async function JobDescriptionSection({
 
             if (block.kind === "list") {
               return (
-                <ul key={index} className="ml-5 space-y-2 list-disc marker:text-muted-foreground/60">
+                <ul
+                  key={index}
+                  className="ml-5 space-y-2 list-disc marker:text-muted-foreground/60"
+                >
                   {block.items.map((item, itemIndex) => (
                     <li key={itemIndex} className="leading-7">
                       {item}
@@ -82,14 +91,21 @@ export async function JobDescriptionSection({
             );
           })}
         </div>
-      ) : (
-        <p className="mt-4 text-sm leading-7 text-muted-foreground">
-          {sourceAccessFailed
-            ? "The original job posting could not be accessed automatically, so a reliable full description is not available yet."
-            : "A reliable full job description was not available from the current source."}{" "}
-          {preferredSourceUrl ? "Use the original posting link for the full page." : ""}
-        </p>
-      )}
+      ) : null}
+
+      {preferredSourceUrl ? (
+        <div className={shouldShowDescription ? "mt-5" : "mt-3"}>
+          <a
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            href={preferredSourceUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open original posting
+          </a>
+        </div>
+      ) : null}
     </div>
   );
 }

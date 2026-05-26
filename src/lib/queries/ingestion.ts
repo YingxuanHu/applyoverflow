@@ -9,7 +9,10 @@ import type {
 const RECENT_RUN_LIMIT = 20;
 const VISIBLE_JOB_STATUSES = ["LIVE", "AGING"] as const;
 const ACTIVE_COMPANY_SOURCE_POLL_STATES = ["READY", "ACTIVE", "BACKOFF"] as const;
-const INGESTION_STATUS_TTL_MS = 60_000;
+// 5-minute TTL — the underlying counts (LIVE jobs, active sources) shift slowly
+// (workers + lifecycle sweep run on a 30-min cadence). A short TTL was causing
+// every tab switch to re-run the 3 queries against the shared DB pool.
+const INGESTION_STATUS_TTL_MS = 300_000;
 const INGESTION_HEARTBEAT_TTL_MS = 30_000;
 const INGESTION_OBSERVABILITY_TTL_MS = 5 * 60_000;
 const INGESTION_OBSERVABILITY_LOOKBACK_DAYS = 7;

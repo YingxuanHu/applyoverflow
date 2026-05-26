@@ -108,15 +108,12 @@ export async function saveAutomationSettings(
 ): Promise<SettingsActionState> {
   try {
     const raw = formData.get("automationMode");
+    const automationMode =
+      raw === "STRICT_AUTO_APPLY" || raw === "REVIEW_BEFORE_SUBMIT"
+        ? raw
+        : "REVIEW_BEFORE_SUBMIT";
     await saveTrackerSettings({
-      automationMode:
-        typeof raw === "string" && raw
-          ? (raw as
-              | "DISCOVERY_ONLY"
-              | "ASSIST"
-              | "REVIEW_BEFORE_SUBMIT"
-              | "STRICT_AUTO_APPLY")
-          : "REVIEW_BEFORE_SUBMIT",
+      automationMode,
     });
     revalidatePaths(["/settings", "/jobs"]);
     return { error: null, success: "Automation mode updated." };

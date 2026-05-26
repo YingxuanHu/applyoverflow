@@ -1,12 +1,11 @@
 "use client";
 
-import { type ReactNode, useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { useFormStatus } from "react-dom";
+import { type ReactNode, startTransition, useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 
 import { saveProfile } from "@/app/profile/actions";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useNotifications } from "@/components/ui/notification-provider";
 import { Textarea } from "@/components/ui/textarea";
 import {
   makeEmptyContact,
@@ -26,6 +25,7 @@ type ProfileFormProps = {
     headline: string;
     summary: string;
     location: string;
+    workAuthorization: string;
     contact: ProfileContact;
     skills: ProfileSkill[];
     educations: ProfileEducation[];
@@ -54,13 +54,28 @@ type ProfileSectionProps = {
 type SaveButtonProps = {
   dirty: boolean;
   saved: boolean;
+  pending: boolean;
+  onClick: () => void;
 };
 
-function SaveButton({ dirty, saved }: SaveButtonProps) {
-  const { pending } = useFormStatus();
+function SaveButton({ dirty, saved, pending, onClick }: SaveButtonProps) {
+  // Native <button type="button" onClick={...}>. We deliberately do NOT use
+  // type="submit" + form action; this codebase has had recurring trouble
+  // wiring server actions to <form action={fn}>. Going through a plain
+  // onClick is the most reliable path.
+  const baseClass =
+    "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-40";
+  const variantClass = dirty
+    ? "bg-foreground text-background hover:bg-foreground/90"
+    : "bg-secondary/85 text-secondary-foreground hover:bg-secondary";
 
   return (
-    <Button className="sm:min-w-40" type="submit" disabled={pending || !dirty} variant={dirty ? "default" : "secondary"}>
+    <button
+      className={`${baseClass} ${variantClass}`}
+      disabled={pending}
+      onClick={onClick}
+      type="button"
+    >
       {pending ? (
         <>
           <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -74,7 +89,7 @@ function SaveButton({ dirty, saved }: SaveButtonProps) {
       ) : (
         "Save profile"
       )}
-    </Button>
+    </button>
   );
 }
 
@@ -123,6 +138,18 @@ function formatCountBadge(count: number, singular: string, plural?: string) {
   }
 
   return `${count} ${pluralize(count, singular, plural)}`;
+}
+
+function hasApplicationDetailGaps(input: {
+  workAuthorization: string;
+  contact: ProfileContact;
+}) {
+  return (
+    !input.contact.phone.trim() ||
+    !input.contact.linkedInUrl.trim() ||
+    !input.contact.portfolioUrl.trim() ||
+    !input.workAuthorization.trim()
+  );
 }
 
 function ProfileSection({
@@ -257,6 +284,7 @@ function serializeProfileSnapshot(input: {
   headline: string;
   summary: string;
   location: string;
+  workAuthorization: string;
   contact: ProfileContact;
   skills: ProfileSkill[];
   educations: ProfileEducation[];
@@ -267,6 +295,7 @@ function serializeProfileSnapshot(input: {
     headline: trimmed(input.headline),
     summary: input.summary.trim(),
     location: trimmed(input.location),
+    workAuthorization: trimmed(input.workAuthorization),
     contact: normalizeContactSnapshot(input.contact),
     skills: normalizeSkillsSnapshot(input.skills),
     educations: normalizeEducationsSnapshot(input.educations),
@@ -277,12 +306,21 @@ function serializeProfileSnapshot(input: {
 
 export function ProfileForm({ initialValues }: ProfileFormProps) {
   const initialState = { error: null, success: null };
-  const [state, formAction] = useActionState(saveProfile, initialState);
+  const [state, formAction, isPending] = useActionState(saveProfile, initialState);
+  const { notify } = useNotifications();
 
-  const [activeSection, setActiveSection] = useState<ProfileSectionId | null>("overview");
+  const [activeSection, setActiveSection] = useState<ProfileSectionId | null>(() =>
+    hasApplicationDetailGaps({
+      contact: initialValues.contact ?? makeEmptyContact(),
+      workAuthorization: initialValues.workAuthorization,
+    })
+      ? "contact"
+      : "overview"
+  );
   const [headline, setHeadline] = useState(initialValues.headline);
   const [summary, setSummary] = useState(initialValues.summary);
   const [location, setLocation] = useState(initialValues.location);
+  const [workAuthorization, setWorkAuthorization] = useState(initialValues.workAuthorization);
   const [contact, setContact] = useState<ProfileContact>(initialValues.contact ?? makeEmptyContact());
   const [skills, setSkills] = useState<ProfileSkill[]>(
     initialValues.skills.length > 0 ? initialValues.skills : [makeEmptySkill()]
@@ -308,19 +346,21 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         headline,
         summary,
         location,
+        workAuthorization,
         contact,
         skills,
         educations,
         experiences,
         projects,
       }),
-    [contact, educations, experiences, headline, location, projects, skills, summary]
+    [contact, educations, experiences, headline, location, projects, skills, summary, workAuthorization]
   );
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
     serializeProfileSnapshot({
       headline: initialValues.headline,
       summary: initialValues.summary,
       location: initialValues.location,
+      workAuthorization: initialValues.workAuthorization,
       contact: initialValues.contact ?? makeEmptyContact(),
       skills: initialValues.skills.length > 0 ? initialValues.skills : [makeEmptySkill()],
       educations:
@@ -338,12 +378,25 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   const isDirty = currentSnapshot !== savedSnapshot;
 
   useEffect(() => {
-    if (!state.success || !submittedSnapshotRef.current) {
-      return;
+    if (state.success && submittedSnapshotRef.current) {
+      setSavedSnapshot(submittedSnapshotRef.current);
+      submittedSnapshotRef.current = null;
+      notify({
+        title: "Profile saved",
+        message: state.success,
+        tone: "success",
+      });
+    } else if (state.error) {
+      notify({
+        title: "Couldn't save profile",
+        message: state.error,
+        tone: "error",
+      });
     }
-
-    setSavedSnapshot(submittedSnapshotRef.current);
-    submittedSnapshotRef.current = null;
+    // Intentionally exclude `notify` from deps — its identity is stable
+    // (createNotificationId), but eslint sometimes flags it. Listing only
+    // `state` ensures we fire exactly once per server-action result.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   function updateContact(key: keyof ProfileContact, value: string) {
@@ -372,14 +425,32 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
     );
   }
 
+  // Direct-submit handler: instead of relying on <form action={fn}>
+  // (which has silently failed in this app — clicks went to /dev/null), we
+  // bypass form submission entirely. The button's onClick reads every value
+  // from React state, packs it into FormData, and invokes the server action.
+  function handleSaveClick() {
+    if (isPending) return;
+    const formData = new FormData();
+    formData.set("headline", headline);
+    formData.set("summary", summary);
+    formData.set("location", location);
+    formData.set("workAuthorization", workAuthorization);
+    formData.set("contactJson", contactJson);
+    formData.set("skillsJson", skillsJson);
+    formData.set("educationsJson", educationsJson);
+    formData.set("experiencesJson", experiencesJson);
+    formData.set("projectsJson", projectsJson);
+    submittedSnapshotRef.current = currentSnapshot;
+    // Log to console so it's verifiable in DevTools that the click fired.
+    console.log("[profile] save click → invoking saveProfile");
+    startTransition(() => {
+      formAction(formData);
+    });
+  }
+
   return (
-    <form
-      action={formAction}
-      className="mt-4"
-      onSubmit={() => {
-        submittedSnapshotRef.current = currentSnapshot;
-      }}
-    >
+    <div className="mt-4">
       <input type="hidden" name="contactJson" value={contactJson} />
       <input type="hidden" name="skillsJson" value={skillsJson} />
       <input type="hidden" name="educationsJson" value={educationsJson} />
@@ -431,10 +502,13 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
 
       <ProfileSection
         activeSection={activeSection}
-        badge={formatCountBadge(countFilledContactFields(contact), "field")}
+        badge={formatCountBadge(
+          countFilledContactFields(contact) + (workAuthorization.trim() ? 1 : 0),
+          "field"
+        )}
         id="contact"
         setActiveSection={setActiveSection}
-        title="Contact"
+        title="Application details"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -507,6 +581,16 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={contact.portfolioUrl}
             />
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <FieldLabel htmlFor="work-authorization">Work authorization</FieldLabel>
+            <Input
+              id="work-authorization"
+              onChange={(event) => setWorkAuthorization(event.target.value)}
+              placeholder="Canadian PR, US citizen, H-1B, etc."
+              type="text"
+              value={workAuthorization}
+            />
+          </div>
         </div>
       </ProfileSection>
 
@@ -542,7 +626,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               {skills.length > 1 ? (
                 <button
                   aria-label={`Remove skill ${index + 1}`}
-                  className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  className="text-xs font-medium text-destructive underline underline-offset-2 hover:text-destructive/80"
                   onClick={() =>
                     setSkills((current) => current.filter((_, itemIndex) => itemIndex !== index))
                   }
@@ -581,7 +665,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                 <p className="text-sm font-medium text-foreground">Experience {index + 1}</p>
                 {experiences.length > 1 ? (
                   <button
-                    className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    className="text-xs font-medium text-destructive underline underline-offset-2 hover:text-destructive/80"
                     onClick={() =>
                       setExperiences((current) =>
                         current.filter((_, itemIndex) => itemIndex !== index)
@@ -674,7 +758,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                 <p className="text-sm font-medium text-foreground">Education {index + 1}</p>
                 {educations.length > 1 ? (
                   <button
-                    className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    className="text-xs font-medium text-destructive underline underline-offset-2 hover:text-destructive/80"
                     onClick={() =>
                       setEducations((current) => current.filter((_, itemIndex) => itemIndex !== index))
                     }
@@ -765,7 +849,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                 <p className="text-sm font-medium text-foreground">Project {index + 1}</p>
                 {projects.length > 1 ? (
                   <button
-                    className="text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    className="text-xs font-medium text-destructive underline underline-offset-2 hover:text-destructive/80"
                     onClick={() =>
                       setProjects((current) => current.filter((_, itemIndex) => itemIndex !== index))
                     }
@@ -843,12 +927,17 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
       </ProfileSection>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border/70 pt-4">
-        <SaveButton dirty={isDirty} saved={!isDirty && Boolean(state.success)} />
+        <SaveButton
+          dirty={isDirty}
+          onClick={handleSaveClick}
+          pending={isPending}
+          saved={!isDirty && Boolean(state.success) && !isPending}
+        />
         <p className="text-xs text-muted-foreground">
           {isDirty ? "Unsaved changes" : state.success ? "Profile saved" : "No changes"}
         </p>
         {state.error ? <p className="text-xs text-destructive">{state.error}</p> : null}
       </div>
-    </form>
+    </div>
   );
 }

@@ -98,6 +98,53 @@ const JOOBLE_OPERATIONS_KEYWORDS = [
   "marketing analyst",
 ];
 
+// Broader white-collar keywords beyond tech/finance. These pull in office /
+// knowledge-worker roles from Jooble's general search index. Targeted enough
+// to avoid blue-collar/clinical/retail dilution — the exclusion patterns in
+// normalize.ts catch anything that slips through.
+const JOOBLE_WHITECOLLAR_KEYWORDS = [
+  // Marketing & content
+  "marketing manager",
+  "brand manager",
+  "product marketing",
+  "growth marketing",
+  "content strategist",
+  "digital marketing",
+  // Sales & revenue
+  "account executive",
+  "sales development",
+  "sales operations",
+  "partnerships manager",
+  // HR & people
+  "hr business partner",
+  "talent acquisition",
+  "people operations",
+  "compensation analyst",
+  // Legal & corporate
+  "corporate counsel",
+  "paralegal",
+  "compliance analyst",
+  // Communications & PR
+  "communications manager",
+  "investor relations",
+  "public relations",
+  // Operations & admin
+  "chief of staff",
+  "executive assistant",
+  "office manager",
+  // Supply chain & procurement
+  "supply chain analyst",
+  "procurement manager",
+  "logistics analyst",
+  // Consulting & strategy
+  "strategy consultant",
+  "management consultant",
+  "business strategy",
+  // Customer success
+  "customer success",
+  "implementation specialist",
+];
+
 const JOOBLE_US_TECH_HUBS = [
   "New York, NY",
   "San Francisco, CA",
@@ -221,6 +268,21 @@ const JOOBLE_PROFILE_DEFAULTS: Record<string, JoobleProfileDefaults> = {
       ...JOOBLE_OPERATIONS_KEYWORDS,
     ],
     locations: ["Remote", "Remote United States", "Remote Canada", "Remote North America"],
+  },
+  // Broader white-collar profile: marketing, HR, legal, comms, sales, supply
+  // chain, consulting, admin. Pulls in office/knowledge-worker roles outside
+  // pure tech & finance to expand pool coverage.
+  "whitecollar-na": {
+    keywords: JOOBLE_WHITECOLLAR_KEYWORDS,
+    locations: ["United States", "Canada", "Remote"],
+  },
+  "whitecollar-cities-us": {
+    keywords: JOOBLE_WHITECOLLAR_KEYWORDS,
+    locations: JOOBLE_US_TECH_HUBS,
+  },
+  "whitecollar-cities-ca": {
+    keywords: JOOBLE_WHITECOLLAR_KEYWORDS,
+    locations: JOOBLE_CANADA_TECH_HUBS,
   },
 };
 

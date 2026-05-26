@@ -54,6 +54,8 @@ export { createUsaJobsConnector, createUsaJobsBatchConnectors } from "./usajobs"
 export { createWorkableConnector } from "./workable";
 export { createJobBankConnector } from "./jobbank";
 export { createWeWorkRemotelyConnector } from "./weworkremotely";
+export { createBuiltInConnector } from "./builtin";
+export { createHiringCafeConnector } from "./hiringcafe";
 export {
   createCompanySiteConnector,
   inspectCompanySiteRoute,

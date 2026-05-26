@@ -25,6 +25,7 @@ import {
   normalizeCareerStageFilterValue,
   type CareerStageFilter,
 } from "@/lib/career-stage";
+import { resolveATSFiller } from "@/lib/automation/fillers";
 
 // ─── Full-text search ────────────────────────────────────────────────────────
 
@@ -67,13 +68,47 @@ const GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS = [
   { company: "jobvite", applyUrlContains: "jobvite.com" },
   { company: "bamboohr", applyUrlContains: "bamboohr.com" },
 ];
-const JOB_FEED_SUMMARY_TTL_MS = 60_000;
-const JOB_FEED_QUERY_TTL_MS = 15_000;
-const HOT_FEED_QUERY_TTL_MS = 120_000;
-const TIMED_CACHE_MAX_ENTRIES = 64;
+// Cache TTLs tuned for tab-switching speed. The 4 visible counts + 4 hidden
+// demo counts that drive the header summary are the slowest part of /jobs;
+// they're stable on the order of minutes (lifecycle sweep runs every 30min),
+// so a 5-min TTL is safe and removes most cold-cache latency from tab
+// navigation. The feed query (paginated job list) shifts more often as new
+// jobs land, but a 60s TTL still feels live and skips redundant 150-row
+// re-fetches when the user toggles filters back and forth.
+const JOB_FEED_SUMMARY_TTL_MS = 300_000;
+const JOB_FEED_QUERY_TTL_MS = 60_000;
+const HOT_FEED_QUERY_TTL_MS = 300_000;
+const TIMED_CACHE_MAX_ENTRIES = 128;
 const DIVERSIFICATION_OVERSCAN = 80;
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
 const timedCacheStore = new Map<string, { expiresAt: number; value: unknown }>();
+
+/**
+ * Race a count() query against a timeout. Returns `null` if the count doesn't
+ * resolve within `timeoutMs`. The page renders with an approximate total
+ * (or no total) instead of waiting tens of seconds when the DB is loaded.
+ *
+ * We don't cancel the underlying Prisma query — it'll complete in the
+ * background and the next request can benefit from a warm cache.
+ */
+async function withCountTimeout(
+  fn: () => Promise<number>,
+  timeoutMs: number
+): Promise<number | null> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    const value = await Promise.race([fn(), timeoutPromise]);
+    return value;
+  } catch {
+    return null;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 const inflightJobsQueryStore = new Map<string, Promise<JobsResult>>();
 const JOB_CARD_INCLUDE = (viewerProfileId: string | null) =>
   ({
@@ -109,6 +144,11 @@ function withSanitizedJobPresentation<
     location: string;
     applyUrl: string | null;
     shortSummary?: string | null;
+    eligibility?: {
+      submissionCategory: string;
+      reasonCode: string;
+      reasonDescription: string;
+    } | null;
   },
 >(job: T): T {
   const title = sanitizeJobTitle(job.title);
@@ -125,6 +165,17 @@ function withSanitizedJobPresentation<
         location: job.location,
       })
     : job.shortSummary;
+  const eligibility =
+    job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" &&
+    (!job.applyUrl || !resolveATSFiller(job.applyUrl))
+      ? {
+          ...job.eligibility,
+          submissionCategory: "MANUAL_ONLY",
+          reasonCode: "unsupported_submit_filler",
+          reasonDescription:
+            "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
+        }
+      : job.eligibility;
 
   return {
     ...job,
@@ -132,6 +183,7 @@ function withSanitizedJobPresentation<
     company,
     description,
     shortSummary,
+    eligibility,
   };
 }
 
@@ -520,7 +572,7 @@ async function getJobsFromFeedIndex(input: {
       { rankingScore: "desc" },
       { postedAt: "desc" },
     ];
-  } else if (filters.sortBy === "recent") {
+  } else if (filters.sortBy === "newest") {
     orderBy = { postedAt: "desc" };
   }
 
@@ -578,12 +630,19 @@ async function getJobsFromFeedIndex(input: {
     } satisfies JobsResult;
   }
 
-  const total = await prisma.jobFeedIndex.count({ where });
+  // Race the count against a 5s timeout. A precise total is "nice to have"
+  // for the page header — not worth blocking the render for 14-60+ seconds
+  // when the DB is competing with ingestion workers. The UI already handles
+  // `total: null` gracefully (shows "Many jobs" instead of an exact number).
+  const total = await withCountTimeout(
+    () => prisma.jobFeedIndex.count({ where }),
+    5_000
+  );
 
   return {
     data,
     total,
-    hasNextPage: skip + PAGE_SIZE < total,
+    hasNextPage: total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
     page,
     pageSize: PAGE_SIZE,
     summary: await summaryPromise,
@@ -602,7 +661,7 @@ async function getJobsFromFeedIndex(input: {
  */
 async function searchJobIds(
   query: string,
-  limit: number = 5000
+  limit: number = SEARCH_SCORING_WINDOW_SIZE
 ): Promise<string[] | null> {
   const tsQuery = toTsQuery(query);
   if (!tsQuery) return null;
@@ -1172,6 +1231,7 @@ export type ScoringJobInput = {
   roleFamily: string | null;
   experienceLevel: string | null;
   shortSummary?: string | null;
+  applyUrl?: string | null;
   company: string | null;
   eligibility: { submissionCategory: string } | null;
   sourceMappings: {
@@ -1219,7 +1279,9 @@ export function scoreJobDetailed(
 
   // Eligibility (0-20)
   const cat = job.eligibility?.submissionCategory;
-  if (cat === "AUTO_SUBMIT_READY") eligibility = 20;
+  if (cat === "AUTO_SUBMIT_READY" && job.applyUrl && resolveATSFiller(job.applyUrl)) {
+    eligibility = 20;
+  }
 
   // Freshness (-16 to 20): rewards recency, more strongly demotes very old live jobs
   if (job.postedAt) {
@@ -1665,6 +1727,61 @@ async function getJobFeedSummary() {
   const cached = readTimedCache<JobFeedSummary>("jobs:summary");
   if (cached) return cached;
 
+  // Fast path: read the pre-aggregated row written by the
+  // refresh-job-feed-summary timer (every 5 min). Single PK lookup, sub-ms.
+  // The row is "fresh enough" for header stats — the underlying lifecycle
+  // sweep also runs on a 30-min cadence so a 5-min cache is well within
+  // accuracy budget. Fall back to live counts only if the row is missing
+  // (first boot before the timer has run).
+  try {
+    const cachedRow = await prisma.jobFeedSummaryCache.findUnique({
+      where: { id: "singleton" },
+    });
+    if (cachedRow) {
+      // We still subtract hidden-demo counts so demo-only filters don't
+      // inflate the header. This second query is small (filtered by
+      // sourceName), bounded, and acceptable here.
+      const now = new Date();
+      const startOfToday = new Date(now);
+      startOfToday.setHours(0, 0, 0, 0);
+      const hiddenDemoCounts = await getHiddenDemoOnlySummaryCounts(
+        startOfToday,
+        now
+      );
+      const value: JobFeedSummary = {
+        liveJobCount: Math.max(
+          0,
+          cachedRow.liveJobCount - hiddenDemoCounts.liveJobCount
+        ),
+        addedTodayCount: Math.max(
+          0,
+          cachedRow.addedTodayCount - hiddenDemoCounts.addedTodayCount
+        ),
+        expiredTodayCount: Math.max(
+          0,
+          cachedRow.expiredTodayCount - hiddenDemoCounts.expiredTodayCount
+        ),
+        removedTodayCount: Math.max(
+          0,
+          cachedRow.removedTodayCount - hiddenDemoCounts.removedTodayCount
+        ),
+      };
+      return writeTimedCache(
+        "jobs:summary",
+        value,
+        JOB_FEED_SUMMARY_TTL_MS
+      );
+    }
+  } catch (error) {
+    // Cache table not yet created or query failed — fall through to live.
+    console.warn(
+      "[getJobFeedSummary] cache read failed, falling back to live counts:",
+      error
+    );
+  }
+
+  // Cold-path fallback: compute live. Slow (8 COUNTs) but only used when the
+  // cache row doesn't exist yet (e.g., first deploy before the timer fired).
   const now = new Date();
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
@@ -1755,11 +1872,15 @@ async function getJobsByRelevance(
       };
     }
 
-    const total = await prisma.jobCanonical.count({ where });
+    const total = await withCountTimeout(
+      () => prisma.jobCanonical.count({ where }),
+      5_000
+    );
     return {
       data,
       total,
-      hasNextPage: skip + PAGE_SIZE < total,
+      hasNextPage:
+        total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
       page,
       pageSize: PAGE_SIZE,
     };
@@ -1943,8 +2064,7 @@ export async function getJobs(
     const skip = (page - 1) * PAGE_SIZE;
     const summaryPromise = getJobFeedSummary();
     const includeExactTotal = Boolean(
-      filters.search ||
-        filters.region ||
+      filters.region ||
       filters.workMode ||
       filters.industry ||
       filters.roleFamily ||
@@ -2188,12 +2308,16 @@ export async function getJobs(
       });
     }
 
-    const total = await prisma.jobCanonical.count({ where });
+    const total = await withCountTimeout(
+      () => prisma.jobCanonical.count({ where }),
+      5_000
+    );
 
     return cacheResult({
       data,
       total,
-      hasNextPage: skip + PAGE_SIZE < total,
+      hasNextPage:
+        total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
       page,
       pageSize: PAGE_SIZE,
       summary: await summaryPromise,

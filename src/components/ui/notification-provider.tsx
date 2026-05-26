@@ -12,7 +12,6 @@ import {
 import { usePathname } from "next/navigation";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type NotificationTone = "success" | "error" | "info";
@@ -86,45 +85,41 @@ function NotificationToast({
 }) {
   const Icon = item.tone === "success" ? CheckCircle2 : item.tone === "error" ? AlertCircle : Info;
 
+  // High-contrast theme: notification background uses `--foreground` (white in
+  // dark mode, near-black in light mode) and text uses `--background` (the
+  // inverse). The icon keeps its tone color (green / red / muted) so the
+  // tone signal isn't lost. Result: the toast pops off the page regardless
+  // of theme.
   return (
     <div
       aria-live={item.tone === "error" ? "assertive" : "polite"}
-      className={cn(
-        "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur",
-        item.tone === "success" &&
-          "border-emerald-500/20 bg-emerald-500/8 text-foreground dark:bg-emerald-500/12",
-        item.tone === "error" &&
-          "border-destructive/20 bg-destructive/8 text-foreground dark:bg-destructive/14",
-        item.tone === "info" && "border-border/70 bg-background/92 text-foreground"
-      )}
+      className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl border border-foreground/20 bg-foreground px-4 py-3 text-background shadow-xl"
       role={item.tone === "error" ? "alert" : "status"}
     >
       <div
         className={cn(
           "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full",
-          item.tone === "success" && "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
-          item.tone === "error" && "bg-destructive/12 text-destructive",
-          item.tone === "info" && "bg-muted text-muted-foreground"
+          item.tone === "success" && "bg-emerald-500/20 text-emerald-400",
+          item.tone === "error" && "bg-red-500/20 text-red-400",
+          item.tone === "info" && "bg-background/15 text-background"
         )}
       >
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
         {item.title ? <p className="text-sm font-medium">{item.title}</p> : null}
-        <p className={cn("text-sm", item.title ? "mt-1 text-muted-foreground" : "text-foreground")}>
+        <p className={cn("text-sm", item.title ? "mt-1 text-background/75" : "text-background")}>
           {item.message}
         </p>
       </div>
-      <Button
+      <button
         aria-label="Dismiss notification"
-        className="-mr-1 -mt-1"
+        className="-mr-1 -mt-1 inline-flex size-7 items-center justify-center rounded-md text-background/70 transition-colors hover:bg-background/10 hover:text-background"
         onClick={() => onDismiss(item.id)}
-        size="icon-xs"
         type="button"
-        variant="ghost"
       >
         <X className="size-3.5" />
-      </Button>
+      </button>
     </div>
   );
 }

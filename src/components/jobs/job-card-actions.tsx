@@ -103,14 +103,18 @@ export function JobCardActions({
           className={cn(
             "gap-1.5",
             compact &&
-              "h-8 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              !isSaved &&
+              "h-8 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            compact && isSaved && "h-8 rounded-full px-3 text-[13px] font-medium"
           )}
           disabled={isSaving}
           onClick={handleSaveClick}
-          size={compact ? "sm" : "sm"}
+          size="sm"
           title={isSaved ? "Remove from wishlist" : "Add to wishlist"}
           type="button"
-          variant={compact ? "ghost" : isSaved ? "secondary" : "ghost"}
+          // When the job is already saved, the next click REMOVES it —
+          // surface that destructive intent in red.
+          variant={isSaved ? "destructive" : compact ? "ghost" : "ghost"}
         >
           {isSaved ? (
             <BookmarkCheck className="h-3.5 w-3.5" />
