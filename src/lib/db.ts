@@ -176,9 +176,20 @@ function getDatabaseSslConfig() {
 
 function createPrismaClient() {
   const role = detectDatabaseProcessRole();
+  const connectionString = resolveDatabaseConnectionString(role);
+  const parsedDatabaseUrl = new URL(connectionString);
+
+  console.log("[prisma] database config", {
+    role,
+    host: parsedDatabaseUrl.hostname,
+    sslmode: parsedDatabaseUrl.searchParams.get("sslmode"),
+    hasSslRootCert: parsedDatabaseUrl.searchParams.has("sslrootcert"),
+    hasCaCert: Boolean(process.env.DATABASE_CA_CERT?.trim()),
+  });
+
   const adapter = new PrismaPg(
     {
-      connectionString: resolveDatabaseConnectionString(role),
+      connectionString,
       max: getDatabasePoolMax(role),
       idleTimeoutMillis: getDatabaseIdleTimeoutMs(),
       connectionTimeoutMillis: getDatabaseConnectionTimeoutMs(),
@@ -193,6 +204,7 @@ function createPrismaClient() {
       },
     }
   );
+
   return new PrismaClient({ adapter });
 }
 
