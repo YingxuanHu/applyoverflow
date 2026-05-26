@@ -9,6 +9,10 @@ import type {
   SourceConnectorFetchResult,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 type AshbyConnectorOptions = {
   orgSlug: string;
@@ -52,7 +56,40 @@ type AshbyAppData = {
 
 // ─── Connector factory ────────────────────────────────────────────────────────
 
-const DETAIL_BATCH_SIZE = 5;
+function readPositiveIntegerEnv(
+  envName: string,
+  fallback: number
+) {
+  const raw = process.env[envName]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const DETAIL_BATCH_SIZE = readPositiveIntegerEnv(
+  "ASHBY_DETAIL_BATCH_SIZE",
+  5
+);
+const LISTING_FETCH_TIMEOUT_MS = readPositiveIntegerEnv(
+  "ASHBY_LISTING_FETCH_TIMEOUT_MS",
+  20_000
+);
+const DETAIL_FETCH_TIMEOUT_MS = readPositiveIntegerEnv(
+  "ASHBY_DETAIL_FETCH_TIMEOUT_MS",
+  12_000
+);
+const DETAIL_RUNTIME_RESERVE_MS = readPositiveIntegerEnv(
+  "ASHBY_DETAIL_RUNTIME_RESERVE_MS",
+  20_000
+);
+const DETAIL_MIN_BATCH_BUDGET_MS = readPositiveIntegerEnv(
+  "ASHBY_DETAIL_MIN_BATCH_BUDGET_MS",
+  6_000
+);
+const DETAIL_WARNING_LOG_CAP = readPositiveIntegerEnv(
+  "ASHBY_DETAIL_WARNING_LOG_CAP",
+  3
+);
 const BASE_URL = "https://jobs.ashbyhq.com";
 const USER_AGENT =
   "Mozilla/5.0 (compatible; JobIndexer/1.0)";
@@ -73,7 +110,11 @@ export function createAshbyConnector({
     ): Promise<SourceConnectorFetchResult> {
       const log = options.log ?? console.warn;
       // Stage 1: fetch listing page to get job summaries
-      const listingData = await fetchAshbyPage(`${BASE_URL}/${orgSlug}`);
+      const listingData = await fetchAshbyPage(
+        `${BASE_URL}/${orgSlug}`,
+        options.signal,
+        LISTING_FETCH_TIMEOUT_MS
+      );
       const allListings = (listingData.jobBoard?.jobPostings ?? []).filter(
         (job) => job.isListed !== false
       );
@@ -91,24 +132,81 @@ export function createAshbyConnector({
       );
 
       const detailMap = new Map<string, AshbyJobDetail>();
+      let detailBudgetTruncated = false;
+      let detailWarnings = 0;
+      let detailWarningsSuppressed = 0;
+      const detailDeadlineAt = getDetailDeadlineAt(options.deadlineAt);
+
       for (let i = 0; i < detailCandidates.length; i += DETAIL_BATCH_SIZE) {
+        throwIfAborted(options.signal);
+        const remainingDetailBudgetMs = getRemainingBudgetMs(detailDeadlineAt);
+        if (
+          remainingDetailBudgetMs != null &&
+          remainingDetailBudgetMs < DETAIL_MIN_BATCH_BUDGET_MS
+        ) {
+          detailBudgetTruncated = true;
+          break;
+        }
+
         const batch = detailCandidates.slice(i, i + DETAIL_BATCH_SIZE);
+        const batchSignal = buildTimeoutSignal(
+          options.signal,
+          remainingDetailBudgetMs == null
+            ? DETAIL_FETCH_TIMEOUT_MS
+            : Math.max(
+                1,
+                Math.min(DETAIL_FETCH_TIMEOUT_MS, remainingDetailBudgetMs)
+              )
+        );
         const results = await Promise.allSettled(
           batch.map(async (job) => {
-            const data = await fetchAshbyPage(`${BASE_URL}/${orgSlug}/${job.id}`);
+            const data = await fetchAshbyPage(
+              `${BASE_URL}/${orgSlug}/${job.id}`,
+              batchSignal,
+              DETAIL_FETCH_TIMEOUT_MS
+            );
             if (data.posting) detailMap.set(job.id, data.posting);
           })
         );
-        // Log but don't throw on individual detail failures
+
+        let batchHitRuntimeBudget = false;
         for (const result of results) {
           if (result.status === "rejected") {
-            log(
-              `[ashby:${orgSlug}] Detail fetch warning: ${
-                result.reason instanceof Error ? result.reason.message : String(result.reason)
-              }`
-            );
+            const errorMessage =
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason);
+
+            if (isRuntimeBudgetLikeError(errorMessage)) {
+              batchHitRuntimeBudget = true;
+              continue;
+            }
+
+            if (detailWarnings < DETAIL_WARNING_LOG_CAP) {
+              log(`[ashby:${orgSlug}] Detail fetch warning: ${errorMessage}`);
+              detailWarnings += 1;
+            } else {
+              detailWarningsSuppressed += 1;
+            }
           }
         }
+
+        if (batchHitRuntimeBudget) {
+          detailBudgetTruncated = true;
+          break;
+        }
+      }
+
+      if (detailBudgetTruncated) {
+        log(
+          `[ashby:${orgSlug}] Detail fetch truncated at ${detailMap.size}/${detailCandidates.length} candidate pages to stay within runtime budget`
+        );
+      }
+
+      if (detailWarningsSuppressed > 0) {
+        log(
+          `[ashby:${orgSlug}] Suppressed ${detailWarningsSuppressed} additional detail warning(s)`
+        );
       }
 
       const jobs: SourceConnectorJob[] = listings.map((listing) => {
@@ -146,7 +244,9 @@ export function createAshbyConnector({
           companyName: resolvedCompanyName,
           fetchedAt: options.now.toISOString(),
           totalListings: allListings.length,
+          detailCandidates: detailCandidates.length,
           detailsFetched: detailMap.size,
+          detailBudgetTruncated,
         },
       };
     },
@@ -155,12 +255,18 @@ export function createAshbyConnector({
 
 // ─── HTML data extraction ─────────────────────────────────────────────────────
 
-async function fetchAshbyPage(url: string): Promise<AshbyAppData> {
+async function fetchAshbyPage(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs: number = 45_000
+): Promise<AshbyAppData> {
+  throwIfAborted(signal);
   const response = await fetch(url, {
     headers: {
       "User-Agent": USER_AGENT,
       Accept: "text/html,application/xhtml+xml",
     },
+    signal: buildTimeoutSignal(signal, timeoutMs),
   });
 
   if (!response.ok) {
@@ -169,8 +275,25 @@ async function fetchAshbyPage(url: string): Promise<AshbyAppData> {
     );
   }
 
+  throwIfAborted(signal);
   const html = await response.text();
   return extractAppData(html, url);
+}
+
+function getDetailDeadlineAt(deadlineAt?: Date | null) {
+  if (!deadlineAt) return null;
+  return new Date(deadlineAt.getTime() - DETAIL_RUNTIME_RESERVE_MS);
+}
+
+function getRemainingBudgetMs(deadlineAt?: Date | null) {
+  if (!deadlineAt) return null;
+  return deadlineAt.getTime() - Date.now();
+}
+
+function isRuntimeBudgetLikeError(errorMessage: string) {
+  return /\bTIME_BUDGET_EXCEEDED\b|ABORTED_BY_RUNNER|AbortError|runtime budget exceeded/i.test(
+    errorMessage
+  );
 }
 
 function extractAppData(html: string, sourceUrl: string): AshbyAppData {

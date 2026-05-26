@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { ArrowUpDown, Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
+import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getOptionalSessionUser } from "@/lib/current-user";
+import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { normalizeCareerStageFilterValue } from "@/lib/career-stage";
 import { formatPostedAge } from "@/lib/job-display";
 import { serializeJobCardData } from "@/lib/job-serialization";
@@ -59,17 +59,25 @@ const INDUSTRY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "Finance", value: "FINANCE" },
 ];
 
+const EXPIRY_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "Expiring soon", value: "soon" },
+];
+
 const SORT_OPTIONS: Array<{ label: string; value: string | undefined }> = [
   { label: "Relevance", value: undefined },
   { label: "Newest", value: "newest" },
+  { label: "Expiry date", value: "deadline" },
   { label: "Salary", value: "salary" },
 ];
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
-  await connection();
-
-  const sessionUser = await getOptionalSessionUser();
-  if (!sessionUser) {
+  // Note: `await searchParams` below already makes this page dynamic. We
+  // previously also called `connection()` here, but that was redundant and
+  // added a second opt-out marker that confused the runtime's cache
+  // heuristics. Dropping it lets the in-process TTL caches in getJobs /
+  // getIngestionStatus do their job on repeat tab/filter navigation.
+  const viewerProfileId = await getOptionalCurrentProfileId();
+  if (!viewerProfileId) {
     redirect("/sign-in");
   }
 
@@ -77,9 +85,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const filters = parseJobFilters(resolvedSearchParams);
 
   const [jobsResult, ingestionStatus] = await Promise.all([
-    getJobs(filters),
+    getJobs(filters, { viewerProfileId }),
     getIngestionStatus(),
   ]);
+  const renderReferenceNow = new Date().toISOString();
 
   const jobCards = jobsResult.data.map((job) =>
     serializeJobCardData({
@@ -107,20 +116,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const totalPages =
     jobsResult.total !== null ? Math.max(1, Math.ceil(jobsResult.total / jobsResult.pageSize)) : null;
   const navigationKey = buildSearchParamSignature(resolvedSearchParams);
-  const clearFiltersHref = buildJobsHref(resolvedSearchParams, {
-    page: undefined,
-    search: undefined,
-    region: undefined,
-    workMode: undefined,
-    industry: undefined,
-    roleFamily: undefined,
-    salaryMin: undefined,
-    experienceLevel: undefined,
-    submissionCategory: undefined,
-  });
+  const clearFiltersHref = "/jobs?reset=1";
 
   return (
     <div className="app-page space-y-6">
+      <SearchParamMemory basePath="/jobs" storageKey="autoapplication.jobs.filters" />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
       <header className="page-header">
@@ -148,19 +148,16 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:text-[15px]">
             <span className="text-foreground">
               <span className="font-medium">{jobsResult.summary.addedTodayCount.toLocaleString()}</span>{" "}
-              added today
+              first seen today
             </span>
             <span className="text-muted-foreground">
               <span className="font-medium text-foreground">
-                {jobsResult.summary.expiredTodayCount.toLocaleString()}
+                {(
+                  jobsResult.summary.expiredTodayCount +
+                  jobsResult.summary.removedTodayCount
+                ).toLocaleString()}
               </span>{" "}
-              expired today
-            </span>
-            <span className="text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {jobsResult.summary.removedTodayCount.toLocaleString()}
-              </span>{" "}
-              removed today
+              expired/closed today
             </span>
           </div>
           {hasScopedResults &&
@@ -192,6 +189,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                   {filters.salaryMin ? (
                     <input name="salaryMin" type="hidden" value={String(filters.salaryMin)} />
                   ) : null}
+                  {filters.expiry ? <input name="expiry" type="hidden" value={filters.expiry} /> : null}
 
                   <div className="relative min-w-0 flex-1">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -231,9 +229,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <p className="text-base font-medium text-foreground">Refine the feed</p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Keep each filter section collapsed until you want to open it.
-                              </p>
                             </div>
                             {activeFilterCount > 0 ? (
                               <span className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/40 px-3 text-xs font-medium text-foreground">
@@ -321,6 +316,18 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             title="Industry"
                           />
 
+                          <FilterDropdownField
+                            clearHref={buildJobsHref(resolvedSearchParams, {
+                              page: undefined,
+                              expiry: undefined,
+                            })}
+                            emptyLabel="Any deadline"
+                            name="expiry"
+                            options={EXPIRY_OPTIONS}
+                            selected={filters.expiry}
+                            title="Deadline"
+                          />
+
                           <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
                             <FilterFieldLabel>Minimum salary</FilterFieldLabel>
                             <Input
@@ -386,7 +393,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                   </details>
 
                   {hasScopedResults ? (
-                    <Button className="h-10 px-3" render={<Link href={clearFiltersHref} />} size="sm" variant="ghost">
+                    <Button className="h-10 px-3" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
                       <X className="h-3.5 w-3.5" />
                       Clear
                     </Button>
@@ -411,7 +418,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </div>
       </section>
 
-      <section className="surface-panel p-4 sm:p-5">
+      <section className="surface-panel p-3 sm:p-4 lg:p-5">
         {jobCards.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-sm font-medium text-foreground">
@@ -423,13 +430,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                 : "The live pool is refreshing. Check back in a moment."}
             </p>
             {hasScopedResults ? (
-              <Button className="mt-4" render={<Link href="/jobs" />} size="sm" variant="outline">
+              <Button className="mt-4" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
                 Clear filters
               </Button>
             ) : null}
           </div>
         ) : (
-          <JobsFeedList initialJobs={jobCards} key={navigationKey} />
+          <JobsFeedList
+            initialJobs={jobCards}
+            key={navigationKey}
+            referenceNow={renderReferenceNow}
+          />
         )}
 
         {(currentPage > 1 || jobsResult.hasNextPage || (totalPages !== null && totalPages > 1)) ? (
@@ -513,6 +524,7 @@ function parseJobFilters(
     experienceLevel: normalizeCareerStageFilterValue(
       getMultiSearchParam(searchParams, "experienceLevel")
     ),
+    expiry: getSearchParam(searchParams, "expiry"),
     submissionCategory: normalizeSubmissionCategoryFilter(rawSubmissionCategory),
     status: getSearchParam(searchParams, "status"),
     sortBy: getSearchParam(searchParams, "sortBy"),
@@ -598,6 +610,7 @@ function countActiveFilters(filters: JobFilterParams) {
     "submissionCategory",
     "roleFamily",
     "experienceLevel",
+    "expiry",
   ];
 
   return keys.filter((key) => {
@@ -711,6 +724,7 @@ function hasFilterValue(current: string | undefined, optionValue: string) {
 
 function getSortLabel(sortBy?: string) {
   if (sortBy === "newest") return "Newest";
+  if (sortBy === "deadline") return "Expiry date";
   if (sortBy === "salary") return "Salary";
   return "Relevance";
 }
@@ -724,6 +738,7 @@ function buildActiveFilterChips(filters: JobFilterParams) {
   chips.push(...collectSelectedLabels(filters.workMode, WORK_MODE_OPTIONS));
   chips.push(...collectSelectedLabels(filters.region, REGION_OPTIONS));
   chips.push(...collectSelectedLabels(filters.industry, INDUSTRY_OPTIONS));
+  chips.push(...collectSelectedLabels(filters.expiry, EXPIRY_OPTIONS));
 
   if (filters.salaryMin) chips.push(`Min $${Number(filters.salaryMin).toLocaleString()}`);
   if (filters.search) chips.push(`Search: ${filters.search}`);

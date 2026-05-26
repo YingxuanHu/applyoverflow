@@ -1,28 +1,35 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, MoreHorizontal, Sparkles } from "lucide-react";
 
 import {
   addTag,
-  addTimelineEvent,
   deleteTimelineEvent,
   importJobDescription,
   linkDocument,
   removeTag,
   unlinkDocument,
   updateApplicationField,
+  updateApplicationHeader,
   updateApplicationStatus,
   uploadWorkspaceDocument,
 } from "@/app/applications/[id]/actions";
-import { importDocumentToProfile } from "@/app/profile/actions";
 import { AIWorkspace } from "@/components/jobs/ai-workspace";
-import { DeleteApplicationButton } from "@/components/applications/delete-application-button";
 import { JobAssistant } from "@/components/applications/job-assistant";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -50,6 +57,7 @@ type DocumentLink = {
     id: string;
     title: string;
     type: DocumentType;
+    isAiGenerated: boolean;
     analysis: { documentId: string } | null;
   };
 };
@@ -67,7 +75,21 @@ type UserDocument = {
   id: string;
   title: string;
   type: DocumentType;
+  isAiGenerated: boolean;
+  isPrimary: boolean;
   analysis: { documentId: string } | null;
+};
+
+type GeneratedApplicationDocument = {
+  id: string;
+  title: string;
+  type: DocumentType;
+  filename: string;
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  extractedText: string | null;
+  createdAt: Date;
 };
 
 type WorkspaceApplication = {
@@ -93,6 +115,11 @@ type WorkspaceApplication = {
 type WorkspaceClientProps = {
   aiConfigured: boolean;
   application: WorkspaceApplication;
+  generatedDocuments: GeneratedApplicationDocument[];
+  // When the page was opened via `/applications/{id}?edit=1` (e.g. from the
+  // Edit link on the applications list), pre-open the header editor so the
+  // user can change company / title / link without an extra click.
+  initialHeaderEditing?: boolean;
   userDocuments: UserDocument[];
   userTags: Tag[];
 };
@@ -108,19 +135,6 @@ const statusOptions = [
   { value: "WITHDRAWN", label: "Withdrawn" },
 ] as const satisfies ReadonlyArray<{
   value: TrackedApplicationStatus;
-  label: string;
-}>;
-
-const eventTypeOptions = [
-  { value: "NOTE", label: "Note" },
-  { value: "REMINDER", label: "Reminder" },
-  { value: "APPLIED", label: "Applied" },
-  { value: "SCREEN", label: "Screen" },
-  { value: "INTERVIEW", label: "Interview" },
-  { value: "OFFER", label: "Offer" },
-  { value: "REJECTED", label: "Rejected" },
-] as const satisfies ReadonlyArray<{
-  value: TrackedApplicationEventType;
   label: string;
 }>;
 
@@ -140,7 +154,6 @@ const statusBadgeClass: Record<string, string> = {
 const ACCEPT_RESUME = ".pdf,.doc,.docx,.txt,.rtf,.png,.jpg,.jpeg,.webp";
 const ACCEPT_COVER_LETTER = ".pdf,.doc,.docx,.txt,.rtf";
 const WORKSPACE_FIELD_TITLE_CLASS = "text-[0.95rem] font-semibold tracking-tight text-foreground";
-const DEFAULT_REMINDER_TIME = "09:00";
 const INITIAL_ACTION_STATE: ActionState = {
   error: null,
   success: null,
@@ -280,11 +293,21 @@ function useActionNotifications(state: ActionState) {
   }, [notify, state.error, state.success]);
 }
 
-function SubmitBtn({ label, saving }: { label: string; saving: string }) {
+function SubmitBtn({
+  label,
+  saving,
+  variant,
+}: {
+  label: string;
+  saving: string;
+  // Optional — primarily so destructive submit buttons (Remove / Unlink)
+  // render in red. Other callers can omit and get the default style.
+  variant?: "default" | "destructive" | "ghost" | "outline" | "secondary";
+}) {
   const { pending } = useFormStatus();
 
   return (
-    <Button className="h-8 px-3 text-xs" disabled={pending} size="sm" type="submit">
+    <Button className="h-8 px-3 text-xs" disabled={pending} size="sm" type="submit" variant={variant}>
       {pending ? (
         <>
           <LoadingSpinner className="h-3 w-3" />
@@ -294,17 +317,6 @@ function SubmitBtn({ label, saving }: { label: string; saving: string }) {
         label
       )}
     </Button>
-  );
-}
-
-function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
-  return (
-    <label
-      className="block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-      htmlFor={htmlFor}
-    >
-      {children}
-    </label>
   );
 }
 
@@ -386,6 +398,113 @@ function EditableField({
   );
 }
 
+/**
+ * Header editor for an application's identity fields (company, role title,
+ * job link). Renders read-only by default with a single "Edit" button. When
+ * Edit is clicked, all three fields turn into inputs and Save/Cancel buttons
+ * appear. One submit writes all three atomically via updateApplicationHeader.
+ */
+function ApplicationHeaderEditor({
+  application,
+  editing,
+  onClose,
+}: {
+  application: { id: string; company: string; roleTitle: string; roleUrl: string | null };
+  editing: boolean;
+  onClose: () => void;
+}) {
+  const [state, formAction] = useActionState(updateApplicationHeader, INITIAL_ACTION_STATE);
+  useActionNotifications(state);
+
+  function handleCancel() {
+    onClose();
+  }
+
+  if (editing) {
+    return (
+      <form
+        action={async (formData) => {
+          await formAction(formData);
+          onClose();
+        }}
+        className="space-y-3"
+      >
+        <input name="applicationId" type="hidden" value={application.id} />
+        <div className="space-y-1">
+          <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Company
+          </label>
+          <Input
+            autoFocus
+            className="h-10 text-base font-semibold"
+            defaultValue={application.company}
+            name="company"
+            placeholder="Company name"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Job title
+          </label>
+          <Input
+            className="h-10"
+            defaultValue={application.roleTitle}
+            name="roleTitle"
+            placeholder="Job title"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Job link
+          </label>
+          <Input
+            className="h-10"
+            defaultValue={application.roleUrl ?? ""}
+            name="roleUrl"
+            placeholder="https://..."
+            type="url"
+          />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <SubmitBtn label="Save" saving="Saving..." />
+          <Button
+            className="h-9 px-3 text-xs"
+            onClick={handleCancel}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
+  // Read-only header layout — mirrors the applications list:
+  //   Row 1: role title (the headline, large + bold)
+  //   Row 2: company (bold, normal text size)
+  //   Row 3: posting link
+  return (
+    <div className="space-y-2">
+      <h2 className="text-2xl font-semibold text-foreground">{application.roleTitle}</h2>
+      <p className="text-base font-semibold text-foreground">{application.company}</p>
+      {application.roleUrl ? (
+        <a
+          className="inline-block text-sm font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground"
+          href={application.roleUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          View job posting
+        </a>
+      ) : (
+        <p className="text-sm italic text-muted-foreground">No job link</p>
+      )}
+    </div>
+  );
+}
+
 function TagChip({ applicationId, tag }: { applicationId: string; tag: Tag }) {
   const [state, formAction] = useActionState(removeTag, INITIAL_ACTION_STATE);
   useActionNotifications(state);
@@ -395,12 +514,14 @@ function TagChip({ applicationId, tag }: { applicationId: string; tag: Tag }) {
       <input name="applicationId" type="hidden" value={applicationId} />
       <input name="tagId" type="hidden" value={tag.id} />
       <button
-        className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-foreground transition hover:bg-muted/70"
+        className="group/tag inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-medium text-foreground transition hover:border-destructive/30 hover:bg-destructive/5"
         title={`Remove "${tag.name}"`}
         type="submit"
       >
         {tag.name}
-        <span aria-hidden className="opacity-60">
+        {/* × is the explicit "remove" affordance — render in red so the
+            destructive intent is unambiguous on hover. */}
+        <span aria-hidden className="text-destructive/70 group-hover/tag:text-destructive">
           ×
         </span>
       </button>
@@ -408,54 +529,179 @@ function TagChip({ applicationId, tag }: { applicationId: string; tag: Tag }) {
   );
 }
 
-function TagsSection({
+function AttachDocumentControl({
   applicationId,
-  children,
-  tags,
-  userTags,
+  slot,
+  label,
+  documents,
+  currentLink,
 }: {
   applicationId: string;
-  children?: React.ReactNode;
-  tags: Tag[];
-  userTags: Tag[];
+  slot: "SENT_RESUME" | "SENT_COVER_LETTER";
+  label: string;
+  documents: UserDocument[];
+  currentLink: DocumentLink | undefined;
 }) {
-  const [inputValue, setInputValue] = useState("");
-  const [state, formAction] = useActionState(addTag, INITIAL_ACTION_STATE);
-  useActionNotifications(state);
+  const [showUpload, setShowUpload] = useState(false);
+  const [linkState, linkAction] = useActionState(linkDocument, INITIAL_ACTION_STATE);
+  const [unlinkState, unlinkAction] = useActionState(unlinkDocument, INITIAL_ACTION_STATE);
+  const [uploadState, uploadAction] = useActionState(
+    uploadWorkspaceDocument,
+    INITIAL_ACTION_STATE
+  );
+  useActionNotifications(linkState);
+  useActionNotifications(unlinkState);
+  useActionNotifications(uploadState);
 
-  const suggestableTags = userTags.filter((tag) => !tags.some((existingTag) => existingTag.id === tag.id));
+  const documentType = slot === "SENT_RESUME" ? "RESUME" : "COVER_LETTER";
+  const accept = slot === "SENT_RESUME" ? ACCEPT_RESUME : ACCEPT_COVER_LETTER;
+  const available = documents.filter((document) => document.type === documentType);
+  const uploadedDocuments = available.filter((document) => !document.isAiGenerated);
+  const aiGeneratedDocuments = available.filter((document) => document.isAiGenerated);
+
+  function linkExistingDocument(documentId: string) {
+    const payload = new FormData();
+    payload.set("applicationId", applicationId);
+    payload.set("slot", slot);
+    payload.set("documentId", documentId);
+    startTransition(() => linkAction(payload));
+  }
+
+  function removeLinkedDocument() {
+    const payload = new FormData();
+    payload.set("applicationId", applicationId);
+    payload.set("slot", slot);
+    startTransition(() => unlinkAction(payload));
+  }
+
+  const currentTitle = currentLink?.document.title ?? null;
+  const emptyLabel = documentType === "RESUME" ? "Choose resume" : "Choose cover letter";
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {tags.map((tag) => (
-        <TagChip applicationId={applicationId} key={tag.id} tag={tag} />
-      ))}
-      <form
-        action={async (formData) => {
-          await formAction(formData);
-          setInputValue("");
-        }}
-        className="flex items-center gap-1"
-      >
-        <input name="applicationId" type="hidden" value={applicationId} />
-        {suggestableTags.length > 0 ? (
-          <datalist id="tag-suggestions">
-            {suggestableTags.map((tag) => (
-              <option key={tag.id} value={tag.name} />
-            ))}
-          </datalist>
-        ) : null}
-        <Input
-          className="h-7 w-28 px-2 text-xs"
-          list="tag-suggestions"
-          name="name"
-          onChange={(event) => setInputValue(event.target.value)}
-          placeholder="Add tag..."
-          value={inputValue}
-        />
-        <SubmitBtn label="+" saving="..." />
-      </form>
-      {children}
+    <div className="min-w-0">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={label}
+          className="flex min-h-14 w-56 max-w-full min-w-0 items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0">
+              <span className="block truncate text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                {label}
+              </span>
+              <span className="mt-0.5 block truncate text-sm leading-5 text-foreground">
+                {currentTitle ?? emptyLabel}
+              </span>
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-72">
+          {uploadedDocuments.length > 0 ? (
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Uploaded by you</DropdownMenuLabel>
+              {uploadedDocuments.map((document) => (
+                <DropdownMenuItem
+                  key={document.id}
+                  onClick={() => linkExistingDocument(document.id)}
+                >
+                  <span className="truncate">{document.title}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          ) : null}
+          {aiGeneratedDocuments.length > 0 ? (
+            <>
+              {uploadedDocuments.length > 0 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>AI generated</DropdownMenuLabel>
+                {aiGeneratedDocuments.map((document) => (
+                  <DropdownMenuItem
+                    key={document.id}
+                    onClick={() => linkExistingDocument(document.id)}
+                  >
+                    <span className="truncate">{document.title}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </>
+          ) : null}
+          {available.length > 0 ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem onClick={() => setShowUpload(true)}>
+            Upload new...
+          </DropdownMenuItem>
+          {currentLink ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={removeLinkedDocument} variant="destructive">
+                Remove attachment
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {showUpload ? (
+        <form
+          action={async (formData) => {
+            await uploadAction(formData);
+            setShowUpload(false);
+          }}
+          className="grid gap-2 rounded-lg border border-border/70 bg-background/80 p-3"
+        >
+          <input name="applicationId" type="hidden" value={applicationId} />
+          <input name="slot" type="hidden" value={slot} />
+          <div className="space-y-1">
+            <label
+              className="block text-xs text-muted-foreground"
+              htmlFor={`attach-title-${slot}`}
+            >
+              Title (optional)
+            </label>
+            <Input
+              id={`attach-title-${slot}`}
+              name="title"
+              placeholder={`e.g. ${
+                documentType === "RESUME" ? "Resume v2" : "Cover letter – Google"
+              }`}
+              type="text"
+            />
+          </div>
+          <div className="space-y-1">
+            <label
+              className="block text-xs text-muted-foreground"
+              htmlFor={`attach-file-${slot}`}
+            >
+              File <span className="text-muted-foreground">({accept})</span>
+            </label>
+            <FileInput
+              accept={accept}
+              className="hover:border-border"
+              id={`attach-file-${slot}`}
+              name="file"
+              required
+            />
+          </div>
+          {uploadState.error ? (
+            <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {uploadState.error}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <SubmitBtn label="Upload & attach" saving="Uploading..." />
+            <Button
+              className="h-8 px-3 text-xs"
+              onClick={() => setShowUpload(false)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : null}
     </div>
   );
 }
@@ -495,330 +741,152 @@ function StatusSelector({
   );
 }
 
-function DocumentSlot({
+function WorkspaceActionsMenu({
   applicationId,
-  slot,
-  label,
-  currentLink,
-  documents,
+  existingTags,
+  userTags,
+  onEdit,
 }: {
   applicationId: string;
-  slot: "SENT_RESUME" | "SENT_COVER_LETTER";
-  label: string;
-  currentLink: DocumentLink | undefined;
-  documents: UserDocument[];
+  existingTags: Tag[];
+  userTags: Tag[];
+  onEdit: () => void;
 }) {
-  const [showUpload, setShowUpload] = useState(false);
+  const router = useRouter();
+  const { notify } = useNotifications();
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [tagState, tagAction, tagPending] = useActionState(addTag, INITIAL_ACTION_STATE);
 
-  const [linkState, linkAction] = useActionState(linkDocument, INITIAL_ACTION_STATE);
-  const [unlinkState, unlinkAction] = useActionState(unlinkDocument, INITIAL_ACTION_STATE);
-  const [uploadState, uploadAction] = useActionState(uploadWorkspaceDocument, INITIAL_ACTION_STATE);
-  const [importState, importAction] = useActionState(importDocumentToProfile, INITIAL_ACTION_STATE);
-
-  useActionNotifications(linkState);
-  useActionNotifications(unlinkState);
-  useActionNotifications(uploadState);
-  useActionNotifications(importState);
-
-  const documentType = slot === "SENT_RESUME" ? "RESUME" : "COVER_LETTER";
-  const accept = slot === "SENT_RESUME" ? ACCEPT_RESUME : ACCEPT_COVER_LETTER;
-  const available = documents.filter((document) => document.type === documentType);
-
-  return (
-    <div className="rounded-xl border border-border/70 bg-background/50 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className={WORKSPACE_FIELD_TITLE_CLASS}>{label}</h4>
-        {!showUpload ? (
-          <button
-            className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
-            onClick={() => setShowUpload(true)}
-            type="button"
-          >
-            Upload new
-          </button>
-        ) : null}
-      </div>
-
-      {showUpload ? (
-        <form
-          action={async (formData) => {
-            await uploadAction(formData);
-            setShowUpload(false);
-          }}
-          className="mt-3 grid gap-2"
-        >
-          <input name="applicationId" type="hidden" value={applicationId} />
-          <input name="slot" type="hidden" value={slot} />
-          <div className="space-y-1">
-            <label className="block text-xs text-muted-foreground" htmlFor={`upload-title-${slot}`}>
-              Title (optional)
-            </label>
-            <Input
-              id={`upload-title-${slot}`}
-              name="title"
-              placeholder={`e.g. ${documentType === "RESUME" ? "Resume v2" : "Cover letter – Google"}`}
-              type="text"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-xs text-muted-foreground" htmlFor={`upload-file-${slot}`}>
-              File <span className="text-muted-foreground">({accept})</span>
-            </label>
-            <FileInput
-              accept={accept}
-              className="hover:border-border"
-              id={`upload-file-${slot}`}
-              name="file"
-              required
-            />
-          </div>
-          {uploadState.error ? (
-            <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {uploadState.error}
-            </p>
-          ) : null}
-          <div className="flex gap-2">
-            <SubmitBtn label="Upload & attach" saving="Uploading..." />
-            <Button
-              className="h-8 px-3 text-xs"
-              onClick={() => {
-                setShowUpload(false);
-              }}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : currentLink ? (
-        <div className="mt-2 grid gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-foreground/80">{currentLink.document.title}</p>
-            <div className="flex items-center gap-1">
-              <Button
-                className="h-8 px-3 text-xs"
-                render={<Link href={`/api/profile/documents/${currentLink.document.id}/download`} />}
-                size="sm"
-                variant="secondary"
-              >
-                Download
-              </Button>
-              <form action={unlinkAction}>
-                <input name="applicationId" type="hidden" value={applicationId} />
-                <input name="slot" type="hidden" value={slot} />
-                <SubmitBtn label="Remove" saving="..." />
-              </form>
-            </div>
-          </div>
-          {slot === "SENT_RESUME" ? (
-            <form action={importAction}>
-              <input name="documentId" type="hidden" value={currentLink.document.id} />
-              {currentLink.document.analysis ? (
-                <Button
-                  className="h-8 px-3 text-xs"
-                  disabled
-                  size="sm"
-                  title="Already imported to profile"
-                  type="button"
-                  variant="secondary"
-                >
-                  Imported to profile
-                </Button>
-              ) : (
-                <SubmitBtn label="Import to profile" saving="Importing..." />
-              )}
-            </form>
-          ) : null}
-        </div>
-      ) : available.length > 0 ? (
-        <form action={linkAction} className="mt-2 flex items-center gap-2">
-          <input name="applicationId" type="hidden" value={applicationId} />
-          <input name="slot" type="hidden" value={slot} />
-          <select
-            className="h-9 flex-1 rounded-lg border border-border/70 bg-background px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-            name="documentId"
-          >
-            <option value="">Select existing...</option>
-            {available.map((document) => (
-              <option key={document.id} value={document.id}>
-                {document.title}
-              </option>
-            ))}
-          </select>
-          <SubmitBtn label="Attach" saving="..." />
-        </form>
-      ) : (
-        <p className="mt-2 text-sm italic text-muted-foreground">
-          No {documentType === "RESUME" ? "resumes" : "cover letters"} yet. Click &quot;Upload new&quot; to add one.
-        </p>
-      )}
-    </div>
+  const suggestableTags = userTags.filter(
+    (tag) => !existingTags.some((existingTag) => existingTag.id === tag.id)
   );
-}
 
-function AddEventDropdown({ applicationId }: { applicationId: string }) {
-  const [state, formAction] = useActionState(addTimelineEvent, INITIAL_ACTION_STATE);
-  const [selectedType, setSelectedType] = useState<TrackedApplicationEventType>("NOTE");
-  const [open, setOpen] = useState(false);
-  const [reminderDate, setReminderDate] = useState("");
-  const [reminderTime, setReminderTime] = useState(DEFAULT_REMINDER_TIME);
-  const [reminderValue, setReminderValue] = useState("");
-  const [reminderError, setReminderError] = useState<string | null>(null);
-  useActionNotifications(state);
+  useEffect(() => {
+    if (tagState.success) {
+      notify({ title: "Tag added", message: tagState.success, tone: "success" });
+      setTagDialogOpen(false);
+    } else if (tagState.error) {
+      notify({ title: "Couldn't add tag", message: tagState.error, tone: "error" });
+    }
+  }, [notify, tagState]);
 
-  function resetReminderDraft() {
-    setReminderDate("");
-    setReminderTime(DEFAULT_REMINDER_TIME);
-    setReminderValue("");
-    setReminderError(null);
+  function handleAddTagSubmit() {
+    const name = tagInputRef.current?.value?.trim() ?? "";
+    if (!name || tagPending) return;
+
+    const formData = new FormData();
+    formData.set("applicationId", applicationId);
+    formData.set("name", name);
+    startTransition(() => tagAction(formData));
   }
 
-  function handleEventTypeChange(value: TrackedApplicationEventType) {
-    setSelectedType(value);
-    if (value !== "REMINDER") {
-      resetReminderDraft();
-    }
-  }
+  async function handleDelete() {
+    if (deletePending) return;
 
-  function handleSetReminder() {
-    if (!reminderDate || !reminderTime) {
-      setReminderError("Choose both a date and time first.");
-      return;
+    setDeletePending(true);
+    try {
+      const response = await fetch(`/api/applications/${applicationId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Could not delete this application.");
+      }
+      notify({
+        title: "Application deleted",
+        message: "Removed from your applications.",
+        tone: "success",
+      });
+      setDeleteDialogOpen(false);
+      router.push("/applications");
+      router.refresh();
+    } catch (error) {
+      notify({
+        title: "Couldn't delete",
+        message: error instanceof Error ? error.message : "Could not delete this application.",
+        tone: "error",
+      });
+    } finally {
+      setDeletePending(false);
     }
-
-    setReminderValue(`${reminderDate}T${reminderTime}`);
-    setReminderError(null);
   }
 
   return (
-    <div className="relative">
-      <Button
-        className="h-8 px-3 text-xs"
-        onClick={() => setOpen((current) => !current)}
-        size="sm"
-        type="button"
-      >
-        Add event
-      </Button>
-
-      {open ? (
-        <div className="absolute left-0 top-[calc(100%+0.5rem)] z-20 w-[min(21rem,calc(100vw-3rem))] rounded-xl border border-border/70 bg-background/98 p-3 shadow-[0_20px_45px_rgba(15,23,42,0.14)] backdrop-blur">
-          <form
-            action={async (formData) => {
-              await formAction(formData);
-              setOpen(false);
-              setSelectedType("NOTE");
-              resetReminderDraft();
-            }}
-            className="grid gap-3"
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Application actions"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[140px]">
+          <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>Add tag</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => setDeleteDialogOpen(true)}
+            variant="destructive"
           >
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium text-foreground">Add event</h3>
-              <button
-                className="rounded px-1.5 py-0.5 text-xs text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
-                onClick={() => setOpen(false)}
-                type="button"
-              >
-                Close
-              </button>
-            </div>
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-            <div className="space-y-1">
-              <FieldLabel htmlFor="event-type">Type</FieldLabel>
-              <select
-                className="h-9 w-full rounded-lg border border-border/70 bg-background px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                defaultValue="NOTE"
-                id="event-type"
-                name="type"
-                onChange={(event) => handleEventTypeChange(event.target.value as TrackedApplicationEventType)}
-              >
-                {eventTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+      <ConfirmActionDialog
+        cancelLabel="Cancel"
+        confirmLabel={tagPending ? "Adding..." : "Add tag"}
+        description={
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Tags help you filter and group applications.
+            </p>
+            {suggestableTags.length > 0 ? (
+              <datalist id={`workspace-tag-suggestions-${applicationId}`}>
+                {suggestableTags.map((tag) => (
+                  <option key={tag.id} value={tag.name} />
                 ))}
-              </select>
-            </div>
-
-            {selectedType === "REMINDER" ? (
-              <div className="space-y-2">
-                <FieldLabel>Remind me at</FieldLabel>
-                <div className="grid gap-2 sm:grid-cols-[minmax(11rem,1.2fr)_minmax(8rem,0.8fr)]">
-                  <Input
-                    className="text-sm"
-                    id="event-reminder-date"
-                    onChange={(event) => {
-                      setReminderDate(event.target.value);
-                      setReminderValue("");
-                      setReminderError(null);
-                    }}
-                    type="date"
-                    value={reminderDate}
-                  />
-                  <Input
-                    className="text-sm"
-                    id="event-reminder-time"
-                    onChange={(event) => {
-                      setReminderTime(event.target.value);
-                      setReminderValue("");
-                      setReminderError(null);
-                    }}
-                    type="time"
-                    value={reminderTime}
-                  />
-                </div>
-                <div className="flex justify-start">
-                  <Button
-                    className="h-9 px-3 text-xs"
-                    onClick={handleSetReminder}
-                    size="sm"
-                    type="button"
-                    variant="secondary"
-                  >
-                    Set reminder
-                  </Button>
-                </div>
-                <input name="reminderAt" type="hidden" value={reminderValue} />
-                {reminderValue ? (
-                  <p className="text-xs text-muted-foreground">
-                    Reminder set for {formatDateTime(new Date(reminderValue))}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Pick a date and time, then click <span className="font-medium text-foreground">Set reminder</span>.
-                  </p>
-                )}
-                {reminderError ? (
-                  <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                    {reminderError}
-                  </p>
-                ) : null}
-              </div>
+              </datalist>
             ) : null}
+            <Input
+              autoFocus
+              list={
+                suggestableTags.length > 0
+                  ? `workspace-tag-suggestions-${applicationId}`
+                  : undefined
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleAddTagSubmit();
+                }
+              }}
+              placeholder="Tag name"
+              ref={tagInputRef}
+            />
+          </div>
+        }
+        onConfirm={handleAddTagSubmit}
+        onOpenChange={setTagDialogOpen}
+        open={tagDialogOpen}
+        pending={tagPending}
+        title="Add tag"
+      />
 
-            <div className="space-y-1">
-              <FieldLabel htmlFor="event-note">
-                {selectedType === "REMINDER" ? "What to remind about" : "Note"}
-              </FieldLabel>
-              <Textarea
-                className="min-h-[84px] resize-y text-sm"
-                id="event-note"
-                name="note"
-                placeholder={selectedType === "REMINDER" ? "What should this reminder cover?" : "Add a quick note..."}
-                rows={3}
-              />
-            </div>
-
-            <input name="applicationId" type="hidden" value={applicationId} />
-            <div className="flex justify-end">
-              <SubmitBtn label="Add event" saving="Adding..." />
-            </div>
-          </form>
-        </div>
-      ) : null}
-    </div>
+      <ConfirmActionDialog
+        confirmLabel={deletePending ? "Deleting..." : "Delete"}
+        description="Delete this job from your applications?"
+        destructive
+        onConfirm={handleDelete}
+        onOpenChange={setDeleteDialogOpen}
+        open={deleteDialogOpen}
+        pending={deletePending}
+        title="Delete application?"
+      />
+    </>
   );
 }
 
@@ -1067,6 +1135,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
           onClick={() => setDeleteOpen(true)}
           size="sm"
           type="button"
+          variant="destructive"
         >
           Delete
         </Button>
@@ -1126,17 +1195,37 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
   );
 }
 
-function TailoredResumeSection({ applicationId }: { applicationId: string }) {
+function TailoredResumeSection({
+  applicationId,
+  initialResume,
+}: {
+  applicationId: string;
+  initialResume: {
+    fileName: string;
+    mimeType: string;
+    downloadHref: string;
+  } | null;
+}) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedResume, setGeneratedResume] = useState<{
     fileName: string;
     mimeType: string;
-    pdfBase64: string;
-  } | null>(null);
+    pdfBase64?: string;
+    downloadHref?: string;
+  } | null>(initialResume);
 
   function handleDownload() {
     if (!generatedResume) {
+      return;
+    }
+
+    if (generatedResume.downloadHref && !generatedResume.pdfBase64) {
+      window.location.href = generatedResume.downloadHref;
+      return;
+    }
+
+    if (!generatedResume.pdfBase64) {
       return;
     }
 
@@ -1176,6 +1265,10 @@ function TailoredResumeSection({ applicationId }: { applicationId: string }) {
         fileName: String(json.fileName ?? "tailored-resume.pdf"),
         mimeType: String(json.mimeType ?? "application/pdf"),
         pdfBase64: String(json.pdfBase64 ?? ""),
+        downloadHref:
+          typeof json.documentId === "string" && json.documentId
+            ? `/api/profile/documents/${json.documentId}/download`
+            : undefined,
       });
     } catch {
       setError("Network error. Try again.");
@@ -1187,14 +1280,17 @@ function TailoredResumeSection({ applicationId }: { applicationId: string }) {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <Button className="h-8 px-3 text-xs" disabled={generating} onClick={handleGenerate} size="sm" type="button">
+        <Button disabled={generating} onClick={handleGenerate} size="sm" type="button" variant="outline">
           {generating ? (
             <>
-              <LoadingSpinner className="h-3 w-3" />
+              <LoadingSpinner className="mr-1.5 h-3.5 w-3.5" />
               Generating...
             </>
           ) : (
-            generatedResume ? "Regenerate" : "Generate tailored resume"
+            <>
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              {generatedResume ? "Regenerate tailored resume" : "Generate tailored resume"}
+            </>
           )}
         </Button>
         {generatedResume ? (
@@ -1219,42 +1315,70 @@ function TailoredResumeSection({ applicationId }: { applicationId: string }) {
 
 function WorkspaceAISection({
   applicationId,
-  canonicalJobId,
+  attachedResumeId,
   fitAnalysisText,
-  hasJobDescription,
   aiConfigured,
   company,
   roleTitle,
+  userDocuments,
+  generatedDocuments,
 }: {
   applicationId: string;
-  canonicalJobId: string | null;
+  attachedResumeId: string | null;
   fitAnalysisText: string | null;
-  hasJobDescription: boolean;
   aiConfigured: boolean;
   company: string;
   roleTitle: string;
+  userDocuments: UserDocument[];
+  generatedDocuments: GeneratedApplicationDocument[];
 }) {
   const [hasFitAnalysis, setHasFitAnalysis] = useState(Boolean(fitAnalysisText));
   const initialStructuredFit = parseStoredFitAnalysis(fitAnalysisText);
-  const canAnalyze = Boolean(canonicalJobId) || hasJobDescription;
+  const canAnalyze = true;
+  const latestGeneratedCoverLetter =
+    generatedDocuments.find((document) => document.type === "COVER_LETTER") ?? null;
+  const latestGeneratedResume =
+    generatedDocuments.find((document) => document.type === "RESUME") ?? null;
+  const initialCoverLetterText = latestGeneratedCoverLetter?.extractedText?.trim() ?? "";
+  const initialCoverLetter =
+    latestGeneratedCoverLetter
+      ? {
+          text: initialCoverLetterText,
+          wordCount: initialCoverLetterText.split(/\s+/).filter(Boolean).length,
+          documentId: latestGeneratedCoverLetter.id,
+          title: latestGeneratedCoverLetter.title,
+          downloadHref: `/api/profile/documents/${latestGeneratedCoverLetter.id}/download`,
+        }
+      : null;
 
   return (
     <div className="grid gap-3">
       {aiConfigured ? (
         <AIWorkspace
           company={company}
-          coverLetterEndpoint={`/api/applications/${applicationId}/ai/cover-letter`}
           fitAnalysisEndpoint={`/api/applications/${applicationId}/ai/analyze`}
           initialFitAnalysisText={
             initialStructuredFit || fitAnalysisText ? fitAnalysisText : null
           }
           canAnalyzeFit={canAnalyze}
-          fitUnavailableMessage="Add a job description first, or link this application to a pool job."
+          fitUnavailableMessage="Fit analysis is unavailable for this application."
+          fixedResumeId={attachedResumeId}
           jobTitle={roleTitle}
           onFitAnalysisGenerated={() => {
             setHasFitAnalysis(true);
           }}
+          coverLetterEndpoint={`/api/applications/${applicationId}/ai/cover-letter`}
+          initialCoverLetter={initialCoverLetter}
+          showResumeSelector={false}
+          showCoverLetter
           sectionTitleClassName={`flex items-center gap-2 ${WORKSPACE_FIELD_TITLE_CLASS}`}
+          userResumes={userDocuments
+            .filter((document) => document.type === "RESUME")
+            .map((document) => ({
+              id: document.id,
+              title: document.title,
+              isPrimary: document.isPrimary,
+            }))}
         />
       ) : (
         <div className="rounded-xl border border-dashed border-border bg-background/50 p-4">
@@ -1266,14 +1390,38 @@ function WorkspaceAISection({
           </p>
         </div>
       )}
-      {hasFitAnalysis ? (
-        <div className="rounded-xl border border-border/70 bg-background/50 p-4">
-          <h4 className={WORKSPACE_FIELD_TITLE_CLASS}>Tailored resume</h4>
-          <div className="mt-3">
-            <TailoredResumeSection applicationId={applicationId} />
-          </div>
+      <div className="rounded-md border border-border/60">
+        <div className="flex w-full items-center justify-between px-3 py-2.5 text-left">
+          <span className={`flex items-center gap-2 ${WORKSPACE_FIELD_TITLE_CLASS}`}>
+            <span className="shrink-0 text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5" />
+            </span>
+            Tailored resume
+          </span>
         </div>
-      ) : null}
+        <div className="border-t border-border/60 p-3">
+          <TailoredResumeSection
+            applicationId={applicationId}
+            initialResume={
+              latestGeneratedResume
+                ? {
+                    fileName:
+                      latestGeneratedResume.originalFileName ||
+                      latestGeneratedResume.filename ||
+                      "tailored-resume.pdf",
+                    mimeType: latestGeneratedResume.mimeType,
+                    downloadHref: `/api/profile/documents/${latestGeneratedResume.id}/download`,
+                  }
+                : null
+            }
+          />
+          {!hasFitAnalysis ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Uses your primary template, profile, and the job description to create a PDF.
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1281,6 +1429,8 @@ function WorkspaceAISection({
 export function ApplicationWorkspaceClient({
   aiConfigured,
   application,
+  generatedDocuments,
+  initialHeaderEditing = false,
   userDocuments,
   userTags,
 }: WorkspaceClientProps) {
@@ -1291,97 +1441,100 @@ export function ApplicationWorkspaceClient({
   const coverLetterLink = application.documentLinks.find(
     (link) => link.slot === "SENT_COVER_LETTER" && link.document.type === "COVER_LETTER"
   );
+  const [headerEditing, setHeaderEditing] = useState(initialHeaderEditing);
 
   return (
     <div className="grid gap-6">
-      <section className="surface-panel p-5">
+      <section className="space-y-3 border-b border-border/60 pb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-2xl font-semibold text-foreground">{application.company}</h2>
-            <p className="mt-1 text-base text-foreground/80">{application.roleTitle}</p>
+          <div className="min-w-0 flex-1 space-y-2">
+            <ApplicationHeaderEditor
+              application={{
+                id: application.id,
+                company: application.company,
+                roleTitle: application.roleTitle,
+                roleUrl: application.roleUrl,
+              }}
+              editing={headerEditing}
+              onClose={() => setHeaderEditing(false)}
+            />
 
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {formatDate(application.deadline)} · Updated {formatDateTime(application.updatedAt)}
             </p>
 
-            {application.roleUrl ? (
-              <a
-                className="mt-2 inline-block text-sm font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground"
-                href={application.roleUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                View job posting
-              </a>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => (
+                  <TagChip applicationId={application.id} key={tag.id} tag={tag} />
+                ))}
+              </div>
             ) : null}
 
-            <TagsSection applicationId={application.id} tags={tags} userTags={userTags}>
-              <AddEventDropdown applicationId={application.id} />
-            </TagsSection>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <AttachDocumentControl
+                applicationId={application.id}
+                currentLink={resumeLink}
+                documents={userDocuments}
+                label="Attach resume"
+                slot="SENT_RESUME"
+              />
+              <AttachDocumentControl
+                applicationId={application.id}
+                currentLink={coverLetterLink}
+                documents={userDocuments}
+                label="Attach cover letter"
+                slot="SENT_COVER_LETTER"
+              />
+            </div>
           </div>
 
           <div className="flex flex-col items-start gap-2 sm:items-end">
-            <StatusSelector applicationId={application.id} currentStatus={application.status} />
-            <DeleteApplicationButton
-              applicationId={application.id}
-              redirectToList
-              size="sm"
-              variant="ghost"
-            />
+            <div className="flex items-center gap-2">
+              <StatusSelector applicationId={application.id} currentStatus={application.status} />
+              {!headerEditing ? (
+                <WorkspaceActionsMenu
+                  applicationId={application.id}
+                  existingTags={tags}
+                  onEdit={() => setHeaderEditing(true)}
+                  userTags={userTags}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        {/* Main column — flat sections, ordered: job description → AI
+            workspace (Fit analysis + Resume tailoring) → small Notes. The
+            previous Documents section is gone; attach dropdowns live in the
+            title-box footer above. */}
         <div className="grid content-start gap-6 self-start">
-          <section className="surface-panel p-5">
-            <h2 className="text-base font-semibold text-foreground">Details</h2>
+          <JobDescriptionField
+            applicationId={application.id}
+            hasRoleUrl={Boolean(application.roleUrl)}
+            value={application.jobDescription ?? ""}
+          />
 
-            <div className="mt-3 grid gap-3">
-              <EditableField
-                applicationId={application.id}
-                field="notes"
-                label="Notes"
-                placeholder="Add notes about this application..."
-                value={application.notes ?? ""}
-              />
-              <JobDescriptionField
-                applicationId={application.id}
-                hasRoleUrl={Boolean(application.roleUrl)}
-                value={application.jobDescription ?? ""}
-              />
-              <WorkspaceAISection
-                applicationId={application.id}
-                aiConfigured={aiConfigured}
-                canonicalJobId={application.canonicalJob?.id ?? null}
-                company={application.company}
-                fitAnalysisText={application.fitAnalysis}
-                hasJobDescription={Boolean(application.jobDescription)}
-                roleTitle={application.roleTitle}
-              />
-            </div>
-          </section>
+          <WorkspaceAISection
+            applicationId={application.id}
+            attachedResumeId={resumeLink?.document.id ?? null}
+            aiConfigured={aiConfigured}
+            company={application.company}
+            generatedDocuments={generatedDocuments}
+            fitAnalysisText={application.fitAnalysis}
+            roleTitle={application.roleTitle}
+            userDocuments={userDocuments}
+          />
 
-          <section className="surface-panel p-5">
-            <h2 className="text-base font-semibold text-foreground">Documents</h2>
-
-            <div className="mt-3 grid gap-3">
-              <DocumentSlot
-                applicationId={application.id}
-                currentLink={resumeLink}
-                documents={userDocuments}
-                label="Resume"
-                slot="SENT_RESUME"
-              />
-              <DocumentSlot
-                applicationId={application.id}
-                currentLink={coverLetterLink}
-                documents={userDocuments}
-                label="Cover letter"
-                slot="SENT_COVER_LETTER"
-              />
-            </div>
-          </section>
+          <EditableField
+            applicationId={application.id}
+            field="notes"
+            label="Notes"
+            placeholder="Add notes about this application..."
+            value={application.notes ?? ""}
+          />
         </div>
 
         <div className="grid content-start gap-6 self-start">

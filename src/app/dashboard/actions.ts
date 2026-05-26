@@ -1,9 +1,9 @@
 "use server";
 
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
-import { revalidatePath } from "next/cache";
 
 import { createTrackedApplication } from "@/lib/queries/tracker";
+import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 
 type TrackerActionState = {
   error: string | null;
@@ -33,13 +33,6 @@ function parseDate(rawValue: FormDataEntryValue | null) {
   return parsed;
 }
 
-function revalidateTrackerPaths() {
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-  revalidatePath("/notifications");
-}
-
 function toActionState(error: unknown): TrackerActionState {
   return {
     error: error instanceof Error ? error.message : "Request failed.",
@@ -55,7 +48,7 @@ export async function createTrackedApplicationAction(
     const company = String(formData.get("company") ?? "").trim();
     const roleTitle = String(formData.get("roleTitle") ?? "").trim();
     const roleUrl = String(formData.get("roleUrl") ?? "").trim() || null;
-    const statusRaw = String(formData.get("status") ?? "WISHLIST").trim().toUpperCase();
+    const statusRaw = String(formData.get("status") ?? "APPLIED").trim().toUpperCase();
     const notes = String(formData.get("notes") ?? "").trim() || null;
 
     if (!company || !roleTitle) {
@@ -75,7 +68,7 @@ export async function createTrackedApplicationAction(
       notes,
     });
 
-    revalidateTrackerPaths();
+    revalidateTrackerOverviewViews();
     return {
       error: null,
       success: "Tracked application added.",

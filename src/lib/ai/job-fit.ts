@@ -57,6 +57,11 @@ export type ProfileContext = {
   projectsText: string | null;
   workAuthorization: string | null;
   preferredWorkMode: string | null;
+  selectedResume: {
+    title: string;
+    originalFileName: string;
+    extractedText: string | null;
+  } | null;
 };
 
 export type { FitAnalysis } from "./types";
@@ -69,6 +74,7 @@ Analyze how well the user's profile matches the job, considering:
 - Role family / function match
 - Work mode preferences
 - Any clear blockers or standout strengths
+- The selected resume when one is provided
 - The full saved profile context, including headline, summary, skills, experience, education, projects, and profile details
 
 Return this exact JSON shape:
@@ -84,7 +90,7 @@ Return this exact JSON shape:
 Scoring guide: 8-10 = strong match, 6-7 = good fit, 4-5 = moderate, 1-3 = weak.
 Be specific and actionable. Max 4 items per array.
 Write all visible explanation text in second person. Use "you" and "your", never "the candidate".
-Base the analysis on the entire profile context provided below. Do not narrow it to a single resume snapshot or only the currently linked resume.`;
+When a selected resume is provided, treat it as the primary evidence for fit. Use the rest of the saved profile as supplemental context only.`;
 
 export async function analyzeJobFit(
   job: JobContext,
@@ -146,6 +152,16 @@ function buildProfileText(profile: ProfileContext): string {
   if (profile.experienceLevel) lines.push(`Level: ${profile.experienceLevel}`);
   if (profile.workAuthorization) lines.push(`Work auth: ${profile.workAuthorization}`);
   if (profile.preferredWorkMode) lines.push(`Preferred mode: ${profile.preferredWorkMode}`);
+  if (profile.selectedResume) {
+    lines.push(
+      `\nSelected resume for this analysis: ${profile.selectedResume.title} (${profile.selectedResume.originalFileName})`
+    );
+    if (profile.selectedResume.extractedText?.trim()) {
+      lines.push(profile.selectedResume.extractedText.slice(0, 4000));
+    } else {
+      lines.push("Selected resume text is not available; use the saved profile context below.");
+    }
+  }
   if (profile.skills.length > 0) lines.push(`Skills: ${profile.skills.join(", ")}`);
   else if (profile.skillsText?.trim()) lines.push(`Skills: ${profile.skillsText}`);
 

@@ -41,6 +41,9 @@ type ResumeRecord = {
   downloadHref: string;
   importSummary: ResumeImportSummary | null;
   isImported: boolean;
+  // True when this resume was produced by the app's AI tailoring flow rather
+  // than uploaded by the user. Drives the "AI generated" group in the UI.
+  isAiGenerated: boolean;
 };
 
 type TemplateRecord = {
@@ -633,22 +636,29 @@ export function ResumeManager({
     setResumeFormKeys((keys) => keys.filter((k) => k !== key));
   }
 
+  // Split resumes into user-uploaded vs AI-generated so the UI shows two
+  // visually distinct groups instead of one mixed list.
+  const uploadedResumes = resumes.filter((resume) => !resume.isAiGenerated);
+  const aiResumes = resumes.filter((resume) => resume.isAiGenerated);
+
   return (
     <div className="grid gap-6">
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Resumes</h3>
-          <span className="text-xs text-muted-foreground">{resumes.length}</span>
+          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Uploaded by you
+          </h3>
+          <span className="text-xs text-muted-foreground">{uploadedResumes.length}</span>
         </div>
         <p className="mb-2 text-xs text-muted-foreground">
           Upload resume versions here, keep one primary, and sync any version back into the structured profile.
         </p>
 
-        {resumes.length === 0 && resumeFormKeys.length === 0 ? (
+        {uploadedResumes.length === 0 && resumeFormKeys.length === 0 ? (
           <p className="py-2 text-sm italic text-muted-foreground">No resumes yet.</p>
         ) : (
           <div className="grid gap-2">
-            {resumes.map((resume) => (
+            {uploadedResumes.map((resume) => (
               <ResumeRow key={resume.id} resume={resume} />
             ))}
           </div>
@@ -661,7 +671,7 @@ export function ResumeManager({
                 key={key}
                 formIndex={index}
                 onDone={() => removeResumeForm(key)}
-                resumeCount={resumes.length}
+                resumeCount={uploadedResumes.length}
                 storageConfigured={storageConfigured}
               />
             ))}
@@ -676,6 +686,28 @@ export function ResumeManager({
           + Add resume
         </button>
       </div>
+
+      {/* AI-generated group — appears only once the user has at least one
+          tailored resume from the workspace. Kept visually distinct via the
+          dashed border + label so it can't be confused with uploads. */}
+      {aiResumes.length > 0 ? (
+        <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              AI generated
+            </h3>
+            <span className="text-xs text-muted-foreground">{aiResumes.length}</span>
+          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Tailored resumes produced by the app from your template + job description.
+          </p>
+          <div className="grid gap-2">
+            {aiResumes.map((resume) => (
+              <ResumeRow key={resume.id} resume={resume} />
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">

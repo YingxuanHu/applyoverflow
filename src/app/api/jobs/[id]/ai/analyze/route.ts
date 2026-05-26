@@ -3,11 +3,21 @@ import { UnauthorizedError } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    let resumeId: string | null = null;
+
+    try {
+      const body = (await request.json()) as { resumeId?: unknown };
+      if (typeof body?.resumeId === "string" && body.resumeId.trim()) {
+        resumeId = body.resumeId.trim();
+      }
+    } catch {
+      // Empty or invalid JSON means "analyze from the saved profile".
+    }
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);
@@ -15,7 +25,7 @@ export async function POST(
 
     const [jobCtx, profileCtx] = await Promise.all([
       buildJobContext(id),
-      buildProfileContext(),
+      buildProfileContext({ resumeId }),
     ]);
 
     if (!jobCtx) return errorResponse("Job not found", 404);
@@ -29,6 +39,12 @@ export async function POST(
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return errorResponse("Unauthorized", 401);
+    }
+    if (
+      error instanceof Error &&
+      error.message === "Selected resume was not found on your profile."
+    ) {
+      return errorResponse(error.message, 400);
     }
     console.error("POST /api/jobs/[id]/ai/analyze error:", error);
     const message = error instanceof Error ? error.message : "Analysis failed";

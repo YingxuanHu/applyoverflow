@@ -35,6 +35,8 @@ const DEFAULT_MAX_PER_HOUR = 10;
 const DEFAULT_DELAY_BETWEEN_MS = 15_000; // 15s between applications
 
 export type EngineOptions = {
+  /** UserProfile id to run automation for. Defaults to the demo profile for CLI compatibility. */
+  userId?: string | null;
   /** Limit to a specific job ID (single-job mode) */
   jobId?: string;
   /** Override the automation mode for all jobs */
@@ -53,6 +55,7 @@ export type EngineOptions = {
 
 export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApplyRunResult[]> {
   const {
+    userId: requestedUserId,
     jobId,
     mode: modeOverride,
     maxPerRun = DEFAULT_MAX_PER_HOUR,
@@ -61,10 +64,11 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
   } = options;
 
   const results: AutoApplyRunResult[] = [];
+  const userId = resolveAutomationUserId(requestedUserId);
 
   try {
     // ─── Load user profile ─────────────────────────────────────────
-    const profile = await loadProfile();
+    const profile = await loadProfile(userId);
     if (!profile) {
       log("ERROR: No user profile found. Cannot proceed.");
       return [];
@@ -72,8 +76,8 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
 
     // ─── Get candidates ────────────────────────────────────────────
     const candidates = jobId
-      ? await getSingleCandidate(jobId)
-      : await getEligibleCandidates(maxPerRun);
+      ? await getSingleCandidate(jobId, userId)
+      : await getEligibleCandidates(maxPerRun, userId);
 
     if (candidates.length === 0) {
       log("No eligible candidates found.");
@@ -109,7 +113,7 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
       results.push(result);
 
       // Record result to database
-      await recordAutomationResult(candidate, result, runMode);
+      await recordAutomationResult(candidate, result, runMode, userId);
 
       // Rate limiting delay
       if (i < candidates.length - 1) {
@@ -132,6 +136,11 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
   return results;
 }
 
+export function resolveAutomationUserId(userId: string | null | undefined) {
+  const trimmedUserId = userId?.trim();
+  return trimmedUserId || DEMO_USER_ID;
+}
+
 // ─── Single job runner ───────────────────────────────────────────────────────
 
 async function runSingleJob(
@@ -147,8 +156,8 @@ async function runSingleJob(
     const screenshotDir = ensureScreenshotDir(candidate.jobId);
 
     const fillerProfile = buildFillerProfile(profile);
-    const fillerResume = await buildFillerResume(profile);
-    const fillerPackage = await buildFillerPackage(candidate.packageId);
+    const fillerResume = await buildFillerResume(profile, candidate.packageId);
+    const fillerPackage = await buildFillerPackage(candidate.packageId, profile.id);
 
     try {
       const result = await filler.fill({
@@ -239,9 +248,9 @@ type ProfileData = {
   }>;
 };
 
-async function loadProfile(): Promise<ProfileData | null> {
+async function loadProfile(userId: string): Promise<ProfileData | null> {
   return prisma.userProfile.findUnique({
-    where: { id: DEMO_USER_ID },
+    where: { id: userId },
     include: {
       resumeVariants: {
         orderBy: { createdAt: "desc" },
@@ -251,7 +260,10 @@ async function loadProfile(): Promise<ProfileData | null> {
   });
 }
 
-async function getEligibleCandidates(limit: number): Promise<AutoApplyCandidate[]> {
+async function getEligibleCandidates(
+  limit: number,
+  userId: string
+): Promise<AutoApplyCandidate[]> {
   // Find jobs that:
   //   1. Are LIVE
   //   2. Have AUTO_SUBMIT_READY or AUTO_FILL_REVIEW eligibility
@@ -265,11 +277,11 @@ async function getEligibleCandidates(limit: number): Promise<AutoApplyCandidate[
         submissionCategory: { in: ["AUTO_SUBMIT_READY", "AUTO_FILL_REVIEW"] },
       },
       applicationPackages: {
-        some: { userId: DEMO_USER_ID },
+        some: { userId },
       },
       applicationSubmissions: {
         none: {
-          userId: DEMO_USER_ID,
+          userId,
           status: { in: ["SUBMITTED", "CONFIRMED"] },
         },
       },
@@ -281,13 +293,13 @@ async function getEligibleCandidates(limit: number): Promise<AutoApplyCandidate[
       applyUrl: true,
       eligibility: { select: { submissionCategory: true } },
       applicationPackages: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 1,
         select: { id: true },
       },
       applicationSubmissions: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 1,
         select: { id: true },
@@ -298,7 +310,7 @@ async function getEligibleCandidates(limit: number): Promise<AutoApplyCandidate[
   });
 
   return jobs
-    .filter((j) => j.eligibility && j.applicationPackages.length > 0)
+    .filter((j) => j.eligibility && j.applicationPackages.length > 0 && resolveATSFiller(j.applyUrl))
     .map((j) => ({
       jobId: j.id,
       jobTitle: j.title,
@@ -310,7 +322,10 @@ async function getEligibleCandidates(limit: number): Promise<AutoApplyCandidate[
     }));
 }
 
-async function getSingleCandidate(jobId: string): Promise<AutoApplyCandidate[]> {
+async function getSingleCandidate(
+  jobId: string,
+  userId: string
+): Promise<AutoApplyCandidate[]> {
   const job = await prisma.jobCanonical.findUnique({
     where: { id: jobId },
     select: {
@@ -321,13 +336,13 @@ async function getSingleCandidate(jobId: string): Promise<AutoApplyCandidate[]> 
       status: true,
       eligibility: { select: { submissionCategory: true } },
       applicationPackages: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 1,
         select: { id: true },
       },
       applicationSubmissions: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 1,
         select: { id: true },
@@ -370,43 +385,74 @@ function buildFillerProfile(profile: ProfileData): FillerProfile {
   };
 }
 
-async function buildFillerResume(profile: ProfileData): Promise<FillerResume> {
-  const defaultResume =
+async function buildFillerResume(
+  profile: ProfileData,
+  packageId: string
+): Promise<FillerResume> {
+  const packageResume = packageId
+    ? await loadPackageResume(profile.id, packageId)
+    : null;
+  const selectedResume =
+    packageResume ??
     profile.resumeVariants.find((r) => r.isDefault) ??
     profile.resumeVariants[0] ??
     null;
 
-  if (!defaultResume) {
+  if (!selectedResume) {
     return { label: "None", filePath: null, content: null, cleanup: null };
   }
 
-  let filePath = defaultResume.fileUrl;
+  let filePath = selectedResume.fileUrl;
   let cleanup: (() => Promise<void>) | null = null;
 
-  if (defaultResume.document) {
+  if (selectedResume.document) {
     const materializedFile = await materializeStoredFile(
-      defaultResume.document.storageKey,
-      defaultResume.document.filename
+      selectedResume.document.storageKey,
+      selectedResume.document.filename
     );
     filePath = materializedFile?.filePath ?? null;
     cleanup = materializedFile?.cleanup ?? null;
   }
 
   return {
-    label: defaultResume.label,
+    label: selectedResume.label,
     filePath,
-    content: defaultResume.content,
+    content: selectedResume.content,
     cleanup,
   };
 }
 
-async function buildFillerPackage(packageId: string): Promise<FillerPackage> {
+async function loadPackageResume(userId: string, packageId: string) {
+  const pkg = await prisma.applicationPackage.findFirst({
+    where: { id: packageId, userId },
+    select: {
+      resumeVariant: {
+        select: {
+          id: true,
+          label: true,
+          fileUrl: true,
+          content: true,
+          isDefault: true,
+          targetRoleFamily: true,
+          document: { select: { storageKey: true, filename: true } },
+        },
+      },
+    },
+  });
+
+  return pkg?.resumeVariant ?? null;
+}
+
+async function buildFillerPackage(
+  packageId: string,
+  userId: string
+): Promise<FillerPackage> {
   if (!packageId) {
     return { coverLetterContent: null, savedAnswers: {}, attachedLinks: {}, whyItMatches: null };
   }
 
-  const pkg = await prisma.applicationPackage.findUnique({
-    where: { id: packageId },
+  const pkg = await prisma.applicationPackage.findFirst({
+    where: { id: packageId, userId },
     select: {
       coverLetterContent: true,
       savedAnswers: true,
@@ -441,7 +487,8 @@ function jsonToRecord(value: unknown): Record<string, string> {
 async function recordAutomationResult(
   candidate: AutoApplyCandidate,
   result: AutoApplyRunResult,
-  mode: AutomationRunMode
+  mode: AutomationRunMode,
+  userId: string
 ) {
   const fillerResult = result.fillerResult;
   if (!fillerResult) {
@@ -490,7 +537,7 @@ async function recordAutomationResult(
     // Create new submission
     await prisma.applicationSubmission.create({
       data: {
-        userId: DEMO_USER_ID,
+        userId,
         canonicalJobId: candidate.jobId,
         packageId: candidate.packageId,
         status: submissionStatus,

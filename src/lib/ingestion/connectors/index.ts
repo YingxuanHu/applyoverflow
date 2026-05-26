@@ -38,10 +38,24 @@ export {
 } from "./workday";
 export { createHimalayasConnector } from "./himalayas";
 export { createJobicyConnector } from "./jobicy";
+export { createJoobleConnector } from "./jooble";
+export {
+  buildJobviteBoardUrl,
+  buildJobviteSourceToken,
+  createJobviteConnector,
+} from "./jobvite";
+export {
+  buildTeamtailorBoardUrl,
+  buildTeamtailorSourceToken,
+  createTeamtailorConnector,
+} from "./teamtailor";
 export { createMuseConnector } from "./themuse";
 export { createUsaJobsConnector, createUsaJobsBatchConnectors } from "./usajobs";
 export { createWorkableConnector } from "./workable";
 export { createJobBankConnector } from "./jobbank";
+export { createWeWorkRemotelyConnector } from "./weworkremotely";
+export { createBuiltInConnector } from "./builtin";
+export { createHiringCafeConnector } from "./hiringcafe";
 export {
   createCompanySiteConnector,
   inspectCompanySiteRoute,

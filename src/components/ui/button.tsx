@@ -17,8 +17,13 @@ const buttonVariants = cva(
           "bg-secondary/85 text-secondary-foreground hover:bg-secondary aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
           "text-muted-foreground hover:bg-muted/80 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        // Destructive (delete-style) buttons render as red text only — no
+        // border, no background. Keeps the warning signal without making
+        // every delete action visually heavy. Hover darkens the red slightly,
+        // and the muted hover background gives a hit-target hint without
+        // turning into a boxed button.
         destructive:
-          "border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/15 dark:hover:bg-destructive/25 dark:focus-visible:ring-destructive/40",
+          "text-destructive hover:bg-muted/40 hover:text-destructive/85 focus-visible:ring-destructive/30 dark:hover:bg-muted/30",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

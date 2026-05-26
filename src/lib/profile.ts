@@ -39,6 +39,8 @@ export type ProfileProject = {
 export type ProfileFormValues = {
   headline: string;
   summary: string;
+  location: string;
+  workAuthorization: string;
   contact: ProfileContact;
   skills: ProfileSkill[];
   educations: ProfileEducation[];
@@ -47,8 +49,14 @@ export type ProfileFormValues = {
 };
 
 type StoredProfileLike = {
+  location?: string | null;
   headline?: string | null;
   summary?: string | null;
+  phone?: string | null;
+  linkedinUrl?: string | null;
+  githubUrl?: string | null;
+  portfolioUrl?: string | null;
+  workAuthorization?: string | null;
   skillsText?: string | null;
   experienceText?: string | null;
   educationText?: string | null;
@@ -387,22 +395,21 @@ export function buildProfileFormValues(
   const experiences = normalizeExperiences(profile?.experiencesJson);
   const projects = normalizeProjects(profile?.projectsJson);
 
-  const fallbackContact =
-    Object.values(contact).some((value) => value.length > 0)
-      ? contact
-      : {
-          fullName: user?.name ?? "",
-          email: user?.email ?? "",
-          phone: "",
-          location: "",
-          linkedInUrl: "",
-          githubUrl: "",
-          portfolioUrl: "",
-        };
+  const fallbackContact = {
+    fullName: contact.fullName || user?.name || "",
+    email: contact.email || user?.email || "",
+    phone: contact.phone || profile?.phone?.trim() || "",
+    location: contact.location || profile?.location?.trim() || "",
+    linkedInUrl: contact.linkedInUrl || profile?.linkedinUrl?.trim() || "",
+    githubUrl: contact.githubUrl || profile?.githubUrl?.trim() || "",
+    portfolioUrl: contact.portfolioUrl || profile?.portfolioUrl?.trim() || "",
+  };
 
   return {
     headline: profile?.headline?.trim() ?? "",
     summary: profile?.summary?.trim() ?? "",
+    location: profile?.location?.trim() || fallbackContact.location,
+    workAuthorization: profile?.workAuthorization?.trim() ?? "",
     contact: fallbackContact,
     skills:
       skills.length > 0

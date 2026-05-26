@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Bot, ExternalLink } from "lucide-react";
 import { ApplicationReviewActions } from "@/components/jobs/application-review-actions";
-import { AIWorkspace } from "@/components/jobs/ai-workspace";
+import { JobDescriptionSection } from "@/components/jobs/job-description-section";
 import { JobNotes } from "@/components/jobs/job-notes";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import {
@@ -11,7 +11,6 @@ import {
   formatPostedAge,
   formatSalary,
   getEligibilityReasonDescription,
-  getSourceShortName,
   getSubmissionMeta,
   shouldShowSubmissionMeta,
   submissionCategoryColor,
@@ -52,10 +51,9 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
   const submissionMeta = getSubmissionMeta(job);
   const reviewStateMeta = APPLICATION_REVIEW_STATE_META[reviewState];
   const canCreatePackage = recommendedResume !== null;
-  const sourceShortName = getSourceShortName(job.primaryExternalLink?.sourceName ?? null);
   const showSubmissionMeta = shouldShowSubmissionMeta(job);
 
-  if (reviewState === "MANUAL_ONLY") {
+  if (reviewState === "MANUAL_ONLY" || !atsSupported) {
     redirect(`/jobs/${job.id}`);
   }
 
@@ -87,12 +85,10 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
             target="_blank"
             rel="noreferrer"
             title={`${job.primaryExternalLink.label} · ${job.primaryExternalLink.sourceName ?? "external source"}`}
-            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
           >
-            {sourceShortName ? (
-              <span className="font-semibold uppercase tracking-wide">{sourceShortName}</span>
-            ) : null}
             <ExternalLink className="h-3 w-3" />
+            <span>Open original posting</span>
           </a>
         ) : null}
       </div>
@@ -139,10 +135,10 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
           latestPackageId={latestPackage?.id ?? null}
           latestSubmission={latestSubmission}
           canCreatePackage={canCreatePackage}
-          atsSupported={atsSupported}
-          atsName={atsName}
         />
       </div>
+
+      <JobDescriptionSection title="Job description" job={job} />
 
       {/* Resume — what will be used */}
       <div className="border-t border-border py-4">
@@ -184,40 +180,6 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
           jobId={job.id}
           initialNotes={latestPackage?.userNotes ?? null}
         />
-      </div>
-
-      {/* AI workspace */}
-      <div className="border-t border-border py-4">
-        <p className="mb-3 text-xs text-muted-foreground">AI workspace</p>
-        {process.env.OPENAI_API_KEY ? (
-          <AIWorkspace
-            jobId={job.id}
-            jobTitle={job.title}
-            company={job.company}
-          />
-        ) : (
-          <div className="rounded-md border border-dashed border-border p-4">
-            <p className="text-sm text-muted-foreground">
-              AI features are not configured.
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Add <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">OPENAI_API_KEY</code> to{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">.env</code> to unlock:
-            </p>
-            <ul className="mt-2 space-y-1">
-              {[
-                "Fit analysis — score + strengths/gaps vs. this job",
-                "Cover letter — tailored to this role in one click",
-                "Resume parsing — extract your experience from uploaded files",
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="opacity-40">◦</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
 
       {/* Submission history — visible if there are any */}

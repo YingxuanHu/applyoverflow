@@ -7,9 +7,162 @@ const globalForPrisma = globalThis as unknown as {
   prismaReconnectPromise: Promise<void> | undefined;
 };
 
+type DatabaseProcessRole =
+  | "web"
+  | "daemon"
+  | "recovery_poll"
+  | "recovery_validation"
+  | "recovery_discovery"
+  | "bulk_recovery"
+  | "expansion_pipeline"
+  | "other";
+
+const PRIVATE_DATABASE_ROLES = new Set<DatabaseProcessRole>([
+  "daemon",
+  "recovery_poll",
+  "recovery_validation",
+  "recovery_discovery",
+  "bulk_recovery",
+  "expansion_pipeline",
+]);
+
+function readPositiveIntegerEnv(name: string) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function detectDatabaseProcessRole(): DatabaseProcessRole {
+  const explicitRole = process.env.DATABASE_PROCESS_ROLE?.trim();
+  if (
+    explicitRole === "web" ||
+    explicitRole === "daemon" ||
+    explicitRole === "recovery_poll" ||
+    explicitRole === "recovery_validation" ||
+    explicitRole === "recovery_discovery" ||
+    explicitRole === "bulk_recovery" ||
+    explicitRole === "expansion_pipeline" ||
+    explicitRole === "other"
+  ) {
+    return explicitRole;
+  }
+
+  const argv = process.argv.join(" ");
+
+  if (argv.includes("scripts/ingest-recovery-worker.ts")) {
+    if (argv.includes("--role=poll")) return "recovery_poll";
+    if (argv.includes("--role=validation")) return "recovery_validation";
+    if (argv.includes("--role=discovery")) return "recovery_discovery";
+    return "other";
+  }
+
+  if (argv.includes("scripts/ingest-daemon.ts")) {
+    return "daemon";
+  }
+
+  if (argv.includes("scripts/bulk-recovery-loop.ts")) {
+    return "bulk_recovery";
+  }
+
+  if (argv.includes("scripts/run-expansion-pipeline.ts")) {
+    return "expansion_pipeline";
+  }
+
+  return "web";
+}
+
+function getDatabasePoolMax(role: DatabaseProcessRole) {
+  const explicitGlobal = readPositiveIntegerEnv("DATABASE_POOL_MAX");
+  if (explicitGlobal != null) {
+    return explicitGlobal;
+  }
+
+  const roleEnvMap: Record<DatabaseProcessRole, string | null> = {
+    web: "DATABASE_POOL_MAX_WEB",
+    daemon: "DATABASE_POOL_MAX_DAEMON",
+    recovery_poll: "DATABASE_POOL_MAX_RECOVERY_POLL",
+    recovery_validation: "DATABASE_POOL_MAX_RECOVERY_VALIDATION",
+    recovery_discovery: "DATABASE_POOL_MAX_RECOVERY_DISCOVERY",
+    bulk_recovery: "DATABASE_POOL_MAX_BULK_RECOVERY",
+    expansion_pipeline: "DATABASE_POOL_MAX_EXPANSION_PIPELINE",
+    other: "DATABASE_POOL_MAX_OTHER",
+  };
+
+  const explicitByRole = roleEnvMap[role]
+    ? readPositiveIntegerEnv(roleEnvMap[role]!)
+    : null;
+  if (explicitByRole != null) {
+    return explicitByRole;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return 5;
+  }
+
+  const defaults: Record<DatabaseProcessRole, number> = {
+    web: 6,
+    daemon: 4,
+    recovery_poll: 3,
+    recovery_validation: 2,
+    recovery_discovery: 2,
+    bulk_recovery: 2,
+    expansion_pipeline: 1,
+    other: 4,
+  };
+
+  return defaults[role];
+}
+
+function getDatabaseIdleTimeoutMs() {
+  return readPositiveIntegerEnv("DATABASE_POOL_IDLE_TIMEOUT_MS") ?? 10_000;
+}
+
+function getDatabaseConnectionTimeoutMs() {
+  return readPositiveIntegerEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS") ?? 3_000;
+}
+
+function shouldPreferPrivateDatabaseUrl(role: DatabaseProcessRole) {
+  const explicitPreference = process.env.DATABASE_PREFER_PRIVATE_FOR_WORKERS?.trim();
+  if (explicitPreference === "0" || explicitPreference === "false") {
+    return false;
+  }
+
+  if (!process.env.DATABASE_URL_DO_PRIVATE?.trim()) {
+    return false;
+  }
+
+  return PRIVATE_DATABASE_ROLES.has(role);
+}
+
+function resolveDatabaseConnectionString(role: DatabaseProcessRole) {
+  const preferredPrivateUrl = process.env.DATABASE_URL_DO_PRIVATE?.trim();
+  if (preferredPrivateUrl && shouldPreferPrivateDatabaseUrl(role)) {
+    return preferredPrivateUrl;
+  }
+
+  const defaultUrl = process.env.DATABASE_URL?.trim();
+  if (defaultUrl) {
+    return defaultUrl;
+  }
+
+  if (preferredPrivateUrl) {
+    return preferredPrivateUrl;
+  }
+
+  throw new Error("DATABASE_URL is not set");
+}
+
 function createPrismaClient() {
+  const role = detectDatabaseProcessRole();
   const adapter = new PrismaPg(
-    { connectionString: process.env.DATABASE_URL! },
+    {
+      connectionString: resolveDatabaseConnectionString(role),
+      max: getDatabasePoolMax(role),
+      idleTimeoutMillis: getDatabaseIdleTimeoutMs(),
+      connectionTimeoutMillis: getDatabaseConnectionTimeoutMs(),
+    },
     {
       onPoolError(error) {
         console.error("[prisma] Pool error:", error.message);
@@ -107,6 +260,40 @@ export function isPrismaConnectionClosedError(error: unknown) {
   });
 }
 
+function isPrismaConnectionSaturatedError(error: unknown) {
+  return visitErrorTree(error, (value) => {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+
+    const candidate = value as {
+      code?: unknown;
+      message?: unknown;
+      name?: unknown;
+    };
+
+    if (candidate.code === "P2037") {
+      return true;
+    }
+
+    if (typeof candidate.message === "string") {
+      return /Too many database connections|too many clients already|TooManyConnections/i.test(
+        candidate.message
+      );
+    }
+
+    if (typeof candidate.name === "string") {
+      return /TooManyConnections/i.test(candidate.name);
+    }
+
+    return false;
+  });
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function reconnectPrisma() {
   if (globalForPrisma.prismaReconnectPromise) {
     await globalForPrisma.prismaReconnectPromise;
@@ -147,16 +334,25 @@ export async function ensurePrismaConnection() {
 export async function withPrismaConnectionRetry<T>(operation: () => Promise<T>) {
   await ensurePrismaConnection();
 
-  try {
-    return await operation();
-  } catch (error) {
-    if (!isPrismaConnectionClosedError(error)) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (isPrismaConnectionClosedError(error)) {
+        await reconnectPrisma();
+        continue;
+      }
+
+      if (isPrismaConnectionSaturatedError(error) && attempt < 2) {
+        await sleep(150 * (attempt + 1));
+        continue;
+      }
+
       throw error;
     }
-
-    await reconnectPrisma();
-    return operation();
   }
+
+  return operation();
 }
 
 if (process.env.NODE_ENV !== "production") {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { zodResponseFormat } from "openai/helpers/zod";
 
+import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import {
   UnauthorizedError,
   requireCurrentAuthUserId,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { getOpenAIClient, getOpenAIReadiness, getReasoningModel, getStandardModel } from "@/lib/openai";
+import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
 import type {
   ProfileContact,
   ProfileEducation,
@@ -757,11 +759,75 @@ ${JSON.stringify(
       application.roleTitle
     )}-tailored-resume.pdf`;
 
+    // Persist the generated PDF into the user's documents so it shows up in
+    // the profile Documents tab alongside their uploads. Marked with
+    // isAiGenerated=true and sourceApplicationId so the UI can group it as
+    // "AI generated" and link back to the application.
+    let savedDocumentId: string | null = null;
+    try {
+      const title = buildAiGeneratedDocumentTitle({
+        kind: "RESUME",
+        company: application.company,
+        roleTitle: application.roleTitle,
+      });
+      const storageKey = buildDocumentStorageKey({
+        userId: profile.id,
+        title,
+        extension: ".pdf",
+        type: "RESUME",
+      });
+      await saveFile(storageKey, compiledPdf.pdfBuffer, {
+        contentType: "application/pdf",
+      });
+      const savedDoc = await prisma.document.create({
+        data: {
+          userId: profile.id,
+          type: "RESUME",
+          title,
+          originalFileName: fileName,
+          filename: fileName,
+          mimeType: "application/pdf",
+          sizeBytes: compiledPdf.pdfBuffer.byteLength,
+          storageKey,
+          isPrimary: false,
+          isAiGenerated: true,
+          sourceApplicationId: applicationId,
+        },
+        select: { id: true },
+      });
+      savedDocumentId = savedDoc.id;
+
+      const olderGeneratedDocs = await prisma.document.findMany({
+        where: {
+          userId: profile.id,
+          type: "RESUME",
+          isAiGenerated: true,
+          sourceApplicationId: applicationId,
+          id: { not: savedDoc.id },
+          trackedApplicationLinks: { none: {} },
+        },
+        select: { id: true, storageKey: true },
+      });
+      if (olderGeneratedDocs.length > 0) {
+        await prisma.document.deleteMany({
+          where: { id: { in: olderGeneratedDocs.map((document) => document.id) } },
+        });
+        await Promise.allSettled(
+          olderGeneratedDocs.map((document) => deleteFile(document.storageKey))
+        );
+      }
+    } catch (persistError) {
+      // Persistence is best-effort — the user can still download the PDF
+      // returned in this response even if saving to their library fails.
+      console.error("Failed to persist AI-generated resume:", persistError);
+    }
+
     return NextResponse.json({
       fileName,
       mimeType: "application/pdf",
       pdfBase64: compiledPdf.pdfBuffer.toString("base64"),
       usedFallback,
+      documentId: savedDocumentId,
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {

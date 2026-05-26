@@ -7,7 +7,13 @@ import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobSummaryCard } from "@/components/jobs/job-summary-card";
 import type { JobCardData } from "@/types";
 
-export function JobsFeedList({ initialJobs }: { initialJobs: JobCardData[] }) {
+export function JobsFeedList({
+  initialJobs,
+  referenceNow,
+}: {
+  initialJobs: JobCardData[];
+  referenceNow: string;
+}) {
   const [jobs, setJobs] = useState(initialJobs);
 
   const handleSavedChange = useCallback((jobId: string, saved: boolean) => {
@@ -31,22 +37,24 @@ export function JobsFeedList({ initialJobs }: { initialJobs: JobCardData[] }) {
   }
 
   return (
-    <div className="space-y-3">
+    <ul className="divide-y divide-border/60">
       {jobs.map((job) => (
-        <div key={job.id}>
+        <li className="py-4 first:pt-0 last:pb-0" key={job.id}>
           <JobSummaryCard
             footerActions={
               <JobCardActions
-                align="start"
+                align="end"
+                compact
                 initialSaved={job.isSaved}
                 jobId={job.id}
                 onSavedChange={(saved) => handleSavedChange(job.id, saved)}
               />
             }
             job={job}
+            referenceNow={referenceNow}
           />
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

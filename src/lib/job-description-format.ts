@@ -1,7 +1,23 @@
+import {
+  decodeHtmlEntitiesFull,
+  extractDescriptionFromHtml,
+  hasDescriptionPollution,
+} from "@/lib/ingestion/html-description";
+
 export type DescriptionBlock =
   | { kind: "header"; text: string }
   | { kind: "paragraph"; text: string }
   | { kind: "list"; items: string[] };
+
+type DescriptionSourceLinks = {
+  applyUrl?: string | null;
+  primaryExternalLink?: { href: string } | null;
+  sourcePostingLink?: { href: string } | null;
+  sourceMappings?: Array<{
+    sourceUrl: string | null;
+    isPrimary?: boolean;
+  }>;
+};
 
 const SECTION_HEADINGS = [
   "about the job",
@@ -131,6 +147,30 @@ const END_MARKERS = [
   "var frontend =",
 ];
 
+const WRONG_PAGE_TEXT_SIGNALS = [
+  "roles we fill",
+  "apply as a freelancer",
+  "hire now",
+  "shortcuts open positions",
+  "trusted by",
+  "featured in",
+  "you are now being redirected",
+  "view ad here",
+  "adzuna jobs search",
+  "this blog will help you",
+  "watch this video",
+  "announcing the general availability",
+  "work from anywhere",
+];
+
+const WRONG_PAGE_HTML_SIGNALS = [
+  "navigator.sendBeacon",
+  "googletagmanager.com/gtm.js",
+  "setTimeout(redirect",
+  "window.__NEXT_DATA__",
+  "window.__INITIAL_STATE__",
+];
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -149,6 +189,59 @@ function normalizeHeadingKey(text: string) {
     .replace(/[^\w\s&/+()-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeCommonMojibake(text: string) {
+  return text
+    .replace(/â¦/g, "…")
+    .replace(/â/g, "–")
+    .replace(/â/g, "—")
+    .replace(/â/g, "'")
+    .replace(/â|â/g, '"')
+    .replace(/Â&nbsp;/g, " ")
+    .replace(/Â\s/g, " ");
+}
+
+function looksLikeIncompleteDescriptionSnippet(text: string) {
+  const normalized = normalizeCommonMojibake(text).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return true;
+  }
+
+  const lower = normalized.toLowerCase();
+  const hasRoleContent =
+    /\b(responsibilities|requirements|qualifications|you will|you'll|what you|this role|the role|candidate|as a|as an)\b/i.test(
+      normalized
+    );
+
+  if (
+    normalized.length < 360 &&
+    (/(\.\.\.|…)/.test(normalized) ||
+      /\b(?:see this and similar jobs|similar jobs on linkedin)\b/i.test(normalized) ||
+      /\b(?:at|to|and|with|for|of|in|the|a|an|our|their)$/i.test(normalized))
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.length < 360 &&
+    /^(company description|who are we|who we are|about [a-z0-9& .'-]+)\b/.test(lower) &&
+    !hasRoleContent
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.length < 240 &&
+    !hasRoleContent &&
+    /(work authorization|autorisation de travail|on-site expectation|onsite expectation)/i.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function decodeEmbeddedJsonString(value: string) {
@@ -259,6 +352,81 @@ function stripNoiseLines(raw: string) {
   return kept.join("\n");
 }
 
+function countSubstring(text: string, needle: string) {
+  if (!text || !needle) return 0;
+  let count = 0;
+  let start = 0;
+  while (true) {
+    const index = text.indexOf(needle, start);
+    if (index === -1) return count;
+    count += 1;
+    start = index + needle.length;
+  }
+}
+
+function looksLikeRedirectOrTrackerPage(
+  text: string,
+  html?: string | null
+) {
+  const lower = text.toLowerCase();
+  const htmlLower = html?.toLowerCase() ?? "";
+
+  if (
+    lower.includes("you are now being redirected") ||
+    lower.includes("view ad here") ||
+    lower.includes("adzuna jobs search")
+  ) {
+    return true;
+  }
+
+  return WRONG_PAGE_HTML_SIGNALS.some((signal) => htmlLower.includes(signal.toLowerCase()));
+}
+
+function looksLikeGenericCareerLandingPage(text: string) {
+  const lower = text.toLowerCase();
+  const signalHits = WRONG_PAGE_TEXT_SIGNALS.filter((signal) => lower.includes(signal)).length;
+  const openPositionCount = countSubstring(lower, "open position");
+  const learnMoreCount = countSubstring(lower, "learn more");
+
+  return (
+    signalHits >= 3 ||
+    openPositionCount >= 2 ||
+    learnMoreCount >= 3 ||
+    (lower.includes("faqs") && lower.includes("benefits") && lower.includes("trusted by"))
+  );
+}
+
+function looksLikeBlogOrArticlePage(text: string) {
+  const trimmed = text.trim();
+  const firstChunk = trimmed.slice(0, 800);
+  const lower = firstChunk.toLowerCase();
+  const hasByline = /\bby\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}\b/.test(firstChunk);
+  const hasPublishDate =
+    /\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},\s+\d{4}\b/i.test(
+      firstChunk
+    ) || /\b\d{4}\b/.test(firstChunk.slice(0, 160));
+  const articleSignals = [
+    "this blog",
+    "watch this video",
+    "the wait is over",
+    "general availability",
+  ].filter((signal) => lower.includes(signal)).length;
+
+  return articleSignals >= 2 || (hasByline && hasPublishDate && articleSignals >= 1);
+}
+
+function looksLikeWrongPageDescription(text: string, html?: string | null) {
+  if (!text.trim()) {
+    return false;
+  }
+
+  return (
+    looksLikeRedirectOrTrackerPage(text, html) ||
+    looksLikeGenericCareerLandingPage(text) ||
+    looksLikeBlogOrArticlePage(text)
+  );
+}
+
 function extractPrimaryDescription(raw: string) {
   const embedded = extractEmbeddedDescription(raw);
   const source = embedded ?? raw;
@@ -360,12 +528,6 @@ function cleanupJobDescription(raw: string) {
     .replace(/<\/(p|div|section|article|li|ul|ol|h1|h2|h3|h4|h5|h6)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "\n• ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
     .replace(/\b(click here to apply|apply now!?|submit your application today)\b[.!]*/gi, "")
     .replace(/^[=\-*_]{3,}\s*$/gm, "")
     .replace(/[\u201C\u201D]/g, '"')
@@ -373,6 +535,9 @@ function cleanupJobDescription(raw: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/[ \t]{2,}/g, " ");
+
+  cleaned = normalizeCommonMojibake(cleaned);
+  cleaned = decodeHtmlEntitiesFull(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
 
@@ -686,12 +851,119 @@ export function getJobDescriptionSummaryBlocks(raw: string, maxSections = 6) {
   return summary;
 }
 
+export function getCleanJobDescriptionDisplayBlocks(raw: string, maxSections = 8) {
+  if (!raw.trim()) {
+    return [];
+  }
+
+  const summaryBlocks = getJobDescriptionSummaryBlocks(raw, maxSections);
+  const sourceBlocks =
+    summaryBlocks.length > 0 ? summaryBlocks : parseJobDescriptionBlocks(raw);
+
+  return compactDescriptionBlocks(sourceBlocks);
+}
+
+function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
+  const compacted: DescriptionBlock[] = [];
+  const seenContent = new Set<string>();
+  let pendingHeader: string | null = null;
+
+  const pushHeader = () => {
+    if (!pendingHeader) return;
+    const previous = compacted[compacted.length - 1];
+    if (
+      previous?.kind !== "header" ||
+      normalizeHeadingKey(previous.text) !== normalizeHeadingKey(pendingHeader)
+    ) {
+      compacted.push({ kind: "header", text: pendingHeader });
+    }
+    pendingHeader = null;
+  };
+
+  for (const block of blocks) {
+    if (block.kind === "header") {
+      const header = normalizeHeadingText(block.text);
+      if (!header || isDescriptionNoiseText(header)) {
+        continue;
+      }
+      pendingHeader = header;
+      continue;
+    }
+
+    if (block.kind === "paragraph") {
+      const text = cleanDescriptionContentText(block.text);
+      const key = normalizeDescriptionContentKey(text);
+      if (!text || text.length < 35 || seenContent.has(key)) {
+        continue;
+      }
+
+      pushHeader();
+      seenContent.add(key);
+      compacted.push({
+        kind: "paragraph",
+        text: trimSummaryText(text, 420),
+      });
+      continue;
+    }
+
+    const items = block.items
+      .map(cleanDescriptionContentText)
+      .filter((item) => item.length >= 18 && !isDescriptionNoiseText(item))
+      .filter((item) => {
+        const key = normalizeDescriptionContentKey(item);
+        if (seenContent.has(key)) {
+          return false;
+        }
+        seenContent.add(key);
+        return true;
+      })
+      .map((item) => trimSummaryText(item, 260))
+      .slice(0, 6);
+
+    if (items.length === 0) {
+      continue;
+    }
+
+    pushHeader();
+    compacted.push({ kind: "list", items });
+  }
+
+  return compacted;
+}
+
+function cleanDescriptionContentText(text: string) {
+  return text
+    .replace(/^[•*–·-]\s+/, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function normalizeDescriptionContentKey(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
 export function isJobDescriptionSummaryUsable(raw: string | null | undefined) {
   if (!raw?.trim()) {
     return false;
   }
 
-  const blocks = getJobDescriptionSummaryBlocks(raw, 8);
+  const cleaned = cleanupJobDescription(raw);
+  if (
+    !cleaned ||
+    looksLikeIncompleteDescriptionSnippet(cleaned) ||
+    looksLikeWrongPageDescription(cleaned, raw) ||
+    hasDescriptionPollution(cleaned)
+  ) {
+    return false;
+  }
+
+  const blocks = getJobDescriptionSummaryBlocks(cleaned, 8);
   if (blocks.length === 0) {
     return false;
   }
@@ -794,8 +1066,18 @@ function scoreDescriptionQuality(text: string) {
   const headers = blocks.filter((block) => block.kind === "header").length;
   const lists = blocks.filter((block) => block.kind === "list").length;
   const paragraphs = blocks.filter((block) => block.kind === "paragraph").length;
+  const wrongPagePenalty = looksLikeWrongPageDescription(text) ? 2_000 : 0;
+  const pollutionPenalty = hasDescriptionPollution(text) ? 700 : 0;
 
-  return headers * 45 + lists * 30 + paragraphs * 8 + Math.min(text.length, 2400) / 12 - getDescriptionNoisePenalty(text);
+  return (
+    headers * 45 +
+    lists * 30 +
+    paragraphs * 8 +
+    Math.min(text.length, 2400) / 12 -
+    getDescriptionNoisePenalty(text) -
+    wrongPagePenalty -
+    pollutionPenalty
+  );
 }
 
 export function pickBestFormattedJobDescription(candidates: Array<string | null | undefined>) {
@@ -815,11 +1097,128 @@ export function pickBestFormattedJobDescription(candidates: Array<string | null 
   return usable[0] ?? null;
 }
 
+function isCandidateDescriptionUrl(value: string | null | undefined): value is string {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function scoreDescriptionCandidateUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+    const query = parsed.search.toLowerCase();
+    const value = `${parsed.hostname}${path}${query}`.toLowerCase();
+    let score = 0;
+
+    if (/(?:^|\/)(job|jobs|position|positions|opening|openings|vacancy|vacancies)(?:\/|$)/.test(path)) {
+      score += 50;
+    }
+    if (/(gh_jid|jobid|job_id|reqid|requisition|opening|position|vacancy)/.test(query)) {
+      score += 35;
+    }
+    if (/apply|viewjob|jobdetails|job-detail|job\/|jobs\//.test(value)) {
+      score += 25;
+    }
+
+    if (/(?:^|\/)(blog|blogs|article|articles|news|press|insights|faq|faqs)(?:\/|$)/.test(path)) {
+      score -= 90;
+    }
+    if (/redirect|land=|utm_|gclid=|fbclid=|sendbeacon/.test(value)) {
+      score -= 80;
+    }
+    if (/adzuna\./.test(parsed.hostname)) {
+      score -= 40;
+    }
+
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
+export function getJobDescriptionCandidateUrls(links: DescriptionSourceLinks) {
+  const primarySourceUrls =
+    links.sourceMappings
+      ?.filter((mapping) => mapping.isPrimary)
+      .map((mapping) => mapping.sourceUrl)
+      .filter(isCandidateDescriptionUrl) ?? [];
+  const secondarySourceUrls =
+    links.sourceMappings
+      ?.filter((mapping) => !mapping.isPrimary)
+      .map((mapping) => mapping.sourceUrl)
+      .filter(isCandidateDescriptionUrl) ?? [];
+
+  return Array.from(
+    new Map(
+      [
+        links.sourcePostingLink?.href,
+        links.primaryExternalLink?.href,
+        ...primarySourceUrls,
+        links.applyUrl,
+        ...secondarySourceUrls,
+      ]
+        .filter(isCandidateDescriptionUrl)
+        .map((url, index) => ({ url: url.trim(), index }))
+        .sort((left, right) => {
+          const scoreDelta =
+            scoreDescriptionCandidateUrl(right.url) - scoreDescriptionCandidateUrl(left.url);
+          if (scoreDelta !== 0) {
+            return scoreDelta;
+          }
+
+          return left.index - right.index;
+        })
+        .map((candidate) => [candidate.url, candidate.url])
+    ).values()
+  );
+}
+
+export function isRenderableJobDescription(raw: string | null | undefined) {
+  if (!raw?.trim()) {
+    return false;
+  }
+
+  const cleaned = cleanupJobDescription(raw);
+  if (!cleaned) {
+    return false;
+  }
+
+  const blocks = parseJobDescriptionBlocks(cleaned);
+  if (blocks.length === 0) {
+    return false;
+  }
+
+  const structuredBlockCount = blocks.filter((block) => block.kind !== "paragraph").length;
+  const paragraphLength = blocks.reduce(
+    (sum, block) => sum + (block.kind === "paragraph" ? block.text.trim().length : 0),
+    0
+  );
+
+  return structuredBlockCount > 0 || paragraphLength >= 140;
+}
+
 export function isLowQualityJobDescription(raw: string | null | undefined) {
   if (!raw?.trim()) return true;
 
   const cleaned = cleanupJobDescription(raw);
   if (!cleaned) return true;
+  if (looksLikeIncompleteDescriptionSnippet(cleaned)) {
+    return true;
+  }
+  if (looksLikeWrongPageDescription(cleaned, raw)) {
+    return true;
+  }
+  if (hasDescriptionPollution(cleaned)) {
+    return true;
+  }
 
   if (/(?:…|\.\.\.)\s*$/.test(cleaned)) {
     return true;
@@ -857,7 +1256,10 @@ export async function fetchFormattedJobDescriptionFromUrl(url: string) {
     }
 
     const html = await response.text();
-    const pageText = formatJobDescriptionText(html);
+    const extracted = extractDescriptionFromHtml(html);
+    const pageText = formatJobDescriptionText(
+      extracted && extracted.length >= 120 ? extracted : html
+    );
     const jsPageSignals = [
       "requires javascript",
       "enable javascript",
@@ -871,7 +1273,11 @@ export async function fetchFormattedJobDescriptionFromUrl(url: string) {
       jsPageSignals.some((signal) => html.toLowerCase().includes(signal)) &&
       pageText.length < 500;
 
-    if (looksLikeJsPage || isLowQualityJobDescription(pageText)) {
+    if (
+      looksLikeJsPage ||
+      looksLikeWrongPageDescription(pageText, html) ||
+      isLowQualityJobDescription(pageText)
+    ) {
       return null;
     }
 
@@ -879,4 +1285,24 @@ export async function fetchFormattedJobDescriptionFromUrl(url: string) {
   } catch {
     return null;
   }
+}
+
+export async function fetchBestFormattedJobDescriptionFromUrls(
+  urls: string[],
+  maxFetches = 3
+) {
+  const candidateUrls = Array.from(new Set(urls.filter(isCandidateDescriptionUrl))).slice(
+    0,
+    Math.max(1, maxFetches)
+  );
+
+  if (candidateUrls.length === 0) {
+    return null;
+  }
+
+  const fetchedDescriptions = await Promise.all(
+    candidateUrls.map((url) => fetchFormattedJobDescriptionFromUrl(url))
+  );
+
+  return pickBestFormattedJobDescription(fetchedDescriptions);
 }

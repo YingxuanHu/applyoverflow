@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import type {
   TrackedApplicationDocumentSlot,
   TrackedApplicationEventType,
@@ -31,6 +29,7 @@ import {
   updateTrackedApplicationField,
   updateTrackedApplicationStatus,
 } from "@/lib/queries/tracker";
+import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
 import {
   buildDocumentStorageKey,
   deleteFile,
@@ -88,15 +87,6 @@ const allowedSlots = new Set<TrackedApplicationDocumentSlot>([
   "SENT_COVER_LETTER",
 ]);
 
-function revalidateApplication(applicationId: string) {
-  revalidatePath("/applications");
-  revalidatePath("/applications/history");
-  revalidatePath("/dashboard");
-  revalidatePath("/profile");
-  revalidatePath(`/applications/${applicationId}`);
-  revalidatePath(`/dashboard/${applicationId}`);
-}
-
 function toActionState(error: unknown): ActionState {
   return {
     error: error instanceof Error ? error.message : "Request failed.",
@@ -138,18 +128,72 @@ function inferDocumentMimeType(fileName: string, browserMime: string): string {
   return inferProfileDocumentMimeType(fileName, browserMime);
 }
 
+const EDITABLE_APPLICATION_FIELDS = [
+  "notes",
+  "jobDescription",
+  "fitAnalysis",
+  "company",
+  "roleTitle",
+  "roleUrl",
+] as const;
+type EditableApplicationField = (typeof EDITABLE_APPLICATION_FIELDS)[number];
+
+const APPLICATION_FIELD_LABELS: Record<EditableApplicationField, string> = {
+  notes: "Notes",
+  jobDescription: "Job description",
+  fitAnalysis: "Fit analysis",
+  company: "Company",
+  roleTitle: "Job title",
+  roleUrl: "Job link",
+};
+
+/**
+ * Update the three "header" identity fields (company, roleTitle, roleUrl)
+ * in a single submission. Backed by individual updateTrackedApplicationField
+ * calls so existing validation (required, URL format, length caps) is reused.
+ */
+export async function updateApplicationHeader(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const applicationId = String(formData.get("applicationId") ?? "").trim();
+    if (!applicationId) {
+      return { error: "Invalid parameters.", success: null };
+    }
+
+    const company = String(formData.get("company") ?? "");
+    const roleTitle = String(formData.get("roleTitle") ?? "");
+    const roleUrl = String(formData.get("roleUrl") ?? "");
+
+    // Update each field in turn so per-field validation messages surface
+    // accurately. The DB writes are tiny (one row, no FK joins) so the
+    // serialization cost is negligible.
+    await updateTrackedApplicationField({ applicationId, field: "company", value: company });
+    await updateTrackedApplicationField({ applicationId, field: "roleTitle", value: roleTitle });
+    await updateTrackedApplicationField({ applicationId, field: "roleUrl", value: roleUrl });
+
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
+
+    return {
+      error: null,
+      success: "Application details saved.",
+    };
+  } catch (error) {
+    return toActionState(error);
+  }
+}
+
 export async function updateApplicationField(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   try {
     const applicationId = String(formData.get("applicationId") ?? "").trim();
-    const field = String(formData.get("field") ?? "").trim();
+    const fieldRaw = String(formData.get("field") ?? "").trim();
+    const field = EDITABLE_APPLICATION_FIELDS.find((value) => value === fieldRaw);
 
-    if (
-      !applicationId ||
-      (field !== "notes" && field !== "jobDescription" && field !== "fitAnalysis")
-    ) {
+    if (!applicationId || !field) {
       return { error: "Invalid parameters.", success: null };
     }
 
@@ -159,17 +203,11 @@ export async function updateApplicationField(
       value: String(formData.get("value") ?? ""),
     });
 
-    revalidateApplication(applicationId);
-
-    const labels = {
-      notes: "Notes",
-      jobDescription: "Job description",
-      fitAnalysis: "Fit analysis",
-    } as const;
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 
     return {
       error: null,
-      success: `${labels[field]} saved.`,
+      success: `${APPLICATION_FIELD_LABELS[field]} saved.`,
     };
   } catch (error) {
     return toActionState(error);
@@ -194,7 +232,7 @@ export async function updateApplicationStatus(
       status,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 
     return {
       error: null,
@@ -243,7 +281,7 @@ export async function addTimelineEvent(
       reminderAt,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Event added." };
   } catch (error) {
     return toActionState(error);
@@ -267,7 +305,7 @@ export async function deleteTimelineEvent(
       eventId,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Event deleted." };
   } catch (error) {
     return toActionState(error);
@@ -293,7 +331,7 @@ export async function linkDocument(
       slot: slotRaw as TrackedApplicationDocumentSlot,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Document linked." };
   } catch (error) {
     return toActionState(error);
@@ -317,7 +355,7 @@ export async function unlinkDocument(
       slot: slotRaw as TrackedApplicationDocumentSlot,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Document unlinked." };
   } catch (error) {
     return toActionState(error);
@@ -477,7 +515,7 @@ export async function uploadWorkspaceDocument(
       };
     }
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return {
       error: null,
       success: `${documentType === "RESUME" ? "Resume" : "Cover letter"} uploaded and linked.`,
@@ -507,7 +545,7 @@ export async function addTag(
       name,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: `Tag "${result.name}" added.` };
   } catch (error) {
     return toActionState(error);
@@ -531,7 +569,7 @@ export async function removeTag(
       tagId,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Tag removed." };
   } catch (error) {
     return toActionState(error);
@@ -679,7 +717,7 @@ export async function importJobDescription(
       value: formatted,
     });
 
-    revalidateApplication(applicationId);
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
     return { error: null, success: "Job description imported and organized." };
   } catch (error) {
     return toActionState(error);

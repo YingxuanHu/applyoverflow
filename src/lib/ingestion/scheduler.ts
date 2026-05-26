@@ -4,7 +4,7 @@ import {
   routeLegacyScheduledConnectorToCompanySource,
 } from "@/lib/ingestion/legacy-source-routing";
 import {
-  reconcileCanonicalLifecycle,
+  bulkSyncCanonicalStatuses,
   ingestConnector,
   recoverStaleRunningIngestionRuns,
 } from "@/lib/ingestion/pipeline";
@@ -17,7 +17,7 @@ export type ScheduledIngestionResult = {
   skippedConnectors: Array<{
     connectorKey: string;
     sourceName: string;
-    reason: "not_due" | "managed_by_company_source";
+    reason: "not_due" | "managed_by_company_source" | "cycle_budget_exhausted";
     nextEligibleAt: string | null;
     lastRunStartedAt: string | null;
     origin: "legacy_registry";
@@ -26,18 +26,110 @@ export type ScheduledIngestionResult = {
   }>;
   lifecycle: {
     liveCount: number;
+    agingCount?: number;
     staleCount: number;
     expiredCount: number;
     removedCount: number;
     updatedCount: number;
+    deferred?: boolean;
   };
 };
+
+// Per-connector soft budgets. The 60s/45s defaults that lived here were set
+// when the DB pool was effectively single-connection — they killed connectors
+// before they finished their first page of upserts. Now that the pool is
+// healthy, give connectors a realistic envelope: 3 minutes for legacy ATS
+// connectors (Greenhouse/Lever/iCIMS/Workday/Ashby/etc.) and 4 minutes for
+// Adzuna's paginated fetches. Both are env-overridable for tuning in prod.
+const DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS = 180_000;
+const DEFAULT_ADZUNA_RUNTIME_BUDGET_MS = 240_000;
+// Hard wall-clock cap per connector: even if the internal AbortController is
+// ignored (e.g. Playwright IPC hangs), this Promise.race fires and lets the
+// scheduler move on. Set to ~2× the soft budget plus a generous buffer.
+const LEGACY_CONNECTOR_HARD_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes absolute max
+
+function readPositiveIntEnv(name: string) {
+  const raw = process.env[name]?.trim() ?? "";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getLegacyConnectorRuntimeBudgetMs(sourceName: string) {
+  const connectorFamily = sourceName.split(":")[0]?.toLowerCase();
+
+  if (connectorFamily === "adzuna") {
+    return (
+      readPositiveIntEnv("ADZUNA_RUNTIME_BUDGET_MS") ??
+      DEFAULT_ADZUNA_RUNTIME_BUDGET_MS
+    );
+  }
+
+  return (
+    readPositiveIntEnv("LEGACY_CONNECTOR_RUNTIME_BUDGET_MS") ??
+    DEFAULT_LEGACY_CONNECTOR_RUNTIME_BUDGET_MS
+  );
+}
+
+async function countCanonicalStatusSnapshot() {
+  const [liveCount, agingCount, staleCount, expiredCount, removedCount] = await Promise.all([
+    prisma.jobCanonical.count({ where: { status: "LIVE" } }),
+    prisma.jobCanonical.count({ where: { status: "AGING" } }),
+    prisma.jobCanonical.count({ where: { status: "STALE" } }),
+    prisma.jobCanonical.count({ where: { status: "EXPIRED" } }),
+    prisma.jobCanonical.count({ where: { status: "REMOVED" } }),
+  ]);
+
+  return {
+    liveCount,
+    agingCount,
+    staleCount,
+    expiredCount,
+    removedCount,
+    updatedCount: 0,
+    deferred: true,
+  };
+}
+
+/**
+ * Race a connector invocation against a hard wall-clock deadline.
+ * Returns the summary on success; throws on error or timeout.
+ */
+function withHardTimeout<T>(
+  promise: Promise<T>,
+  connectorKey: string,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `[scheduler] Connector ${connectorKey} exceeded hard timeout of ${timeoutMs}ms — forcibly abandoned`
+        )
+      );
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 export async function runScheduledIngestion(options: {
   now?: Date;
   force?: boolean;
   connectorKeys?: string[];
   triggerLabel?: string;
+  maxCycleDurationMs?: number;
+  maxConnectorRuns?: number;
+  skipLifecycle?: boolean;
+  lifecyclePerJobLimit?: number;
 } = {}): Promise<ScheduledIngestionResult> {
   const now = options.now ?? new Date();
   const staleRunRecovery = await recoverStaleRunningIngestionRuns({
@@ -49,15 +141,59 @@ export async function runScheduledIngestion(options: {
       `[scheduler] Recovered ${staleRunRecovery.recoveredCount} stale RUNNING ingestion run(s): ${staleRunRecovery.connectorKeys.join(", ")}`
     );
   }
-  const scheduledDefinitions = getScheduledConnectors().filter((definition) => {
+  const allDefinitions = getScheduledConnectors().filter((definition) => {
     if (!options.connectorKeys || options.connectorKeys.length === 0) return true;
     return options.connectorKeys.includes(definition.connector.key);
   });
+
+  // Run legacy-only connectors (aggregator feeds, job boards) FIRST.
+  // There are only ~14 of these but they contribute 80k+ jobs. Without this
+  // priority ordering, they never run because the 1,300+ managed ATS connectors
+  // exhaust the cycle budget before the aggregator feeds get a turn.
+  const scheduledDefinitions = [
+    ...allDefinitions.filter(
+      (d) => !isCompanySourceManagedConnector(d.connector.sourceName)
+    ),
+    ...allDefinitions.filter((d) =>
+      isCompanySourceManagedConnector(d.connector.sourceName)
+    ),
+  ];
 
   const executedRuns: IngestionSummary[] = [];
   const skippedConnectors: ScheduledIngestionResult["skippedConnectors"] = [];
 
   for (const definition of scheduledDefinitions) {
+    if (
+      typeof options.maxConnectorRuns === "number" &&
+      executedRuns.length >= options.maxConnectorRuns
+    ) {
+      skippedConnectors.push({
+        connectorKey: definition.connector.key,
+        sourceName: definition.connector.sourceName,
+        reason: "cycle_budget_exhausted",
+        nextEligibleAt: null,
+        lastRunStartedAt: null,
+        origin: "legacy_registry",
+      });
+      continue;
+    }
+
+    if (
+      typeof options.maxCycleDurationMs === "number" &&
+      options.maxCycleDurationMs > 0 &&
+      Date.now() - now.getTime() >= options.maxCycleDurationMs
+    ) {
+      skippedConnectors.push({
+        connectorKey: definition.connector.key,
+        sourceName: definition.connector.sourceName,
+        reason: "cycle_budget_exhausted",
+        nextEligibleAt: null,
+        lastRunStartedAt: null,
+        origin: "legacy_registry",
+      });
+      continue;
+    }
+
     if (isCompanySourceManagedConnector(definition.connector.sourceName)) {
       const promotion = await routeLegacyScheduledConnectorToCompanySource(definition, {
         now,
@@ -109,20 +245,27 @@ export async function runScheduledIngestion(options: {
     }
 
     try {
-      const summary = await ingestConnector(definition.connector, {
-        now,
-        runMode: "SCHEDULED",
-        allowOverlappingRuns: false,
-        triggerLabel: options.triggerLabel ?? "schedule.route",
-        scheduleCadenceMinutes: definition.cadenceMinutes,
-        runMetadata: {
-          origin: "legacy_registry",
-          registryKey: definition.connector.key,
-          sourceName: definition.connector.sourceName,
-          validationState: null,
-          companySourceId: null,
-        },
-      });
+      const summary = await withHardTimeout(
+        ingestConnector(definition.connector, {
+          now,
+          runMode: "SCHEDULED",
+          allowOverlappingRuns: false,
+          maxRuntimeMs: getLegacyConnectorRuntimeBudgetMs(
+            definition.connector.sourceName
+          ),
+          triggerLabel: options.triggerLabel ?? "schedule.route",
+          scheduleCadenceMinutes: definition.cadenceMinutes,
+          runMetadata: {
+            origin: "legacy_registry",
+            registryKey: definition.connector.key,
+            sourceName: definition.connector.sourceName,
+            validationState: null,
+            companySourceId: null,
+          },
+        }),
+        definition.connector.key,
+        LEGACY_CONNECTOR_HARD_TIMEOUT_MS
+      );
 
       executedRuns.push(summary);
     } catch (error) {
@@ -134,7 +277,16 @@ export async function runScheduledIngestion(options: {
     }
   }
 
-  const lifecycle = await reconcileCanonicalLifecycle({ now });
+  // Use the fast bulk-sync path instead of the full per-job reconcile.
+  // The full reconcile processes all 300k+ jobs with N+1 queries — far too slow
+  // for a daemon cycle.  bulkSyncCanonicalStatuses does a single SQL UPDATE for
+  // status and then runs the full per-job logic for only the at-risk cohort.
+  const lifecycle = options.skipLifecycle
+    ? await countCanonicalStatusSnapshot()
+    : await bulkSyncCanonicalStatuses({
+        now,
+        perJobLimit: options.lifecyclePerJobLimit ?? 3_000,
+      });
 
   return {
     startedAt: now.toISOString(),

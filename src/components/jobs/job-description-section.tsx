@@ -1,0 +1,111 @@
+import {
+  fetchBestFormattedJobDescriptionFromUrls,
+  getCleanJobDescriptionDisplayBlocks,
+  getJobDescriptionCandidateUrls,
+  isJobDescriptionSummaryUsable,
+  isLowQualityJobDescription,
+  isRenderableJobDescription,
+  pickBestFormattedJobDescription,
+} from "@/lib/job-description-format";
+import { ExternalLink } from "lucide-react";
+
+type JobDescriptionSectionProps = {
+  title?: string;
+  job: {
+    description: string;
+    applyUrl: string;
+    sourceMappings: Array<{
+      sourceUrl: string | null;
+      isPrimary: boolean;
+    }>;
+    primaryExternalLink: { href: string } | null;
+    sourcePostingLink: { href: string } | null;
+  };
+};
+
+export async function JobDescriptionSection({
+  title = "Description",
+  job,
+}: JobDescriptionSectionProps) {
+  const candidateUrls = getJobDescriptionCandidateUrls({
+    applyUrl: job.applyUrl,
+    primaryExternalLink: job.primaryExternalLink,
+    sourcePostingLink: job.sourcePostingLink,
+    sourceMappings: job.sourceMappings,
+  });
+  const preferredSourceUrl = candidateUrls[0] ?? null;
+  const storedDescriptionNeedsRepair =
+    isLowQualityJobDescription(job.description) ||
+    !isJobDescriptionSummaryUsable(job.description);
+  const fetchedDescription = storedDescriptionNeedsRepair
+    ? await fetchBestFormattedJobDescriptionFromUrls(candidateUrls, 3)
+    : null;
+  const displayDescription =
+    pickBestFormattedJobDescription([fetchedDescription, job.description]) ?? job.description;
+  const descriptionBlocks = getCleanJobDescriptionDisplayBlocks(displayDescription, 8);
+  const descriptionUsable =
+    !isLowQualityJobDescription(displayDescription) &&
+    isRenderableJobDescription(displayDescription) &&
+    isJobDescriptionSummaryUsable(displayDescription);
+  const shouldShowDescription = descriptionUsable && descriptionBlocks.length > 0;
+
+  return (
+    <div className="border-t border-border py-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[15px] font-medium text-muted-foreground">{title}</p>
+      </div>
+
+      {shouldShowDescription ? (
+        <div className="mt-4 space-y-3.5 text-sm text-foreground/85">
+          {descriptionBlocks.map((block, index) => {
+            if (block.kind === "header") {
+              return (
+                <p
+                  key={index}
+                  className="pt-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/60 first:pt-0"
+                >
+                  {block.text}
+                </p>
+              );
+            }
+
+            if (block.kind === "list") {
+              return (
+                <ul
+                  key={index}
+                  className="ml-5 space-y-2 list-disc marker:text-muted-foreground/60"
+                >
+                  {block.items.map((item, itemIndex) => (
+                    <li key={itemIndex} className="leading-7">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              );
+            }
+
+            return (
+              <p key={index} className="leading-7 text-foreground/80">
+                {block.text}
+              </p>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {preferredSourceUrl ? (
+        <div className={shouldShowDescription ? "mt-5" : "mt-3"}>
+          <a
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            href={preferredSourceUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open original posting
+          </a>
+        </div>
+      ) : null}
+    </div>
+  );
+}

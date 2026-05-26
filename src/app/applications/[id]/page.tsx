@@ -8,8 +8,10 @@ import { getTrackedApplicationWorkspace } from "@/lib/queries/tracker";
 
 export default async function TrackedApplicationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ edit?: string }>;
 }) {
   const sessionUser = await getOptionalSessionUser();
   if (!sessionUser) {
@@ -17,6 +19,7 @@ export default async function TrackedApplicationPage({
   }
 
   const { id } = await params;
+  const { edit } = await searchParams;
   const workspace = await getTrackedApplicationWorkspace(id);
   if (!workspace.application) {
     notFound();
@@ -33,6 +36,8 @@ export default async function TrackedApplicationPage({
       <ApplicationWorkspaceClient
         aiConfigured={getOpenAIReadiness().configured}
         application={workspace.application}
+        generatedDocuments={workspace.generatedDocuments}
+        initialHeaderEditing={edit === "1"}
         userDocuments={workspace.userDocuments}
         userTags={workspace.userTags}
       />

@@ -8,6 +8,10 @@ import type {
   SourceConnectorFetchResult,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 /**
  * iCIMS connector — parses public career portal pages.
@@ -24,7 +28,10 @@ import type {
 
 const ICIMS_SEARCH_PAGE_SIZE = 20; // iCIMS default per page
 const DETAIL_BATCH_SIZE = 6; // concurrent detail fetches
-const MAX_PAGES = 100; // safety cap
+// iCIMS does NOT checkpoint — each run starts from page 1. The cap gates
+// per-run retrieval, so raising it directly increases per-run yield until
+// the portal runs out of results. 250 pages × 20 = 5,000 jobs per portal.
+const MAX_PAGES = 250; // safety cap
 
 type IcimsConnectorOptions = {
   /** The subdomain portion, e.g. "jobs-microsoft" */
@@ -177,6 +184,7 @@ export function createIcimsConnector(
       const listings = await fetchAllListings({
         baseUrl,
         limit: fetchOptions.limit,
+        signal: fetchOptions.signal,
       });
 
       // Phase 2: Fetch detail pages in batches, extracting JSON-LD
@@ -188,6 +196,7 @@ export function createIcimsConnector(
             baseUrl,
             listing,
             fallbackCompanyName: resolvedCompanyName,
+            signal: fetchOptions.signal,
           })
       );
 
@@ -215,19 +224,22 @@ export function createIcimsConnector(
 async function fetchAllListings({
   baseUrl,
   limit,
+  signal,
 }: {
   baseUrl: string;
   limit?: number;
+  signal?: AbortSignal;
 }) {
   const allRows: IcimsListingRow[] = [];
   let page = 0;
 
   while (page < MAX_PAGES) {
+    throwIfAborted(signal);
     const url = `${baseUrl}/jobs/search?pr=${page}&in_iframe=1`;
     const response = await fetch(url, {
       headers: buildHeaders(),
       redirect: "follow",
-      signal: AbortSignal.timeout(20_000),
+      signal: buildTimeoutSignal(signal, 20_000),
     });
 
     if (!response.ok) break;
@@ -388,17 +400,20 @@ async function fetchAndBuildJob({
   baseUrl,
   listing,
   fallbackCompanyName,
+  signal,
 }: {
   baseUrl: string;
   listing: IcimsListingRow;
   fallbackCompanyName: string;
+  signal?: AbortSignal;
 }): Promise<SourceConnectorJob | null> {
   try {
+    throwIfAborted(signal);
     const detailUrl = `${baseUrl}${listing.detailPath}?in_iframe=1`;
     const response = await fetch(detailUrl, {
       headers: buildHeaders(),
       redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
+      signal: buildTimeoutSignal(signal, 15_000),
     });
 
     if (!response.ok) return null;

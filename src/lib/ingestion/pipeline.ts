@@ -10,12 +10,21 @@ import {
   isCanonicalMatchCompatible,
   type CanonicalMatchResult,
 } from "@/lib/ingestion/dedupe";
+import { getLifecycleProfile } from "@/lib/ingestion/lifecycle-config";
 import { detectDeadSignal, normalizeSourceJob } from "@/lib/ingestion/normalize";
+import { upsertNormalizedJobRecordFromSourceJob } from "@/lib/ingestion/normalized-records";
+import { computeNormalizedQualityScore } from "@/lib/ingestion/quality";
+import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
 import {
   deriveSourceIdentitySnapshot,
   deriveSourceLifecycleSnapshot,
+  deriveSourceProvenanceMetadata,
   type SourceIdentitySnapshot,
 } from "@/lib/ingestion/source-quality";
+import {
+  createRuntimeBudgetExceededError,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 import type {
   IngestionSummary,
   NormalizedJobInput,
@@ -29,10 +38,17 @@ import type {
 } from "@/generated/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 
-const RUNNING_LOCK_WINDOW_MINUTES = 90;
-const RUNNING_PROGRESS_STALE_MINUTES = 45;
-const APPLY_URL_CHECK_INTERVAL_HOURS = 18;
+const RUNNING_LOCK_WINDOW_MINUTES = 30;
+const RUNNING_PROGRESS_STALE_MINUTES = 15;
 const APPLY_URL_CHECK_TIMEOUT_MS = 5000;
+const LIFECYCLE_PROFILE = getLifecycleProfile();
+const RAW_PAYLOAD_FINGERPRINT_IGNORED_KEYS = new Set([
+  "fetchedAt",
+  // Aggregator records can surface the same provider job through many search
+  // frontiers. These fields describe how we found the row, not the row itself.
+  "searchKeyword",
+  "searchLocation",
+]);
 
 type IngestConnectorOptions = {
   now?: Date;
@@ -112,6 +128,11 @@ export async function ingestConnector(
   const runMode = options.runMode ?? "MANUAL";
   const startingCheckpoint = await loadResumeCheckpoint(connector.key);
   const runOptionsState = buildRunOptions(options, startingCheckpoint);
+  if (typeof options.maxRuntimeMs === "number" && options.maxRuntimeMs > 0) {
+    runOptionsState.leaseExpiresAt = new Date(
+      startedAt.getTime() + options.maxRuntimeMs
+    ).toISOString();
+  }
   const run = await createIngestionRun({
     connector,
     startedAt,
@@ -132,6 +153,7 @@ export async function ingestConnector(
   }
 
   try {
+    let lastHeartbeatAt = Date.now();
     const persistCheckpoint = async (checkpoint: Prisma.InputJsonValue | null) => {
       runOptionsState.checkpoint = checkpoint;
       runOptionsState.checkpointUpdatedAt = new Date().toISOString();
@@ -143,19 +165,50 @@ export async function ingestConnector(
         },
       });
     };
+    const persistHeartbeat = async (
+      details: Record<string, Prisma.InputJsonValue | null> = {}
+    ) => {
+      const nowMs = Date.now();
+      if (nowMs - lastHeartbeatAt < 15_000) {
+        return;
+      }
+
+      lastHeartbeatAt = nowMs;
+      runOptionsState.checkpointUpdatedAt = new Date(nowMs).toISOString();
+      const existingMetadata = (asJsonObject(
+        runOptionsState.runMetadata as Prisma.JsonValue | null
+      ) ?? {}) as Record<string, Prisma.InputJsonValue | null>;
+      runOptionsState.runMetadata = {
+        ...existingMetadata,
+        ...details,
+        heartbeatAt: runOptionsState.checkpointUpdatedAt,
+      };
+
+      await prisma.ingestionRun.update({
+        where: { id: run.id },
+        data: {
+          runOptions: runOptionsState as Prisma.InputJsonValue,
+        },
+      });
+    };
     const runtimeController =
       typeof options.maxRuntimeMs === "number" && options.maxRuntimeMs > 0
         ? new AbortController()
         : null;
+    const runtimeBudgetMs =
+      typeof options.maxRuntimeMs === "number" && options.maxRuntimeMs > 0
+        ? options.maxRuntimeMs
+        : null;
     const runtimeTimer =
-      runtimeController && typeof options.maxRuntimeMs === "number"
+      runtimeController && runtimeBudgetMs != null
         ? setTimeout(() => {
             runtimeController.abort(
-              new Error(
-                `Runtime budget exceeded after ${options.maxRuntimeMs}ms`
+              createRuntimeBudgetExceededError(
+                runtimeBudgetMs,
+                connector.sourceName
               )
             );
-          }, options.maxRuntimeMs)
+          }, runtimeBudgetMs)
         : null;
     runtimeTimer?.unref?.();
 
@@ -170,7 +223,8 @@ export async function ingestConnector(
         options.maxRuntimeMs,
         startingCheckpoint,
         persistCheckpoint,
-        createConnectorLogger(connector, runOptionsState.runMetadata)
+        createConnectorLogger(connector, runOptionsState.runMetadata),
+        persistHeartbeat
       );
     } finally {
       if (runtimeTimer) clearTimeout(runtimeTimer);
@@ -218,6 +272,7 @@ export async function ingestConnector(
 export async function recoverStaleRunningIngestionRuns(options: {
   now?: Date;
   connectorKeys?: string[];
+  companySourceOnly?: boolean;
 } = {}) {
   const now = options.now ?? new Date();
   const staleStartedBefore = new Date(
@@ -249,11 +304,45 @@ export async function recoverStaleRunningIngestionRuns(options: {
 
   const staleRuns = runningRuns.filter((run) => {
     const runOptions = asJsonObject(run.runOptions);
+    const runMetadata = asJsonObject(runOptions?.runMetadata as Prisma.JsonValue | null);
+    const origin = typeof runMetadata?.origin === "string" ? runMetadata.origin : null;
+
+    if (options.companySourceOnly && origin !== "company_source") {
+      return false;
+    }
+
+    const leaseExpiresAtRaw = runOptions?.leaseExpiresAt;
+    const explicitLeaseExpiresAt =
+      typeof leaseExpiresAtRaw === "string" ? new Date(leaseExpiresAtRaw) : null;
+    const maxRuntimeMsRaw = runOptions?.maxRuntimeMs;
+    const maxRuntimeMs =
+      typeof maxRuntimeMsRaw === "number"
+        ? maxRuntimeMsRaw
+        : typeof maxRuntimeMsRaw === "string"
+          ? Number(maxRuntimeMsRaw)
+          : null;
+    const inferredLeaseExpiresAt =
+      maxRuntimeMs && Number.isFinite(maxRuntimeMs) && maxRuntimeMs > 0
+        ? new Date(run.startedAt.getTime() + maxRuntimeMs)
+        : null;
+    const leaseExpiresAt =
+      explicitLeaseExpiresAt &&
+      !Number.isNaN(explicitLeaseExpiresAt.getTime())
+        ? explicitLeaseExpiresAt
+        : inferredLeaseExpiresAt;
     const checkpointUpdatedAtRaw = runOptions?.checkpointUpdatedAt;
     const checkpointUpdatedAt =
       typeof checkpointUpdatedAtRaw === "string"
         ? new Date(checkpointUpdatedAtRaw)
         : null;
+
+    if (
+      leaseExpiresAt &&
+      !Number.isNaN(leaseExpiresAt.getTime()) &&
+      leaseExpiresAt < now
+    ) {
+      return true;
+    }
 
     if (
       checkpointUpdatedAt &&
@@ -284,7 +373,7 @@ export async function recoverStaleRunningIngestionRuns(options: {
           status: "FAILED",
           endedAt: now,
           errorSummary:
-            "Recovered stale RUNNING ingestion run before scheduling.",
+            "STALE_RECOVERED: recovered stale RUNNING ingestion run before scheduling.",
           runOptions: {
             ...runOptions,
             runMetadata: {
@@ -313,6 +402,123 @@ export async function reconcileCanonicalLifecycle(options: { now?: Date } = {}) 
     canonicalJobs.map((job) => job.id),
     now
   );
+}
+
+/**
+ * Fast bulk status sync — O(1) DB operations instead of N+1.
+ *
+ * Syncs `status` to match the stored `availabilityScore` for all non-REMOVED
+ * jobs using a single SQL UPDATE.  Then runs the full per-job reconcile for a
+ * limited cohort of at-risk jobs (AGING/STALE) so that freshness timestamps,
+ * apply-URL checks, and expiry transitions are still applied incrementally.
+ *
+ * This replaces `reconcileCanonicalLifecycle` in daemon cycles where
+ * processing all 300k+ jobs per cycle is too slow.
+ */
+export async function bulkSyncCanonicalStatuses(options: {
+  now?: Date;
+  /** Max number of AGING/STALE jobs to run the full per-job refresh on. Default 3000. */
+  perJobLimit?: number;
+} = {}) {
+  const now = options.now ?? new Date();
+  const perJobLimit = options.perJobLimit ?? 3_000;
+  const confirmationLiveCutoff = new Date(
+    now.getTime() - LIFECYCLE_PROFILE.confirmationWindowsDays.liveFloor * 24 * 60 * 60 * 1000
+  );
+  const {
+    liveMinScore,
+    agingMinScore,
+    staleMinScore,
+  } = LIFECYCLE_PROFILE.statusThresholds;
+  const { live: liveConfirmationFloor } = LIFECYCLE_PROFILE.confirmationFloorScores;
+
+  // 1. Bulk SQL status sync based on stored availabilityScore.
+  //    Also applies the confirmation floor inline: a URL-confirmed-alive job within
+  //    the configured live confirmation window always has its availabilityScore bumped
+  //    to the configured LIVE floor (from
+  //    getRecentAliveConfirmationFloor), so status correctly reflects the confirmation.
+  //    This avoids needing a per-job refresh for every recently-confirmed job.
+  //    REMOVED jobs are never touched.
+  const syncResult = await prisma.$executeRaw`
+    UPDATE "JobCanonical"
+    SET
+      "availabilityScore" = CASE
+        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+          THEN GREATEST("availabilityScore", ${liveConfirmationFloor})
+        ELSE "availabilityScore"
+      END,
+      status = CASE
+        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
+        WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+        WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+        WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
+        ELSE                                'EXPIRED'::"JobStatus"
+      END
+    WHERE status != 'REMOVED'::"JobStatus"
+  `;
+
+  const feedVisibilitySyncResult = await prisma.$executeRaw`
+    UPDATE "JobFeedIndex" jfi
+    SET
+      status = 'REMOVED'::"JobStatus",
+      "updatedAt" = NOW()
+    FROM "JobCanonical" jc
+    WHERE jfi."canonicalJobId" = jc.id
+      AND jfi.status = 'LIVE'::"JobStatus"
+      AND (
+        jc.status != 'LIVE'::"JobStatus"
+        OR jc."availabilityScore" < 60
+        OR jc."deadSignalAt" IS NOT NULL
+        OR (jc.deadline IS NOT NULL AND jc.deadline < ${now})
+        OR jc."applyUrl" !~* '^https?://'
+      )
+  `;
+
+  // 2. Incremental per-job refresh for AGING/STALE cohort — these are most
+  //    likely to transition and need freshness/expiry logic applied.
+  const tally =
+    perJobLimit > 0
+      ? await (async () => {
+          const atRiskJobs = await prisma.jobCanonical.findMany({
+            where: { status: { in: ["AGING", "STALE"] } },
+            select: { id: true },
+            orderBy: { lastApplyCheckAt: "asc" }, // oldest-checked first
+            take: perJobLimit,
+          });
+
+          return refreshCanonicalStatuses(
+            atRiskJobs.map((j) => j.id),
+            now
+          );
+        })()
+      : {
+          liveCount: 0,
+          agingCount: 0,
+          staleCount: 0,
+          expiredCount: 0,
+          removedCount: 0,
+          updatedCount: 0,
+        };
+
+  // Build aggregate counts for the full pool (cheap count queries).
+  const [liveCount, agingCount, staleCount, expiredCount] = await Promise.all([
+    prisma.jobCanonical.count({ where: { status: "LIVE" } }),
+    prisma.jobCanonical.count({ where: { status: "AGING" } }),
+    prisma.jobCanonical.count({ where: { status: "STALE" } }),
+    prisma.jobCanonical.count({ where: { status: "EXPIRED" } }),
+  ]);
+
+  return {
+    liveCount,
+    agingCount,
+    staleCount,
+    expiredCount,
+    removedCount: 0,
+    updatedCount:
+      (syncResult as number) +
+      (feedVisibilitySyncResult as number) +
+      tally.updatedCount,
+  };
 }
 
 export async function reconcileCanonicalLifecycleByIds(
@@ -389,12 +595,15 @@ async function performConnectorIngestion(
   maxRuntimeMs?: number,
   checkpoint?: Prisma.InputJsonValue | null,
   onCheckpoint?: (checkpoint: Prisma.InputJsonValue | null) => Promise<void>,
-  log?: (message: string) => void
+  log?: (message: string) => void,
+  onHeartbeat?: (details?: Record<string, Prisma.InputJsonValue | null>) => Promise<void>
 ) {
   const seenSourceIds = new Set<string>();
   const freshnessCandidateIds = new Set<string>();
 
-  const fetchResult = await connector.fetchJobs({
+  throwIfAborted(signal);
+
+  const fetchResultPromise = connector.fetchJobs({
     now,
     limit,
     signal,
@@ -405,11 +614,40 @@ async function performConnectorIngestion(
     deadlineAt:
       typeof maxRuntimeMs === "number" ? new Date(now.getTime() + maxRuntimeMs) : undefined,
   });
+  const fetchResult =
+    typeof maxRuntimeMs === "number" && maxRuntimeMs > 0
+      ? await Promise.race([
+          fetchResultPromise,
+          new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => {
+              reject(
+                createRuntimeBudgetExceededError(
+                  maxRuntimeMs,
+                  connector.sourceName
+                )
+              );
+            }, maxRuntimeMs);
+            timer.unref?.();
+            signal?.addEventListener(
+              "abort",
+              () => clearTimeout(timer),
+              { once: true }
+            );
+          }),
+        ])
+      : await fetchResultPromise;
   const fetchExhausted = fetchResult.exhausted ?? fetchResult.checkpoint == null;
   summary.checkpoint = fetchResult.checkpoint ?? null;
   summary.checkpointExhausted = fetchExhausted;
+  await onHeartbeat?.({
+    checkpointExhausted: summary.checkpointExhausted ?? false,
+    fetchedCount: fetchResult.jobs.length,
+    stage: "fetch_complete",
+  });
 
+  let processedCount = 0;
   for (const sourceJob of fetchResult.jobs) {
+    throwIfAborted(signal);
     summary.fetchedCount += 1;
     seenSourceIds.add(sourceJob.sourceId);
 
@@ -419,10 +657,53 @@ async function performConnectorIngestion(
       fetchedAt: now,
     });
 
+    await upsertNormalizedJobRecordFromSourceJob({
+      rawJobId: rawJobResult.rawJob.id,
+      rawSourceName: connector.sourceName,
+      rawSourceId: sourceJob.sourceId,
+      rawPayload: rawJobResult.rawJob.rawPayload,
+      fetchedAt: now,
+    });
+
     if (rawJobResult.created) {
       summary.rawCreatedCount += 1;
     } else {
       summary.rawUpdatedCount += 1;
+    }
+
+    if (!rawJobResult.created && rawJobResult.unchanged) {
+      const refreshResult = await refreshUnchangedMappedRawJob({
+        rawJobId: rawJobResult.rawJob.id,
+        now,
+      });
+
+      if (refreshResult) {
+        summary.acceptedCount += 1;
+        summary.minimallyAcceptedCount += 1;
+        summary.canonicalUpdatedCount += 1;
+        summary.sourceMappingUpdatedCount += 1;
+
+        if (refreshResult.region === "CA") {
+          summary.acceptedCanadaCount += 1;
+          if (refreshResult.workMode === "REMOTE") {
+            summary.acceptedCanadaRemoteCount += 1;
+          }
+        }
+
+        freshnessCandidateIds.add(refreshResult.canonicalId);
+        processedCount += 1;
+        if (processedCount % 25 === 0) {
+          await onHeartbeat?.({
+            acceptedCount: summary.acceptedCount,
+            canonicalCreatedCount: summary.canonicalCreatedCount,
+            fetchedCount: summary.fetchedCount,
+            processedCount,
+            rejectedCount: summary.rejectedCount,
+            stage: "processing",
+          });
+        }
+        continue;
+      }
     }
 
     const normalizationResult = normalizeSourceJob({
@@ -449,6 +730,16 @@ async function performConnectorIngestion(
         if (deadResult.canonicalId) {
           freshnessCandidateIds.add(deadResult.canonicalId);
         }
+      }
+      processedCount += 1;
+      if (processedCount % 25 === 0) {
+        await onHeartbeat?.({
+          acceptedCount: summary.acceptedCount,
+          fetchedCount: summary.fetchedCount,
+          processedCount,
+          rejectedCount: summary.rejectedCount,
+          stage: "processing",
+        });
       }
       continue;
     }
@@ -536,6 +827,24 @@ async function performConnectorIngestion(
     }
 
     await upsertEligibility(canonicalResult.id, normalizationResult.job, connector.sourceName);
+    await prisma.jobCanonical.update({
+      where: { id: canonicalResult.id },
+      data: {
+        qualityScore: computeNormalizedQualityScore(normalizationResult.job),
+      },
+    });
+    await upsertJobFeedIndex(canonicalResult.id);
+    processedCount += 1;
+    if (processedCount % 25 === 0) {
+      await onHeartbeat?.({
+        acceptedCount: summary.acceptedCount,
+        canonicalCreatedCount: summary.canonicalCreatedCount,
+        fetchedCount: summary.fetchedCount,
+        processedCount,
+        rejectedCount: summary.rejectedCount,
+        stage: "processing",
+      });
+    }
   }
 
   const shouldRunFreshnessRemoval =
@@ -564,6 +873,12 @@ async function performConnectorIngestion(
   summary.staleCount = statusTally.staleCount;
   summary.expiredCount = statusTally.expiredCount;
   summary.removedCount = statusTally.removedCount;
+  await onHeartbeat?.({
+    acceptedCount: summary.acceptedCount,
+    fetchedCount: summary.fetchedCount,
+    processedCount,
+    stage: "complete",
+  });
 }
 
 async function performConnectorPreview(
@@ -867,22 +1182,115 @@ async function upsertRawJob({
     sourceName: connector.sourceName,
     sourceTier: connector.sourceTier,
     fetchedAt,
-    rawPayload: buildRawPayload(sourceJob, fetchedAt),
+    rawPayload: buildRawPayload(connector, sourceJob, fetchedAt),
   } satisfies Prisma.JobRawUncheckedCreateInput;
 
   if (existingRawJob) {
+    const nextRawPayload = data.rawPayload;
+    const unchanged = rawPayloadsEquivalent(existingRawJob.rawPayload, nextRawPayload);
     const rawJob = await prisma.jobRaw.update({
       where: { id: existingRawJob.id },
       data,
     });
-    return { rawJob, created: false as const };
+    return { rawJob, created: false as const, unchanged };
   }
 
   const rawJob = await prisma.jobRaw.create({ data });
-  return { rawJob, created: true as const };
+  return { rawJob, created: true as const, unchanged: false };
 }
 
-async function findMappedCanonical(rawJobId: string) {
+async function refreshUnchangedMappedRawJob({
+  rawJobId,
+  now,
+}: {
+  rawJobId: string;
+  now: Date;
+}) {
+  const mapping = await prisma.jobSourceMapping.findFirst({
+    where: { rawJobId },
+    select: {
+      id: true,
+      canonicalJobId: true,
+      removedAt: true,
+      canonicalJob: {
+        select: {
+          region: true,
+          workMode: true,
+          availabilityScore: true,
+        },
+      },
+    },
+  });
+
+  if (!mapping) return null;
+
+  await prisma.jobSourceMapping.update({
+    where: { id: mapping.id },
+    data: {
+      lastSeenAt: now,
+      removedAt: null,
+    },
+  });
+
+  if (mapping.removedAt) {
+    await refreshPrimarySourceMapping(mapping.canonicalJobId);
+  }
+
+  await prisma.jobCanonical.update({
+    where: { id: mapping.canonicalJobId },
+    data: {
+      status: "LIVE",
+      lastSeenAt: now,
+      lastSourceSeenAt: now,
+      lastConfirmedAliveAt: now,
+      availabilityScore: mapping.canonicalJob.availabilityScore ?? 100,
+      deadSignalAt: null,
+      deadSignalReason: null,
+      staleAt: null,
+      expiredAt: null,
+      removedAt: null,
+    },
+  });
+
+  return {
+    canonicalId: mapping.canonicalJobId,
+    region: mapping.canonicalJob.region,
+    workMode: mapping.canonicalJob.workMode,
+  };
+}
+
+function rawPayloadsEquivalent(
+  currentPayload: Prisma.JsonValue,
+  nextPayload: Prisma.InputJsonValue
+) {
+  return (
+    stableRawPayloadFingerprint(currentPayload) ===
+    stableRawPayloadFingerprint(nextPayload)
+  );
+}
+
+function stableRawPayloadFingerprint(value: Prisma.JsonValue | Prisma.InputJsonValue) {
+  return JSON.stringify(normalizeRawPayloadForFingerprint(value));
+}
+
+function normalizeRawPayloadForFingerprint(value: unknown): unknown {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeRawPayloadForFingerprint(entry));
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !RAW_PAYLOAD_FINGERPRINT_IGNORED_KEYS.has(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, normalizeRawPayloadForFingerprint(entry)])
+  );
+}
+
+export async function findMappedCanonical(rawJobId: string) {
   const mappingMatch = await prisma.jobSourceMapping.findFirst({
     where: { rawJobId },
     include: {
@@ -922,7 +1330,7 @@ const canonicalMatchSelect = {
   workMode: true,
 } as const;
 
-async function upsertCanonicalJob({
+export async function upsertCanonicalJob({
   currentCanonicalId,
   normalizedJob,
   sourceIdentity,
@@ -1155,7 +1563,7 @@ async function upsertCanonicalJob({
   };
 }
 
-async function upsertSourceMapping({
+export async function upsertSourceMapping({
   canonicalId,
   connector,
   rawJobId,
@@ -1166,7 +1574,7 @@ async function upsertSourceMapping({
   now,
 }: {
   canonicalId: string;
-  connector: SourceConnector;
+  connector: Pick<SourceConnector, "key" | "sourceName" | "sourceTier" | "freshnessMode">;
   rawJobId: string;
   sourceUrl: string | null;
   sourceIdentity: SourceIdentitySnapshot;
@@ -1257,7 +1665,7 @@ async function upsertSourceMapping({
   };
 }
 
-async function upsertEligibility(
+export async function upsertEligibility(
   canonicalJobId: string,
   normalizedJob: NormalizedJobInput,
   sourceName: string
@@ -1664,6 +2072,11 @@ function computeLifecycleState({
     activeMappings.length,
     now
   );
+  const {
+    liveMinScore,
+    agingMinScore,
+    staleMinScore,
+  } = LIFECYCLE_PROFILE.statusThresholds;
 
   const availabilityScore = Math.max(
     confirmationFloor,
@@ -1674,9 +2087,9 @@ function computeLifecycleState({
   const strongRemovalEvidence = hasStrongRemovalEvidence(removedMappings, now);
 
   let status: JobStatus;
-  if (availabilityScore >= 72) status = "LIVE";
-  else if (availabilityScore >= 48) status = "AGING";
-  else if (availabilityScore >= 22) status = "STALE";
+  if (availabilityScore >= liveMinScore) status = "LIVE";
+  else if (availabilityScore >= agingMinScore) status = "AGING";
+  else if (availabilityScore >= staleMinScore) status = "STALE";
   else if (activeMappings.length === 0 && strongRemovalEvidence) status = "REMOVED";
   else status = "EXPIRED";
 
@@ -1693,18 +2106,19 @@ function scoreActiveMappingEvidence(
   now: Date
 ) {
   const hoursSinceSeen = (now.getTime() - sourceMapping.lastSeenAt.getTime()) / 3_600_000;
+  const recencyWindows = LIFECYCLE_PROFILE.activeMappingRecencyHours;
   const recencyFactor =
-    hoursSinceSeen <= 12
+    hoursSinceSeen <= recencyWindows.hottest
       ? 1
-      : hoursSinceSeen <= 48
+      : hoursSinceSeen <= recencyWindows.warm
         ? 0.92
-        : hoursSinceSeen <= 24 * 7
+        : hoursSinceSeen <= recencyWindows.recent
           ? 0.78
-          : hoursSinceSeen <= 24 * 14
+          : hoursSinceSeen <= recencyWindows.aging
             ? 0.6
-            : hoursSinceSeen <= 24 * 30
+            : hoursSinceSeen <= recencyWindows.stale
               ? 0.42
-              : hoursSinceSeen <= 24 * 60
+              : hoursSinceSeen <= recencyWindows.longTail
                 ? 0.24
                 : 0.12;
 
@@ -1772,7 +2186,12 @@ function computeRemovalPenalty(
     0
   );
 
-  return Math.min(activeMappingsCount > 0 ? 28 : 70, rawPenalty);
+  return Math.min(
+    activeMappingsCount > 0
+      ? LIFECYCLE_PROFILE.removalPenaltyCaps.withActiveMappings
+      : LIFECYCLE_PROFILE.removalPenaltyCaps.withoutActiveMappings,
+    rawPenalty
+  );
 }
 
 function scoreConfirmationEvidence(lastConfirmedAliveAt: Date | null, now: Date) {
@@ -1780,12 +2199,13 @@ function scoreConfirmationEvidence(lastConfirmedAliveAt: Date | null, now: Date)
 
   const daysSinceConfirmed =
     (now.getTime() - lastConfirmedAliveAt.getTime()) / (24 * 60 * 60 * 1000);
+  const bonusWindows = LIFECYCLE_PROFILE.confirmationBonusDays;
 
-  if (daysSinceConfirmed <= 1) return 15;
-  if (daysSinceConfirmed <= 3) return 12;
-  if (daysSinceConfirmed <= 7) return 8;
-  if (daysSinceConfirmed <= 14) return 4;
-  if (daysSinceConfirmed <= 30) return 1;
+  if (daysSinceConfirmed <= bonusWindows.hottest) return 15;
+  if (daysSinceConfirmed <= bonusWindows.warm) return 12;
+  if (daysSinceConfirmed <= bonusWindows.recent) return 8;
+  if (daysSinceConfirmed <= bonusWindows.aging) return 4;
+  if (daysSinceConfirmed <= bonusWindows.stale) return 1;
   return 0;
 }
 
@@ -1798,17 +2218,27 @@ function getRecentAliveConfirmationFloor(
 
   const daysSinceConfirmed =
     (now.getTime() - lastConfirmedAliveAt.getTime()) / (24 * 60 * 60 * 1000);
+  const windows = LIFECYCLE_PROFILE.confirmationWindowsDays;
+  const floors = LIFECYCLE_PROFILE.confirmationFloorScores;
 
-  if (daysSinceConfirmed <= 1) {
-    return activeMappingsCount > 0 ? 72 : 56;
+  // A URL confirmed alive within the live-floor window is the strongest freshness signal —
+  // treat as LIVE regardless of whether sources are currently listing the job.
+  // Aggregator/board sources routinely drop and re-add listings without the
+  // underlying job closing, so active mapping count is a poor proxy for liveness.
+  if (daysSinceConfirmed <= windows.liveFloor) {
+    return floors.live;
   }
 
-  if (daysSinceConfirmed <= 3) {
-    return activeMappingsCount > 0 ? 60 : 48;
+  if (daysSinceConfirmed <= windows.agingFloor) {
+    return activeMappingsCount > 0
+      ? floors.agingWithActiveMappings
+      : floors.agingWithoutActiveMappings;
   }
 
-  if (daysSinceConfirmed <= 7) {
-    return activeMappingsCount > 0 ? 48 : 30;
+  if (daysSinceConfirmed <= windows.staleFloor) {
+    return activeMappingsCount > 0
+      ? floors.staleWithActiveMappings
+      : floors.staleWithoutActiveMappings;
   }
 
   return 0;
@@ -1833,7 +2263,7 @@ function hasStrongRemovalEvidence(
     const daysSinceRemoved =
       (now.getTime() - sourceMapping.removedAt.getTime()) / (24 * 60 * 60 * 1000);
     return (
-      daysSinceRemoved <= 21 &&
+      daysSinceRemoved <= LIFECYCLE_PROFILE.strongRemovalEvidenceWindowDays &&
       sourceMapping.isFullSnapshot &&
       sourceMapping.sourceReliability >= 0.8 &&
       (sourceMapping.sourceType === "ATS" ||
@@ -1873,23 +2303,32 @@ function shouldRunApplyUrlCheck({
     ? (now.getTime() - canonicalJob.lastApplyCheckAt.getTime()) / 3_600_000
     : Number.POSITIVE_INFINITY;
 
-  if (hoursSinceLastApplyCheck < APPLY_URL_CHECK_INTERVAL_HOURS) {
+  if (hoursSinceLastApplyCheck < LIFECYCLE_PROFILE.applyUrlCheckIntervalHours) {
     return false;
   }
 
-  return activeMappingsCount === 0 || provisionalScore < 48;
+  return (
+    activeMappingsCount === 0 ||
+    provisionalScore < LIFECYCLE_PROFILE.statusThresholds.agingMinScore
+  );
 }
 
 async function checkApplyUrlAvailability(
   applyUrl: string,
   now: Date
 ): Promise<ApplyUrlCheckOutcome> {
+  // Use HEAD to avoid reading a response body. Some ATS pages (e.g. Taleo)
+  // return response headers promptly but stream the body forever, causing
+  // response.text() to hang indefinitely and keep the Node.js event loop alive.
+  // HEAD is body-less by spec — the connection completes as soon as headers arrive.
+  // Body-based dead-signal detection (detectDeadSignal) is intentionally skipped
+  // here; it's done during full connector indexing where the HTML is already fetched.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), APPLY_URL_CHECK_TIMEOUT_MS);
 
   try {
     const response = await fetch(applyUrl, {
-      method: "GET",
+      method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
       headers: {
@@ -1897,35 +2336,18 @@ async function checkApplyUrlAvailability(
       },
     });
 
-    if ([404, 410, 451].includes(response.status)) {
+    const status = response.status;
+
+    if ([404, 410, 451].includes(status)) {
       return {
         checkedAt: now,
         aliveConfirmedAt: null,
         deadSignalAt: now,
-        deadSignalReason: `Apply URL returned HTTP ${response.status}.`,
+        deadSignalReason: `Apply URL returned HTTP ${status}.`,
       };
     }
 
-    const contentType = response.headers.get("content-type") ?? "";
-    const shouldInspectBody = contentType.includes("text") || contentType.includes("html");
-    const bodyText = shouldInspectBody ? await response.text() : "";
-    const deadSignal = detectDeadSignal({
-      title: "",
-      description: bodyText,
-      deadline: null,
-      fetchedAt: now,
-    });
-
-    if (deadSignal.detected) {
-      return {
-        checkedAt: now,
-        aliveConfirmedAt: null,
-        deadSignalAt: now,
-        deadSignalReason: deadSignal.reason,
-      };
-    }
-
-    if (response.ok || (response.status >= 300 && response.status < 400)) {
+    if (response.ok || (status >= 300 && status < 400)) {
       return {
         checkedAt: now,
         aliveConfirmedAt: now,
@@ -1934,6 +2356,7 @@ async function checkApplyUrlAvailability(
       };
     }
 
+    // 405 (HEAD not supported), 4xx, 5xx etc. — treat as unknown
     return {
       checkedAt: now,
       aliveConfirmedAt: null,
@@ -1952,12 +2375,33 @@ async function checkApplyUrlAvailability(
   }
 }
 
-function buildRawPayload(sourceJob: SourceConnectorJob, fetchedAt: Date) {
+/** Strip PostgreSQL-unsafe C0 control characters (notably \u0000) from a string. */
+function stripUnsafeChars(s: string | null | undefined): string | undefined {
+  if (s == null) return undefined;
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+}
+
+function buildRawPayload(
+  connector: Pick<SourceConnector, "sourceName" | "freshnessMode">,
+  sourceJob: SourceConnectorJob,
+  fetchedAt: Date
+) {
+  const provenance = deriveSourceProvenanceMetadata({
+    sourceName: connector.sourceName,
+    sourceId: sourceJob.sourceId,
+    sourceUrl: sourceJob.sourceUrl,
+    applyUrl: sourceJob.applyUrl,
+    metadata: sourceJob.metadata,
+    freshnessMode: connector.freshnessMode,
+  });
+
   return {
     title: sourceJob.title,
     company: sourceJob.company,
     location: sourceJob.location,
-    description: sourceJob.description,
+    // Strip null bytes before storing as JSON — PostgreSQL rejects \u0000 in
+    // jsonb columns and this is the raw (pre-normalization) description path.
+    description: stripUnsafeChars(sourceJob.description),
     applyUrl: sourceJob.applyUrl,
     sourceUrl: sourceJob.sourceUrl,
     postedAt: sourceJob.postedAt?.toISOString() ?? null,
@@ -1966,8 +2410,25 @@ function buildRawPayload(sourceJob: SourceConnectorJob, fetchedAt: Date) {
     salaryMax: sourceJob.salaryMax,
     salaryCurrency: sourceJob.salaryCurrency,
     fetchedAt: fetchedAt.toISOString(),
-    metadata: sourceJob.metadata,
+    metadata: mergeSourceMetadata(sourceJob.metadata, provenance),
   } as Prisma.InputJsonValue;
+}
+
+function mergeSourceMetadata(
+  metadata: Prisma.InputJsonValue,
+  provenance: ReturnType<typeof deriveSourceProvenanceMetadata>
+) {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    return {
+      ...(metadata as Record<string, Prisma.InputJsonValue | null>),
+      provenance,
+    } satisfies Record<string, Prisma.InputJsonValue | null>;
+  }
+
+  return {
+    providerMetadata: metadata,
+    provenance,
+  } satisfies Record<string, Prisma.InputJsonValue | null>;
 }
 
 async function refreshPrimarySourceMapping(canonicalJobId: string) {

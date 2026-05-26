@@ -1,114 +1,143 @@
 import Link from "next/link";
-import { JobMetaRow } from "@/components/jobs/job-meta-row";
-import { ManualApplyMenu } from "@/components/jobs/manual-apply-menu";
-import { Button } from "@/components/ui/button";
 import {
+  Bot,
+  BriefcaseBusiness,
+  Building2,
+  CircleDollarSign,
+  MapPin,
+} from "lucide-react";
+import {
+  formatDisplayLabel,
   formatPostedAge,
-  getDeadlineUrgency,
+  formatSalary,
+  getDeadlineUrgencyAt,
+  getExpiringSoonMetaAt,
   getSubmissionMeta,
   shouldShowSubmissionMeta,
-  submissionCategoryColor,
 } from "@/lib/job-display";
+import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
 type JobSummaryCardProps = {
   job: JobCardData;
-  primaryAction?: React.ReactNode;
+  referenceNow?: string;
   footerActions?: React.ReactNode;
 };
 
 export function JobSummaryCard({
   job,
-  primaryAction,
+  referenceNow,
   footerActions,
 }: JobSummaryCardProps) {
-  const submissionMeta = getSubmissionMeta(job);
-  const deadlineUrgency = getDeadlineUrgency(job.deadline);
+  const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
+  const expiringSoon = getExpiringSoonMetaAt(job.deadline, referenceNow);
   const showSubmissionMeta = shouldShowSubmissionMeta(job);
-
-  // Apply is available for active jobs unless they are explicitly expired/removed.
-  const canStartApplyFlow =
-    job.status !== "EXPIRED" && job.status !== "REMOVED" && job.eligibility !== null;
-  const manualApplyHref =
-    job.primaryExternalLink?.href ?? job.sourcePostingLink?.href ?? job.applyUrl;
+  const submissionMeta = getSubmissionMeta(job);
+  const salaryLabel = formatSalary(
+    job.salaryMin,
+    job.salaryMax,
+    job.salaryCurrency
+  );
+  const summary = job.shortSummary?.trim();
 
   // Lifecycle cue shown in the secondary row for non-LIVE jobs
   const lifecycleCue = getLifecycleCue(job.status);
 
   return (
     <article
-      className={`rounded-2xl border border-border/70 bg-background/45 p-4 transition-colors hover:bg-background/60 ${
-        job.status === "EXPIRED" || job.status === "REMOVED" ? "opacity-60" : ""
-      }`}
+      className={cn(
+        "flex flex-wrap items-start justify-between gap-3",
+        (job.status === "EXPIRED" || job.status === "REMOVED") && "opacity-60"
+      )}
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="text-[15px] font-semibold text-foreground">
-              <Link href={`/jobs/${job.id}`} className="hover:underline underline-offset-2">
-                {job.title}
-              </Link>
-            </h2>
-            {showSubmissionMeta ? (
-              <span
-                className={`shrink-0 text-xs font-medium ${submissionCategoryColor(job.eligibility?.submissionCategory)}`}
-              >
-                {submissionMeta.label}
-              </span>
-            ) : null}
-          </div>
-
-          <JobMetaRow
-            company={job.company}
-            location={job.location}
-            workMode={job.workMode}
-            salaryMin={job.salaryMin}
-            salaryMax={job.salaryMax}
-            salaryCurrency={job.salaryCurrency}
-            primaryExternalLink={job.primaryExternalLink}
-            variant="card"
-          />
-
-          <p className="mt-3 text-xs text-muted-foreground/70">
-            {formatPostedAge(job.postedAt)}
-            <Sep />
-            {job.roleFamily}
-            {lifecycleCue ? (
-              <>
-                <Sep />
-                <span className={`font-medium ${lifecycleCue.color}`}>{lifecycleCue.label}</span>
-              </>
-            ) : deadlineUrgency ? (
-              <>
-                <Sep />
-                <span className={`font-medium ${deadlineUrgency.color}`}>
-                  {deadlineUrgency.label}
-                </span>
-              </>
-            ) : null}
-          </p>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/jobs/${job.id}`}
+            className="inline-block max-w-full truncate text-base font-semibold text-foreground transition hover:underline"
+          >
+            {job.title}
+          </Link>
+          {showSubmissionMeta ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+              title="Auto-apply ready"
+            >
+              <Bot className="h-3 w-3" aria-hidden="true" />
+              {submissionMeta.label}
+            </span>
+          ) : null}
+          {lifecycleCue ? (
+            <span className={`text-xs font-medium ${lifecycleCue.color}`}>
+              {lifecycleCue.label}
+            </span>
+          ) : null}
+          {expiringSoon ? (
+            <span className="rounded-full border border-destructive/20 bg-destructive/[0.06] px-2 py-0.5 text-xs font-medium text-destructive">
+              {expiringSoon.label}
+            </span>
+          ) : null}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 self-start">
-          {primaryAction ??
-            (canStartApplyFlow ? (
-              job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" ? (
-                <Button size="sm" render={<Link href={`/jobs/${job.id}/apply`} />} variant="secondary">
-                  Apply
-                </Button>
-              ) : (
-                <ManualApplyMenu
-                  align="end"
-                  applyHref={manualApplyHref}
-                  buttonSize="sm"
-                  buttonVariant="secondary"
-                  jobId={job.id}
-                />
-              )
-            ) : null)}
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <MetaField
+            emphasis
+            icon={<Building2 className="h-3.5 w-3.5" />}
+            value={job.company}
+          />
+          <MetaField
+            icon={<MapPin className="h-3.5 w-3.5" />}
+            value={job.location}
+          />
+          <MetaField
+            icon={<BriefcaseBusiness className="h-3.5 w-3.5" />}
+            value={formatDisplayLabel(job.workMode)}
+          />
+          {salaryLabel ? (
+            <MetaField
+              icon={<CircleDollarSign className="h-3.5 w-3.5" />}
+              value={salaryLabel}
+            />
+          ) : null}
+        </div>
+
+        {job.primaryExternalLink ? (
+          <a
+            className="mt-0.5 inline-block text-xs text-foreground underline underline-offset-2 hover:text-muted-foreground"
+            href={job.primaryExternalLink.href}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Posting
+          </a>
+        ) : null}
+
+        {summary ? (
+          <p className="mt-2 line-clamp-2 max-w-3xl text-sm text-muted-foreground">
+            {summary}
+          </p>
+        ) : null}
+
+        <p className="mt-3 text-xs text-muted-foreground">
+          Posted {formatPostedAge(job.postedAt, referenceNow)}
+          <Sep />
+          {job.roleFamily}
+          {!expiringSoon && deadlineUrgency ? (
+            <>
+              <Sep />
+              <span className={deadlineUrgency.color}>
+                {deadlineUrgency.label}
+              </span>
+            </>
+          ) : null}
+        </p>
+      </div>
+
+      {footerActions ? (
+        <div className="flex w-full shrink-0 items-start justify-start sm:w-auto sm:justify-end">
           {footerActions}
         </div>
-      </div>
+      ) : null}
     </article>
   );
 }
@@ -117,6 +146,25 @@ export function JobSummaryCard({
 
 function Sep() {
   return <span className="mx-1.5 text-border">·</span>;
+}
+
+function MetaField({
+  emphasis,
+  icon,
+  value,
+}: {
+  emphasis?: boolean;
+  icon: React.ReactNode;
+  value: string;
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0 text-muted-foreground/70">{icon}</span>
+      <span className={cn("truncate", emphasis && "font-semibold text-foreground")}>
+        {value}
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -130,9 +178,13 @@ function getLifecycleCue(status: string): { label: string; color: string } | nul
     case "STALE":
       return { label: "Stale", color: "text-amber-600" };
     case "EXPIRED":
-      return { label: "Expired", color: "text-destructive" };
     case "REMOVED":
-      return { label: "Removed", color: "text-destructive" };
+      // User-facing: EXPIRED and REMOVED are two internal lifecycle stages but
+      // mean the same thing to users (the posting is no longer accepting
+      // applications). Showing one combined "Expired/Closed" label keeps the
+      // distinction in the data while removing the user confusion. DB enum
+      // values stay EXPIRED and REMOVED.
+      return { label: "Expired/Closed", color: "text-destructive" };
     default:
       return null;
   }

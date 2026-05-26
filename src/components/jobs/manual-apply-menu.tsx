@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronDown, ExternalLink, FilePenLine, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useNotifications } from "@/components/ui/notification-provider";
-import { TRACKED_STATUS_LABEL } from "@/lib/tracker-ui";
 import { cn } from "@/lib/utils";
 
 type ManualApplyMenuProps = {
@@ -24,11 +22,33 @@ export function ManualApplyMenu({
   buttonVariant = "default",
   buttonSize = "sm",
 }: ManualApplyMenuProps) {
-  const router = useRouter();
   const { notify } = useNotifications();
   const [open, setOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [saving, setSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  function addToApplications() {
+    if (saving) return;
+    setSaving(true);
+    fetch(`/api/jobs/${jobId}/save`, { method: "POST" })
+      .then((response) => {
+        if (!response.ok) throw new Error("save failed");
+        notify({
+          title: "Added to applications",
+          message: "This job is now in your wishlist.",
+          tone: "success",
+        });
+        setOpen(false);
+      })
+      .catch(() => {
+        notify({
+          title: "Could not add application",
+          message: "Try again from the job page.",
+          tone: "error",
+        });
+      })
+      .finally(() => setSaving(false));
+  }
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -50,44 +70,6 @@ export function ManualApplyMenu({
       document.removeEventListener("keydown", handleEscape);
     };
   }, []);
-
-  function handlePrepareToApply() {
-    if (isPending) return;
-
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/jobs/${jobId}/prepare`, {
-          method: "POST",
-        });
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          throw new Error(data?.error ?? "Could not open the preparation workspace.");
-        }
-
-        notify({
-          title: data?.created ? "Added to applications" : "Opened application workspace",
-          message:
-            data?.status === "PREPARING"
-              ? "This job is now in your preparing list."
-              : `This job is already marked ${TRACKED_STATUS_LABEL[data?.status as keyof typeof TRACKED_STATUS_LABEL] ?? "in applications"}.`,
-          tone: "success",
-        });
-        setOpen(false);
-        router.push(data?.workspaceUrl ?? `/applications/${data?.applicationId}`);
-      } catch (error) {
-        console.error(error);
-        notify({
-          title: "Could not prepare this job",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Could not open the preparation workspace.",
-          tone: "error",
-        });
-      }
-    });
-  }
 
   return (
     <div className="relative" ref={rootRef}>
@@ -136,19 +118,14 @@ export function ManualApplyMenu({
           )}
 
           <Button
-            className="mt-1 w-full justify-start"
-            disabled={isPending}
-            onClick={handlePrepareToApply}
+            className="w-full justify-start"
+            disabled={saving}
+            onClick={addToApplications}
             size="sm"
             type="button"
             variant="ghost"
           >
-            {isPending ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FilePenLine className="h-3.5 w-3.5" />
-            )}
-            Prepare to apply
+            Add to applications
           </Button>
         </div>
       ) : null}

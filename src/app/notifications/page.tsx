@@ -1,20 +1,14 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { formatMediumDateTimeEnCa } from "@/lib/formatting";
 import {
   getNotificationCenterData,
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/queries/tracker";
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value);
-}
+import { revalidateNotificationCenterViews } from "@/lib/revalidation";
 
 export default async function NotificationsPage() {
   const sessionUser = await getOptionalSessionUser();
@@ -26,9 +20,7 @@ export default async function NotificationsPage() {
     "use server";
 
     await markAllNotificationsRead();
-    revalidatePath("/notifications");
-    revalidatePath("/applications");
-    revalidatePath("/dashboard");
+    revalidateNotificationCenterViews();
   }
 
   async function markOneAction(formData: FormData) {
@@ -38,9 +30,7 @@ export default async function NotificationsPage() {
     if (!notificationId) return;
 
     await markNotificationRead(notificationId);
-    revalidatePath("/notifications");
-    revalidatePath("/applications");
-    revalidatePath("/dashboard");
+    revalidateNotificationCenterViews();
   }
 
   const { notifications, unreadCount } = await getNotificationCenterData();
@@ -105,7 +95,7 @@ export default async function NotificationsPage() {
                         {notification.message}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {formatDateTime(notification.createdAt)}
+                        {formatMediumDateTimeEnCa(notification.createdAt)}
                       </p>
                     </div>
                     <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -128,7 +118,7 @@ export default async function NotificationsPage() {
                             {notification.message}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {formatDateTime(notification.createdAt)}
+                            {formatMediumDateTimeEnCa(notification.createdAt)}
                           </p>
                         </div>
                         <span className="rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background">

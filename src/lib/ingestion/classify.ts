@@ -12,8 +12,8 @@ type PortalTier = "structured" | "semi_structured" | "aggregator" | "unknown";
 /**
  * Classify the application portal tier based on source name and apply URL.
  *
- * - **structured**: ATS with known, automatable application forms
- *   (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, iCIMS, Workable, Rippling, Recruitee)
+ * - **structured**: ATS with implemented, submit-capable application fillers
+ *   (Greenhouse, Lever, Ashby)
  * - **semi_structured**: Corporate portals that have forms but may vary
  *   (SuccessFactors, Taleo, company career pages)
  * - **aggregator**: Job boards that link out to external application pages
@@ -28,7 +28,14 @@ function classifyPortal(sourceName: string, applyUrl: string): PortalTier {
   if (
     src.includes("greenhouse") || url.includes("greenhouse.io") ||
     src.includes("lever") || url.includes("lever.co") || url.includes("jobs.lever.co") ||
-    src.includes("ashby") || url.includes("ashbyhq.com") ||
+    src.includes("ashby") || url.includes("ashbyhq.com")
+  ) {
+    return "structured";
+  }
+
+  // Known ATS portals that are ingestible but do not have a working submit
+  // filler yet. They must not be labeled auto-submit ready.
+  if (
     src.includes("workday") || url.includes("myworkdayjobs.com") ||
     src.includes("smartrecruiters") || url.includes("smartrecruiters.com") ||
     src.includes("icims") || url.includes("icims.com") ||
@@ -36,7 +43,7 @@ function classifyPortal(sourceName: string, applyUrl: string): PortalTier {
     src.includes("rippling") || url.includes("ats.rippling.com") ||
     src.includes("recruitee") || url.includes("recruitee.com")
   ) {
-    return "structured";
+    return "semi_structured";
   }
 
   // Tier 2: Semi-structured portals (have forms but less standardized)
@@ -127,23 +134,13 @@ export function buildEligibilityDraft({
   // (the apply URL points to a known structured portal)
   const effectiveTier = portalTier === "aggregator" ? "semi_structured" : portalTier;
 
-  // Semi-structured portals → review by default, auto-fill if clean
+  // Semi-structured portals → manual until a submit-capable filler exists.
   if (effectiveTier === "semi_structured") {
-    if (requiresCustomWriting || higherTouchRole) {
-      return makeReview(
-        requiresCustomWriting ? "custom_writing_semi_structured" : "senior_role_semi_structured",
-        requiresCustomWriting
-          ? "Semi-structured portal with custom writing requirements. Human review recommended."
-          : "Semi-structured portal with a senior role. Human review recommended before submitting.",
-        evaluationTime,
-        { jobValidity: 0.84, formAutomation: 0.6, packageFit: 0.72, submissionQuality: 0.65 }
-      );
-    }
-    return makeReview(
-      "semi_structured_portal",
-      "Application portal has forms but they're less standardized. Auto-fill with human review.",
+    return makeManual(
+      "unsupported_submit_filler",
+      "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
       evaluationTime,
-      { jobValidity: 0.86, formAutomation: 0.68, packageFit: 0.75, submissionQuality: 0.7 }
+      { jobValidity: 0.86, formAutomation: 0.2, packageFit: 0.72, submissionQuality: 0.65 }
     );
   }
 

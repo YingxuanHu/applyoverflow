@@ -1,5 +1,11 @@
 import { resolveJobLinks, getSourceTrust } from "@/lib/job-links";
+import {
+  sanitizeCompanyName,
+  sanitizeJobDescriptionText,
+  sanitizeJobTitle,
+} from "@/lib/job-cleanup";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
+import { inferGeoScope } from "@/lib/geo-scope";
 import type {
   JobCardData,
   JobCardEligibility,
@@ -36,6 +42,20 @@ type JobSerializationInput = {
 };
 
 export function serializeJobCardData(job: JobSerializationInput): JobCardData {
+  const title = sanitizeJobTitle(job.title);
+  const company = sanitizeCompanyName(job.company, {
+    urls: [job.applyUrl, ...job.sourceMappings.map((mapping) => mapping.sourceUrl)],
+  });
+  const description = sanitizeJobDescriptionText(job.description, {
+    title,
+    location: job.location,
+  });
+  const shortSummary = job.shortSummary
+    ? sanitizeJobDescriptionText(job.shortSummary, {
+        title,
+        location: job.location,
+      })
+    : job.shortSummary;
   const sourceMappings = serializeJobSourceMappings(job.sourceMappings);
   const { linkTrust, primaryExternalLink, sourcePostingLink } = resolveJobLinks({
     applyUrl: job.applyUrl,
@@ -45,15 +65,16 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     salaryMin: job.salaryMin,
     salaryMax: job.salaryMax,
     salaryCurrency: job.salaryCurrency,
-    description: job.description,
+    description,
     regionHint: job.region ?? null,
   });
 
   return {
     id: job.id,
-    title: job.title,
-    company: job.company,
+    title,
+    company,
     location: job.location,
+    geoScope: inferGeoScope(job.location, job.region ?? null),
     workMode: job.workMode,
     industry: job.industry,
     status: job.status,
@@ -62,8 +83,8 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     salaryMin: resolvedSalary.salaryMin,
     salaryMax: resolvedSalary.salaryMax,
     salaryCurrency: resolvedSalary.salaryCurrency,
-    shortSummary: job.shortSummary,
-    description: job.description,
+    shortSummary,
+    description,
     applyUrl: job.applyUrl,
     postedAt: job.postedAt.toISOString(),
     deadline: job.deadline?.toISOString() ?? null,

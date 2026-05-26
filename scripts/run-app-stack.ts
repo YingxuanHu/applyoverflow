@@ -1,7 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../src/generated/prisma/client";
+import { installProcessDiagnostics } from "./_process-diagnostics";
+
+installProcessDiagnostics({ processName: "run-app-stack" });
 
 type Mode = "dev" | "start";
 
@@ -21,6 +26,18 @@ type RunningDaemonLock = {
   startedAt: string | null;
   argv: string[];
 };
+
+type DatabaseFingerprint = {
+  host: string;
+  port: number;
+  database: string;
+  schema: string | null;
+};
+
+const DAEMON_RESTART_BASE_DELAY_MS = 2_000;
+const DAEMON_RESTART_MAX_DELAY_MS = 30_000;
+const DAEMON_STABLE_WINDOW_MS = 2 * 60 * 1000;
+const DB_FINGERPRINT_PATH = path.join(process.cwd(), ".runtime", "db-fingerprint.json");
 
 function parseArgs(rawArgs: string[]): ParsedArgs {
   let mode: Mode = "dev";
@@ -51,13 +68,18 @@ function parseArgs(rawArgs: string[]): ParsedArgs {
 }
 
 function startNext(mode: Mode) {
+  // Default to Turbopack (Next.js 16's bundler) — 10-30x faster route compile
+  // in dev than webpack. Set BUNDLER=webpack to fall back to the legacy
+  // bundler if you hit a Turbopack-specific bug.
+  const useWebpack = (process.env.BUNDLER ?? "").toLowerCase() === "webpack";
+
   const args =
     mode === "dev"
       ? [
           "--max-old-space-size=2048",
           "./node_modules/next/dist/bin/next",
           "dev",
-          "--webpack",
+          ...(useWebpack ? ["--webpack"] : []),
         ]
       : ["./node_modules/next/dist/bin/next", "start"];
 
@@ -89,6 +111,113 @@ function startDaemon() {
     shell: process.platform === "win32",
     detached: process.platform !== "win32",
   });
+}
+
+function getDatabaseFingerprint(connectionString: string): DatabaseFingerprint {
+  const parsed = new URL(connectionString);
+
+  return {
+    host: parsed.hostname,
+    port: parsed.port ? Number.parseInt(parsed.port, 10) : 5432,
+    database: parsed.pathname.replace(/^\//, ""),
+    schema: parsed.searchParams.get("schema"),
+  };
+}
+
+function formatDatabaseFingerprint(fingerprint: DatabaseFingerprint) {
+  return `${fingerprint.host}:${fingerprint.port}/${fingerprint.database}${fingerprint.schema ? `?schema=${fingerprint.schema}` : ""}`;
+}
+
+function fingerprintsDiffer(left: DatabaseFingerprint, right: DatabaseFingerprint) {
+  return (
+    left.host !== right.host ||
+    left.port !== right.port ||
+    left.database !== right.database ||
+    left.schema !== right.schema
+  );
+}
+
+async function readPreviousDatabaseFingerprint() {
+  try {
+    const raw = await readFile(DB_FINGERPRINT_PATH, "utf8");
+    return JSON.parse(raw) as DatabaseFingerprint;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDatabaseFingerprint(fingerprint: DatabaseFingerprint) {
+  await mkdir(path.dirname(DB_FINGERPRINT_PATH), { recursive: true });
+  await writeFile(DB_FINGERPRINT_PATH, `${JSON.stringify(fingerprint, null, 2)}\n`, "utf8");
+}
+
+async function inspectDatabaseState() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set");
+  }
+
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString }),
+  });
+
+  try {
+    const [users, profiles, jobs, sources] = await Promise.all([
+      prisma.user.count(),
+      prisma.userProfile.count(),
+      prisma.jobCanonical.count(),
+      prisma.companySource.count(),
+    ]);
+
+    return {
+      fingerprint: getDatabaseFingerprint(connectionString),
+      users,
+      profiles,
+      jobs,
+      sources,
+    };
+  } finally {
+    await prisma.$disconnect().catch(() => undefined);
+  }
+}
+
+async function assertSafeDatabaseTarget() {
+  if (process.env.ALLOW_EMPTY_AUTH_DB === "1") {
+    return;
+  }
+
+  const current = await inspectDatabaseState();
+  const previous = await readPreviousDatabaseFingerprint();
+  const fingerprintChanged = previous
+    ? fingerprintsDiffer(previous, current.fingerprint)
+    : false;
+  const suspiciousAuthGap =
+    current.users === 0 && (current.profiles > 0 || current.jobs > 0 || current.sources > 0);
+
+  if (suspiciousAuthGap) {
+    const previousLine = previous
+      ? `Previous database: ${formatDatabaseFingerprint(previous)}\n`
+      : "";
+    const changeLine = fingerprintChanged
+      ? "Database target changed since the last successful stack run.\n"
+      : "";
+
+    throw new Error(
+      [
+        "Refusing to start against a suspicious database state.",
+        changeLine,
+        previousLine,
+        `Current database: ${formatDatabaseFingerprint(current.fingerprint)}`,
+        `Counts: users=${current.users}, profiles=${current.profiles}, jobs=${current.jobs}, sources=${current.sources}`,
+        "This usually means the app is pointed at a different local database than the one that held your auth data.",
+        "If this is intentional, set ALLOW_EMPTY_AUTH_DB=1 for this run.",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
+
+  await writeDatabaseFingerprint(current.fingerprint);
 }
 
 const DAEMON_LOCK_PATH = path.join(
@@ -191,18 +320,54 @@ function killChildTree(child: ChildProcess, signal: NodeJS.Signals | number) {
 
 async function main() {
   const { mode, withDaemon } = parseArgs(process.argv.slice(2));
+  await assertSafeDatabaseTarget();
   const children = new Set<ChildProcess>();
   let shuttingDown = false;
   let forceShutdown = false;
   let forcedShutdownTimer: NodeJS.Timeout | null = null;
+  let daemonRestartTimer: NodeJS.Timeout | null = null;
+  let daemonRestartAttempts = 0;
+  let daemonStartedAt = 0;
+  let resolveWhenDone: (() => void) | null = null;
+
+  const waitForChildrenToExit = new Promise<void>((resolve) => {
+    resolveWhenDone = resolve;
+  });
+
+  const maybeResolveWhenDone = () => {
+    if (children.size === 0 && !daemonRestartTimer) {
+      resolveWhenDone?.();
+    }
+  };
+
+  const clearDaemonRestartTimer = () => {
+    if (!daemonRestartTimer) return;
+    clearTimeout(daemonRestartTimer);
+    daemonRestartTimer = null;
+  };
 
   const web = startNext(mode);
   children.add(web);
 
   let daemon: ChildProcess | null = null;
+  const spawnManagedDaemon = () => {
+    const nextDaemon = startDaemon();
+    daemonStartedAt = Date.now();
+    daemon = nextDaemon;
+    children.add(nextDaemon);
+    registerExit("daemon", nextDaemon);
+    return nextDaemon;
+  };
   if (withDaemon) {
     const existingDaemon = await getRunningDaemonLock();
     if (existingDaemon) {
+      if (mode === "dev") {
+        console.log(
+          `[stack] Replacing existing ingest daemon pid ${existingDaemon.pid} in dev mode`
+        );
+        await replaceExistingDaemon(existingDaemon);
+        daemon = spawnManagedDaemon();
+      } else {
       const desiredIntervalMinutes = getDesiredDaemonIntervalMinutes();
       const existingIntervalMinutes = getDaemonIntervalMinutes(existingDaemon.argv);
 
@@ -211,8 +376,7 @@ async function main() {
           `[stack] Replacing existing ingest daemon pid ${existingDaemon.pid} (${existingIntervalMinutes}min) with ${desiredIntervalMinutes}min config`
         );
         await replaceExistingDaemon(existingDaemon);
-        daemon = startDaemon();
-        children.add(daemon);
+        daemon = spawnManagedDaemon();
       } else {
         const existingArgs =
           existingDaemon.argv.length > 0 ? ` (${existingDaemon.argv.join(" ")})` : "";
@@ -220,9 +384,9 @@ async function main() {
           `[stack] Reusing existing ingest daemon pid ${existingDaemon.pid}${existingArgs}`
         );
       }
+      }
     } else {
-      daemon = startDaemon();
-      children.add(daemon);
+      daemon = spawnManagedDaemon();
     }
   }
 
@@ -239,6 +403,7 @@ async function main() {
         clearTimeout(forcedShutdownTimer);
         forcedShutdownTimer = null;
       }
+      clearDaemonRestartTimer();
       console.log(`\n[stack] Force shutdown (${signal})...`);
       for (const child of children) {
         killChildTree(child, "SIGKILL");
@@ -247,6 +412,7 @@ async function main() {
     }
 
     shuttingDown = true;
+    clearDaemonRestartTimer();
     console.log(`\n[stack] Shutting down (${signal})...`);
 
     for (const child of children) {
@@ -267,9 +433,12 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-  const registerExit = (name: string, child: ChildProcess) => {
+  function registerExit(name: string, child: ChildProcess) {
     child.on("exit", (code, signal) => {
       children.delete(child);
+      if (name === "daemon" && daemon === child) {
+        daemon = null;
+      }
 
       if (children.size === 0 && forcedShutdownTimer) {
         clearTimeout(forcedShutdownTimer);
@@ -283,32 +452,55 @@ async function main() {
         }
       }
 
+      if (name === "daemon" && withDaemon && !shuttingDown) {
+        const runtimeMs = daemonStartedAt > 0 ? Date.now() - daemonStartedAt : 0;
+        if (runtimeMs >= DAEMON_STABLE_WINDOW_MS) {
+          daemonRestartAttempts = 0;
+        } else {
+          daemonRestartAttempts += 1;
+        }
+
+        const restartDelayMs = Math.min(
+          DAEMON_RESTART_MAX_DELAY_MS,
+          DAEMON_RESTART_BASE_DELAY_MS *
+            2 ** Math.max(0, daemonRestartAttempts - 1)
+        );
+
+        console.log(
+          `[stack] daemon exited${signal ? ` via ${signal}` : ` with code ${code ?? 0}`}; restarting in ${(restartDelayMs / 1000).toFixed(0)}s`
+        );
+
+        clearDaemonRestartTimer();
+        daemonRestartTimer = setTimeout(() => {
+          daemonRestartTimer = null;
+          if (shuttingDown || !withDaemon) {
+            maybeResolveWhenDone();
+            return;
+          }
+
+          console.log("[stack] restarting ingest daemon");
+          spawnManagedDaemon();
+        }, restartDelayMs);
+        daemonRestartTimer.unref?.();
+        return;
+      }
+
       if (signal) {
         console.log(`[stack] ${name} exited via ${signal}`);
         process.exitCode = process.exitCode ?? 0;
+        maybeResolveWhenDone();
         return;
       }
 
       console.log(`[stack] ${name} exited with code ${code ?? 0}`);
       process.exitCode = process.exitCode ?? code ?? 0;
+      maybeResolveWhenDone();
     });
-  };
-
-  registerExit("web", web);
-  if (daemon) {
-    registerExit("daemon", daemon);
   }
 
-  await Promise.all(
-    [web, daemon]
-      .filter((child): child is ChildProcess => Boolean(child))
-      .map(
-        (child) =>
-          new Promise<void>((resolve) => {
-            child.on("exit", () => resolve());
-          })
-      )
-  );
+  registerExit("web", web);
+  maybeResolveWhenDone();
+  await waitForChildrenToExit;
 }
 
 main().catch((error) => {

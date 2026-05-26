@@ -10,6 +10,8 @@ import type {
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
 import { sleepWithAbort, throwIfAborted } from "@/lib/ingestion/runtime-control";
+import { extractDescriptionFromHtml } from "@/lib/ingestion/html-description";
+import { selectWorkdayJobTitle } from "@/lib/ingestion/workday-title-parser";
 
 const WORKDAY_PAGE_SIZE = 20;
 const WORKDAY_DETAIL_CONCURRENCY = 6;
@@ -18,7 +20,8 @@ const WORKDAY_LIST_TIMEOUT_MS = 25_000;
 const WORKDAY_DETAIL_TIMEOUT_MS = 20_000;
 const WORKDAY_FETCH_MAX_ATTEMPTS = 3;
 const WORKDAY_FETCH_RETRY_DELAY_MS = 1_500;
-const WORKDAY_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const WORKDAY_BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
 type WorkdayConnectorOptions = {
   sourceToken?: string;
@@ -105,11 +108,18 @@ type WorkdayRuntimeConfig = {
   tenant?: string | null;
 };
 
+type WorkdayFetchSession = {
+  landingUrl: string;
+  refererUrl: string;
+  cookieHeader: string | null;
+};
+
 type WorkdayJobDetail = {
   pageUrl: string;
   detailUrl: string;
   jsonLd: WorkdayJobPostingLd | null;
   runtimeConfig: WorkdayRuntimeConfig | null;
+  html: string | null;
 };
 
 type WorkdayCheckpoint = {
@@ -220,6 +230,7 @@ async function fetchWorkdayJobs({
   let offset = checkpoint?.offset ?? 0;
   let total: number | null = null;
   let exhausted = false;
+  const session = await bootstrapWorkdaySession(target, signal);
 
   while (true) {
     throwIfAborted(signal);
@@ -232,7 +243,14 @@ async function fetchWorkdayJobs({
         ? Math.min(WORKDAY_PAGE_SIZE, remaining)
         : WORKDAY_PAGE_SIZE;
 
-    const payload = await fetchListingPage(target, requestedLimit, offset, signal, log);
+    const payload = await fetchListingPage(
+      target,
+      requestedLimit,
+      offset,
+      session,
+      signal,
+      log
+    );
     const postings = (payload.jobPostings ?? []).filter(
       (job) => Boolean(readText(job.title) && readText(job.externalPath))
     );
@@ -256,6 +274,7 @@ async function fetchWorkdayJobs({
           fallbackCompanyName,
           now,
           job,
+          session,
           signal,
         })
     );
@@ -300,22 +319,26 @@ async function fetchListingPage(
   target: WorkdaySourceTarget,
   requestedLimit: number,
   offset: number,
+  session: WorkdayFetchSession,
   signal?: AbortSignal,
   log: (message: string) => void = console.error
 ) {
   const sourceToken = buildWorkdaySourceToken(target);
+  const requestUrl = buildWorkdayApiUrl(target);
 
   for (let attempt = 1; attempt <= WORKDAY_FETCH_MAX_ATTEMPTS; attempt += 1) {
     try {
       throwIfAborted(signal);
-      const response = await fetch(buildWorkdayApiUrl(target), {
+      const response = await fetch(requestUrl, {
         method: "POST",
         signal: buildTimeoutSignal(signal, WORKDAY_LIST_TIMEOUT_MS),
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0 (compatible; autoapplication-workday/1.0)",
-        },
+        headers: buildWorkdayRequestHeaders(target, {
+          accept: "application/json, text/plain, */*",
+          contentType: "application/json",
+          mode: "api",
+          refererUrl: session.refererUrl,
+          cookieHeader: session.cookieHeader,
+        }),
         body: JSON.stringify({
           appliedFacets: {},
           limit: requestedLimit,
@@ -325,29 +348,32 @@ async function fetchListingPage(
       });
 
       if (!response.ok) {
-        if (
-          WORKDAY_RETRYABLE_STATUSES.has(response.status) &&
-          attempt < WORKDAY_FETCH_MAX_ATTEMPTS
-        ) {
-          log(
-            `[workday:${sourceToken}] Fetch failed: ${response.status} ${response.statusText}; retrying (${attempt}/${WORKDAY_FETCH_MAX_ATTEMPTS})`
-          );
-          await sleepWithAbort(WORKDAY_FETCH_RETRY_DELAY_MS * attempt, signal);
-          continue;
-        }
-
-        log(
-          `[workday:${sourceToken}] Fetch failed: ${response.status} ${response.statusText}`
+        throw new Error(
+          buildWorkdayResponseErrorMessage({
+            target,
+            mode: "api",
+            method: "POST",
+            requestUrl,
+            response,
+            session,
+          })
         );
-        return { jobPostings: [], total: 0 } as WorkdayListResponse;
       }
 
       const contentType = response.headers.get("content-type") ?? "";
       if (!contentType.includes("application/json")) {
-        log(
-          `[workday:${sourceToken}] Unexpected content-type: ${contentType} (likely bot detection)`
+        const responseSnippet = await readResponseSnippet(response);
+        throw new Error(
+          buildWorkdayUnexpectedContentTypeMessage({
+            target,
+            mode: "api",
+            requestUrl,
+            response,
+            contentType,
+            responseSnippet,
+            session,
+          })
         );
-        return { jobPostings: [], total: 0 } as WorkdayListResponse;
       }
 
       return (await response.json()) as WorkdayListResponse;
@@ -368,11 +394,13 @@ async function fetchListingPage(
       log(
         `[workday:${sourceToken}] Fetch error: ${formatErrorMessage(error)}`
       );
-      return { jobPostings: [], total: 0 } as WorkdayListResponse;
+      throw error instanceof Error
+        ? error
+        : new Error(formatErrorMessage(error));
     }
   }
 
-  return { jobPostings: [], total: 0 } as WorkdayListResponse;
+  throw new Error("Fetch failed after exhausting Workday retries.");
 }
 
 async function buildSourceJob({
@@ -380,23 +408,26 @@ async function buildSourceJob({
   fallbackCompanyName,
   now,
   job,
+  session,
   signal,
 }: {
   target: WorkdaySourceTarget;
   fallbackCompanyName: string;
   now: Date;
   job: WorkdayListJob;
+  session: WorkdayFetchSession;
   signal?: AbortSignal;
 }): Promise<SourceConnectorJob> {
   let detail: WorkdayJobDetail;
   try {
-    detail = await fetchJobDetail(target, job.externalPath, signal);
+    detail = await fetchJobDetail(target, job.externalPath, session, signal);
   } catch {
     detail = {
       pageUrl: buildDetailPageUrl(target, job.externalPath),
       detailUrl: buildDetailPageUrl(target, job.externalPath),
       jsonLd: null,
       runtimeConfig: null,
+      html: null,
     };
   }
   const jsonLd = detail.jsonLd;
@@ -413,7 +444,17 @@ async function buildSourceJob({
       findReferenceId(job.bulletFields) ||
       job.externalPath,
     sourceUrl: detail.pageUrl,
-    title: readText(jsonLd?.title) || job.title,
+    // selectWorkdayJobTitle adds a location-fallback guard so jobs whose
+    // upstream title is a bare city name (e.g. "New York", "Montreal") get
+    // recovered from the apply URL instead of stored as the city.
+    title:
+      selectWorkdayJobTitle({
+        jsonLdTitle: readText(jsonLd?.title),
+        listTitle: job.title,
+        applyUrl: pageUrl,
+      }) ??
+      readText(jsonLd?.title) ??
+      job.title,
     company:
       readText(jsonLd?.hiringOrganization?.name) || fallbackCompanyName,
     location: buildLocation({
@@ -423,6 +464,7 @@ async function buildSourceJob({
     }),
     description:
       readText(jsonLd?.description) ||
+      extractDescriptionFromDetailHtml(detail.html) ||
       buildFallbackDescription(job, detail.runtimeConfig),
     applyUrl: pageUrl,
     postedAt:
@@ -457,6 +499,7 @@ function parseWorkdayCheckpoint(value: Prisma.InputJsonValue | null | undefined)
 async function fetchJobDetail(
   target: WorkdaySourceTarget,
   externalPath: string,
+  session: WorkdayFetchSession,
   signal?: AbortSignal
 ): Promise<WorkdayJobDetail> {
   const detailUrl = buildDetailPageUrl(target, externalPath);
@@ -468,10 +511,13 @@ async function fetchJobDetail(
     try {
       response = await fetch(pageUrl, {
         signal: buildTimeoutSignal(signal, WORKDAY_DETAIL_TIMEOUT_MS),
-        headers: {
-          Accept: "text/html",
-          "User-Agent": "Mozilla/5.0 (compatible; autoapplication-workday/1.0)",
-        },
+        headers: buildWorkdayRequestHeaders(target, {
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          mode: "detail",
+          refererUrl: session.refererUrl,
+          cookieHeader: session.cookieHeader,
+        }),
       });
     } catch {
       continue;
@@ -491,6 +537,7 @@ async function fetchJobDetail(
         detailUrl,
         jsonLd,
         runtimeConfig,
+        html,
       };
     }
   }
@@ -500,6 +547,7 @@ async function fetchJobDetail(
     detailUrl,
     jsonLd: null,
     runtimeConfig: null,
+    html: null,
   };
 }
 
@@ -514,12 +562,195 @@ function buildTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number) 
   return abortSignalAny ? abortSignalAny([signal, timeoutSignal]) : timeoutSignal;
 }
 
+function buildWorkdayRequestHeaders(
+  target: WorkdaySourceTarget,
+  options: {
+    accept: string;
+    contentType?: string;
+    mode: "landing" | "api" | "detail";
+    refererUrl?: string;
+    cookieHeader?: string | null;
+  }
+) {
+  const origin = `https://${target.host}`;
+  const referer = options.refererUrl ?? `${origin}/${target.site}`;
+
+  return {
+    Accept: options.accept,
+    ...(options.contentType ? { "Content-Type": options.contentType } : {}),
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en-US,en;q=0.9",
+    ...(options.mode === "api" ? { Origin: origin } : {}),
+    Referer: referer,
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    ...(options.cookieHeader ? { Cookie: options.cookieHeader } : {}),
+    "Sec-Ch-Ua": '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": options.mode === "api" ? "empty" : "document",
+    "Sec-Fetch-Mode":
+      options.mode === "api"
+        ? "cors"
+        : options.mode === "detail"
+          ? "navigate"
+          : "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    ...(options.mode !== "api" ? { "Sec-Fetch-User": "?1" } : {}),
+    "Upgrade-Insecure-Requests": options.mode === "api" ? "0" : "1",
+    "User-Agent": WORKDAY_BROWSER_USER_AGENT,
+  } satisfies Record<string, string>;
+}
+
+async function bootstrapWorkdaySession(
+  target: WorkdaySourceTarget,
+  signal: AbortSignal | undefined
+): Promise<WorkdayFetchSession> {
+  const landingUrl = buildWorkdayBoardUrl(target);
+  const response = await fetch(landingUrl, {
+    method: "GET",
+    redirect: "follow",
+    signal: buildTimeoutSignal(signal, WORKDAY_LIST_TIMEOUT_MS),
+    headers: buildWorkdayRequestHeaders(target, {
+      accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      mode: "landing",
+      refererUrl: landingUrl,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      buildWorkdayResponseErrorMessage({
+        target,
+        mode: "landing",
+        method: "GET",
+        requestUrl: landingUrl,
+        response,
+        session: {
+          landingUrl,
+          refererUrl: landingUrl,
+          cookieHeader: null,
+        },
+      })
+    );
+  }
+
+  const cookieHeader = buildCookieHeader(readSetCookieHeaders(response));
+  const refererUrl = response.url || landingUrl;
+
+  return {
+    landingUrl,
+    refererUrl,
+    cookieHeader,
+  };
+}
+
+function buildWorkdayResponseErrorMessage(input: {
+  target: WorkdaySourceTarget;
+  mode: "landing" | "api" | "detail";
+  method: "GET" | "POST";
+  requestUrl: string;
+  response: Response;
+  session: WorkdayFetchSession;
+}) {
+  const { response } = input;
+  const contentType = response.headers.get("content-type") ?? "unknown";
+  const location = response.headers.get("location");
+  const cfRay = response.headers.get("cf-ray");
+  const server = response.headers.get("server");
+  const cookiePresent = input.session.cookieHeader ? "present" : "absent";
+
+  return [
+    `Fetch failed: ${response.status} ${response.statusText}`,
+    `[workday ${input.mode}]`,
+    `${input.method} ${input.requestUrl}`,
+    `final=${response.url || input.requestUrl}`,
+    `content-type=${contentType}`,
+    `referer=${input.session.refererUrl}`,
+    `cookies=${cookiePresent}`,
+    location ? `location=${location}` : null,
+    server ? `server=${server}` : null,
+    cfRay ? `cf-ray=${cfRay}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function buildWorkdayUnexpectedContentTypeMessage(input: {
+  target: WorkdaySourceTarget;
+  mode: "api" | "detail";
+  requestUrl: string;
+  response: Response;
+  contentType: string;
+  responseSnippet: string | null;
+  session: WorkdayFetchSession;
+}) {
+  return [
+    `Unexpected content-type: ${input.contentType || "unknown"}`,
+    `[workday ${input.mode}]`,
+    `request=${input.requestUrl}`,
+    `final=${input.response.url || input.requestUrl}`,
+    `referer=${input.session.refererUrl}`,
+    `cookies=${input.session.cookieHeader ? "present" : "absent"}`,
+    input.responseSnippet ? `snippet=${input.responseSnippet}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+async function readResponseSnippet(response: Response) {
+  try {
+    const text = await response.text();
+    const collapsed = text.replace(/\s+/g, " ").trim();
+    return collapsed.length > 160 ? `${collapsed.slice(0, 160)}...` : collapsed;
+  } catch {
+    return null;
+  }
+}
+
+function readSetCookieHeaders(response: Response) {
+  const headersWithSetCookie = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  if (typeof headersWithSetCookie.getSetCookie === "function") {
+    return headersWithSetCookie.getSetCookie();
+  }
+
+  const single = response.headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
+function buildCookieHeader(setCookieHeaders: string[]) {
+  if (setCookieHeaders.length === 0) return null;
+
+  const cookies = new Map<string, string>();
+  for (const header of setCookieHeaders) {
+    const pair = header.split(";")[0]?.trim();
+    if (!pair) continue;
+    const separatorIndex = pair.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const name = pair.slice(0, separatorIndex).trim();
+    const value = pair.slice(separatorIndex + 1).trim();
+    if (!name || !value) continue;
+    cookies.set(name, value);
+  }
+
+  if (cookies.size === 0) return null;
+  return [...cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
 function formatErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
 function isTransientWorkdayError(error: unknown) {
   const message = formatErrorMessage(error).toLowerCase();
+  const hardStatusMatch = message.match(/\b(401|403|404|410)\b/);
+  if (hardStatusMatch) {
+    return false;
+  }
+
   return (
     message.includes("fetch failed") ||
     message.includes("timeout") ||
@@ -726,6 +957,15 @@ function extractSalary(baseSalary: WorkdayMonetaryAmount | null) {
     max: parseNumberValue(value?.maxValue ?? value?.value ?? null),
     currency: readText(baseSalary.currency),
   };
+}
+
+function extractDescriptionFromDetailHtml(html: string | null): string | null {
+  if (!html) return null;
+  const extracted = extractDescriptionFromHtml(html);
+  if (extracted && extracted.length >= 120) {
+    return extracted;
+  }
+  return null;
 }
 
 function buildFallbackDescription(

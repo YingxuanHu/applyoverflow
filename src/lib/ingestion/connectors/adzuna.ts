@@ -23,7 +23,12 @@ import { sleepWithAbort, throwIfAborted } from "@/lib/ingestion/runtime-control"
 
 const ADZUNA_API_BASE = "https://api.adzuna.com/v1/api/jobs";
 const ADZUNA_PAGE_SIZE = 50; // max allowed by API
-const ADZUNA_MAX_PAGES = 50; // safety limit per category (50 pages × 50 = 2500 per category)
+// Adzuna uses checkpointing (see AdzunaCheckpoint) — each run advances pages until
+// this cap is hit, then starts over on the next refresh. Raising the cap lets us
+// pull deeper into the result set across multiple cycles. 200 pages × 50 = 10,000
+// jobs per category; with 5 categories per profile and multiple profiles this gives
+// meaningful headroom without changing the per-run runtime budget.
+const ADZUNA_MAX_PAGES = 200; // safety limit per category (200 pages × 50 = 10,000 per category)
 const ADZUNA_RATE_DELAY_MS = 3500; // keep request rate conservative
 const ADZUNA_RATE_LIMIT_MAX_ATTEMPTS = 2;
 const ADZUNA_RATE_LIMIT_BACKOFF_MS = 20_000;
@@ -124,6 +129,8 @@ type AdzunaProfile = {
   categoryStrategy: "SEQUENTIAL" | "ROUND_ROBIN";
 };
 
+const ADZUNA_ALLOWED_COUNTRIES = new Set(["us", "ca"]);
+
 const ADZUNA_PROFILES: Record<string, AdzunaProfile> = {
   baseline: {
     name: "baseline",
@@ -178,6 +185,13 @@ export function createAdzunaConnector(
   options: AdzunaConnectorOptions = {}
 ): SourceConnector {
   const country = (options.country ?? "ca").trim().toLowerCase();
+  const allowNonNa =
+    (process.env.ADZUNA_ALLOW_NON_NA ?? "").trim().toLowerCase() === "true";
+  if (!allowNonNa && !ADZUNA_ALLOWED_COUNTRIES.has(country)) {
+    throw new Error(
+      `Adzuna connector country '${country}' is out of scope for this North America-only product.`
+    );
+  }
   const appId = options.appId ?? process.env.ADZUNA_APP_ID ?? "";
   const appKey = options.appKey ?? process.env.ADZUNA_APP_KEY ?? "";
   const selectedProfile: AdzunaProfile =
@@ -342,7 +356,14 @@ async function fetchAdzunaJobs({
         if (typeof limit === "number" && allJobs.length >= limit) break;
       }
 
-      if (categoryJobs.rawCount < ADZUNA_PAGE_SIZE || state.page >= maxPages) {
+      if (categoryJobs.retryableError) {
+        // API errors should be retried from the same page on the next cycle.
+        break outer;
+      } else if (
+        categoryJobs.rawCount < ADZUNA_PAGE_SIZE ||
+        categoryJobs.jobs.length === 0 ||
+        state.page >= maxPages
+      ) {
         state.exhausted = true;
       } else {
         state.page++;
@@ -473,6 +494,7 @@ async function fetchCategoryPage({
   rawCount: number;
   staffingFilteredCount: number;
   rateLimited: boolean;
+  retryableError: boolean;
 }> {
   const url = buildSearchUrl(country, category, appId, appKey, page, maxDaysOld);
 
@@ -506,6 +528,7 @@ async function fetchCategoryPage({
           rawCount: 0,
           staffingFilteredCount: 0,
           rateLimited: true,
+          retryableError: true,
         };
       }
       log(`[adzuna:${country}] API error ${response.status} on ${category} page ${page}`);
@@ -515,6 +538,7 @@ async function fetchCategoryPage({
         rawCount: 0,
         staffingFilteredCount: 0,
         rateLimited: false,
+        retryableError: true,
       };
     }
 
@@ -527,6 +551,7 @@ async function fetchCategoryPage({
         rawCount: 0,
         staffingFilteredCount: 0,
         rateLimited: false,
+        retryableError: true,
       };
     }
 
@@ -550,6 +575,7 @@ async function fetchCategoryPage({
       rawCount: results.length,
       staffingFilteredCount,
       rateLimited: false,
+      retryableError: false,
     };
   }
 
@@ -559,6 +585,7 @@ async function fetchCategoryPage({
     rawCount: 0,
     staffingFilteredCount: 0,
     rateLimited: true,
+    retryableError: true,
   };
 }
 
