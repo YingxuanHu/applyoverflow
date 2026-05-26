@@ -154,6 +154,26 @@ function resolveDatabaseConnectionString(role: DatabaseProcessRole) {
   throw new Error("DATABASE_URL is not set");
 }
 
+function getDatabaseCaCert() {
+  const raw = process.env.DATABASE_CA_CERT?.trim();
+  if (!raw) return undefined;
+
+  return raw.replace(/\\n/g, "\n");
+}
+
+function getDatabaseSslConfig() {
+  const ca = getDatabaseCaCert();
+
+  if (ca) {
+    return {
+      ca,
+      rejectUnauthorized: true,
+    };
+  }
+
+  return undefined;
+}
+
 function createPrismaClient() {
   const role = detectDatabaseProcessRole();
   const adapter = new PrismaPg(
@@ -162,6 +182,7 @@ function createPrismaClient() {
       max: getDatabasePoolMax(role),
       idleTimeoutMillis: getDatabaseIdleTimeoutMs(),
       connectionTimeoutMillis: getDatabaseConnectionTimeoutMs(),
+      ssl: getDatabaseSslConfig(),
     },
     {
       onPoolError(error) {
