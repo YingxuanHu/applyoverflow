@@ -1,6 +1,6 @@
 ## AutoApplication
 
-North America-focused job search and application engine for tech and finance roles first.
+North America-focused job search and application engine for white-collar roles across tech, finance, and general knowledge-worker functions.
 
 Current implemented slice:
 
@@ -15,9 +15,9 @@ Current implemented slice:
 - document upload — PDF/DOCX resume upload with text extraction; documents linked to resume variants
 - AI resume ingestion — parse an uploaded resume with OpenAI to populate structured profile fields
 - per-job AI workspace — fit analysis (score + strengths/gaps + keywords) and cover letter generation powered by OpenAI
-- internal `/ops/ingestion` visibility page for recent runs, source coverage, schedule cadence, and lifecycle counts
+- internal `/ops/*` visibility pages for ingestion, discovery, URL health, and ranking diagnostics; access is restricted by `OPS_ADMIN_EMAILS`
 - cron-ready `/api/ingestion/schedule` route for cadence-driven ingestion
-- ingestion pipeline with connector interface, normalization, stronger cross-source dedupe, lifecycle sweeps, removal handling, run tracking, and real Greenhouse + Lever + Recruitee + SmartRecruiters connectors
+- ingestion pipeline with connector interface, normalization, stronger cross-source dedupe, lifecycle sweeps, removal handling, run tracking, feed-index repair, and many ATS/API connectors
 - Prisma/Postgres domain model for canonical jobs, raw jobs, source mappings, eligibility, saved jobs, profile data, documents, and submissions
 - seeded demo dataset plus live external ingestion for local development
   - demo-backed canonical jobs stay useful for modeling and local data shape checks, but the main feed hides them when they do not have a trustworthy live source
@@ -32,6 +32,8 @@ Current implemented slice:
 | `OPENAI_STANDARD_MODEL` | Optional | Default model for structured analysis and generation (default: `gpt-4.1-mini`) |
 | `OPENAI_REASONING_MODEL` | Optional | Available for heavier AI tasks if you wire them in later (default: `gpt-5-mini`) |
 | `OPENAI_FAST_MODEL` | Optional | Available for low-latency AI tasks if you wire them in later (default: `gpt-4o-mini`) |
+| `OPS_ADMIN_EMAILS` | Required for `/ops/*` access | Comma- or newline-separated email allowlist for ops dashboards |
+| `STORAGE_*` | Optional | S3-compatible storage for uploaded and generated documents |
 
 Copy `.env.example` to `.env` and fill in your values. AI features degrade gracefully when `OPENAI_API_KEY` is absent — all other functionality is unaffected.
 
@@ -47,7 +49,7 @@ Run the app:
 npm run dev
 ```
 
-`npm run dev` uses webpack mode with a 2 GB heap cap. That is the safest default for this repo on a memory-constrained laptop.
+`npm run dev` starts the app stack through `scripts/run-app-stack.ts` and defaults to Turbopack with a 2 GB heap cap. Set `BUNDLER=webpack` or use `npm run dev:web` if you need the webpack fallback.
 
 If dev ever looks stuck compiling after a bad edit or stale `.next` state, stop the current dev server and use:
 
@@ -75,6 +77,11 @@ npm run typecheck
 npm run build
 ```
 
+Single-VPS production migration notes live in
+`docs/deployment/single-vps-migration.md`. That path is intended for the
+low-cost test-team setup: one VPS running web, worker, Postgres, Caddy, and
+nightly object-storage backups.
+
 Operational growth tooling:
 
 ```bash
@@ -83,6 +90,8 @@ npm run source:benchmark-dedupe -- --sample-size=100
 npm run source:audit-classifier -- --families=usajobs,jobbank,successfactors
 npm run source:demote-stale -- --recent-success-days=7 --no-mapping-days=14
 npm run enterprise:preflight -- --family=workday --limit=50 --register --promote
+npm run jobs:backfill-feed-index -- --mode=all --batch-size=500
+npm run jobs:refresh-feed-summary
 ```
 
 Seed the local database:
@@ -180,16 +189,16 @@ npx tsx scripts/discover-sources.ts --dataset=data/discovery/seeds/workday-candi
 ## Main project paths
 
 - `src/app/jobs` — main feed
-- `src/app/saved` — shortlist review
+- `src/app/saved` — redirects to the Applications wishlist view
 - `src/app/applications` — package and submission history
 - `src/app/profile` — profile editor, completeness indicator, document upload
-- `src/app/ops/ingestion` — internal ingestion visibility
+- `src/app/ops/*` — admin-only ingestion, discovery, health, and ranking diagnostics
 - `src/app/api` — route handlers
 - `src/lib/queries` — Prisma-backed data access
 - `src/lib/ingestion` — connector fetch, normalization, dedupe, lifecycle, eligibility, and scheduling helpers
 - `src/lib/ai` — AI modules: provider abstraction, resume parser, profile merge, job fit analysis, cover letter generation
-- `src/lib/storage` — local file storage (swap for S3 by replacing this module)
-- `src/lib/documents` — document text extraction (PDF via pdf-parse, DOCX via mammoth)
+- `src/lib/storage` — S3-compatible document storage with legacy local-read fallback
+- `src/lib/resume-ingestion.ts` and `src/lib/profile-resume-service.ts` — document text extraction, AI resume parsing, and structured profile merge
 - `src/components/profile` — profile editor, completeness indicator, resume upload, document list
 - `src/components/jobs` — job cards, review actions, AI workspace, per-job notes
 - `scripts/ingest.ts` — manual ingestion runs
