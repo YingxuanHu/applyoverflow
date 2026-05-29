@@ -7,6 +7,83 @@
  * Logs:    npx pm2 logs ingest-daemon
  * Status:  npx pm2 status
  */
+const overnightAccelerationEnabled =
+  process.env.INGEST_OVERNIGHT_ACCELERATION === "1";
+
+function buildOvernightApp(name, args, output, error, extraEnv = {}) {
+  return {
+    name,
+    script: "node_modules/.bin/tsx",
+    args,
+    cwd: __dirname,
+    autorestart: true,
+    max_restarts: 20,
+    min_uptime: "30s",
+    restart_delay: 10000,
+    output,
+    error,
+    log_date_format: "YYYY-MM-DD HH:mm:ss",
+    merge_logs: true,
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || "production",
+      DATABASE_PROCESS_ROLE: "daemon",
+      DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "8",
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+      INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
+      JOOBLE_ENABLED: "false",
+      SOURCE_JOOBLE_ENABLED: "false",
+      INGEST_JOOBLE_ENABLED: "false",
+      INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
+        process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
+      ...extraEnv,
+    },
+    max_memory_restart: "1024M",
+  };
+}
+
+const overnightAccelerationApps = overnightAccelerationEnabled
+  ? [
+      buildOvernightApp(
+        "ingest-expansion-exploration",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploration --limit=600 --max-batches=4 --idle-sleep-ms=45000 --error-sleep-ms=90000 --forever",
+        "./logs/expansion-pipeline-overnight-out.log",
+        "./logs/expansion-pipeline-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-exploitation-drain",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --worker-only --limit=1000 --max-batches=12 --idle-sleep-ms=15000 --error-sleep-ms=60000 --forever --skip-metrics",
+        "./logs/exploitation-drain-overnight-out.log",
+        "./logs/exploitation-drain-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-operational-drain",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=all --worker-only --skip-seed --limit=400 --max-batches=4 --idle-sleep-ms=30000 --error-sleep-ms=90000 --forever --skip-metrics",
+        "./logs/operational-drain-overnight-out.log",
+        "./logs/operational-drain-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-search-index-scheduler",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --schedule-only --limit=500 --raw-parse-limit=0 --dedupe-limit=0 --lifecycle-limit=0 --search-index-limit=50000 --idle-sleep-ms=60000 --error-sleep-ms=90000 --forever --skip-metrics",
+        "./logs/search-index-scheduler-overnight-out.log",
+        "./logs/search-index-scheduler-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-bulk-fast",
+        "-r dotenv/config scripts/bulk-recovery-loop.ts --interval=10 --catchup-seconds=30 --keys=hiringcafe:feed,himalayas:na_scale,jobicy:feed,remotive:feed,remoteok:feed,weworkremotely:feed,jobbank-live:feed,workatastartup:feed",
+        "./logs/bulk-fast-overnight-out.log",
+        "./logs/bulk-fast-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-bulk-builtin",
+        "-r dotenv/config scripts/bulk-recovery-loop.ts --interval=20 --catchup-seconds=60 --keys=builtin:feed,builtin:nyc,builtin:la,builtin:boston,builtin:chicago,builtin:austin,builtin:seattle,builtin:colorado,builtin:sf",
+        "./logs/bulk-builtin-overnight-out.log",
+        "./logs/bulk-builtin-overnight-err.log"
+      ),
+    ]
+  : [];
+
 module.exports = {
   apps: [
     {
@@ -181,5 +258,6 @@ module.exports = {
       },
       max_memory_restart: "512M",
     },
+    ...overnightAccelerationApps,
   ],
 };
