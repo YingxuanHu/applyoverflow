@@ -144,6 +144,16 @@ const overnightAccelerationApps = overnightAccelerationEnabled
             process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "12",
         }
       ),
+      buildOvernightShellApp(
+        "ingest-ats-frontier-expansion",
+        "-lc 'sleep 7200; while true; do timeout 900s node_modules/.bin/tsx -r dotenv/config scripts/expand-ats-frontier.ts --company-limit=3000 --url-limit=20000 --page-scan-limit=500 --page-discovery-concurrency=8 --promotion-threshold=0.78; sleep 7200; done'",
+        "./logs/ats-frontier-expansion-overnight-out.log",
+        "./logs/ats-frontier-expansion-overnight-err.log",
+        {
+          DATABASE_POOL_MAX_RECOVERY_POLL:
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "4",
+        }
+      ),
       buildOvernightApp(
         "ingest-search-index-scheduler",
         "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --schedule-only --limit=500 --raw-parse-limit=0 --dedupe-limit=0 --lifecycle-limit=0 --search-index-limit=50000 --idle-sleep-ms=60000 --error-sleep-ms=90000 --forever --skip-metrics",
