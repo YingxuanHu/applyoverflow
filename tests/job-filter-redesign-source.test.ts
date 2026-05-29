@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+function readRepoFile(path: string) {
+  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+}
+
+test("jobs filters support scoped search, removable chips, compact filters, and salary range", () => {
+  const querySource = readRepoFile("src/lib/queries/jobs.ts");
+  const pageSource = readRepoFile("src/app/jobs/page.tsx");
+  const searchFormSource = readRepoFile("src/components/jobs/jobs-search-form.tsx");
+
+  assert.match(querySource, /location\?: string/);
+  assert.match(querySource, /searchScope\?: JobSearchScope/);
+  assert.match(querySource, /titleSearch\?: string/);
+  assert.match(querySource, /companySearch\?: string/);
+  assert.match(querySource, /locationSearch\?: string/);
+  assert.match(querySource, /source\?: string/);
+  assert.match(querySource, /employmentType\?: string/);
+  assert.match(querySource, /careerStage\?: string/);
+  assert.match(querySource, /roleCategory\?: string/);
+  assert.match(querySource, /posted\?: string/);
+  assert.match(querySource, /salaryMax\?: number/);
+  assert.match(querySource, /location:\s*\{\s*contains: filters\.location/);
+  assert.match(querySource, /appendScopedTextSearchWhere\(where, "title", filters\.titleSearch\)/);
+  assert.match(querySource, /appendScopedTextSearchWhere\(where, "company", filters\.companySearch\)/);
+  assert.match(querySource, /appendLocationSearchWhere\(where, filters\.locationSearch\)/);
+  assert.match(querySource, /return clauses\.length === 1 \? clauses\[0\] : \{ OR: clauses \}/);
+  assert.match(querySource, /sourceMappings:\s*\{\s*some:\s*\{[\s\S]*sourceName:\s*\{\s*contains: filters\.source/);
+  assert.match(querySource, /normalizedEmploymentType:\s*employmentTypes\.length > 0/);
+  assert.match(querySource, /normalizedCareerStage:\s*stages\.length > 0/);
+  assert.match(querySource, /normalizedIndustry = industries\.length > 0/);
+  assert.match(querySource, /normalizedRoleCategory/);
+  assert.match(querySource, /postedAt:\s*\{\s*gte:/);
+  assert.match(querySource, /buildSalaryRangeWhere\([\s\S]*filters\.salaryMin,[\s\S]*filters\.salaryMax,[\s\S]*filters\.salaryCurrency/);
+  assert.match(querySource, /SALARY_COMPARISON_CURRENCIES/);
+  assert.doesNotMatch(querySource, /salaryCurrency:\s*\{\s*notIn/);
+  assert.match(querySource, /loadSalaryComparisonCurrency/);
+  assert.match(querySource, /shouldUseJobFeedIndex\(filters: JobFilterParams, viewerProfileId: string \| null\)/);
+  assert.match(querySource, /!viewerProfileId/);
+  assert.match(querySource, /searchJobIds\(\s*filters\.search,\s*filters\.searchScope \?\? "all"/);
+  assert.match(querySource, /OR location ILIKE \$1/);
+  assert.match(querySource, /type JobSortBy = "relevance" \| "newest" \| "deadline" \| "company"/);
+  assert.match(querySource, /normalizeJobSortBy\(inputFilters\.sortBy\)/);
+  assert.doesNotMatch(querySource, /filters\.sortBy === "salary"/);
+  assert.doesNotMatch(querySource, /filters\.sortBy === "location"/);
+
+  assert.match(pageSource, /buildActiveFilterChips\(filters, resolvedSearchParams\)/);
+  assert.match(pageSource, /buildLocationSearchRemoveHref/);
+  assert.match(pageSource, /currentHadValues/);
+  assert.match(pageSource, /return "\/jobs\?reset=1"/);
+  assert.match(pageSource, /normalizeSearchParamsForHref\(params\)/);
+  assert.match(pageSource, /else if \(search\) \{[\s\S]*titleSearch = undefined;[\s\S]*companySearch = undefined;[\s\S]*locationSearch = undefined;/);
+  assert.match(pageSource, /splitFilterValues\(filters\.locationSearch\)/);
+  assert.match(pageSource, /Clear all/);
+  assert.equal(pageSource.match(/Clear all/g)?.length, 1);
+  assert.match(pageSource, /name="salaryMax"/);
+  assert.match(pageSource, /name="salaryCurrency"/);
+  assert.match(pageSource, /SALARY_COMPARISON_CURRENCIES\.map/);
+  assert.match(pageSource, /\{ label: "Expiry date", value: "deadline" \}/);
+  assert.match(pageSource, /\{ label: "Company name", value: "company" \}/);
+  assert.doesNotMatch(pageSource, /\{ label: "Salary", value: "salary" \}/);
+  assert.doesNotMatch(pageSource, /\{ label: "Location", value: "location" \}/);
+  assert.match(pageSource, /normalizeSortByParam\(getSearchParam\(searchParams, "sortBy"\)\)/);
+  assert.match(pageSource, /href=\{buildJobsHref\(resolvedSearchParams,[\s\S]*sortBy: option\.value/);
+  assert.match(pageSource, /<FilterToggleField[\s\S]*name="expiry"[\s\S]*value="soon"/);
+  assert.match(pageSource, /className="sm:col-span-2"[\s\S]*name="careerStage"/);
+  assert.match(pageSource, /name="roleCategory"/);
+  assert.match(pageSource, /name="industry"/);
+  assert.doesNotMatch(pageSource, /title="Deadline"/);
+  assert.match(searchFormSource, /name="searchScope"/);
+  assert.match(searchFormSource, /const SEARCH_SCOPE_OPTIONS/);
+  assert.match(searchFormSource, /titleSearch/);
+  assert.match(searchFormSource, /companySearch/);
+  assert.match(searchFormSource, /locationSearch/);
+  assert.match(pageSource, /name="employmentType"/);
+  assert.match(pageSource, /name="posted"/);
+  assert.doesNotMatch(pageSource, /name="source"/);
+  assert.doesNotMatch(pageSource, /name="status"/);
+  assert.doesNotMatch(pageSource, /const REGION_OPTIONS/);
+});

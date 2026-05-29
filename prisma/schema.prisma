@@ -425,28 +425,28 @@ model ResumeVariant {
 }
 
 model Document {
-  id               String       @id @default(cuid())
-  userId           String
-  type             DocumentType
-  title            String
-  originalFileName String
-  filename         String
-  mimeType         String
-  sizeBytes        Int
-  storageKey       String       @unique
-  isPrimary        Boolean      @default(false)
+  id                  String       @id @default(cuid())
+  userId              String
+  type                DocumentType
+  title               String
+  originalFileName    String
+  filename            String
+  mimeType            String
+  sizeBytes           Int
+  storageKey          String       @unique
+  isPrimary           Boolean      @default(false)
   // True when this document was produced by the app (tailored resume,
   // generated cover letter, etc.) rather than uploaded by the user. The
   // Documents tab uses this to separate "Uploaded by you" from
   // "AI generated" so users can find each kind at a glance.
-  isAiGenerated    Boolean      @default(false)
+  isAiGenerated       Boolean      @default(false)
   // When the document was generated from a specific tracked application,
   // store the application id so the UI can deep-link back.
   sourceApplicationId String?
-  extractedText    String?
-  extractedAt      DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  extractedText       String?
+  extractedAt         DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
   user                    UserProfile                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   analysis                DocumentAnalysis?
@@ -488,50 +488,54 @@ model JobRaw {
 }
 
 model JobCanonical {
-  id                     String                   @id @default(cuid())
-  companyId              String?
-  title                  String
-  company                String
-  companyKey             String                   @default("")
-  titleKey               String                   @default("")
-  titleCoreKey           String                   @default("")
-  descriptionFingerprint String                   @default("")
-  location               String
-  locationKey            String                   @default("")
-  region                 Region?
-  workMode               WorkMode
-  salaryMin              Int?
-  salaryMax              Int?
-  salaryCurrency         String?                  @default("USD")
-  employmentType         EmploymentType
-  experienceLevel        ExperienceLevel?
-  description            String
-  searchVector           Unsupported("tsvector")?
-  shortSummary           String
-  industry               Industry?
-  roleFamily             String
-  applyUrl               String
-  applyUrlKey            String?
-  postedAt               DateTime
-  deadline               DateTime?
-  status                 JobStatus                @default(LIVE)
-  duplicateClusterId     String?
-  firstSeenAt            DateTime                 @default(now())
-  lastSeenAt             DateTime                 @default(now())
-  lastSourceSeenAt       DateTime?
-  lastApplyCheckAt       DateTime?
-  lastConfirmedAliveAt   DateTime?
-  availabilityScore      Float                    @default(0)
-  qualityScore           Float                    @default(0)
-  trustScore             Float                    @default(0)
-  freshnessScore         Float                    @default(0)
-  deadSignalAt           DateTime?
-  deadSignalReason       String?
-  staleAt                DateTime?
-  expiredAt              DateTime?
-  removedAt              DateTime?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  id                       String                   @id @default(cuid())
+  companyId                String?
+  title                    String
+  company                  String
+  companyKey               String                   @default("")
+  titleKey                 String                   @default("")
+  titleCoreKey             String                   @default("")
+  descriptionFingerprint   String                   @default("")
+  location                 String
+  locationKey              String                   @default("")
+  region                   Region?
+  workMode                 WorkMode
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?                  @default("USD")
+  employmentType           EmploymentType
+  experienceLevel          ExperienceLevel?
+  description              String
+  searchVector             Unsupported("tsvector")?
+  shortSummary             String
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedCareerStage    String?
+  normalizedIndustry       String?
+  normalizedRoleCategory   String?
+  applyUrl                 String
+  applyUrlKey              String?
+  postedAt                 DateTime
+  deadline                 DateTime?
+  status                   JobStatus                @default(LIVE)
+  duplicateClusterId       String?
+  firstSeenAt              DateTime                 @default(now())
+  lastSeenAt               DateTime                 @default(now())
+  lastSourceSeenAt         DateTime?
+  lastApplyCheckAt         DateTime?
+  lastConfirmedAliveAt     DateTime?
+  availabilityScore        Float                    @default(0)
+  qualityScore             Float                    @default(0)
+  trustScore               Float                    @default(0)
+  freshnessScore           Float                    @default(0)
+  deadSignalAt             DateTime?
+  deadSignalReason         String?
+  staleAt                  DateTime?
+  expiredAt                DateTime?
+  removedAt                DateTime?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
   eligibility            JobEligibility?
   sourceMappings         JobSourceMapping[]
@@ -560,6 +564,10 @@ model JobCanonical {
   @@index([status, region, postedAt(sort: Desc)])
   // Role family filter: status + roleFamily + postedAt
   @@index([status, roleFamily, postedAt(sort: Desc)])
+  @@index([status, normalizedEmploymentType, postedAt(sort: Desc)])
+  @@index([status, normalizedCareerStage, postedAt(sort: Desc)])
+  @@index([status, normalizedIndustry, postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategory, postedAt(sort: Desc)])
   // Work mode filter: status + workMode + postedAt
   @@index([status, workMode, postedAt(sort: Desc)])
   // Experience level filter: status + experienceLevel + postedAt
@@ -608,6 +616,7 @@ model JobSourceMapping {
   @@index([applyUrlKey])
   @@index([sourceUrlKey])
   @@index([postingIdKey])
+  @@index([rawJobId])
   @@index([sourceName, removedAt])
   @@index([canonicalJobId, removedAt])
   @@index([canonicalJobId, removedAt, sourceQualityRank(sort: Desc)])
@@ -856,6 +865,7 @@ model CompanySource {
   @@index([companyId, status])
   @@index([validationState, pollState, priorityScore(sort: Desc)])
   @@index([companyId, validationState, pollState])
+  @@index([connectorName, token])
   @@index([connectorName, yieldScore(sort: Desc)])
 }
 
@@ -948,50 +958,55 @@ model SourceTask {
   canonicalJob  JobCanonical?  @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
 
   @@index([kind, status, notBeforeAt, priorityScore(sort: Desc)])
+  @@index([kind, status, notBeforeAt, priorityScore(sort: Desc), createdAt])
   @@index([companyId, kind, status])
   @@index([companySourceId, kind, status])
   @@index([canonicalJobId, kind, status])
 }
 
 model NormalizedJobRecord {
-  id                     String                    @id @default(cuid())
-  rawJobId               String                    @unique
-  canonicalJobId         String?
-  status                 NormalizedJobRecordStatus @default(STAGED)
-  normalizationVersion   String
-  rejectionReason        String?
-  integrityReason        String?
-  qualityScore           Float                     @default(0)
-  trustScore             Float                     @default(0)
-  freshnessScore         Float                     @default(0)
-  title                  String
-  company                String
-  companyKey             String                    @default("")
-  titleKey               String                    @default("")
-  titleCoreKey           String                    @default("")
-  descriptionFingerprint String                    @default("")
-  location               String
-  locationKey            String                    @default("")
-  region                 Region?
-  workMode               WorkMode
-  salaryMin              Int?
-  salaryMax              Int?
-  salaryCurrency         String?                   @default("USD")
-  employmentType         EmploymentType
-  experienceLevel        ExperienceLevel?
-  description            String
-  shortSummary           String
-  industry               Industry?
-  roleFamily             String
-  applyUrl               String
-  applyUrlKey            String?
-  postedAt               DateTime
-  deadline               DateTime?
-  duplicateClusterId     String
-  metadataJson           Json?
-  warningsJson           Json?
-  createdAt              DateTime                  @default(now())
-  updatedAt              DateTime                  @updatedAt
+  id                       String                    @id @default(cuid())
+  rawJobId                 String                    @unique
+  canonicalJobId           String?
+  status                   NormalizedJobRecordStatus @default(STAGED)
+  normalizationVersion     String
+  rejectionReason          String?
+  integrityReason          String?
+  qualityScore             Float                     @default(0)
+  trustScore               Float                     @default(0)
+  freshnessScore           Float                     @default(0)
+  title                    String
+  company                  String
+  companyKey               String                    @default("")
+  titleKey                 String                    @default("")
+  titleCoreKey             String                    @default("")
+  descriptionFingerprint   String                    @default("")
+  location                 String
+  locationKey              String                    @default("")
+  region                   Region?
+  workMode                 WorkMode
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?                   @default("USD")
+  employmentType           EmploymentType
+  experienceLevel          ExperienceLevel?
+  description              String
+  shortSummary             String
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedCareerStage    String?
+  normalizedIndustry       String?
+  normalizedRoleCategory   String?
+  applyUrl                 String
+  applyUrlKey              String?
+  postedAt                 DateTime
+  deadline                 DateTime?
+  duplicateClusterId       String
+  metadataJson             Json?
+  warningsJson             Json?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
 
   rawJob       JobRaw        @relation(fields: [rawJobId], references: [id], onDelete: Cascade)
   canonicalJob JobCanonical? @relation(fields: [canonicalJobId], references: [id], onDelete: SetNull)
@@ -1000,6 +1015,10 @@ model NormalizedJobRecord {
   @@index([companyKey, titleCoreKey, region])
   @@index([duplicateClusterId])
   @@index([canonicalJobId])
+  @@index([normalizedEmploymentType])
+  @@index([normalizedCareerStage])
+  @@index([normalizedIndustry])
+  @@index([normalizedRoleCategory])
 }
 
 model PipelineTask {
@@ -1026,39 +1045,47 @@ model PipelineTask {
 }
 
 model JobFeedIndex {
-  canonicalJobId     String              @id
-  status             JobStatus
-  submissionCategory SubmissionCategory?
-  title              String
-  company            String
-  location           String
-  region             Region?
-  workMode           WorkMode
-  employmentType     EmploymentType
-  experienceLevel    ExperienceLevel?
-  industry           Industry?
-  roleFamily         String
-  salaryMin          Int?
-  salaryMax          Int?
-  salaryCurrency     String?
-  postedAt           DateTime
-  deadline           DateTime?
-  qualityScore       Float               @default(0)
-  trustScore         Float               @default(0)
-  freshnessScore     Float               @default(0)
-  rankingScore       Float               @default(0)
-  sourceCount        Int                 @default(0)
-  applyUrl           String
-  searchText         String
-  metadataJson       Json?
-  indexedAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  canonicalJobId           String              @id
+  status                   JobStatus
+  submissionCategory       SubmissionCategory?
+  title                    String
+  company                  String
+  location                 String
+  region                   Region?
+  workMode                 WorkMode
+  employmentType           EmploymentType
+  experienceLevel          ExperienceLevel?
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedCareerStage    String?
+  normalizedIndustry       String?
+  normalizedRoleCategory   String?
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?
+  postedAt                 DateTime
+  deadline                 DateTime?
+  qualityScore             Float               @default(0)
+  trustScore               Float               @default(0)
+  freshnessScore           Float               @default(0)
+  rankingScore             Float               @default(0)
+  sourceCount              Int                 @default(0)
+  applyUrl                 String
+  searchText               String
+  metadataJson             Json?
+  indexedAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
 
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
 
   @@index([status, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([region, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([roleFamily, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([submissionCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
 }
 
@@ -1232,10 +1259,10 @@ model Verification {
 ///
 /// Singleton row — id is always "singleton".
 model JobFeedSummaryCache {
-  id                  String   @id
-  liveJobCount        Int
-  addedTodayCount     Int
-  expiredTodayCount   Int
-  removedTodayCount   Int
-  computedAt          DateTime @default(now()) @updatedAt
+  id                String   @id
+  liveJobCount      Int
+  addedTodayCount   Int
+  expiredTodayCount Int
+  removedTodayCount Int
+  computedAt        DateTime @default(now()) @updatedAt
 }

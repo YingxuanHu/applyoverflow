@@ -11,6 +11,7 @@ import { ExternalLink } from "lucide-react";
 
 type JobDescriptionSectionProps = {
   title?: string;
+  showSourceLink?: boolean;
   job: {
     description: string;
     applyUrl: string;
@@ -24,6 +25,7 @@ type JobDescriptionSectionProps = {
 };
 
 export async function JobDescriptionSection({
+  showSourceLink = true,
   title = "Description",
   job,
 }: JobDescriptionSectionProps) {
@@ -52,11 +54,11 @@ export async function JobDescriptionSection({
   return (
     <div className="border-t border-border py-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[15px] font-medium text-muted-foreground">{title}</p>
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
       </div>
 
       {shouldShowDescription ? (
-        <div className="mt-4 space-y-3.5 text-sm text-foreground/85">
+        <div className="mt-3 space-y-2.5 text-[13px] leading-6 text-foreground/82">
           {descriptionBlocks.map((block, index) => {
             if (block.kind === "header") {
               return (
@@ -73,10 +75,10 @@ export async function JobDescriptionSection({
               return (
                 <ul
                   key={index}
-                  className="ml-5 space-y-2 list-disc marker:text-muted-foreground/60"
+                  className="ml-5 list-disc space-y-1.5 marker:text-muted-foreground/60"
                 >
                   {block.items.map((item, itemIndex) => (
-                    <li key={itemIndex} className="leading-7">
+                    <li key={itemIndex} className="leading-6">
                       {item}
                     </li>
                   ))}
@@ -85,7 +87,7 @@ export async function JobDescriptionSection({
             }
 
             return (
-              <p key={index} className="leading-7 text-foreground/80">
+              <p key={index} className="leading-6 text-foreground/80">
                 {block.text}
               </p>
             );
@@ -93,7 +95,7 @@ export async function JobDescriptionSection({
         </div>
       ) : null}
 
-      {preferredSourceUrl ? (
+      {showSourceLink && preferredSourceUrl ? (
         <div className={shouldShowDescription ? "mt-5" : "mt-3"}>
           <a
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"

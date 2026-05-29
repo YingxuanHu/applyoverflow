@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Bot } from "lucide-react";
+import { Bot, ExternalLink } from "lucide-react";
 import { AIWorkspace } from "@/components/jobs/ai-workspace";
 import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
@@ -65,6 +65,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const showSubmissionMeta = shouldShowSubmissionMeta(job);
   const manualApplyHref =
     job.primaryExternalLink?.href ?? job.sourcePostingLink?.href ?? job.applyUrl;
+  const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
   const displaySalary = resolveJobSalaryRange({
     salaryMin: job.salaryMin,
     salaryMax: job.salaryMax,
@@ -74,7 +75,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   });
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
       {/* Breadcrumb */}
       <div className="mb-3">
         <Link href="/jobs" className="text-sm text-muted-foreground hover:text-foreground">
@@ -83,10 +84,10 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       </div>
 
       {/* Header — stacks on mobile, row on sm+ */}
-      <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">{job.title}</h1>
+            <h1 className="text-lg font-semibold leading-snug tracking-tight sm:text-xl">{job.title}</h1>
             {showSubmissionMeta ? (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-emerald-700">
                 <Bot className="h-3 w-3" aria-hidden="true" />
@@ -115,34 +116,45 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
             salaryMin={displaySalary.salaryMin}
             salaryMax={displaySalary.salaryMax}
             salaryCurrency={displaySalary.salaryCurrency}
-            primaryExternalLink={job.primaryExternalLink}
+            primaryExternalLink={null}
           />
         </div>
 
-        {canStartApplyFlow ? (
+        {postingHref || canStartApplyFlow ? (
           <div className="flex shrink-0 items-center gap-2">
-            <JobCardActions
-              align="end"
-              compact
-              initialSaved={job.isSaved}
-              jobId={job.id}
-            />
-            {reviewState === "MANUAL_ONLY" || !atsSupported ? (
-              <ManualApplyMenu
-                align="end"
-                applyHref={manualApplyHref}
-                buttonSize="sm"
-                jobId={job.id}
-              />
-            ) : job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" ? (
-              <Button size="sm" render={<Link href={`/jobs/${job.id}/auto-apply`} />}>
-                Auto apply
-              </Button>
-            ) : (
-              <Button size="sm" render={<Link href={`/jobs/${job.id}/apply`} />}>
-                Apply
-              </Button>
-            )}
+            {postingHref ? (
+              <a
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                href={postingHref}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Posting
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            ) : null}
+            {canStartApplyFlow ? (
+              <>
+                <JobCardActions
+                  align="end"
+                  compact
+                  initialSaved={job.isSaved}
+                  jobId={job.id}
+                />
+                {reviewState === "MANUAL_ONLY" || !atsSupported ? (
+                  <ManualApplyMenu
+                    align="end"
+                    applyHref={manualApplyHref}
+                    buttonSize="sm"
+                    jobId={job.id}
+                  />
+                ) : (
+                  <Button size="sm" render={<Link href={`/jobs/${job.id}/auto-apply`} />}>
+                    Auto apply
+                  </Button>
+                )}
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -174,7 +186,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       ) : null}
 
       {/* Key fields */}
-      <div className="grid grid-cols-2 gap-x-8 gap-y-3 border-t border-border py-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-3 border-t border-border py-3 sm:grid-cols-4">
         <Field
           label="Salary"
           value={
@@ -217,14 +229,14 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         </div>
       ) : null}
 
-      <JobDescriptionSection job={job} />
+      <JobDescriptionSection job={job} showSourceLink={false} />
 
       {/* "Fit analysis" section — moved from /jobs/[id]/apply. Title styled
           to match the Description heading. Cover letter rendering is hidden
           here (showCoverLetter=false); the workspace page still uses it. */}
       {process.env.OPENAI_API_KEY ? (
         <div className="border-t border-border py-4">
-          <p className="text-[15px] font-medium text-muted-foreground">
+          <p className="text-sm font-medium text-muted-foreground">
             Fit analysis
           </p>
           <div className="mt-4">
@@ -244,7 +256,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const DETAIL_SECTION_TITLE_CLASS = "text-[15px] font-medium text-muted-foreground";
+const DETAIL_SECTION_TITLE_CLASS = "text-sm font-medium text-muted-foreground";
 
 function Field({ label, value }: { label: string; value: string }) {
   return (

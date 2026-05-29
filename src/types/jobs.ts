@@ -156,15 +156,27 @@ export type ApplicationHistoryItem = {
 
 export type JobFilters = {
   search?: string;
+  searchScope?: "all" | "title" | "company" | "location";
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  location?: string;
+  source?: string;
   region?: string;
   workMode?: string;
+  employmentType?: string;
   industry?: string;
+  roleCategory?: string;
   roleFamily?: string;
   salaryMin?: string;
+  salaryMax?: string;
+  salaryCurrency?: string;
   experienceLevel?: string;
+  careerStage?: string;
   expiry?: string;
+  posted?: string;
   submissionCategory?: string;
   status?: string;
-  sortBy?: "relevance" | "newest" | "deadline" | "salary";
+  sortBy?: "relevance" | "newest" | "deadline" | "company";
   page?: string;
 };

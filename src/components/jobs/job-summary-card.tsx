@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   Building2,
   CircleDollarSign,
+  ExternalLink,
   MapPin,
 } from "lucide-react";
 import {
@@ -101,17 +102,6 @@ export function JobSummaryCard({
           ) : null}
         </div>
 
-        {job.primaryExternalLink ? (
-          <a
-            className="mt-0.5 inline-block text-xs text-foreground underline underline-offset-2 hover:text-muted-foreground"
-            href={job.primaryExternalLink.href}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Posting
-          </a>
-        ) : null}
-
         {summary ? (
           <p className="mt-2 line-clamp-2 max-w-3xl text-sm text-muted-foreground">
             {summary}
@@ -133,8 +123,19 @@ export function JobSummaryCard({
         </p>
       </div>
 
-      {footerActions ? (
-        <div className="flex w-full shrink-0 items-start justify-start sm:w-auto sm:justify-end">
+      {job.primaryExternalLink || footerActions ? (
+        <div className="flex w-full shrink-0 flex-wrap items-start justify-start gap-2 sm:w-auto sm:justify-end">
+          {job.primaryExternalLink ? (
+            <a
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              href={job.primaryExternalLink.href}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Posting
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+          ) : null}
           {footerActions}
         </div>
       ) : null}
