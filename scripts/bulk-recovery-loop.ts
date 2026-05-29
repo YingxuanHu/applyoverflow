@@ -420,13 +420,15 @@ function getBulkRecoveryEntries(): Entry[] {
       cadenceMinutes: hiringCafeCadence,
       maxRuntimeMs: hiringCafeRuntimeMs,
     },
-    ...joobleProfiles.map((profile) => ({
-      key: `jooble:${normalizeKeySegment(profile)}`,
-      connector: createJoobleConnector({ profile }),
-      cadenceMinutes: joobleCadence,
-      maxRuntimeMs: joobleRuntimeMs,
-      limit: joobleLimit,
-    })),
+    ...((process.env.JOOBLE_API_KEY ?? "").trim()
+      ? joobleProfiles.map((profile) => ({
+          key: `jooble:${normalizeKeySegment(profile)}`,
+          connector: createJoobleConnector({ profile }),
+          cadenceMinutes: joobleCadence,
+          maxRuntimeMs: joobleRuntimeMs,
+          limit: joobleLimit,
+        }))
+      : []),
     {
       key: "remotive:feed",
       connector: createRemotiveConnector(),

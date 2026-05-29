@@ -5,6 +5,7 @@ services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
     restart: unless-stopped
+    shm_size: ${POSTGRES_SHM_SIZE:-1gb}
     env_file: *prod-env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-autoapplication}
