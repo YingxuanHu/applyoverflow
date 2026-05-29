@@ -1,4 +1,4 @@
-rank,companyName,careersUrl,regionPriority,priorityTier,whyImportant,notes
+rank,companyName,careersUrl,regionPriority,priorityTier,whyImportant,notes,ats_vendor
 1,Amazon,https://www.amazon.jobs,US/Canada,1,"Massive job volume; many duplicate aggregator entries","Validate endpoint and dedupe priority"
 2,Microsoft,https://careers.microsoft.com,US/Canada,1,"High software cloud data and internship volume","Prioritize official source if accessible"
 3,Google,https://www.google.com/about/careers/applications/jobs/results,US/Canada,1,"High-value official listings and strong tech priority","Validate public job search endpoint"
@@ -419,3 +419,295 @@ rank,companyName,careersUrl,regionPriority,priorityTier,whyImportant,notes
 418,Nabla,https://www.nabla.com/careers,US/Canada/Remote,3,"AI clinical assistant company with software ML and product roles","AI healthtech source"
 419,Hippocratic AI,https://www.hippocraticai.com/careers,US/Canada,3,"Healthcare AI company with product ML and operations roles","AI healthtech source"
 420,Ambience Healthcare,https://www.ambiencehealthcare.com/careers,US/Canada,3,"AI healthcare documentation company with engineering ML and product roles","AI healthtech source"
+421,Airwallex,https://www.airwallex.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+422,Algolia,https://www.algolia.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+423,Anthropic,https://job-boards.greenhouse.io/anthropic,Global,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+424,Atlan,https://atlan.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+425,Brex,https://job-boards.greenhouse.io/brex,Global,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+426,BrowserStack,https://www.browserstack.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+427,Checkout.com,https://www.checkout.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+428,ClickUp,https://clickup.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+429,Cursor / Anysphere,https://anysphere.inc,Global,1,International startup careers source,Official hiring page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+430,Databricks,https://job-boards.greenhouse.io/databricks,Global,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+431,Dataiku,https://www.dataiku.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+432,Deel,https://www.deel.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+433,Glean,https://job-boards.greenhouse.io/gleanwork,Global,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+434,Harvey,https://jobs.ashbyhq.com/harvey,Global,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+435,Hugging Face,https://apply.workable.com/huggingface?lng=en,Global,1,International startup careers source,Direct Workable board; sourceType=direct-ATS-board; vendorConfidence=high,workable
+436,Intercom,https://www.intercom.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+437,Perplexity,https://jobs.ashbyhq.com/perplexity,Global,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+438,Postman,https://www.postman.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+439,Remote,https://remote.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+440,Revolut,https://www.revolut.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+441,Stripe,https://job-boards.greenhouse.io/stripe,Global,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+442,Weights & Biases,https://wandb.ai/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+443,Wise,https://wise.jobs,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+444,Workato,https://www.workato.com/careers,Global,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+445,Cohere,https://jobs.ashbyhq.com/cohere,North America,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+446,Mercury,https://job-boards.greenhouse.io/mercury,North America,1,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+447,Pinecone,https://www.pinecone.io/careers,North America,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+448,Ramp,https://jobs.ashbyhq.com/ramp,North America,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+449,Retool,https://retool.com/careers,North America,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+450,Runway AI,https://jobs.ashbyhq.com/runway-ml,North America,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+451,Alan,https://alan.com/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+452,Bolt,https://bolt.eu/en/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+453,Celonis,https://www.celonis.com/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+454,DeepL,https://www.deepl.com/en/jobs,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+455,Doctolib,https://careers.doctolib.com,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+456,ElevenLabs,https://jobs.ashbyhq.com/elevenlabs,Europe,1,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+457,Klarna,https://www.klarna.com/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+458,Mistral AI,https://mistral.ai/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+459,Mistral AI,https://jobs.lever.co/mistral,Europe,1,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+460,Monzo,https://monzo.com/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+461,N26,https://n26.com/en/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+462,Personio,https://www.personio.com/about/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+463,Pigment,https://www.pigment.com/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+464,Qonto,https://qonto.com/en/careers,Europe,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+465,CRED,https://cred.club/careers,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+466,Grab,https://www.grab.careers,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+467,Groww,https://groww.in/careers,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+468,PhonePe,https://www.phonepe.com/careers,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+469,Razorpay,https://razorpay.com/jobs,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+470,SafetyCulture,https://safetyculture.com/careers,APAC,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+471,Nubank,https://international.nubank.com.br/careers,LATAM,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+472,Flutterwave,https://flutterwave.com/us/careers,MENA/Africa,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+473,Paystack,https://paystack.com/careers,MENA/Africa,1,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+474,Andela,https://andela.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+475,Chargebee,https://www.chargebee.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+476,Clerk,https://clerk.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+477,Enveda,https://jobs.lever.co/enveda,Global,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+478,Flexport,https://job-boards.greenhouse.io/flexport,Global,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+479,Fresha,https://jobs.lever.co/fresha,Global,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+480,Freshworks,https://www.freshworks.com/company/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+481,Front,https://front.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+482,Gong,https://www.gong.io/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+483,Hasura,https://hasura.io/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+484,HighLevel,https://jobs.lever.co/gohighlevel,Global,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+485,Hopper,https://www.hopper.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+486,Motive,https://gomotive.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+487,Navan,https://navan.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+488,Neon,https://neon.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+489,Nuvei,https://apply.workable.com/nuvei,Global,2,International startup careers source,Direct Workable board; sourceType=direct-ATS-board; vendorConfidence=high,workable
+490,Octopus Deploy,https://octopus.com/company/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+491,Onehouse,https://jobs.lever.co/Onehouse,Global,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+492,Oura,https://ouraring.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+493,Oyster,https://www.oysterhr.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+494,Papaya Global,https://www.papayaglobal.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+495,PostHog,https://posthog.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+496,Rapyd,https://www.rapyd.net/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+497,Rokt,https://www.rokt.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+498,Turing,https://www.turing.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+499,Watershed,https://jobs.ashbyhq.com/Watershed,Global,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+500,Whatnot,https://jobs.ashbyhq.com/whatnot,Global,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+501,WHOOP,https://www.whoop.com/careers,Global,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+502,Alloy,https://boards.greenhouse.io/alloy,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+503,AngelList,https://www.angellist.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+504,Benchling,https://www.benchling.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+505,Carta,https://carta.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+506,Cedar,https://www.cedar.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+507,Character.AI,https://jobs.ashbyhq.com/character,North America,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+508,Crusoe,https://jobs.ashbyhq.com/Crusoe,North America,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+509,Descript,https://www.descript.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+510,Finix,https://jobs.lever.co/finix,North America,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+511,Flex,https://job-boards.greenhouse.io/flex,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+512,Hiive,https://jobs.ashbyhq.com/hiive,North America,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+513,Hinge Health,https://www.hingehealth.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+514,HoneyBook,https://boards.greenhouse.io/honeybook,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+515,Included Health,https://includedhealth.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+516,Jobber,https://getjobber.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+517,Justworks,https://boards.greenhouse.io/justworks,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+518,Lambda,https://lambda.ai/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+519,Lattice,https://lattice.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+520,Lyra Health,https://www.lyrahealth.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+521,Maven Clinic,https://www.mavenclinic.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+522,Modern Health,https://www.modernhealth.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+523,MotherDuck,https://motherduck.com/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+524,Outreach,https://www.outreach.io/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+525,Pallet,https://job-boards.greenhouse.io/pallet,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+526,Pine,https://www.pine.ca/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+527,Robinhood,https://boards.greenhouse.io/robinhood,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+528,Salesloft,https://salesloft.com/company/careers,North America,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+529,SoFi,https://boards.greenhouse.io/sofi,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+530,Thatch,https://job-boards.greenhouse.io/thatch,North America,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+531,Adyen,https://www.adyen.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+532,Back Market,https://careers.backmarket.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+533,BlaBlaCar,https://www.blablacar.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+534,Bunq,https://www.bunq.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+535,Cabify,https://cabify.com/en/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+536,Contentsquare,https://contentsquare.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+537,Deliveroo,https://careers.deliveroo.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+538,Factorial,https://factorialhr.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+539,Fever,https://feverup.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+540,FINN,https://jobs.lever.co/finn,Europe,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+541,Flix,https://career.flixbus.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+542,GetYourGuide,https://www.getyourguide.careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+543,Gigs,https://job-boards.greenhouse.io/gigs,Europe,2,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+544,Glovo,https://jobs.glovoapp.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+545,GoCardless,https://gocardless.com/about/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+546,HiBob,https://www.hibob.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+547,Job&Talent,https://www.jobandtalent.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+548,LiveFlow,https://jobs.ashbyhq.com/liveflow,Europe,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+549,Mambu,https://mambu.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+550,Mirakl,https://www.mirakl.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+551,Mollie,https://www.mollie.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+552,Omnea,https://jobs.ashbyhq.com/omnea,Europe,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+553,Owkin,https://owkin.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+554,Pennylane,https://www.pennylane.com/en/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+555,Pivot,https://jobs.ashbyhq.com/pivot,Europe,2,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+556,Pleo,https://www.pleo.io/en/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+557,Raisin,https://www.raisin.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+558,Spendesk,https://www.spendesk.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+559,SumUp,https://www.sumup.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+560,Tide,https://www.tide.co/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+561,Tines,https://www.tines.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+562,Trade Republic,https://traderepublic.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+563,TravelPerk,https://www.travelperk.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+564,TrueLayer,https://truelayer.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+565,Typeform,https://www.typeform.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+566,Vinted,https://careers.vinted.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+567,Wayflyer,https://www.wayflyer.com/careers,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+568,Wolt,https://careers.wolt.com,Europe,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+569,Aspire,https://aspireapp.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+570,BharatPe,https://bharatpe.com/career,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+571,Carro,https://carro.co/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+572,Carsome,https://www.carsome.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+573,Culture Amp,https://www.cultureamp.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+574,Deputy,https://www.deputy.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+575,Drivetrain,https://jobs.lever.co/drivetrain,APAC,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+576,Employment Hero,https://employmenthero.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+577,GoTo Group,https://www.gotocompany.com/en/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+578,InMobi,https://www.inmobi.com/company/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+579,Linktree,https://linktr.ee/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+580,Meesho,https://www.meesho.io/jobs,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+581,Ninja Van,https://www.ninjavan.co/en-sg/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+582,Pine Labs,https://www.pinelabs.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+583,Policybazaar,https://www.policybazaar.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+584,ShopBack,https://www.shopback.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+585,StashAway,https://www.stashaway.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+586,Swiggy,https://careers.swiggy.com,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+587,Traveloka,https://www.traveloka.com/en-id/career,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+588,Xendit,https://www.xendit.co/en/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+589,Zepto,https://www.zeptonow.com/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+590,Zeta,https://www.zeta.tech/careers,APAC,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+591,Airtm,https://jobs.lever.co/airtm,LATAM,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+592,Clara,https://www.clara.com/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+593,Clip,https://www.clip.mx/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+594,Creditas,https://www.creditas.com/carreiras,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+595,dLocal,https://dlocal.com/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+596,Jeeves,https://jobs.lever.co/tryjeeves,LATAM,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+597,Kavak,https://jobs.lever.co/kavak,LATAM,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+598,Kueski,https://www.kueski.com/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+599,Kushki,https://www.kushki.com/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+600,Rappi,https://about.rappi.com/work-us,LATAM,2,International startup careers source,Official careers/work-with-us page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+601,Rappi,https://rappi.wd12.myworkdayjobs.com/Rappi_jobs,LATAM,2,International startup careers source,Direct Workday board; sourceType=direct-ATS-board; vendorConfidence=high,workday
+602,Stori,https://www.storicard.com/careers,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+603,Ualá,https://www.uala.com.ar/trabaja-con-nosotros,LATAM,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+604,Careem,https://www.careem.com/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+605,Chipper Cash,https://chippercash.com/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+606,Kitopi,https://www.kitopi.com/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+607,M-KOPA,https://m-kopa.com/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+608,Property Finder,https://www.propertyfinder.ae/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+609,Tabby,https://tabby.ai/en-AE/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+610,Tamara,https://tamara.co/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+611,Wave Mobile Money,https://www.wave.com/en/careers,MENA/Africa,2,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+612,Yassir,https://jobs.lever.co/Yassir,MENA/Africa,2,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+613,Yassir,https://jobs.smartrecruiters.com/YassirGmbh,MENA/Africa,2,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+614,Netomi,https://jobs.lever.co/netomi,Global,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+615,Pump.co,https://job-boards.greenhouse.io/pumpcareers,Global,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+616,Sezzle,https://boards.greenhouse.io/sezzle,Global,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+617,Sphere,https://jobs.ashbyhq.com/sphere,Global,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+618,Valdera,https://jobs.lever.co/valdera,Global,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+619,Wing Assistant,https://jobs.lever.co/getwingapp,Global,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+620,15Five,https://www.15five.com/careers,North America,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+621,AIOS,https://jobs.ashbyhq.com/aios,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+622,Arlo,https://jobs.ashbyhq.com/Arlo,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+623,Baselane,https://jobs.lever.co/baselane,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+624,Bree,https://jobs.ashbyhq.com/bree,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+625,BREVIAN,https://ats.rippling.com/brevian-careers/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+626,Clearly AI,https://jobs.ashbyhq.com/clearly-ai,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+627,Cleric,https://jobs.ashbyhq.com/Cleric,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+628,Clerky,https://jobs.smartrecruiters.com/Clerky,North America,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+629,Collate,https://jobs.lever.co/collate,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+630,Community Phone,https://ats.rippling.com/community-phone-careers/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+631,Concourse,https://jobs.ashbyhq.com/concourse,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+632,Dave,https://dave.com/careers,North America,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+633,Devoted Health,https://www.devoted.com/careers,North America,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+634,DuploCloud,https://ats.rippling.com/duplocloud/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+635,Emergent Labs,https://job-boards.greenhouse.io/emergentlabsinc,North America,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+636,EQL Tech,https://apply.workable.com/eqltech,North America,3,International startup careers source,Direct Workable board; sourceType=direct-ATS-board; vendorConfidence=high,workable
+637,Fello,https://ats.rippling.com/fello-careers/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+638,Fig Financial,https://jobs.lever.co/figfinancial,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+639,FurtherAI,https://jobs.ashbyhq.com/furtherai,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+640,Genios AI,https://ats.rippling.com/genios-ai/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+641,Glass Health,https://jobs.lever.co/glass-health-inc,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+642,Govly,https://ats.rippling.com/govly-inc/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+643,Grow Therapy,https://growtherapy.com/careers,North America,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+644,Harper,https://jobs.ashbyhq.com/harperinsure,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+645,Hearth,https://ats.rippling.com/hearth-careers/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+646,Highbeam,https://jobs.ashbyhq.com/highbeam,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+647,Hootsuite,https://www.hootsuite.com/careers,North America,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+648,Hyperproof,https://job-boards.greenhouse.io/hyperproof,North America,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+649,Instrumentl,https://jobs.lever.co/Instrumentl,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+650,Knotch,https://ats.rippling.com/knotch-inc/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+651,Lance,https://jobs.ashbyhq.com/Lance,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+652,Lazer,https://jobs.ashbyhq.com/lazer,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+653,Loop,https://ats.rippling.com/loop-careers/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+654,Maxima,https://jobs.ashbyhq.com/Maxima,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+655,MedMe Health,https://medmehealth.recruitee.com,North America,3,International startup careers source,Direct Recruitee board; sourceType=direct-ATS-board; vendorConfidence=high,recruitee
+656,MemryX,https://ats.rippling.com/memryx/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+657,N3XT,https://ats.rippling.com/n3xt-jobs/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+658,Nymbus,https://boards.greenhouse.io/nymbusinc,North America,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+659,Peakhealth AI,https://ats.rippling.com/peakhealth-ai/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+660,Regal,https://jobs.lever.co/regalvoice,North America,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+661,Ridgeline,https://boards.greenhouse.io/ridgeline,North America,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+662,Seam,https://job-boards.greenhouse.io/seam,North America,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+663,Simple AI,https://jobs.ashbyhq.com/simple-ai,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+664,Steno,https://ats.rippling.com/steno-careers-page/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+665,SuiteOp,https://ats.rippling.com/suiteop/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+666,Uplane,https://jobs.ashbyhq.com/uplane,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+667,Vouch,https://ats.rippling.com/vouch-inc/jobs,North America,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+668,Weave,https://jobs.ashbyhq.com/workweave,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+669,Zed Financial,https://jobs.ashbyhq.com/zedfinancial,North America,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+670,Bitpanda,https://www.bitpanda.com/en/careers,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+671,ComplyAdvantage,https://apply.workable.com/complyadvantage,Europe,3,International startup careers source,Direct Workable board; sourceType=direct-ATS-board; vendorConfidence=high,workable
+672,Fitify,https://jobs.lever.co/FitifyWorkouts,Europe,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+673,iLoF,https://jobs.smartrecruiters.com/ILoF-IntelligentLabOnFiber,Europe,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+674,Impossible Cloud,https://jobs.lever.co/impossiblecloud,Europe,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+675,Konvu,https://jobs.ashbyhq.com/konvu,Europe,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+676,Ledger,https://www.ledger.com/careers,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+677,Receiptor AI,https://join.com/companies/receiptorai,Europe,3,International startup careers source,Direct JOIN board; sourceType=direct-ATS-board; vendorConfidence=high,join
+678,Samaya AI,https://job-boards.greenhouse.io/samayaai,Europe,3,International startup careers source,Direct Greenhouse board; sourceType=direct-ATS-board; vendorConfidence=high,greenhouse
+679,sequra,https://sequra.recruitee.com,Europe,3,International startup careers source,Direct Recruitee board; sourceType=direct-ATS-board; vendorConfidence=high,recruitee
+680,Solaris,https://www.solarisgroup.com/en/careers,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+681,Spiko,https://spiko.teamtailor.com,Europe,3,International startup careers source,Direct Teamtailor board; sourceType=direct-ATS-board; vendorConfidence=high,teamtailor
+682,Subsets,https://jobs.ashbyhq.com/subsets,Europe,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+683,Taxfix,https://taxfix.de/en/careers,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+684,Thirdfort,https://apply.workable.com/thirdfort,Europe,3,International startup careers source,Direct Workable board; sourceType=direct-ATS-board; vendorConfidence=high,workable
+685,Trigger.dev,https://jobs.ashbyhq.com/triggerdev,Europe,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+686,Vestiaire Collective,https://careers.vestiairecollective.com,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+687,Wallapop,https://about.wallapop.com/en/careers,Europe,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+688,Whereby,https://jobs.lever.co/whereby,Europe,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+689,Xaver,https://join.com/companies/xaver,Europe,3,International startup careers source,Direct JOIN board; sourceType=direct-ATS-board; vendorConfidence=high,join
+690,Zeit AI,https://jobs.ashbyhq.com/zeit-ai,Europe,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+691,100ms,https://jobs.lever.co/100ms,APAC,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+692,Akulaku,https://www.akulaku.com/careers,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+693,Cermati,https://jobs.smartrecruiters.com/Cermaticom,APAC,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+694,FamPay,https://jobs.lever.co/fampay,APAC,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+695,Glints,https://glints.com/careers,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+696,Immutable,https://www.immutable.com/careers,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+697,Lokal,https://jobs.smartrecruiters.com/Lokal,APAC,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+698,MatchMove Pay,https://jobs.smartrecruiters.com/MATCHMOVEPAY,APAC,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+699,Mekari,https://mekari.com/career,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+700,Payd,https://jobs.smartrecruiters.com/Payd1,APAC,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+701,Reacher,https://jobs.ashbyhq.com/reacher,APAC,3,International startup careers source,Direct Ashby board; sourceType=direct-ATS-board; vendorConfidence=high,ashby
+702,Strikingly,https://jobs.smartrecruiters.com/StrikinglyInc,APAC,3,International startup careers source,Direct SmartRecruiters board; sourceType=direct-ATS-board; vendorConfidence=high,smartrecruiters
+703,VELZI AI,https://join.com/companies/velzi,APAC,3,International startup careers source,Direct JOIN board; sourceType=direct-ATS-board; vendorConfidence=high,join
+704,VNG,https://career.vng.com.vn,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+705,Weekday,https://jobs.lever.co/weekdayworks,APAC,3,International startup careers source,Direct Lever board; sourceType=direct-ATS-board; vendorConfidence=high,lever
+706,Zeller,https://www.myzeller.com/careers,APAC,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+707,Tribal Credit,https://www.tribal.credit/careers,LATAM,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+708,Alaan,https://ats.rippling.com/alaan-careers/jobs,MENA/Africa,3,International startup careers source,Direct Rippling board; sourceType=direct-ATS-board; vendorConfidence=high,rippling
+709,Halan,https://jobs.halan.com,MENA/Africa,3,International startup careers source,Official jobs portal; sourceType=official-careers-page; vendorConfidence=medium,company-site
+710,MaxAB,https://maxab.breezy.hr,MENA/Africa,3,International startup careers source,Direct Breezy-hosted board; ats_vendor left blank because Breezy is outside requested supported values; sourceType=direct-ATS-board; vendorConfidence=blank-unsupported-vendor,
+711,Swvl,https://www.swvl.com/careers,MENA/Africa,3,International startup careers source,Official careers page; sourceType=official-careers-page; vendorConfidence=medium,company-site
+712,Trella,https://careers.trella.app/jobs,MENA/Africa,3,International startup careers source,Official careers/jobs portal; sourceType=official-careers-page; vendorConfidence=medium,company-site
