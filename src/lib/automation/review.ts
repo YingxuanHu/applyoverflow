@@ -131,7 +131,7 @@ function buildReviewField(input: {
     sensitive,
     custom,
     reviewRequired,
-    editable: input.value === null || input.source === "Saved answer" || input.source === "User-entered answer",
+    editable: true,
     reason: input.reason,
   };
 }
@@ -168,38 +168,38 @@ function getReadinessCopy(status: AutoApplyReadinessStatus, missingCount: number
   switch (status) {
     case "AUTO_APPLY_READY":
       return {
-        statusLabel: "Auto Apply Ready",
+        statusLabel: "Ready to submit",
         statusDescription:
-          "The form loaded and required fields were mapped to trusted data. Review once before submitting.",
+          "Everything required has a value. Review the answers before submitting.",
       };
     case "NEEDS_USER_REVIEW":
       return {
-        statusLabel: "Needs Review",
+        statusLabel: "Ready to submit",
         statusDescription:
-          "The form can be filled, but one or more sensitive or custom fields should be explicitly reviewed first.",
+          "The form can be completed, but custom or sensitive answers should be reviewed before submitting.",
       };
     case "NEEDS_EXTRA_ANSWERS":
       return {
-        statusLabel: "Needs Extra Answers",
-        statusDescription: `${missingCount} required field${missingCount === 1 ? "" : "s"} need user input before this can be submitted.`,
+        statusLabel: "Needs your input",
+        statusDescription: `${missingCount} required field${missingCount === 1 ? "" : "s"} need an answer before this can be submitted.`,
       };
     case "PARTIAL_AUTOFILL_ONLY":
       return {
-        statusLabel: "Autofill Only",
+        statusLabel: "Needs your input",
         statusDescription:
-          "Some fields can be filled, but unresolved fields remain. Use this as assisted autofill, not full auto-apply.",
+          "We can fill part of this application, but you need to complete the remaining fields.",
       };
     case "NOT_AUTO_APPLICABLE":
       return {
-        statusLabel: "Unsupported",
+        statusLabel: "Cannot auto-apply",
         statusDescription:
-          "This job should stay in the manual application path.",
+          "This job needs to be completed on the employer site.",
       };
     case "BLOCKED_OR_UNSUPPORTED":
       return {
-        statusLabel: "Blocked",
+        statusLabel: "Cannot auto-apply",
         statusDescription:
-          "The form could not be verified safely. Do not submit through automation.",
+          "The employer form could not be verified safely from the app.",
       };
   }
 }
