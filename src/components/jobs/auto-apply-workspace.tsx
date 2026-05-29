@@ -1,6 +1,14 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -417,9 +425,9 @@ export function AutoApplyWorkspace({
       <section className="rounded-xl border border-border/70 bg-background/60 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Profile data used for mapping</p>
+            <p className="text-sm font-medium text-foreground">Your saved details</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              These values are sources, not hidden submissions. Edit stale details before detecting the form.
+              We use these as starting values. You can still edit every answer before submission.
             </p>
           </div>
           {!editingContact ? (
@@ -637,13 +645,13 @@ function ReviewPanel({
       <div className="mt-4 rounded-lg border border-border/70 bg-background/65 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Review what will be submitted</p>
+            <p className="text-sm font-medium text-foreground">Application assistant</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Edit any value here before confirming. Blank optional questions will not be submitted.
+              Complete missing answers and review the values that would be submitted.
             </p>
           </div>
           <span className="text-xs text-muted-foreground">
-            {editableFieldCount} detected field{editableFieldCount === 1 ? "" : "s"}
+            {editableFieldCount} application field{editableFieldCount === 1 ? "" : "s"}
           </span>
         </div>
 
@@ -836,7 +844,7 @@ function FieldPill({
   children,
   tone = "neutral",
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   tone?: "neutral" | "required" | "warning";
 }) {
   return (
