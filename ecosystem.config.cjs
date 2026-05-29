@@ -43,6 +43,39 @@ function buildOvernightApp(name, args, output, error, extraEnv = {}) {
   };
 }
 
+function buildOvernightShellApp(name, args, output, error, extraEnv = {}) {
+  return {
+    name,
+    script: "bash",
+    args,
+    cwd: __dirname,
+    autorestart: true,
+    max_restarts: 20,
+    min_uptime: "30s",
+    restart_delay: 10000,
+    output,
+    error,
+    log_date_format: "YYYY-MM-DD HH:mm:ss",
+    merge_logs: true,
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || "production",
+      DATABASE_PROCESS_ROLE: "recovery_poll",
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+      INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
+      INGEST_FRONTIER_POLL_ONLY: process.env.INGEST_FRONTIER_POLL_ONLY || "true",
+      JOOBLE_ENABLED: "false",
+      SOURCE_JOOBLE_ENABLED: "false",
+      INGEST_JOOBLE_ENABLED: "false",
+      INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
+        process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
+      ...extraEnv,
+    },
+    max_memory_restart: "1024M",
+  };
+}
+
 const overnightAccelerationApps = overnightAccelerationEnabled
   ? [
       buildOvernightApp(
@@ -87,6 +120,16 @@ const overnightAccelerationApps = overnightAccelerationEnabled
             process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "900",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
             process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "18",
+        }
+      ),
+      buildOvernightShellApp(
+        "ingest-frontier-growth",
+        "-lc 'while true; do node_modules/.bin/tsx -r dotenv/config scripts/run-frontier-growth-pass.ts --cycles=3 --validation-limit=300 --poll-limit=160 --poll-concurrency=8 --max-wall-clock-ms=240000; sleep 300; done'",
+        "./logs/frontier-growth-overnight-out.log",
+        "./logs/frontier-growth-overnight-err.log",
+        {
+          INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "20",
         }
       ),
       buildOvernightApp(
