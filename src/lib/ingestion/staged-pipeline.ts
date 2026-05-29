@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import {
   findCrossSourceCanonicalMatch,
-  isCanonicalMatchCompatible,
+  isCanonicalMatchCompatibleForSource,
 } from "@/lib/ingestion/dedupe";
 import {
   deriveSourceIdentitySnapshot,
@@ -18,6 +18,13 @@ import {
   inferFreshnessModeFromSourceName,
   parseSourceConnectorJobFromRawPayload,
 } from "@/lib/ingestion/normalized-records";
+import type { NormalizedJobInput } from "@/lib/ingestion/types";
+import {
+  coerceNormalizedCareerStage,
+  coerceNormalizedEmploymentType,
+  coerceNormalizedIndustry,
+  coerceNormalizedRoleCategory,
+} from "@/lib/job-metadata";
 
 export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: string) {
   const normalized = await prisma.normalizedJobRecord.findUniqueOrThrow({
@@ -80,21 +87,36 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     shortSummary: normalized.shortSummary,
     industry: normalized.industry,
     roleFamily: normalized.roleFamily,
+    normalizedEmploymentType: coerceNormalizedEmploymentType(normalized.normalizedEmploymentType),
+    normalizedCareerStage: coerceNormalizedCareerStage(normalized.normalizedCareerStage),
+    normalizedIndustry: coerceNormalizedIndustry(normalized.normalizedIndustry),
+    normalizedRoleCategory: coerceNormalizedRoleCategory(normalized.normalizedRoleCategory),
     applyUrl: normalized.applyUrl,
     applyUrlKey: normalized.applyUrlKey,
     postedAt: normalized.postedAt,
     deadline: normalized.deadline,
     duplicateClusterId: normalized.duplicateClusterId,
-  };
+  } satisfies NormalizedJobInput;
 
   const mappedCanonical = await findMappedCanonical(normalized.rawJob.id);
   const compatibleMappedCanonical =
-    mappedCanonical && isCanonicalMatchCompatible(normalizedJob, mappedCanonical.canonical)
+    mappedCanonical &&
+    isCanonicalMatchCompatibleForSource(
+      normalizedJob,
+      mappedCanonical.canonical,
+      sourceIdentity
+    )
       ? mappedCanonical
       : null;
+  const incompatibleMappedCanonicalId =
+    mappedCanonical && !compatibleMappedCanonical ? mappedCanonical.canonical.id : null;
   const crossSourceMatch = compatibleMappedCanonical
     ? null
-    : await findCrossSourceCanonicalMatch(normalizedJob, sourceIdentity);
+    : await findCrossSourceCanonicalMatch(normalizedJob, sourceIdentity, {
+        excludeCanonicalIds: incompatibleMappedCanonicalId
+          ? [incompatibleMappedCanonicalId]
+          : [],
+      });
   const canonicalMatch = compatibleMappedCanonical ?? crossSourceMatch;
 
   const canonicalResult = await upsertCanonicalJob({

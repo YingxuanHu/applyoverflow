@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.git
+.next
+.runtime
+logs
+tmp-sync
+node_modules
+npm-debug.log*
+data/uploads
+data/automation-screenshots
+deploy/single-vps/backups
+.deploy-backups
+*.dump

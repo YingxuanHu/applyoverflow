@@ -29,6 +29,7 @@ import {
 } from "../src/lib/ingestion/capacity";
 import { installProcessDiagnostics } from "./_process-diagnostics";
 import { syncProductiveAtsTenantsToDiscoveryStore } from "../src/lib/ingestion/ats-tenant-store";
+import { repairJobFeedIndexBatch } from "../src/lib/ingestion/search-index";
 import { runScheduledIngestion } from "../src/lib/ingestion/scheduler";
 import { prisma } from "../src/lib/db";
 import type { SourceTaskKind } from "../src/generated/prisma/client";
@@ -108,6 +109,10 @@ const RECOVERY_LIFECYCLE_EVERY_CYCLES = Math.max(
 );
 const RECOVERY_URL_HEALTH_LIMIT =
   readNonNegativeIntegerEnv("INGEST_RECOVERY_URL_HEALTH_LIMIT") ?? 0;
+const FEED_INDEX_REPAIR_LIMIT =
+  readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_LIMIT") ?? 500;
+const FEED_INDEX_REPAIR_CONCURRENCY =
+  readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_CONCURRENCY") ?? 4;
 
 type DaemonLock = {
   pid: number;
@@ -129,6 +134,13 @@ type CycleQueueProfile = {
 type DueOperationalBacklog = {
   companyDiscovery: number;
   sourceValidation: number;
+  connectorPoll: number;
+  rediscovery: number;
+  total: number;
+};
+
+type DueCompanySourceBacklog = {
+  validation: number;
   connectorPoll: number;
   rediscovery: number;
   total: number;
@@ -222,6 +234,56 @@ async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklo
   return backlog;
 }
 
+async function getDueCompanySourceBacklog(now: Date): Promise<DueCompanySourceBacklog> {
+  const grouped = await prisma.sourceTask.groupBy({
+    by: ["kind"],
+    where: {
+      status: "PENDING",
+      notBeforeAt: { lte: now },
+      companySourceId: { not: null },
+      kind: {
+        in: [
+          "SOURCE_VALIDATION",
+          "CONNECTOR_POLL",
+          "REDISCOVERY",
+        ] satisfies SourceTaskKind[],
+      },
+      companySource: {
+        connectorName: {
+          notIn: [
+            "adzuna",
+            "himalayas",
+            "jobicy",
+            "jooble",
+            "jsearch",
+            "remoteok",
+            "remotive",
+            "themuse",
+            "usajobs",
+            "weworkremotely",
+            "workatastartup",
+          ],
+        },
+      },
+    },
+    _count: { _all: true },
+  });
+
+  const countFor = (kind: SourceTaskKind) =>
+    grouped.find((row) => row.kind === kind)?._count._all ?? 0;
+
+  const validation = countFor("SOURCE_VALIDATION");
+  const connectorPoll = countFor("CONNECTOR_POLL");
+  const rediscovery = countFor("REDISCOVERY");
+
+  return {
+    validation,
+    connectorPoll,
+    rediscovery,
+    total: validation + connectorPoll + rediscovery,
+  };
+}
+
 function hasSignificantDueBacklog(backlog: DueOperationalBacklog) {
   return (
     backlog.connectorPoll >= DUE_BACKLOG_POLL_THRESHOLD ||
@@ -240,6 +302,27 @@ async function processExists(pid: number) {
   }
 }
 
+async function readProcessCommandLine(pid: number) {
+  try {
+    return (await readFile(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim();
+  } catch {
+    return null;
+  }
+}
+
+async function processLooksLikeIngestDaemon(pid: number) {
+  const commandLine = await readProcessCommandLine(pid);
+  if (!commandLine) {
+    // On non-Linux hosts we may not be able to inspect /proc. Be conservative.
+    return true;
+  }
+
+  return (
+    commandLine.includes("scripts/ingest-daemon.ts") ||
+    commandLine.includes("scripts/ingest-daemon.js")
+  );
+}
+
 async function acquireDaemonLock() {
   await mkdir(DAEMON_RUNTIME_DIR, { recursive: true });
 
@@ -249,10 +332,16 @@ async function acquireDaemonLock() {
     const existingPid = typeof existing.pid === "number" ? existing.pid : null;
 
     if (existingPid && existingPid !== process.pid && (await processExists(existingPid))) {
-      console.error(
-        `[daemon] Another ingest daemon is already running (pid ${existingPid}). Refusing to start a second instance.`
+      if (await processLooksLikeIngestDaemon(existingPid)) {
+        console.error(
+          `[daemon] Another ingest daemon is already running (pid ${existingPid}). Refusing to start a second instance.`
+        );
+        return false;
+      }
+
+      console.warn(
+        `[daemon] Ignoring stale daemon lock for pid ${existingPid}; pid is now a different process.`
       );
-      return false;
     }
   } catch {
     // no existing lock or unreadable stale file; overwrite below
@@ -384,12 +473,20 @@ async function main() {
       const atsTenantSync = await syncProductiveAtsTenantsToDiscoveryStore({
         now: new Date(),
       });
+      const companySourceBacklog = await getDueCompanySourceBacklog(new Date());
+      if (companySourceBacklog.total > 0) {
+        console.log(
+          `[daemon] Legacy registry deferred: company-source backlog remains (validation ${companySourceBacklog.validation}, source poll ${companySourceBacklog.connectorPoll}, rediscovery ${companySourceBacklog.rediscovery})`
+        );
+      }
       const result = await runScheduledIngestion({
         now: cycleStart,
         force: isFirstCycle && args.force,
         triggerLabel: "script.ingest.daemon",
-        maxCycleDurationMs: profile.legacyBudgetMs,
-        maxConnectorRuns: profile.legacyMaxRuns,
+        maxCycleDurationMs:
+          companySourceBacklog.total > 0 ? 0 : profile.legacyBudgetMs,
+        maxConnectorRuns:
+          companySourceBacklog.total > 0 ? 0 : profile.legacyMaxRuns,
         skipLifecycle: !shouldRunLifecycle,
         lifecyclePerJobLimit: shouldRunLifecycle ? 3_000 : 0,
       });
@@ -464,6 +561,19 @@ async function main() {
         console.log(
           `[daemon] +${totalNewThisCycle} new jobs this cycle → ${lc.liveCount} total live`
         );
+      }
+
+      if (FEED_INDEX_REPAIR_LIMIT > 0) {
+        const feedIndexRepair = await repairJobFeedIndexBatch({
+          mode: "all",
+          limit: FEED_INDEX_REPAIR_LIMIT,
+          concurrency: FEED_INDEX_REPAIR_CONCURRENCY,
+        });
+        if (feedIndexRepair.processed > 0 || feedIndexRepair.failed > 0) {
+          console.log(
+            `[daemon] Feed index repair: ${feedIndexRepair.succeeded}/${feedIndexRepair.processed} repaired, ${feedIndexRepair.failed} failed`
+          );
+        }
       }
 
       const dueBacklog = await getDueOperationalBacklog(new Date());

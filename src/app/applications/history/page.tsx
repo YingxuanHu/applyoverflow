@@ -104,11 +104,6 @@ export default async function ApplicationHistoryPage({
             {submittedCount > 0 ? ` · ${submittedCount} submitted` : ""}
           </p>
         </div>
-        <div className="page-actions">
-          <Link href="/applications">Applications</Link>
-          <Link href="/applications?status=WISHLIST">Wishlist</Link>
-          <Link href="/jobs">Feed</Link>
-        </div>
       </div>
 
       <section className="surface-panel p-4 sm:p-5">
@@ -146,7 +141,7 @@ export default async function ApplicationHistoryPage({
 
       <section className="surface-panel p-4 sm:p-5">
         {filteredHistory.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center">
+          <div className="rounded-lg border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center">
             <p className="text-sm font-medium text-foreground">
               No applications in this view
             </p>
@@ -190,7 +185,7 @@ function ApplicationRow({ item }: { item: ApplicationHistoryItem }) {
   const lifecycleLabel = getLifecycleLabel(item.job.status);
 
   return (
-    <article className="rounded-2xl border border-border/70 bg-background/45 p-4 transition-colors hover:bg-background/60">
+    <article className="rounded-lg border border-border/70 bg-background/45 p-4 transition-colors hover:bg-background/60">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">

@@ -139,9 +139,9 @@ function buildSourceJob({
   job: WorkablePublicJob;
 }) {
   const sourceId = String(job.shortcode ?? job.code ?? job.title);
-  const postingUrl =
-    job.url ??
-    buildPostingUrl(accountToken, job.shortcode ?? job.code ?? null);
+  const shortcode = job.shortcode ?? job.code ?? null;
+  const postingUrl = buildPostingUrl(accountToken, shortcode);
+  const applyUrl = job.application_url ?? job.url ?? postingUrl;
 
   return {
     sourceId,
@@ -150,7 +150,7 @@ function buildSourceJob({
     company: fallbackCompanyName,
     location: buildLocation(job),
     description: buildDescription(job, accountDescription),
-    applyUrl: job.application_url ?? postingUrl,
+    applyUrl,
     postedAt: parseDateValue(job.published ?? job.created_at ?? job.updated_at),
     deadline: null,
     employmentType: inferEmploymentType(job.employment_type),

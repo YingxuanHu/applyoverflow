@@ -2,6 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { formatDisplayLabel, formatRelativeAge } from "@/lib/job-display";
 import { getDeploymentTopology } from "@/lib/deployment-topology";
+import { requireOpsAdmin } from "@/lib/ops-auth";
 import {
   getIngestionObservabilityOverview,
   getIngestionOverview,
@@ -9,6 +10,7 @@ import {
 import type { IngestionRunListItem, IngestionSourceCoverage } from "@/lib/ingestion/types";
 
 export default async function IngestionOpsPage() {
+  await requireOpsAdmin("/ops/ingestion");
   await connection();
   const [overview, observability] = await Promise.all([
     getIngestionOverview(),

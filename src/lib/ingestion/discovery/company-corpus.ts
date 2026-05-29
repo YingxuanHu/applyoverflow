@@ -79,7 +79,7 @@ export async function buildCompanyDiscoveryCorpus(options?: {
   minCanadaRelevantCount?: number;
   minTotalLiveCount?: number;
 }) {
-  const minCanadaRelevantCount = options?.minCanadaRelevantCount ?? 1;
+  const minCanadaRelevantCount = options?.minCanadaRelevantCount ?? 0;
   const minTotalLiveCount = options?.minTotalLiveCount ?? 1;
 
   // Reuse the cached corpus when the gating thresholds match. The bulk of the

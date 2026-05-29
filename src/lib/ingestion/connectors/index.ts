@@ -39,6 +39,17 @@ export {
 export { createHimalayasConnector } from "./himalayas";
 export { createJobicyConnector } from "./jobicy";
 export { createJoobleConnector } from "./jooble";
+export { createOracleCloudConnector } from "./oraclecloud";
+export { createWorkAtAStartupConnector } from "./workatastartup";
+export { createJSearchConnector } from "./jsearch";
+export { createBreezyHrConnector } from "./breezyhr";
+export { createHireologyConnector } from "./hireology";
+export {
+  createJsonLdBoardConnector,
+  createParadoxConnector,
+  createHrSmartConnector,
+} from "./json-ld-board";
+export { createJobBankLiveConnector } from "./jobbank-live";
 export {
   buildJobviteBoardUrl,
   buildJobviteSourceToken,
@@ -56,6 +67,16 @@ export { createJobBankConnector } from "./jobbank";
 export { createWeWorkRemotelyConnector } from "./weworkremotely";
 export { createBuiltInConnector } from "./builtin";
 export { createHiringCafeConnector } from "./hiringcafe";
+export {
+  buildAmazonSearchUrl,
+  buildAppleSearchUrl,
+  buildGoogleSearchUrl,
+  createOfficialCompanyConnector,
+  extractAppleJobsFromHydration,
+  extractGoogleJobsFromHtml,
+  extractGoogleTotalRecords,
+  parseOfficialCompanySourceToken,
+} from "./official-company";
 export {
   createCompanySiteConnector,
   inspectCompanySiteRoute,

@@ -8,6 +8,7 @@ import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 type TrackerActionState = {
   error: string | null;
   success: string | null;
+  createdApplicationId: string | null;
 };
 
 const statusOptions = new Set<TrackedApplicationStatus>([
@@ -37,6 +38,7 @@ function toActionState(error: unknown): TrackerActionState {
   return {
     error: error instanceof Error ? error.message : "Request failed.",
     success: null,
+    createdApplicationId: null,
   };
 }
 
@@ -49,29 +51,34 @@ export async function createTrackedApplicationAction(
     const roleTitle = String(formData.get("roleTitle") ?? "").trim();
     const roleUrl = String(formData.get("roleUrl") ?? "").trim() || null;
     const statusRaw = String(formData.get("status") ?? "APPLIED").trim().toUpperCase();
-    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const reminder = String(formData.get("reminder") ?? "").trim() || null;
 
     if (!company || !roleTitle) {
-      return { error: "Company and role title are required.", success: null };
+      return {
+        error: "Company and role title are required.",
+        success: null,
+        createdApplicationId: null,
+      };
     }
 
     if (!statusOptions.has(statusRaw as TrackedApplicationStatus)) {
-      return { error: "Invalid status.", success: null };
+      return { error: "Invalid status.", success: null, createdApplicationId: null };
     }
 
-    await createTrackedApplication({
+    const createdApplication = await createTrackedApplication({
       company,
       roleTitle,
       roleUrl,
       status: statusRaw as TrackedApplicationStatus,
       deadline: parseDate(formData.get("deadline")),
-      notes,
+      initialReminderNote: reminder,
     });
 
     revalidateTrackerOverviewViews();
     return {
       error: null,
       success: "Tracked application added.",
+      createdApplicationId: createdApplication.id,
     };
   } catch (error) {
     return toActionState(error);

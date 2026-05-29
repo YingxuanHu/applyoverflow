@@ -1,0 +1,51 @@
+[
+  {
+    "rank": 2,
+    "companyName": "Microsoft",
+    "companyKey": "microsoft",
+    "careersUrl": "https://careers.microsoft.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High software cloud data and internship volume",
+    "notes": "Prioritize official source if accessible",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "microsoft",
+      "token": "microsoft:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Microsoft",
+      "boardUrl": "https://apply.careers.microsoft.com/careers",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Microsoft exposes a first-party Eightfold PCSX search and position details API on its official careers host."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://apply.careers.microsoft.com/careers",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "Software Engineer II- Front End Development",
+      "Software Engineer- Full stack"
+    ],
+    "sampleLocations": [
+      "Canada, British Columbia, Vancouver; Vancouver, BC, CA",
+      "Canada, British Columbia, Vancouver; Vancouver, BC, CA"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": {
+      "companyExists": true,
+      "companySourceCount": 2,
+      "officialCompanySourceCount": 0,
+      "lowerTrustSourceCount": 2,
+      "liveCanonicalCount": 7
+    },
+    "registeredCompanySourceId": "cmpnog6nz0000z5f7uw75e8b0",
+    "queuedTask": "CONNECTOR_POLL"
+  }
+]

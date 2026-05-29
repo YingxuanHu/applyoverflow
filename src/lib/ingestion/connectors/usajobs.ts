@@ -85,8 +85,11 @@ type UsaJobsSearchResponse = {
   };
 };
 
-// Keywords targeting tech and finance roles in federal government
+// Keywords across the 12 priority categories. USAJobs lets us run one
+// connector per keyword (each becomes a separate shard with its own
+// IngestionRun history + adaptive budget), so we cast a wide net here.
 const DEFAULT_KEYWORDS = [
+  // Tech / IT
   "Software Engineer",
   "Software Developer",
   "Data Scientist",
@@ -98,13 +101,58 @@ const DEFAULT_KEYWORDS = [
   "Systems Engineer",
   "DevOps",
   "Machine Learning",
+  "AI Engineer",
+  "Product Manager",
+  "UX Designer",
+  // Finance / Accounting
   "Financial Analyst",
   "Economist",
   "Accountant",
   "Budget Analyst",
+  "Auditor",
+  "Tax Examiner",
+  // Engineering (non-software)
+  "Mechanical Engineer",
+  "Civil Engineer",
+  "Electrical Engineer",
+  "Chemical Engineer",
+  "Aerospace Engineer",
+  "Biomedical Engineer",
+  "Industrial Engineer",
+  "Environmental Engineer",
+  // Consulting / strategy / analysis
   "Program Analyst",
   "Management Analyst",
   "Operations Research",
+  "Policy Analyst",
+  "Intelligence Analyst",
+  // Marketing / Communications
+  "Public Affairs",
+  "Communications Specialist",
+  "Marketing Specialist",
+  // Sales (less common federal — but procurement reps exist)
+  "Contracting Officer",
+  "Procurement Analyst",
+  // Law / Legal
+  "Attorney",
+  "Paralegal",
+  "Legal Assistant",
+  "Compliance Officer",
+  // HR
+  "Human Resources Specialist",
+  "Human Resources Manager",
+  "Recruiter",
+  "Personnel Specialist",
+  // Healthcare admin (non-clinical)
+  "Health System Specialist",
+  "Health Administrator",
+  "Medical Records Administrator",
+  // Education (federal admin, not classroom)
+  "Education Specialist",
+  "Training Specialist",
+  // Business operations
+  "Business Operations Specialist",
+  "Administrative Officer",
 ];
 
 export function createUsaJobsConnector(

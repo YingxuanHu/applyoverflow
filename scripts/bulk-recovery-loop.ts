@@ -14,17 +14,25 @@ const bulkRecoveryProcessName = (() => {
 installProcessDiagnostics({ processName: bulkRecoveryProcessName });
 import {
   createAdzunaConnector,
+  createBreezyHrConnector,
   createBuiltInConnector,
+  createHireologyConnector,
   createHiringCafeConnector,
   createHimalayasConnector,
+  createHrSmartConnector,
   createJobBankConnector,
+  createJobBankLiveConnector,
   createJobicyConnector,
   createJoobleConnector,
+  createJSearchConnector,
   createMuseConnector,
+  createOracleCloudConnector,
+  createParadoxConnector,
   createRemoteOkConnector,
   createRemotiveConnector,
   createUsaJobsConnector,
   createWeWorkRemotelyConnector,
+  createWorkAtAStartupConnector,
 } from "@/lib/ingestion/connectors";
 import type { SourceConnector } from "@/lib/ingestion/types";
 
@@ -346,6 +354,66 @@ function getBulkRecoveryEntries(): Entry[] {
       maxRuntimeMs: builtinRuntimeMs,
       limit: builtinLimit,
     },
+    // BuiltIn city subsites — each paginates its own job set, so adding
+    // these effectively 5-9× the connector's per-cycle throughput vs.
+    // running just the national board. They use the same cadence /
+    // runtime budget so they share the adaptive scheduler treatment.
+    {
+      key: "builtin:nyc",
+      connector: createBuiltInConnector({ profile: "nyc" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:la",
+      connector: createBuiltInConnector({ profile: "la" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:boston",
+      connector: createBuiltInConnector({ profile: "boston" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:chicago",
+      connector: createBuiltInConnector({ profile: "chicago" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:austin",
+      connector: createBuiltInConnector({ profile: "austin" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:seattle",
+      connector: createBuiltInConnector({ profile: "seattle" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:colorado",
+      connector: createBuiltInConnector({ profile: "colorado" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
+    {
+      key: "builtin:sf",
+      connector: createBuiltInConnector({ profile: "sf" }),
+      cadenceMinutes: builtinCadence,
+      maxRuntimeMs: builtinRuntimeMs,
+      limit: builtinLimit,
+    },
     {
       key: "hiringcafe:feed",
       connector: createHiringCafeConnector(),
@@ -384,6 +452,190 @@ function getBulkRecoveryEntries(): Entry[] {
       maxRuntimeMs: jobBankRuntimeMs,
     },
   ];
+
+  // ── JobBank Live (fresher than monthly CSV; rotates queries via checkpoint) ─
+  entries.push({
+    key: "jobbank-live:feed",
+    connector: createJobBankLiveConnector(),
+    cadenceMinutes: parsePositiveInteger(
+      process.env.JOBBANK_LIVE_SCHEDULE_MINUTES,
+      60
+    ),
+    maxRuntimeMs: parsePositiveInteger(
+      process.env.JOBBANK_LIVE_MAX_RUNTIME_MS,
+      240_000
+    ),
+  });
+
+  // ── Y Combinator "Work at a Startup" (no auth, single endpoint) ─────────
+  entries.push({
+    key: "workatastartup:feed",
+    connector: createWorkAtAStartupConnector(),
+    cadenceMinutes: parsePositiveInteger(
+      process.env.WORKATASTARTUP_SCHEDULE_MINUTES,
+      720
+    ),
+    maxRuntimeMs: parsePositiveInteger(
+      process.env.WORKATASTARTUP_MAX_RUNTIME_MS,
+      300_000
+    ),
+  });
+
+  // ── JSearch — RapidAPI free tier (200 reqs/month). Daily cadence + 1
+  //    req/run keeps us comfortably under the cap.
+  if ((process.env.JSEARCH_API_KEY ?? "").trim()) {
+    entries.push({
+      key: "jsearch:feed",
+      connector: createJSearchConnector(),
+      cadenceMinutes: parsePositiveInteger(
+        process.env.JSEARCH_SCHEDULE_MINUTES,
+        1440
+      ),
+      maxRuntimeMs: parsePositiveInteger(
+        process.env.JSEARCH_MAX_RUNTIME_MS,
+        180_000
+      ),
+    });
+  }
+
+  // ── Oracle Cloud HCM — multiple tenants via ORACLECLOUD_TENANTS env ─────
+  const oracleTenantsRaw =
+    process.env.ORACLECLOUD_TENANTS?.trim() ??
+    // Defaults seeded from hiringcafe production data
+    "ejov.fa.ca2.oraclecloud.com|CX,emgi.fa.ca3.oraclecloud.com|CX,hcrw.fa.us2.oraclecloud.com|CX,hcpd.fa.ca2.oraclecloud.com|CX,iaemup.fa.ocs.oraclecloud.com|CX,fa-exhh-saasfaprod1.fa.ocs.oraclecloud.com|CX,fa-evcg-saasfaprod1.fa.ocs.oraclecloud.com|CX,fa-evlf-saasfaprod1.fa.ocs.oraclecloud.com|CX";
+  for (const token of oracleTenantsRaw.split(",").map((t) => t.trim()).filter(Boolean)) {
+    const [tenant, site] = token.split("|");
+    if (!tenant || !/\.oraclecloud\.com$/i.test(tenant)) continue;
+    try {
+      const connector = createOracleCloudConnector({
+        tenant,
+        site: site?.trim() || "CX",
+      });
+      entries.push({
+        key: connector.key,
+        connector,
+        cadenceMinutes: parsePositiveInteger(
+          process.env.ORACLECLOUD_SCHEDULE_MINUTES,
+          720
+        ),
+        maxRuntimeMs: parsePositiveInteger(
+          process.env.ORACLECLOUD_MAX_RUNTIME_MS,
+          240_000
+        ),
+      });
+    } catch {
+      // Invalid tenant — skip silently
+    }
+  }
+
+  // ── BreezyHR — per-company JSON feeds ───────────────────────────────────
+  const breezyCompaniesRaw = process.env.BREEZYHR_COMPANIES?.trim();
+  if (breezyCompaniesRaw) {
+    for (const company of breezyCompaniesRaw.split(",").map((t) => t.trim()).filter(Boolean)) {
+      try {
+        const connector = createBreezyHrConnector({ company });
+        entries.push({
+          key: connector.key,
+          connector,
+          cadenceMinutes: parsePositiveInteger(
+            process.env.BREEZYHR_SCHEDULE_MINUTES,
+            720
+          ),
+          maxRuntimeMs: parsePositiveInteger(
+            process.env.BREEZYHR_MAX_RUNTIME_MS,
+            120_000
+          ),
+        });
+      } catch {
+        // skip invalid
+      }
+    }
+  }
+
+  // ── Hireology — per-tenant career pages with JSON-LD ────────────────────
+  const hireologySlugsRaw = process.env.HIREOLOGY_SLUGS?.trim();
+  if (hireologySlugsRaw) {
+    for (const slug of hireologySlugsRaw.split(",").map((t) => t.trim()).filter(Boolean)) {
+      try {
+        const connector = createHireologyConnector({ slug });
+        entries.push({
+          key: connector.key,
+          connector,
+          cadenceMinutes: parsePositiveInteger(
+            process.env.HIREOLOGY_SCHEDULE_MINUTES,
+            720
+          ),
+          maxRuntimeMs: parsePositiveInteger(
+            process.env.HIREOLOGY_MAX_RUNTIME_MS,
+            120_000
+          ),
+        });
+      } catch {
+        // skip invalid
+      }
+    }
+  }
+
+  // ── Paradox / HRSmart — tenant|boardUrl pairs ───────────────────────────
+  function parseTenantBoardUrlPairs(raw: string) {
+    return raw
+      .split(",")
+      .map((entry) => {
+        const [tenant, boardUrl] = entry.split("|");
+        if (!tenant || !boardUrl) return null;
+        return { tenant: tenant.trim(), boardUrl: boardUrl.trim() };
+      })
+      .filter(
+        (value): value is { tenant: string; boardUrl: string } =>
+          value !== null &&
+          value.tenant.length > 0 &&
+          /^https?:\/\//.test(value.boardUrl)
+      );
+  }
+  const paradoxRaw = process.env.PARADOX_TENANTS?.trim();
+  if (paradoxRaw) {
+    for (const { tenant, boardUrl } of parseTenantBoardUrlPairs(paradoxRaw)) {
+      try {
+        const connector = createParadoxConnector({ tenant, boardUrl });
+        entries.push({
+          key: connector.key,
+          connector,
+          cadenceMinutes: parsePositiveInteger(
+            process.env.PARADOX_SCHEDULE_MINUTES,
+            720
+          ),
+          maxRuntimeMs: parsePositiveInteger(
+            process.env.PARADOX_MAX_RUNTIME_MS,
+            120_000
+          ),
+        });
+      } catch {
+        // skip invalid
+      }
+    }
+  }
+  const hrsmartRaw = process.env.HRSMART_TENANTS?.trim();
+  if (hrsmartRaw) {
+    for (const { tenant, boardUrl } of parseTenantBoardUrlPairs(hrsmartRaw)) {
+      try {
+        const connector = createHrSmartConnector({ tenant, boardUrl });
+        entries.push({
+          key: connector.key,
+          connector,
+          cadenceMinutes: parsePositiveInteger(
+            process.env.HRSMART_SCHEDULE_MINUTES,
+            720
+          ),
+          maxRuntimeMs: parsePositiveInteger(
+            process.env.HRSMART_MAX_RUNTIME_MS,
+            120_000
+          ),
+        });
+      } catch {
+        // skip invalid
+      }
+    }
+  }
 
   if (hasUsaJobsCredentials) {
     entries.splice(

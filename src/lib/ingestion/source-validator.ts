@@ -5,7 +5,9 @@ import type {
 } from "@/generated/prisma/client";
 import {
   createCompanySiteConnector,
+  createOfficialCompanyConnector,
   inspectCompanySiteRoute,
+  parseOfficialCompanySourceToken,
   parseTaleoSourceToken,
   validateTaleoPortal,
 } from "@/lib/ingestion/connectors";
@@ -66,6 +68,10 @@ export async function validateCompanySource(
     return validateTaleoSource(source);
   }
 
+  if (source.connectorName === "official-company") {
+    return validateOfficialCompanySource(source, now);
+  }
+
   const connector = createConnectorForCandidate({
     input: source.boardUrl,
     connectorName: source.connectorName as Parameters<typeof createConnectorForCandidate>[0]["connectorName"],
@@ -82,6 +88,25 @@ export async function validateCompanySource(
       limit: 1,
       log: () => {},
     });
+    return classifyConnectorFetch(source, result);
+  } catch (error) {
+    return classifyThrownError(source, error);
+  }
+}
+
+async function validateOfficialCompanySource(
+  source: ValidatableCompanySource,
+  now: Date
+): Promise<SourceValidationResult> {
+  try {
+    const target = parseOfficialCompanySourceToken(source.token);
+    const connector = createOfficialCompanyConnector(target);
+    const result = await connector.fetchJobs({
+      now,
+      limit: 1,
+      log: () => {},
+    });
+
     return classifyConnectorFetch(source, result);
   } catch (error) {
     return classifyThrownError(source, error);
@@ -375,7 +400,9 @@ function baseQualityScoreForSource(
   hasJob: boolean
 ) {
   let score =
-    source.sourceType === "ATS"
+    source.connectorName === "official-company"
+      ? 0.98
+      : source.sourceType === "ATS"
       ? 0.92
       : source.sourceType === "COMPANY_JSON"
         ? 0.78

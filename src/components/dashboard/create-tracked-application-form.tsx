@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { createTrackedApplicationAction } from "@/app/dashboard/actions";
@@ -10,9 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useActionToast } from "@/components/ui/use-action-toast";
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
-
+function SubmitButton({ pending }: { pending: boolean }) {
   return (
     <Button type="submit" disabled={pending}>
       {pending ? "Saving..." : "Add application"}
@@ -23,9 +20,10 @@ function SubmitButton() {
 export function CreateTrackedApplicationForm() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  const [state, action] = useActionState(createTrackedApplicationAction, {
+  const [state, action, pending] = useActionState(createTrackedApplicationAction, {
     error: null,
     success: null,
+    createdApplicationId: null,
   });
   useActionToast(state, {
     successTitle: "Application added",
@@ -33,13 +31,13 @@ export function CreateTrackedApplicationForm() {
   });
 
   useEffect(() => {
-    if (!state.success) {
+    if (!state.success || !state.createdApplicationId) {
       return;
     }
 
     formRef.current?.reset();
     router.refresh();
-  }, [router, state.success]);
+  }, [router, state.createdApplicationId, state.success]);
 
   return (
     <form action={action} className="grid gap-3" ref={formRef}>
@@ -98,13 +96,13 @@ export function CreateTrackedApplicationForm() {
 
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Notes
+            Reminder
           </span>
           <Textarea
-            name="notes"
+            name="reminder"
             rows={1}
             className="h-9 min-h-9 resize-y py-2"
-            placeholder="Why this role matters, next step, recruiter contact..."
+            placeholder="Follow up, prepare portfolio, email recruiter..."
           />
         </label>
       </div>
@@ -115,7 +113,7 @@ export function CreateTrackedApplicationForm() {
         <p className="text-xs text-muted-foreground">
           Jobs submitted from the feed will also appear here automatically.
         </p>
-        <SubmitButton />
+        <SubmitButton pending={pending} />
       </div>
     </form>
   );

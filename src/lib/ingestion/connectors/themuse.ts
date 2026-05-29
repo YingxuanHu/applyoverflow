@@ -23,12 +23,19 @@ import { readCsvEnv } from "@/lib/ingestion/source-family-config";
 const MUSE_API_BASE = "https://www.themuse.com/api/public/jobs";
 const MUSE_PAGE_SIZE = 20; // API returns 20 per page
 // TheMuse checkpoints per-category — each cycle advances until this cap is hit.
-// 150 pages × 20 = 3,000 jobs per category × 10 categories = 30k theoretical max.
+// 150 pages × 20 = 3,000 jobs per category × 22 categories = 66k theoretical max.
 const MUSE_MAX_PAGES = 150; // 150 * 20 = 3,000 jobs max per category
 const MUSE_RATE_DELAY_MS = 800; // Stay under 500/hr limit
 
-// Tech/finance-relevant categories on The Muse
+// All white-collar TheMuse categories: TECH + FINANCE + GENERAL families.
+// Previous list was tech/finance-only (10 categories). The new entries
+// (Marketing, Sales, HR, Editorial, Education, etc.) match the broadened
+// product scope. Out-of-scope categories like "Retail", "Food and
+// Restaurant", "Construction", "Manufacturing", "Transportation" are
+// intentionally absent — they're caught by EXCLUDED_TITLE_PATTERNS even
+// when individual jobs slip through anyway.
 const DEFAULT_MUSE_CATEGORIES = [
+  // TECH
   "Computer and IT",
   "Data and Analytics",
   "Data Science",
@@ -36,9 +43,23 @@ const DEFAULT_MUSE_CATEGORIES = [
   "IT",
   "Software Engineering",
   "Science and Engineering",
-  "Business Operations",
-  "Finance",
   "Project and Product Management",
+  // FINANCE
+  "Finance",
+  "Accounting",
+  // GENERAL — newly added families to mirror the Jooble expansion
+  "Business Operations",
+  "Marketing",
+  "Sales",
+  "HR",
+  "Legal",
+  "Account Management",
+  "Customer Service",
+  "Editorial",
+  "Education",
+  "Operations",
+  "Social Media",
+  "Writing",
 ];
 
 // NA locations

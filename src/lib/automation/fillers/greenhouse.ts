@@ -22,6 +22,7 @@ import type {
   AutomationBlocker,
 } from "../types";
 import { buildFieldValueMap, matchLabelToConcept, type FieldConcept } from "../field-map";
+import { detectMappedFieldsForReview } from "../form-detection";
 import { navigateToForm, detectBlockers } from "../browser";
 import { captureScreenshot } from "../screenshots";
 
@@ -69,19 +70,22 @@ async function fillGreenhouseForm(ctx: ATSFillerContext): Promise<ATSFillerResul
 
   // ─── Check blockers ────────────────────────────────────────────────
   const detectedBlockers = await detectBlockers(page);
-  if (detectedBlockers.length > 0) {
-    for (const b of detectedBlockers) {
-      blockers.push({ type: b.type as AutomationBlocker["type"], detail: b.detail });
-    }
-    return makeResult("blocked", filledFields, unfillableFields, blockers, screenshots, start);
+  for (const b of detectedBlockers) {
+    blockers.push({ type: b.type as AutomationBlocker["type"], detail: b.detail });
   }
 
   // ─── Detect if the form is present ─────────────────────────────────
-  const formPresent = await page.locator("#first_name, #application_form, form#application").count();
+  const formPresent = await page
+    .locator(
+      "#first_name, #application_form, form#application, form, input:not([type='hidden']), textarea, select"
+    )
+    .count();
   if (formPresent === 0) {
     // Try scrolling down and waiting more
     await page.waitForTimeout(2000);
-    const retryForm = await page.locator("#first_name, input[name*='first_name']").count();
+    const retryForm = await page
+      .locator("#first_name, input[name*='first_name'], input:not([type='hidden']), textarea, select")
+      .count();
     if (retryForm === 0) {
       screenshots.push(await captureScreenshot(page, screenshotDir, "02_no_form_found"));
       return makeResult("failed", filledFields, unfillableFields, [
@@ -90,11 +94,30 @@ async function fillGreenhouseForm(ctx: ATSFillerContext): Promise<ATSFillerResul
     }
   }
 
+  const detectedForReview = await detectMappedFieldsForReview(
+    page,
+    values,
+    ctx.applicationPackage.savedAnswers,
+    { platform: "Greenhouse" }
+  );
+
+  if (blockers.length > 0) {
+    screenshots.push(await captureScreenshot(page, screenshotDir, "02_blocked_analysis"));
+    return makeResult(
+      "blocked",
+      detectedForReview.filled,
+      detectedForReview.unfillable,
+      blockers,
+      screenshots,
+      start,
+      "Greenhouse form detected, but automation stopped before filling or submitting because a blocker is present."
+    );
+  }
+
   if (mode === "dry_run") {
-    // In dry run, just identify fields without filling
-    const detected = await detectAllFields(page, values);
+    // In dry run, identify actual fields without mutating the form.
     screenshots.push(await captureScreenshot(page, screenshotDir, "02_dry_run_analysis"));
-    return makeResult("filled", detected.filled, detected.unfillable, blockers, screenshots, start,
+    return makeResult("filled", detectedForReview.filled, detectedForReview.unfillable, blockers, screenshots, start,
       "Dry run complete. Fields identified but not filled.");
   }
 
@@ -142,7 +165,7 @@ async function fillGreenhouseForm(ctx: ATSFillerContext): Promise<ATSFillerResul
   }
 
   // ─── LinkedIn / Website URLs ───────────────────────────────────────
-  await fillUrlFields(page, values, filledFields, unfillableFields);
+  await fillUrlFields(page, values, filledFields);
 
   // ─── Custom questions (heuristic) ──────────────────────────────────
   await fillCustomQuestions(page, values, ctx.applicationPackage.savedAnswers, filledFields, unfillableFields);
@@ -241,8 +264,7 @@ async function uploadResume(page: Page, filePath: string | null): Promise<boolea
 async function fillUrlFields(
   page: Page,
   values: Record<string, string | null>,
-  filledFields: FilledField[],
-  unfillableFields: UnfillableField[]
+  filledFields: FilledField[]
 ) {
   const urlFieldPatterns: Array<{
     labelPattern: RegExp;
@@ -402,28 +424,6 @@ async function clickSubmit(page: Page): Promise<boolean> {
     }
   }
   return false;
-}
-
-async function detectAllFields(
-  page: Page,
-  values: Record<string, string | null>
-): Promise<{ filled: FilledField[]; unfillable: UnfillableField[] }> {
-  const filled: FilledField[] = [];
-  const unfillable: UnfillableField[] = [];
-
-  for (const field of STANDARD_FIELDS) {
-    const exists = await page.locator(field.selector).count();
-    const value = values[field.concept];
-    if (exists > 0 && value) {
-      filled.push({ label: field.concept, selector: field.selector, value });
-    } else if (exists > 0 && !value) {
-      unfillable.push({ label: field.concept, reason: "No value in profile", required: field.required });
-    } else if (field.required) {
-      unfillable.push({ label: field.concept, reason: "Selector not found", required: true });
-    }
-  }
-
-  return { filled, unfillable };
 }
 
 function makeResult(

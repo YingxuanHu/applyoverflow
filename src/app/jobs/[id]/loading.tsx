@@ -1,3 +1,18 @@
+const DESCRIPTION_SKELETON_WIDTHS = [
+  "92%",
+  "78%",
+  "88%",
+  "70%",
+  "96%",
+  "82%",
+  "74%",
+  "90%",
+  "66%",
+  "84%",
+  "72%",
+  "94%",
+];
+
 export default function JobDetailLoading() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
@@ -32,11 +47,11 @@ export default function JobDetailLoading() {
 
       {/* Description skeleton */}
       <div className="mt-6 space-y-2 border-t border-border pt-4">
-        {Array.from({ length: 12 }).map((_, i) => (
+        {DESCRIPTION_SKELETON_WIDTHS.map((width, i) => (
           <div
             key={i}
             className="h-3.5 animate-pulse rounded bg-muted"
-            style={{ width: `${65 + Math.random() * 35}%` }}
+            style={{ width }}
           />
         ))}
       </div>

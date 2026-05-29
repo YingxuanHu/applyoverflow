@@ -28,6 +28,7 @@ import type {
   AutomationBlocker,
 } from "../types";
 import { buildFieldValueMap, matchLabelToConcept } from "../field-map";
+import { detectMappedFieldsForReview } from "../form-detection";
 import { navigateToForm, detectBlockers } from "../browser";
 import { captureScreenshot } from "../screenshots";
 
@@ -63,11 +64,8 @@ async function fillLeverForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
 
   // ─── Check blockers ────────────────────────────────────────────────
   const detectedBlockers = await detectBlockers(page);
-  if (detectedBlockers.length > 0) {
-    for (const b of detectedBlockers) {
-      blockers.push({ type: b.type as AutomationBlocker["type"], detail: b.detail });
-    }
-    return makeResult("blocked", filledFields, unfillableFields, blockers, screenshots, start);
+  for (const b of detectedBlockers) {
+    blockers.push({ type: b.type as AutomationBlocker["type"], detail: b.detail });
   }
 
   // ─── Detect form ───────────────────────────────────────────────────
@@ -79,10 +77,30 @@ async function fillLeverForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
     ], screenshots, start);
   }
 
+  const detectedForReview = await detectMappedFieldsForReview(
+    page,
+    values,
+    ctx.applicationPackage.savedAnswers,
+    { platform: "Lever" }
+  );
+
+  if (blockers.length > 0) {
+    screenshots.push(await captureScreenshot(page, screenshotDir, "02_blocked_analysis"));
+    return makeResult(
+      "blocked",
+      detectedForReview.filled,
+      detectedForReview.unfillable,
+      blockers,
+      screenshots,
+      start,
+      "Lever form detected, but automation stopped before filling or submitting because a blocker is present."
+    );
+  }
+
   if (mode === "dry_run") {
     screenshots.push(await captureScreenshot(page, screenshotDir, "02_dry_run_analysis"));
-    return makeResult("filled", [], [], blockers, screenshots, start,
-      "Dry run: Lever form detected. Standard fields available.");
+    return makeResult("filled", detectedForReview.filled, detectedForReview.unfillable, blockers, screenshots, start,
+      "Dry run: Lever form detected. Fields identified but not filled.");
   }
 
   // ─── Fill standard Lever fields ────────────────────────────────────

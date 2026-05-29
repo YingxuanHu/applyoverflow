@@ -11,14 +11,25 @@ import {
   createJobviteConnector,
   createTeamtailorConnector,
   createLeverConnector,
+  createBreezyHrConnector,
+  createHireologyConnector,
+  createHrSmartConnector,
+  createJobBankLiveConnector,
+  createJSearchConnector,
+  createOfficialCompanyConnector,
+  createParadoxConnector,
+  parseOfficialCompanySourceToken,
   createMuseConnector,
+  createOracleCloudConnector,
   createRemotiveConnector,
+  createWorkAtAStartupConnector,
   createRecruiteeConnector,
   createRemoteOkConnector,
   createRipplingConnector,
   createSuccessFactorsConnector,
   createSmartRecruitersConnector,
   createTaleoConnector,
+  createUsaJobsBatchConnectors,
   createUsaJobsConnector,
   createWorkdayConnector,
   createWorkableConnector,
@@ -43,6 +54,7 @@ import {
   isSourceFamilyEnabled,
   readCsvEnv,
 } from "@/lib/ingestion/source-family-config";
+import { readBooleanEnv } from "@/lib/ingestion/capacity";
 import type { SourceConnector } from "@/lib/ingestion/types";
 
 export type SupportedConnectorName =
@@ -55,8 +67,15 @@ export type SupportedConnectorName =
   | "jooble"
   | "jobvite"
   | "teamtailor"
+  | "breezyhr"
+  | "hireology"
+  | "hrsmart"
+  | "jsearch"
   | "lever"
+  | "paradox"
+  | "oraclecloud"
   | "remotive"
+  | "workatastartup"
   | "themuse"
   | "recruitee"
   | "remoteok"
@@ -68,6 +87,8 @@ export type SupportedConnectorName =
   | "workday"
   | "workable"
   | "jobbank"
+  | "jobbank-live"
+  | "official-company"
   | "weworkremotely";
 
 export type ConnectorResolutionArgs = {
@@ -158,6 +179,107 @@ export function resolveConnectors(
       args.sources ?? args.source ?? process.env.JOOBLE_PROFILES ?? "feed"
     );
     return profiles.map((profile) => createJoobleConnector({ profile }));
+  }
+
+  if (connectorName === "workatastartup") {
+    return [createWorkAtAStartupConnector()];
+  }
+
+  if (connectorName === "jsearch") {
+    return [createJSearchConnector()];
+  }
+
+  if (connectorName === "jobbank-live") {
+    return [createJobBankLiveConnector()];
+  }
+
+  if (connectorName === "official-company") {
+    const sourceTokens = resolveTokens(
+      args.companies ??
+        args.company ??
+        args.sources ??
+        args.source ??
+        process.env.OFFICIAL_COMPANY_SOURCES ??
+        "amazon:global,google:global,apple:global,microsoft:global,nvidia:global"
+    );
+
+    return sourceTokens.map((sourceToken) =>
+      createOfficialCompanyConnector(parseOfficialCompanySourceToken(sourceToken))
+    );
+  }
+
+  if (connectorName === "breezyhr") {
+    const companies = resolveTokens(
+      args.companies ?? args.company ?? process.env.BREEZYHR_COMPANIES ?? ""
+    );
+    return companies
+      .map((company) => {
+        try {
+          return createBreezyHrConnector({ company });
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+  }
+
+  if (connectorName === "hireology") {
+    const slugs = resolveTokens(
+      args.sources ?? args.source ?? process.env.HIREOLOGY_SLUGS ?? ""
+    );
+    return slugs
+      .map((slug) => {
+        try {
+          return createHireologyConnector({ slug });
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+  }
+
+  if (connectorName === "paradox") {
+    return resolveJsonLdBoardTokenList("PARADOX_TENANTS")
+      .map(({ tenant, boardUrl }) => {
+        try {
+          return createParadoxConnector({ tenant, boardUrl });
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+  }
+
+  if (connectorName === "hrsmart") {
+    return resolveJsonLdBoardTokenList("HRSMART_TENANTS")
+      .map(({ tenant, boardUrl }) => {
+        try {
+          return createHrSmartConnector({ tenant, boardUrl });
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+  }
+
+  if (connectorName === "oraclecloud") {
+    const tokens = resolveTokens(
+      args.sources ?? args.source ?? process.env.ORACLECLOUD_TENANTS ?? ""
+    );
+    return tokens
+      .map((token) => {
+        const [tenant, site] = token.split("|");
+        if (!tenant || !/\.oraclecloud\.com$/i.test(tenant)) return null;
+        try {
+          return createOracleCloudConnector({
+            tenant,
+            site: site?.trim() || "CX",
+          });
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
   }
 
   if (connectorName === "jobvite") {
@@ -529,6 +651,27 @@ export function getScheduledConnectors(): ScheduledConnectorDefinition[] {
     ...resolveOptionalTaleoScheduledConnectors(promotedDiscoveryTargets.taleo),
     ...resolveOptionalIcimsScheduledConnectors(promotedDiscoveryTargets.icims),
     ...resolveOptionalJobBankScheduledConnectors(),
+    ...resolveOptionalOracleCloudScheduledConnectors(),
+    ...resolveOptionalWorkAtAStartupScheduledConnectors(),
+    ...resolveOptionalJSearchScheduledConnectors(),
+    ...resolveOptionalBreezyHrScheduledConnectors(),
+    ...resolveOptionalHireologyScheduledConnectors(),
+    ...resolveOptionalParadoxScheduledConnectors(),
+    ...resolveOptionalHrSmartScheduledConnectors(),
+    ...resolveOptionalJobBankLiveScheduledConnectors(),
+    ...resolveScheduledFamily("official-company", () =>
+      resolveConnectors("official-company", {
+        sources:
+          process.env.OFFICIAL_COMPANY_SOURCES ??
+          "amazon:global,google:global,apple:global,microsoft:global,nvidia:global",
+      }).map((connector) => ({
+        connector,
+        cadenceMinutes: resolveCadenceMinutes(
+          process.env.OFFICIAL_COMPANY_SCHEDULE_MINUTES,
+          360
+        ),
+      }))
+    ),
   ];
 }
 
@@ -674,11 +817,124 @@ function resolveOptionalJobicyScheduledConnectors() {
   ];
 }
 
+// Default Jooble shard set when JOOBLE_SCHEDULE_PROFILES is not configured.
+//
+// History: the previous default was just "feed", which meant a brand-new
+// deployment ran ONE Jooble shard with a generic keyword list. That was
+// fine when the product was tech & finance only, but the live pool now
+// targets all white-collar (TECH + FINANCE + GENERAL). Defaulting to the
+// per-family shards means a fresh deployment ramps up coverage across
+// marketing/sales/hr/legal/ops/etc. immediately.
+//
+// Heavy production deployments can still override the entire list via
+// JOOBLE_SCHEDULE_PROFILES. Cadence is shared (360 min default) — the
+// adaptive runtime budget handles per-shard sizing.
+const DEFAULT_JOOBLE_SHARDS = [
+  // Broad baselines
+  "feed",
+  "all-na",
+  // Tech (still our largest single category)
+  "tech-na",
+  "tech-cities-us",
+  "tech-cities-ca",
+  // Finance
+  "finance-na",
+  "finance-cities-us",
+  // Early career / interns
+  "early-career-na",
+  // GENERAL — per-family shards (10 families × {NA, cities-US, cities-CA})
+  "marketing-na",
+  "marketing-cities-us",
+  "marketing-cities-ca",
+  "sales-na",
+  "sales-cities-us",
+  "sales-cities-ca",
+  "hr-na",
+  "hr-cities-us",
+  "hr-cities-ca",
+  "legal-na",
+  "legal-cities-us",
+  "ops-admin-na",
+  "ops-admin-cities-us",
+  "ops-admin-cities-ca",
+  "supply-chain-na",
+  "supply-chain-cities-us",
+  "consulting-na",
+  "consulting-cities-us",
+  "communications-na",
+  "communications-cities-us",
+  "customer-success-na",
+  "customer-success-cities-us",
+  "biz-dev-na",
+  "biz-dev-cities-us",
+  // Newly added GENERAL families — public sector, edu admin, healthcare
+  // admin, nonprofit, real estate, insurance, hospitality mgmt, editorial,
+  // research/policy, construction PM, content creators.
+  "government-na",
+  "government-cities-us",
+  "education-admin-na",
+  "education-admin-cities-us",
+  "healthcare-admin-na",
+  "healthcare-admin-cities-us",
+  "nonprofit-na",
+  "nonprofit-cities-us",
+  "real-estate-na",
+  "real-estate-cities-us",
+  "insurance-na",
+  "insurance-cities-us",
+  "hospitality-mgmt-na",
+  "hospitality-mgmt-cities-us",
+  "editorial-na",
+  "editorial-cities-us",
+  "research-policy-na",
+  "research-policy-cities-us",
+  "construction-pm-na",
+  "content-creator-na",
+  "content-creator-cities-us",
+  // ── Deep / specialty shards for the 12 priority categories ────────────
+  // Added as part of the aggressive-expansion push. Each focuses on
+  // specialty keyword variants the broad shards miss.
+  "engineering-na",
+  "engineering-cities-us",
+  "engineering-cities-ca",
+  "law-deep-na",
+  "law-deep-cities-us",
+  "accounting-deep-na",
+  "accounting-deep-cities-us",
+  "hr-deep-na",
+  "hr-deep-cities-us",
+  "marketing-deep-na",
+  "marketing-deep-cities-us",
+  "sales-deep-na",
+  "sales-deep-cities-us",
+  "healthcare-admin-deep-na",
+  "healthcare-admin-deep-cities-us",
+  "consulting-deep-na",
+  "consulting-deep-cities-us",
+  "bizops-deep-na",
+  "bizops-deep-cities-us",
+  // Rotation profiles — pair fresh keywords with mid-tier / under-mined
+  // cities so exhausted shards' search space gets new coverage.
+  "admin-rotation-na",
+  "early-career-rotation-na",
+  "security-rotation-na",
+  "fintech-rotation-na",
+  "tech-rotation-na",
+  "finance-rotation-na",
+];
+
 function resolveOptionalJoobleScheduledConnectors() {
-  if (!isSourceFamilyEnabled("jooble")) return [];
+  if (readBooleanEnv("INGEST_ALLOW_JOOBLE") !== true) return [];
+  if (!isSourceFamilyEnabled("jooble", false)) return [];
   if (!(process.env.JOOBLE_API_KEY ?? "").trim()) return [];
 
-  const profiles = resolveTokens(process.env.JOOBLE_SCHEDULE_PROFILES ?? "feed");
+  const profilesEnv = process.env.JOOBLE_SCHEDULE_PROFILES?.trim();
+  // When the env var is set, honor it verbatim (the production droplets
+  // already have a curated list). When it's missing, default to the broad
+  // per-family shard set so all-roles coverage starts immediately.
+  const profiles = profilesEnv
+    ? resolveTokens(profilesEnv)
+    : DEFAULT_JOOBLE_SHARDS;
   const cadenceMinutes = resolveCadenceMinutes(
     process.env.JOOBLE_SCHEDULE_MINUTES,
     360
@@ -731,7 +987,16 @@ function resolveOptionalAdzunaScheduledConnectors() {
   const cadence = resolveCadenceMinutes(process.env.ADZUNA_SCHEDULE_MINUTES, 360);
   const additionalProfiles = readCsvEnv(
     "ADZUNA_SCHEDULE_PROFILES",
-    ["techcore", "specialist", "discovery"]
+    // Default profile set: techcore + specialist + discovery (tech/finance
+    // focused) PLUS the new general-people + general-commercial profiles
+    // that cover HR/legal/admin/CS and marketing/sales/design respectively.
+    [
+      "techcore",
+      "specialist",
+      "discovery",
+      "general-people",
+      "general-commercial",
+    ]
   ).filter((profile) => profile !== "ALL");
 
   // Primary broad connectors per country
@@ -786,15 +1051,249 @@ function resolveOptionalUsaJobsScheduledConnectors() {
   const email = process.env.USAJOBS_EMAIL ?? "";
   if (!apiKey || !email) return [];
 
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.USAJOBS_SCHEDULE_MINUTES,
+    720
+  );
+
+  // If USAJOBS_KEYWORDS is set, honor that exact list. Otherwise use the
+  // batch helper which spins up one connector per default keyword across
+  // all 12 priority categories. Each becomes its own ingestion shard.
+  const envKeywords = process.env.USAJOBS_KEYWORDS?.trim();
+  if (envKeywords) {
+    const tokens = resolveTokens(envKeywords);
+    return tokens.map((keyword) => ({
+      connector: createUsaJobsConnector({ keyword, apiKey, email }),
+      cadenceMinutes,
+    }));
+  }
+
+  return createUsaJobsBatchConnectors({ apiKey, email }).map((connector) => ({
+    connector,
+    cadenceMinutes,
+  }));
+}
+
+// Default Oracle Cloud HCM tenants seeded from production hiringcafe data.
+// Format: "<tenant_host>|<site>" — site defaults to "CX" when omitted.
+// Override via ORACLECLOUD_TENANTS env var (comma-separated). When the env
+// var is set production deployments should provide validated tenants
+// because Oracle's REST endpoint blocks unknown tenants with 404.
+const DEFAULT_ORACLE_CLOUD_TENANTS: string[] = [
+  "ejov.fa.ca2.oraclecloud.com|CX",
+  "emgi.fa.ca3.oraclecloud.com|CX",
+  "hcrw.fa.us2.oraclecloud.com|CX",
+  "hcpd.fa.ca2.oraclecloud.com|CX",
+  "iaemup.fa.ocs.oraclecloud.com|CX",
+  "fa-exhh-saasfaprod1.fa.ocs.oraclecloud.com|CX",
+  "fa-evcg-saasfaprod1.fa.ocs.oraclecloud.com|CX",
+  "fa-evlf-saasfaprod1.fa.ocs.oraclecloud.com|CX",
+];
+
+function resolveOptionalWorkAtAStartupScheduledConnectors() {
+  if (!isSourceFamilyEnabled("workatastartup")) return [];
   return [
     {
-      connector: createUsaJobsConnector({ apiKey, email }),
+      connector: createWorkAtAStartupConnector(),
       cadenceMinutes: resolveCadenceMinutes(
-        process.env.USAJOBS_SCHEDULE_MINUTES,
+        process.env.WORKATASTARTUP_SCHEDULE_MINUTES,
         720
       ),
     },
   ];
+}
+
+// Default BreezyHR tenants. The format is just the subdomain — each
+// company on BreezyHR exposes /json from {company}.breezy.hr. Override
+// via BREEZYHR_COMPANIES env var (comma-separated). The discovery pipeline
+// will eventually surface more tenants via hiringcafe's upstreamSource
+// field — these are starter seeds.
+const DEFAULT_BREEZYHR_COMPANIES: string[] = [
+  // Seeded from hiringcafe upstream-source surface area + mid-market employers
+  // known to use BreezyHR. Discovery pipeline will add more over time.
+  "toloka-annotators",
+];
+
+function resolveOptionalBreezyHrScheduledConnectors() {
+  if (!isSourceFamilyEnabled("breezyhr")) return [];
+  const envCompanies = process.env.BREEZYHR_COMPANIES?.trim();
+  const tokens = envCompanies
+    ? resolveTokens(envCompanies)
+    : DEFAULT_BREEZYHR_COMPANIES;
+  if (tokens.length === 0) return [];
+
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.BREEZYHR_SCHEDULE_MINUTES,
+    720
+  );
+
+  return tokens
+    .map((company) => {
+      try {
+        return {
+          connector: createBreezyHrConnector({ company }),
+          cadenceMinutes,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (entry): entry is { connector: ReturnType<typeof createBreezyHrConnector>; cadenceMinutes: number } => entry !== null
+    );
+}
+
+// Default Hireology customer slugs. Override via HIREOLOGY_SLUGS env var.
+// Currently empty by default — Hireology covers mid-market employers
+// (auto dealer HQ functions, retail, hospitality) and tenants need to
+// be discovered case-by-case. The discovery pipeline will eventually
+// add more.
+const DEFAULT_HIREOLOGY_SLUGS: string[] = [];
+
+function resolveOptionalHireologyScheduledConnectors() {
+  if (!isSourceFamilyEnabled("hireology")) return [];
+  const envSlugs = process.env.HIREOLOGY_SLUGS?.trim();
+  const tokens = envSlugs ? resolveTokens(envSlugs) : DEFAULT_HIREOLOGY_SLUGS;
+  if (tokens.length === 0) return [];
+
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.HIREOLOGY_SCHEDULE_MINUTES,
+    720
+  );
+
+  return tokens
+    .map((slug) => {
+      try {
+        return {
+          connector: createHireologyConnector({ slug }),
+          cadenceMinutes,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (entry): entry is { connector: ReturnType<typeof createHireologyConnector>; cadenceMinutes: number } => entry !== null
+    );
+}
+
+// Paradox / HRSmart tenants are configured as "tenant|boardUrl" pairs in
+// the env. Neither has a uniform URL pattern across customers, so we
+// require explicit board URLs. Format:
+//   PARADOX_TENANTS="acme|https://careers.acme.com,foo|https://foo.paradox.ai/jobs"
+function resolveJsonLdBoardTokenList(envName: string): Array<{
+  tenant: string;
+  boardUrl: string;
+}> {
+  const raw = process.env[envName]?.trim();
+  if (!raw) return [];
+  return resolveTokens(raw)
+    .map((token) => {
+      const [tenant, boardUrl] = token.split("|");
+      if (!tenant || !boardUrl) return null;
+      return { tenant: tenant.trim(), boardUrl: boardUrl.trim() };
+    })
+    .filter((entry): entry is { tenant: string; boardUrl: string } =>
+      entry !== null && entry.tenant.length > 0 && /^https?:\/\//.test(entry.boardUrl)
+    );
+}
+
+function resolveOptionalParadoxScheduledConnectors() {
+  if (!isSourceFamilyEnabled("paradox")) return [];
+  const tokens = resolveJsonLdBoardTokenList("PARADOX_TENANTS");
+  if (tokens.length === 0) return [];
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.PARADOX_SCHEDULE_MINUTES,
+    720
+  );
+  return tokens
+    .map(({ tenant, boardUrl }) => {
+      try {
+        return {
+          connector: createParadoxConnector({ tenant, boardUrl }),
+          cadenceMinutes,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (entry): entry is { connector: ReturnType<typeof createParadoxConnector>; cadenceMinutes: number } => entry !== null
+    );
+}
+
+function resolveOptionalHrSmartScheduledConnectors() {
+  if (!isSourceFamilyEnabled("hrsmart")) return [];
+  const tokens = resolveJsonLdBoardTokenList("HRSMART_TENANTS");
+  if (tokens.length === 0) return [];
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.HRSMART_SCHEDULE_MINUTES,
+    720
+  );
+  return tokens
+    .map(({ tenant, boardUrl }) => {
+      try {
+        return {
+          connector: createHrSmartConnector({ tenant, boardUrl }),
+          cadenceMinutes,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (entry): entry is { connector: ReturnType<typeof createHrSmartConnector>; cadenceMinutes: number } => entry !== null
+    );
+}
+
+function resolveOptionalJSearchScheduledConnectors() {
+  if (!isSourceFamilyEnabled("jsearch")) return [];
+  if (!(process.env.JSEARCH_API_KEY ?? "").trim()) return [];
+  // Free tier = 200 reqs/month. Default cadence is once per day (1440 min)
+  // with JSEARCH_MAX_REQUESTS_PER_RUN=1 → ~30 reqs/month. Plenty of
+  // headroom under the cap. Either cadence or per-run can be tuned via env.
+  return [
+    {
+      connector: createJSearchConnector(),
+      cadenceMinutes: resolveCadenceMinutes(
+        process.env.JSEARCH_SCHEDULE_MINUTES,
+        1440
+      ),
+    },
+  ];
+}
+
+function resolveOptionalOracleCloudScheduledConnectors() {
+  if (!isSourceFamilyEnabled("oraclecloud")) return [];
+
+  const envTenants = process.env.ORACLECLOUD_TENANTS?.trim();
+  const tokens = envTenants ? resolveTokens(envTenants) : DEFAULT_ORACLE_CLOUD_TENANTS;
+  if (tokens.length === 0) return [];
+
+  const cadenceMinutes = resolveCadenceMinutes(
+    process.env.ORACLECLOUD_SCHEDULE_MINUTES,
+    720
+  );
+
+  return tokens
+    .map((token) => {
+      const [tenant, site] = token.split("|");
+      if (!tenant || !/\.oraclecloud\.com$/i.test(tenant)) return null;
+      try {
+        return {
+          connector: createOracleCloudConnector({
+            tenant,
+            site: site?.trim() || "CX",
+          }),
+          cadenceMinutes,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(
+      (entry): entry is { connector: ReturnType<typeof createOracleCloudConnector>; cadenceMinutes: number } => entry !== null
+    );
 }
 
 function resolveOptionalJobBankScheduledConnectors() {
@@ -806,6 +1305,23 @@ function resolveOptionalJobBankScheduledConnectors() {
       cadenceMinutes: resolveCadenceMinutes(
         process.env.JOBBANK_SCHEDULE_MINUTES,
         1440
+      ),
+    },
+  ];
+}
+
+// Live JobBank search — much fresher than the monthly CSV. Rotates through
+// 30 keyword × city combos using IngestionRun checkpoint; 6 queries per run
+// at default settings. Cadence: every 60 min (the search-results page is
+// updated continuously by employers throughout the day).
+function resolveOptionalJobBankLiveScheduledConnectors() {
+  if (!isSourceFamilyEnabled("jobbank-live")) return [];
+  return [
+    {
+      connector: createJobBankLiveConnector(),
+      cadenceMinutes: resolveCadenceMinutes(
+        process.env.JOBBANK_LIVE_SCHEDULE_MINUTES,
+        60
       ),
     },
   ];
@@ -887,8 +1403,15 @@ function loadPromotedDiscoveryTargets() {
     jooble: [],
     jobvite: [],
     teamtailor: [],
+    breezyhr: [],
+    hireology: [],
+    hrsmart: [],
+    jsearch: [],
     lever: [],
+    paradox: [],
+    oraclecloud: [],
     remotive: [],
+    workatastartup: [],
     themuse: [],
     recruitee: [],
     remoteok: [],
@@ -900,6 +1423,8 @@ function loadPromotedDiscoveryTargets() {
     workday: [],
     workable: [],
     jobbank: [],
+    "jobbank-live": [],
+    "official-company": [],
     weworkremotely: [],
   };
 

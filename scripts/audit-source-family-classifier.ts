@@ -7,6 +7,12 @@ import { hasDescriptionPollution } from "@/lib/ingestion/html-description";
 import { buildEligibilityDraft } from "@/lib/ingestion/classify";
 import { classifyNonJobPosting } from "@/lib/job-integrity";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
+import {
+  coerceNormalizedCareerStage,
+  coerceNormalizedEmploymentType,
+  coerceNormalizedIndustry,
+  coerceNormalizedRoleCategory,
+} from "@/lib/job-metadata";
 
 process.env.DATABASE_PROCESS_ROLE ??= "expansion_pipeline";
 process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ??= "10000";
@@ -86,6 +92,10 @@ function buildNormalizedJob(record: {
   shortSummary: string;
   industry: NormalizedJobInput["industry"];
   roleFamily: string;
+  normalizedEmploymentType: string | null;
+  normalizedCareerStage: string | null;
+  normalizedIndustry: string | null;
+  normalizedRoleCategory: string | null;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;
@@ -112,6 +122,10 @@ function buildNormalizedJob(record: {
     shortSummary: record.shortSummary,
     industry: record.industry,
     roleFamily: record.roleFamily,
+    normalizedEmploymentType: coerceNormalizedEmploymentType(record.normalizedEmploymentType),
+    normalizedCareerStage: coerceNormalizedCareerStage(record.normalizedCareerStage),
+    normalizedIndustry: coerceNormalizedIndustry(record.normalizedIndustry),
+    normalizedRoleCategory: coerceNormalizedRoleCategory(record.normalizedRoleCategory),
     applyUrl: record.applyUrl,
     applyUrlKey: record.applyUrlKey,
     postedAt: record.postedAt,
@@ -185,6 +199,10 @@ async function main() {
         shortSummary: true,
         industry: true,
         roleFamily: true,
+        normalizedEmploymentType: true,
+        normalizedCareerStage: true,
+        normalizedIndustry: true,
+        normalizedRoleCategory: true,
         applyUrl: true,
         applyUrlKey: true,
         postedAt: true,

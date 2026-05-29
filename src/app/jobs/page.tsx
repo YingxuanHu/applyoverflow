@@ -1,41 +1,50 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowUpDown, Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
+import {
+  ArrowUpDown,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 
+import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
-import { normalizeCareerStageFilterValue } from "@/lib/career-stage";
+import {
+  normalizeSalaryCurrency,
+  SALARY_COMPARISON_CURRENCIES,
+} from "@/lib/currency-conversion";
+import { prisma } from "@/lib/db";
+import {
+  NORMALIZED_CAREER_STAGE_OPTIONS,
+  NORMALIZED_EMPLOYMENT_TYPE_OPTIONS,
+  NORMALIZED_INDUSTRY_OPTIONS,
+  NORMALIZED_ROLE_CATEGORY_OPTIONS,
+  normalizeCareerStageFilterValue,
+  normalizeEmploymentTypeFilterValue,
+  normalizeIndustryFilterValue,
+  normalizeRoleCategoryFilterValue,
+} from "@/lib/job-metadata";
 import { formatPostedAge } from "@/lib/job-display";
 import { serializeJobCardData } from "@/lib/job-serialization";
 import { getIngestionStatus } from "@/lib/queries/ingestion";
-import { getJobs, type JobFilterParams } from "@/lib/queries/jobs";
+import {
+  getJobs,
+  normalizeJobSortBy,
+  type JobFilterParams,
+  type JobSearchScope,
+  type JobSortBy,
+} from "@/lib/queries/jobs";
 
 type JobsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
-
-const EXPERIENCE_LEVEL_GROUPS: Array<{ label: string; value: string }> = [
-  { label: "Internship & Co-op", value: "INTERNSHIP" },
-  { label: "Entry-Level", value: "ENTRY_LEVEL" },
-  { label: "Associate / Junior", value: "ASSOCIATE" },
-  { label: "Senior & Leadership", value: "SENIOR_LEVEL" },
-  { label: "Administrative Support", value: "ADMINISTRATIVE_SUPPORT" },
-];
-
-const ROLE_FAMILY_GROUPS: Array<{ label: string; value: string }> = [
-  { label: "SWE", value: "SWE" },
-  { label: "Design", value: "Design" },
-  { label: "Research", value: "Research" },
-  { label: "Product", value: "Product Management" },
-  { label: "Data", value: "Data Science,Data Engineering,Data Analyst,Product Analyst,Business Analyst" },
-  { label: "Solutions", value: "Solutions Architecture,Solutions Engineering" },
-  { label: "Finance", value: "Financial Analyst,FP&A,Investment Banking,Risk,Credit,Wealth Management,Compliance" },
-  { label: "Ops", value: "Operations" },
-];
 
 const CATEGORY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "Auto-apply", value: "AUTO_SUBMIT_READY" },
@@ -49,25 +58,30 @@ const WORK_MODE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "Flexible", value: "FLEXIBLE" },
 ];
 
-const REGION_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: "US", value: "US" },
-  { label: "Canada", value: "CA" },
+const POSTED_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "Past 24 hours", value: "1d" },
+  { label: "Past 3 days", value: "3d" },
+  { label: "Past week", value: "7d" },
+  { label: "Past 2 weeks", value: "14d" },
+  { label: "Past month", value: "30d" },
 ];
 
-const INDUSTRY_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: "Tech", value: "TECH" },
-  { label: "Finance", value: "FINANCE" },
+const STATUS_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "Live", value: "LIVE" },
+  { label: "Aging", value: "AGING" },
+  { label: "Stale", value: "STALE" },
+  { label: "Expired", value: "EXPIRED" },
 ];
 
 const EXPIRY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "Expiring soon", value: "soon" },
 ];
 
-const SORT_OPTIONS: Array<{ label: string; value: string | undefined }> = [
-  { label: "Relevance", value: undefined },
+const SORT_OPTIONS: Array<{ label: string; value: JobSortBy | undefined }> = [
+  { label: "Best match", value: undefined },
   { label: "Newest", value: "newest" },
   { label: "Expiry date", value: "deadline" },
-  { label: "Salary", value: "salary" },
+  { label: "Company name", value: "company" },
 ];
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
@@ -81,8 +95,16 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     redirect("/sign-in");
   }
 
-  const resolvedSearchParams = await searchParams;
-  const filters = parseJobFilters(resolvedSearchParams);
+  const [resolvedSearchParams, profileSettings] = await Promise.all([
+    searchParams,
+    prisma.userProfile.findUnique({
+      where: { id: viewerProfileId },
+      select: { salaryCurrency: true },
+    }),
+  ]);
+  const defaultSalaryCurrency =
+    normalizeSalaryCurrency(profileSettings?.salaryCurrency) ?? "USD";
+  const filters = parseJobFilters(resolvedSearchParams, defaultSalaryCurrency);
 
   const [jobsResult, ingestionStatus] = await Promise.all([
     getJobs(filters, { viewerProfileId }),
@@ -106,17 +128,18 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   );
 
   const activeFilterCount = countActiveFilters(filters);
-  const hasScopedResults = activeFilterCount > 0 || Boolean(filters.search);
+  const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
   const headlineCount = hasScopedResults
     ? jobsResult.total ?? jobsResult.data.length
     : jobsResult.summary.liveJobCount;
-  const activeFilterChips = buildActiveFilterChips(filters);
+  const activeFilterChips = buildActiveFilterChips(filters, resolvedSearchParams);
   const currentSortLabel = getSortLabel(filters.sortBy);
   const currentPage = jobsResult.page;
   const totalPages =
     jobsResult.total !== null ? Math.max(1, Math.ceil(jobsResult.total / jobsResult.pageSize)) : null;
   const navigationKey = buildSearchParamSignature(resolvedSearchParams);
   const clearFiltersHref = "/jobs?reset=1";
+  const searchFormHiddenFields = buildSearchFormHiddenFields(filters);
 
   return (
     <div className="app-page space-y-6">
@@ -173,38 +196,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-col gap-3">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
-                <form className="flex min-w-0 flex-1 items-center gap-2" method="get">
-                  {filters.status ? <input name="status" type="hidden" value={filters.status} /> : null}
-                  {filters.sortBy ? <input name="sortBy" type="hidden" value={filters.sortBy} /> : null}
-                  {filters.submissionCategory ? (
-                    <input name="submissionCategory" type="hidden" value={filters.submissionCategory} />
-                  ) : null}
-                  {filters.roleFamily ? <input name="roleFamily" type="hidden" value={filters.roleFamily} /> : null}
-                  {filters.experienceLevel ? (
-                    <input name="experienceLevel" type="hidden" value={filters.experienceLevel} />
-                  ) : null}
-                  {filters.workMode ? <input name="workMode" type="hidden" value={filters.workMode} /> : null}
-                  {filters.region ? <input name="region" type="hidden" value={filters.region} /> : null}
-                  {filters.industry ? <input name="industry" type="hidden" value={filters.industry} /> : null}
-                  {filters.salaryMin ? (
-                    <input name="salaryMin" type="hidden" value={String(filters.salaryMin)} />
-                  ) : null}
-                  {filters.expiry ? <input name="expiry" type="hidden" value={filters.expiry} /> : null}
-
-                  <div className="relative min-w-0 flex-1">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      className="h-10 pl-9 text-sm"
-                      defaultValue={filters.search}
-                      name="search"
-                      placeholder="Search jobs, companies, or keywords"
-                    />
-                  </div>
-
-                  <Button className="h-10 px-4" size="sm" type="submit">
-                    Search
-                  </Button>
-                </form>
+                <JobsSearchForm
+                  hiddenFields={searchFormHiddenFields}
+                  initialScope={filters.searchScope ?? "all"}
+                  initialValues={buildSearchFormInitialValues(filters)}
+                />
 
                 <div className="flex flex-wrap items-center gap-2">
                   <details className="group relative" name="jobs-toolbar-dropdown">
@@ -219,62 +215,93 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                       <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
                     </summary>
 
-                    <div className="absolute left-0 top-[calc(100%+0.75rem)] z-30 w-[min(32rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] overflow-hidden rounded-2xl border border-border/70 bg-background/96 shadow-[0_24px_60px_rgba(15,23,42,0.14)] backdrop-blur">
-                      <form className="space-y-4" method="get">
-                        {filters.sortBy ? <input name="sortBy" type="hidden" value={filters.sortBy} /> : null}
-                        {filters.status ? <input name="status" type="hidden" value={filters.status} /> : null}
-                        {filters.search ? <input name="search" type="hidden" value={filters.search} /> : null}
+                    <div className="absolute right-0 top-[calc(100%+0.6rem)] z-30 w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] origin-top-right overflow-hidden rounded-xl border border-border/70 bg-background/96 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+                      <form method="get">
+                        {buildFilterPanelHiddenFields(filters).map((field) => (
+                          <input
+                            key={`${field.name}:${field.value}`}
+                            name={field.name}
+                            type="hidden"
+                            value={field.value}
+                          />
+                        ))}
 
-                        <div className="border-b border-border/60 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
+                        <div className="border-b border-border/60 px-3.5 py-3 sm:px-4">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                              <p className="text-base font-medium text-foreground">Refine the feed</p>
+                              <p className="text-sm font-medium text-foreground">Refine jobs</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                Add filters here. Search chips stay editable below the toolbar.
+                              </p>
                             </div>
                             {activeFilterCount > 0 ? (
-                              <span className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/40 px-3 text-xs font-medium text-foreground">
+                              <span className="inline-flex h-6 items-center rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] font-medium text-foreground">
                                 {activeFilterCount} active
                               </span>
                             ) : null}
                           </div>
                         </div>
 
-                        <div className="max-h-[min(65vh,34rem)] space-y-3 overflow-y-auto px-4 sm:px-5">
+                        <div className="grid max-h-[min(68vh,30rem)] gap-2 overflow-y-auto p-3 sm:grid-cols-2 sm:p-3.5">
+                          <FilterToggleField
+                            name="expiry"
+                            selected={filters.expiry}
+                            value="soon"
+                          />
+
                           <FilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               submissionCategory: undefined,
                             })}
-                            emptyLabel="All categories"
+                            emptyLabel="All apply types"
                             name="submissionCategory"
                             options={CATEGORY_OPTIONS}
                             selected={filters.submissionCategory}
-                            title="Category"
+                            title="Apply type"
                           />
 
                           <FilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
-                              roleFamily: undefined,
-                            })}
-                            columnsClassName="sm:grid-cols-2"
-                            emptyLabel="All roles"
-                            name="roleFamily"
-                            options={ROLE_FAMILY_GROUPS}
-                            selected={filters.roleFamily}
-                            title="Role"
-                          />
-
-                          <FilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
+                              careerStage: undefined,
                               experienceLevel: undefined,
                             })}
+                            className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="All stages"
-                            name="experienceLevel"
-                            options={EXPERIENCE_LEVEL_GROUPS}
-                            selected={filters.experienceLevel}
+                            name="careerStage"
+                            options={NORMALIZED_CAREER_STAGE_OPTIONS}
+                            selected={filters.careerStage}
                             title="Career stage"
+                          />
+
+                          <FilterDropdownField
+                            clearHref={buildJobsHref(resolvedSearchParams, {
+                              page: undefined,
+                              roleCategory: undefined,
+                            })}
+                            className="sm:col-span-2"
+                            columnsClassName="sm:grid-cols-2"
+                            emptyLabel="Any role category"
+                            name="roleCategory"
+                            options={NORMALIZED_ROLE_CATEGORY_OPTIONS}
+                            selected={filters.roleCategory}
+                            title="Role category"
+                          />
+
+                          <FilterDropdownField
+                            clearHref={buildJobsHref(resolvedSearchParams, {
+                              page: undefined,
+                              industry: undefined,
+                            })}
+                            className="sm:col-span-2"
+                            columnsClassName="sm:grid-cols-2"
+                            emptyLabel="Any industry"
+                            name="industry"
+                            options={NORMALIZED_INDUSTRY_OPTIONS}
+                            selected={filters.industry}
+                            title="Industry"
                           />
 
                           <FilterDropdownField
@@ -293,61 +320,44 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           <FilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
-                              region: undefined,
+                              employmentType: undefined,
                             })}
                             columnsClassName="sm:grid-cols-2"
-                            emptyLabel="All regions"
-                            name="region"
-                            options={REGION_OPTIONS}
-                            selected={filters.region}
-                            title="Region"
+                            emptyLabel="Any type"
+                            name="employmentType"
+                            options={NORMALIZED_EMPLOYMENT_TYPE_OPTIONS}
+                            selected={filters.employmentType}
+                            title="Employment type"
                           />
 
                           <FilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
-                              industry: undefined,
+                              posted: undefined,
                             })}
                             columnsClassName="sm:grid-cols-2"
-                            emptyLabel="Any industry"
-                            name="industry"
-                            options={INDUSTRY_OPTIONS}
-                            selected={filters.industry}
-                            title="Industry"
+                            emptyLabel="Any posted date"
+                            name="posted"
+                            options={POSTED_OPTIONS}
+                            selected={filters.posted}
+                            title="Posted"
                           />
 
-                          <FilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              expiry: undefined,
-                            })}
-                            emptyLabel="Any deadline"
-                            name="expiry"
-                            options={EXPIRY_OPTIONS}
-                            selected={filters.expiry}
-                            title="Deadline"
+                          <SalaryRangeField
+                            salaryCurrency={filters.salaryCurrency ?? "USD"}
+                            salaryMax={filters.salaryMax}
+                            salaryMin={filters.salaryMin}
                           />
-
-                          <div className="rounded-xl border border-border/60 bg-muted/15 p-3">
-                            <FilterFieldLabel>Minimum salary</FilterFieldLabel>
-                            <Input
-                              className="mt-1 h-10 text-sm"
-                              defaultValue={filters.salaryMin ? String(filters.salaryMin) : ""}
-                              name="salaryMin"
-                              placeholder="e.g. 120000"
-                              type="number"
-                            />
-                          </div>
                         </div>
 
-                        <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/15 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                        <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/15 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                           <div>
-                            <p className="text-sm font-medium text-foreground">Apply the current selection</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
+                            <p className="text-xs font-medium text-foreground">Apply filters</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">
                               Filters keep your search and sort, and reset the page.
                             </p>
                           </div>
-                          <Button size="sm" type="submit">
+                          <Button className="h-8 px-3 text-xs" size="sm" type="submit">
                             Apply filters
                           </Button>
                         </div>
@@ -392,25 +402,35 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     </div>
                   </details>
 
-                  {hasScopedResults ? (
-                    <Button className="h-10 px-3" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
-                      <X className="h-3.5 w-3.5" />
-                      Clear
-                    </Button>
-                  ) : null}
                 </div>
               </div>
 
               {activeFilterChips.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  {activeFilterChips.map((chip) => (
-                    <span
-                      className="inline-flex h-9 items-center rounded-xl border border-border/70 bg-background/55 px-3 text-sm text-muted-foreground"
-                      key={chip}
-                    >
-                      {chip}
-                    </span>
-                  ))}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {activeFilterChips.map((chip) => (
+                      <Link
+                        aria-label={`Remove ${chip.label}`}
+                        className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/65 pl-3 pr-1.5 text-xs text-muted-foreground transition hover:border-border hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                        href={chip.href}
+                        key={chip.key}
+                      >
+                        <span className="min-w-0 truncate">{chip.label}</span>
+                        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/80 text-foreground">
+                          <X className="h-3.5 w-3.5" />
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                  <Button
+                    className="h-8 shrink-0 rounded-full px-3 text-xs sm:ml-3"
+                    render={<Link href={clearFiltersHref} />}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear all
+                  </Button>
                 </div>
               ) : null}
             </div>
@@ -508,28 +528,93 @@ function PaginationLink({
 }
 
 function parseJobFilters(
-  searchParams: Record<string, string | string[] | undefined>
+  searchParams: Record<string, string | string[] | undefined>,
+  defaultSalaryCurrency: NonNullable<JobFilterParams["salaryCurrency"]>
 ): JobFilterParams {
   const pageValue = getSearchParam(searchParams, "page");
   const parsedPage = pageValue ? Number.parseInt(pageValue, 10) : undefined;
   const rawSubmissionCategory = getMultiSearchParam(searchParams, "submissionCategory");
+  const selectedSearchScope = normalizeSearchScopeParam(getSearchParam(searchParams, "searchScope"));
+  const rawSearch = normalizeTextParam(getSearchParam(searchParams, "search"));
+  const rawCareerStage =
+    getMultiSearchParam(searchParams, "careerStage") ||
+    getMultiSearchParam(searchParams, "experienceLevel");
+  let search = rawSearch;
+  let titleSearch = normalizeTextParam(getSearchParam(searchParams, "titleSearch"));
+  let companySearch = normalizeTextParam(getSearchParam(searchParams, "companySearch"));
+  let locationSearch = normalizeTextListParam(getMultiSearchParam(searchParams, "locationSearch"));
+
+  if (rawSearch && selectedSearchScope === "title") {
+    titleSearch = titleSearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "company") {
+    companySearch = companySearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "location") {
+    locationSearch = normalizeTextListParam([locationSearch, rawSearch].filter(Boolean).join(","));
+    search = undefined;
+  } else if (search) {
+    titleSearch = undefined;
+    companySearch = undefined;
+    locationSearch = undefined;
+  }
+  const parsedSalaryMin = getPositiveNumber(getSearchParam(searchParams, "salaryMin"));
+  const parsedSalaryMax = getPositiveNumber(getSearchParam(searchParams, "salaryMax"));
+  const salaryMin =
+    parsedSalaryMin && parsedSalaryMax && parsedSalaryMin > parsedSalaryMax
+      ? parsedSalaryMax
+      : parsedSalaryMin;
+  const salaryMax =
+    parsedSalaryMin && parsedSalaryMax && parsedSalaryMin > parsedSalaryMax
+      ? parsedSalaryMin
+      : parsedSalaryMax;
 
   return {
-    search: getSearchParam(searchParams, "search"),
+    search,
+    searchScope: selectedSearchScope,
+    titleSearch,
+    companySearch,
+    locationSearch,
+    location: normalizeTextParam(getSearchParam(searchParams, "location")),
+    source: normalizeTextParam(getSearchParam(searchParams, "source")),
     region: getMultiSearchParam(searchParams, "region"),
     workMode: getMultiSearchParam(searchParams, "workMode"),
-    industry: getMultiSearchParam(searchParams, "industry"),
-    roleFamily: getMultiSearchParam(searchParams, "roleFamily"),
-    salaryMin: getPositiveNumber(getSearchParam(searchParams, "salaryMin")),
-    experienceLevel: normalizeCareerStageFilterValue(
-      getMultiSearchParam(searchParams, "experienceLevel")
-    ),
+    employmentType: normalizeEmploymentTypeFilterValue(getMultiSearchParam(searchParams, "employmentType")),
+    industry: normalizeIndustryFilterValue(getMultiSearchParam(searchParams, "industry")),
+    roleCategory: normalizeRoleCategoryFilterValue(getMultiSearchParam(searchParams, "roleCategory")),
+    roleFamily: normalizeTextParam(getMultiSearchParam(searchParams, "roleFamily")),
+    salaryMin,
+    salaryMax,
+    salaryCurrency:
+      normalizeSalaryCurrency(getSearchParam(searchParams, "salaryCurrency")) ??
+      defaultSalaryCurrency,
+    careerStage: normalizeCareerStageFilterValue(rawCareerStage),
     expiry: getSearchParam(searchParams, "expiry"),
+    posted: getSearchParam(searchParams, "posted"),
     submissionCategory: normalizeSubmissionCategoryFilter(rawSubmissionCategory),
     status: getSearchParam(searchParams, "status"),
-    sortBy: getSearchParam(searchParams, "sortBy"),
+    sortBy: normalizeSortByParam(getSearchParam(searchParams, "sortBy")),
     page: parsedPage && parsedPage > 0 ? parsedPage : undefined,
   };
+}
+
+function normalizeTextParam(value?: string) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
+function normalizeTextListParam(value?: string) {
+  const values = splitFilterValues(value)
+    .map((entry) => entry.slice(0, 80))
+    .filter(Boolean);
+  return values.length > 0 ? values.join(",") : undefined;
+}
+
+function normalizeSearchScopeParam(value?: string): JobFilterParams["searchScope"] {
+  if (value === "title" || value === "company" || value === "location") {
+    return value;
+  }
+  return undefined;
 }
 
 function getSearchParam(
@@ -565,34 +650,138 @@ function getPositiveNumber(value?: string) {
   return Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
 }
 
+const SEARCH_PARAM_KEYS = ["search", "titleSearch", "companySearch", "locationSearch"] as const;
+
+function hasSearchParamsRecord(
+  searchParams: Record<string, string | string[] | undefined>
+) {
+  return SEARCH_PARAM_KEYS.some((key) => normalizeTextParam(getSearchParam(searchParams, key)));
+}
+
+function hasSearchParams(params: URLSearchParams) {
+  return SEARCH_PARAM_KEYS.some((key) => normalizeTextParam(params.get(key) ?? undefined));
+}
+
 function buildJobsHref(
   currentParams: Record<string, string | string[] | undefined>,
   overrides: Record<string, string | undefined>
 ) {
   const params = new URLSearchParams();
+  const currentHasSearch = hasSearchParamsRecord(currentParams);
+  let currentHadValues = false;
 
   for (const [key, value] of Object.entries(currentParams)) {
+    if (key === "reset") continue;
     const normalizedValue = Array.isArray(value) ? value.filter(Boolean).join(",") : value;
-    if (normalizedValue) params.set(key, normalizedValue);
+    if (key === "searchScope" && (!currentHasSearch || !normalizeSearchScopeParam(normalizedValue))) {
+      continue;
+    }
+    if (key === "sortBy") {
+      currentHadValues = currentHadValues || Boolean(normalizedValue);
+      const normalizedSort = normalizeSortByParam(normalizedValue);
+      if (normalizedSort) params.set(key, normalizedSort);
+      continue;
+    }
+    if (normalizedValue) {
+      currentHadValues = true;
+      params.set(key, normalizedValue);
+    }
   }
 
   for (const [key, value] of Object.entries(overrides)) {
+    if (key === "sortBy") {
+      const normalizedSort = normalizeSortByParam(value);
+      if (normalizedSort) params.set(key, normalizedSort);
+      else params.delete(key);
+      continue;
+    }
     if (value) params.set(key, value);
     else params.delete(key);
   }
 
+  normalizeSearchParamsForHref(params);
+  normalizeMetadataParamsForHref(params, overrides);
+
+  if (!params.get("salaryMin") && !params.get("salaryMax")) {
+    params.delete("salaryCurrency");
+  }
+
+  if (!hasSearchParams(params)) {
+    params.delete("searchScope");
+  }
+
   const queryString = params.toString();
+  if (!queryString && currentHadValues) {
+    return "/jobs?reset=1";
+  }
   return queryString ? `/jobs?${queryString}` : "/jobs";
+}
+
+function normalizeMetadataParamsForHref(
+  params: URLSearchParams,
+  overrides: Record<string, string | undefined>
+) {
+  if (Object.prototype.hasOwnProperty.call(overrides, "careerStage") && !overrides.careerStage) {
+    params.delete("experienceLevel");
+  }
+
+  const legacyCareerStage = params.get("experienceLevel");
+  if (legacyCareerStage && !params.has("careerStage")) {
+    const normalized = normalizeCareerStageFilterValue(legacyCareerStage);
+    if (normalized) params.set("careerStage", normalized);
+    params.delete("experienceLevel");
+  }
+}
+
+function normalizeSearchParamsForHref(params: URLSearchParams) {
+  const search = normalizeTextParam(params.get("search") ?? undefined);
+  if (!search) return;
+
+  const searchScope = normalizeSearchScopeParam(params.get("searchScope") ?? undefined);
+  if (searchScope === "title") {
+    if (!normalizeTextParam(params.get("titleSearch") ?? undefined)) {
+      params.set("titleSearch", search);
+    }
+    params.delete("search");
+    params.delete("searchScope");
+    return;
+  }
+  if (searchScope === "company") {
+    if (!normalizeTextParam(params.get("companySearch") ?? undefined)) {
+      params.set("companySearch", search);
+    }
+    params.delete("search");
+    params.delete("searchScope");
+    return;
+  }
+  if (searchScope === "location") {
+    const locationSearch = normalizeTextListParam(
+      [params.get("locationSearch"), search].filter(Boolean).join(",")
+    );
+    if (locationSearch) params.set("locationSearch", locationSearch);
+    params.delete("search");
+    params.delete("searchScope");
+    return;
+  }
+
+  params.delete("titleSearch");
+  params.delete("companySearch");
+  params.delete("locationSearch");
+  params.delete("searchScope");
 }
 
 function buildSearchParamSignature(
   searchParams: Record<string, string | string[] | undefined>
 ) {
   const params = new URLSearchParams();
+  const currentHasSearch = hasSearchParamsRecord(searchParams);
 
   for (const key of Object.keys(searchParams).sort()) {
     const value = searchParams[key];
     const normalizedValue = Array.isArray(value) ? value.filter(Boolean).join(",") : value;
+    if (key === "searchScope" && (!currentHasSearch || !normalizeSearchScopeParam(normalizedValue))) {
+      continue;
+    }
     if (normalizedValue) {
       params.set(key, normalizedValue);
     }
@@ -603,14 +792,22 @@ function buildSearchParamSignature(
 
 function countActiveFilters(filters: JobFilterParams) {
   const keys: Array<keyof JobFilterParams> = [
+    "location",
+    "source",
     "region",
     "workMode",
+    "employmentType",
     "industry",
+    "roleCategory",
     "salaryMin",
+    "salaryMax",
     "submissionCategory",
     "roleFamily",
+    "careerStage",
     "experienceLevel",
     "expiry",
+    "posted",
+    "status",
   ];
 
   return keys.filter((key) => {
@@ -619,15 +816,168 @@ function countActiveFilters(filters: JobFilterParams) {
   }).length;
 }
 
+function hasActiveSearch(filters: JobFilterParams) {
+  return Boolean(
+    filters.search ||
+      filters.titleSearch ||
+      filters.companySearch ||
+      filters.locationSearch
+  );
+}
+
+function buildSearchFormInitialValues(filters: JobFilterParams): Record<JobSearchScope, string> {
+  return {
+    all: filters.search ?? "",
+    title: filters.titleSearch ?? "",
+    company: filters.companySearch ?? "",
+    location: filters.locationSearch ?? "",
+  };
+}
+
+function buildSearchFormHiddenFields(filters: JobFilterParams) {
+  const fields: Array<{ name: string; value: string }> = [];
+  const add = (name: string, value: string | number | undefined) => {
+    if (value !== undefined && value !== "") {
+      fields.push({ name, value: String(value) });
+    }
+  };
+
+  add("status", filters.status);
+  add("sortBy", filters.sortBy);
+  add("submissionCategory", filters.submissionCategory);
+  add("location", filters.location);
+  add("source", filters.source);
+  add("roleFamily", filters.roleFamily);
+  add("roleCategory", filters.roleCategory);
+  add("careerStage", filters.careerStage);
+  add("workMode", filters.workMode);
+  add("employmentType", filters.employmentType);
+  add("region", filters.region);
+  add("industry", filters.industry);
+  add("salaryMin", filters.salaryMin);
+  add("salaryMax", filters.salaryMax);
+  if (filters.salaryMin || filters.salaryMax) {
+    add("salaryCurrency", filters.salaryCurrency);
+  }
+  add("expiry", filters.expiry);
+  add("posted", filters.posted);
+
+  return fields;
+}
+
+function buildFilterPanelHiddenFields(filters: JobFilterParams) {
+  const fields: Array<{ name: string; value: string }> = [];
+  const add = (name: string, value: string | number | undefined) => {
+    if (value !== undefined && value !== "") {
+      fields.push({ name, value: String(value) });
+    }
+  };
+
+  add("sortBy", filters.sortBy);
+  add("search", filters.search);
+  add("titleSearch", filters.titleSearch);
+  add("companySearch", filters.companySearch);
+  add("locationSearch", filters.locationSearch);
+  if (hasActiveSearch(filters)) add("searchScope", filters.searchScope);
+
+  // Preserve legacy/admin params if someone arrived with a shared URL, but
+  // do not expose these as primary user-facing filter controls.
+  add("location", filters.location);
+  add("source", filters.source);
+  add("status", filters.status);
+  add("region", filters.region);
+
+  return fields;
+}
+
 function FilterFieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+    <label className="mb-1 block text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
       {children}
     </label>
   );
 }
 
+function FilterToggleField({
+  name,
+  selected,
+  value,
+}: {
+  name: string;
+  selected: string | undefined;
+  value: string;
+}) {
+  const checked = hasFilterValue(selected, value);
+
+  return (
+    <label
+      className={`flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+        checked
+          ? "border-border bg-muted/45 text-foreground"
+          : "border-border/60 bg-muted/15 text-foreground hover:bg-muted/35"
+      }`}
+    >
+      <span>Expiring soon</span>
+      <input
+        className="size-4 shrink-0 rounded border-border/70 bg-background/80 accent-foreground"
+        defaultChecked={checked}
+        name={name}
+        type="checkbox"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function SalaryRangeField({
+  salaryCurrency,
+  salaryMax,
+  salaryMin,
+}: {
+  salaryCurrency: NonNullable<JobFilterParams["salaryCurrency"]>;
+  salaryMax: number | undefined;
+  salaryMin: number | undefined;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/15 p-2.5 sm:col-span-2">
+      <FilterFieldLabel>Salary range</FilterFieldLabel>
+      <div className="grid gap-2 sm:grid-cols-[1fr_1fr_8rem]">
+        <Input
+          className="h-8 rounded-md px-2 text-xs"
+          defaultValue={salaryMin ? String(salaryMin) : ""}
+          inputMode="numeric"
+          min={0}
+          name="salaryMin"
+          placeholder="Minimum, e.g. 90000"
+          type="number"
+        />
+        <Input
+          className="h-8 rounded-md px-2 text-xs"
+          defaultValue={salaryMax ? String(salaryMax) : ""}
+          inputMode="numeric"
+          min={0}
+          name="salaryMax"
+          placeholder="Maximum, e.g. 160000"
+          type="number"
+        />
+        <select
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+          defaultValue={salaryCurrency}
+          name="salaryCurrency"
+        >
+          {SALARY_COMPARISON_CURRENCIES.map((currency) => (
+            <option key={currency} value={currency}>
+              {currency}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function FilterDropdownField({
+  className,
   clearHref,
   columnsClassName,
   emptyLabel,
@@ -636,6 +986,7 @@ function FilterDropdownField({
   selected,
   title,
 }: {
+  className?: string;
   clearHref: string;
   columnsClassName?: string;
   emptyLabel: string;
@@ -648,11 +999,11 @@ function FilterDropdownField({
   const summary = getFilterSummaryText(selectedLabels, emptyLabel);
 
   return (
-    <details className="group rounded-xl border border-border/60 bg-muted/15 transition open:border-border/80 open:bg-muted/25">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 [&::-webkit-details-marker]:hidden">
+    <details className={`group rounded-lg border border-border/60 bg-muted/15 transition open:border-border/80 open:bg-muted/25 ${className ?? ""}`}>
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
-          <p className="mt-1 truncate text-sm text-foreground">{summary}</p>
+          <p className="text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">{title}</p>
+          <p className="mt-0.5 truncate text-xs text-foreground">{summary}</p>
         </div>
         <div className="flex items-center gap-2">
           {selectedLabels.length > 0 ? (
@@ -660,11 +1011,11 @@ function FilterDropdownField({
               {selectedLabels.length}
             </span>
           ) : null}
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition group-open:rotate-180" />
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90" />
         </div>
       </summary>
 
-      <div className="border-t border-border/60 px-2.5 py-2.5">
+      <div className="border-t border-border/60 px-2 py-2">
         {selectedLabels.length > 0 ? (
           <div className="mb-2 flex justify-end">
             <Link
@@ -675,7 +1026,7 @@ function FilterDropdownField({
             </Link>
           </div>
         ) : null}
-        <div className={`grid gap-1.5 ${columnsClassName ?? ""}`}>
+        <div className={`grid gap-1 ${columnsClassName ?? ""}`}>
           {options.map((option) => (
             <FilterDropdownOption
               checked={hasFilterValue(selected, option.value)}
@@ -703,9 +1054,9 @@ function FilterDropdownOption({
   value: string;
 }) {
   return (
-    <label className="flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-foreground transition hover:bg-background/65">
+    <label className="flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground transition hover:bg-background/65">
       <input
-        className="size-4 shrink-0 rounded border-border/70 bg-background/80 accent-foreground"
+        className="size-3.5 shrink-0 rounded border-border/70 bg-background/80 accent-foreground"
         defaultChecked={checked}
         name={name}
         type="checkbox"
@@ -725,25 +1076,205 @@ function hasFilterValue(current: string | undefined, optionValue: string) {
 function getSortLabel(sortBy?: string) {
   if (sortBy === "newest") return "Newest";
   if (sortBy === "deadline") return "Expiry date";
-  if (sortBy === "salary") return "Salary";
-  return "Relevance";
+  if (sortBy === "company") return "Company name";
+  return "Best match";
 }
 
-function buildActiveFilterChips(filters: JobFilterParams) {
-  const chips: string[] = [];
+function normalizeSortByParam(value?: string) {
+  const sortBy = normalizeJobSortBy(value);
+  return sortBy === "relevance" ? undefined : sortBy;
+}
 
-  chips.push(...collectSelectedLabels(filters.submissionCategory, CATEGORY_OPTIONS));
-  chips.push(...collectSelectedLabels(filters.roleFamily, ROLE_FAMILY_GROUPS));
-  chips.push(...collectSelectedLabels(filters.experienceLevel, EXPERIENCE_LEVEL_GROUPS));
-  chips.push(...collectSelectedLabels(filters.workMode, WORK_MODE_OPTIONS));
-  chips.push(...collectSelectedLabels(filters.region, REGION_OPTIONS));
-  chips.push(...collectSelectedLabels(filters.industry, INDUSTRY_OPTIONS));
-  chips.push(...collectSelectedLabels(filters.expiry, EXPIRY_OPTIONS));
+type ActiveFilterChip = {
+  key: string;
+  label: string;
+  href: string;
+};
 
-  if (filters.salaryMin) chips.push(`Min $${Number(filters.salaryMin).toLocaleString()}`);
-  if (filters.search) chips.push(`Search: ${filters.search}`);
+function buildActiveFilterChips(
+  filters: JobFilterParams,
+  currentParams: Record<string, string | string[] | undefined>
+) {
+  const chips: ActiveFilterChip[] = [];
+  const add = (key: string, label: string, href: string) => {
+    chips.push({ key, label, href });
+  };
+  const removeParamHref = (param: string) =>
+    buildJobsHref(currentParams, { page: undefined, [param]: undefined });
+
+  if (filters.search) {
+    add(
+      "search",
+      `Search: ${filters.search}`,
+      buildJobsHref(currentParams, {
+        page: undefined,
+        search: undefined,
+        searchScope: undefined,
+      })
+    );
+  }
+  if (filters.titleSearch) {
+    add(
+      "titleSearch",
+      `Title search: ${filters.titleSearch}`,
+      buildScopedSearchRemoveHref(currentParams, "titleSearch", "title")
+    );
+  }
+  if (filters.companySearch) {
+    add(
+      "companySearch",
+      `Company search: ${filters.companySearch}`,
+      buildScopedSearchRemoveHref(currentParams, "companySearch", "company")
+    );
+  }
+  if (filters.locationSearch) {
+    for (const location of splitFilterValues(filters.locationSearch)) {
+      add(
+        `locationSearch:${location.toLowerCase()}`,
+        `Location: ${location}`,
+        buildLocationSearchRemoveHref(currentParams, location)
+      );
+    }
+  }
+
+  addSelectedOptionChips(chips, currentParams, "submissionCategory", filters.submissionCategory, CATEGORY_OPTIONS, "Apply type");
+  if (filters.location) add("location", `Location filter: ${filters.location}`, removeParamHref("location"));
+  if (filters.roleFamily) add("roleFamily", `Legacy role/category: ${filters.roleFamily}`, removeParamHref("roleFamily"));
+  if (filters.source) add("source", `Source: ${filters.source}`, removeParamHref("source"));
+  addSelectedOptionChips(chips, currentParams, "careerStage", filters.careerStage, NORMALIZED_CAREER_STAGE_OPTIONS, "Career");
+  addSelectedOptionChips(chips, currentParams, "roleCategory", filters.roleCategory, NORMALIZED_ROLE_CATEGORY_OPTIONS, "Role");
+  addSelectedOptionChips(chips, currentParams, "workMode", filters.workMode, WORK_MODE_OPTIONS, "Work");
+  addSelectedOptionChips(chips, currentParams, "employmentType", filters.employmentType, NORMALIZED_EMPLOYMENT_TYPE_OPTIONS, "Type");
+  addRawValueChips(chips, currentParams, "region", filters.region, "Region");
+  addSelectedOptionChips(chips, currentParams, "industry", filters.industry, NORMALIZED_INDUSTRY_OPTIONS, "Industry");
+  addSelectedOptionChips(chips, currentParams, "posted", filters.posted, POSTED_OPTIONS, "Posted");
+  addSelectedOptionChips(chips, currentParams, "expiry", filters.expiry, EXPIRY_OPTIONS, "Deadline");
+  addSelectedOptionChips(chips, currentParams, "status", filters.status, STATUS_OPTIONS, "Status");
+
+  if (filters.salaryMin) {
+    add(
+      "salaryMin",
+      `Min salary: ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMin).toLocaleString()}`,
+      removeParamHref("salaryMin")
+    );
+  }
+  if (filters.salaryMax) {
+    add(
+      "salaryMax",
+      `Max salary: ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMax).toLocaleString()}`,
+      removeParamHref("salaryMax")
+    );
+  }
 
   return chips;
+}
+
+function buildLocationSearchRemoveHref(
+  currentParams: Record<string, string | string[] | undefined>,
+  location: string
+) {
+  const currentLocationSearch = getMultiSearchParam(currentParams, "locationSearch");
+  const isLegacyLocationSearch =
+    normalizeSearchScopeParam(getSearchParam(currentParams, "searchScope")) === "location";
+  const legacySearch = isLegacyLocationSearch ? getSearchParam(currentParams, "search") : undefined;
+  const nextValue = splitFilterValues([currentLocationSearch, legacySearch].filter(Boolean).join(","))
+    .filter((entry) => entry.toLowerCase() !== location.toLowerCase())
+    .join(",");
+  const overrides: Record<string, string | undefined> = {
+    page: undefined,
+    locationSearch: nextValue || undefined,
+  };
+
+  if (isLegacyLocationSearch) {
+    overrides.search = undefined;
+    overrides.searchScope = nextValue ? "location" : undefined;
+  }
+
+  return buildJobsHref(currentParams, overrides);
+}
+
+function buildScopedSearchRemoveHref(
+  currentParams: Record<string, string | string[] | undefined>,
+  param: "titleSearch" | "companySearch" | "locationSearch",
+  legacyScope: "title" | "company" | "location"
+) {
+  const overrides: Record<string, string | undefined> = {
+    page: undefined,
+    [param]: undefined,
+  };
+
+  if (normalizeSearchScopeParam(getSearchParam(currentParams, "searchScope")) === legacyScope) {
+    overrides.search = undefined;
+    overrides.searchScope = undefined;
+  }
+
+  return buildJobsHref(currentParams, overrides);
+}
+
+function addSelectedOptionChips(
+  chips: ActiveFilterChip[],
+  currentParams: Record<string, string | string[] | undefined>,
+  param: string,
+  current: string | undefined,
+  options: Array<{ label: string; value: string }>,
+  prefix: string
+) {
+  const remaining = new Set(splitFilterValues(current));
+
+  for (const option of options) {
+    const optionValues = splitFilterValues(option.value);
+    if (optionValues.length === 0 || !optionValues.every((value) => remaining.has(value))) {
+      continue;
+    }
+    chips.push({
+      key: `${param}:${option.value}`,
+      label: `${prefix}: ${option.label}`,
+      href: buildRemoveFilterValueHref(currentParams, param, option.value),
+    });
+    for (const value of optionValues) {
+      remaining.delete(value);
+    }
+  }
+
+  for (const value of remaining) {
+    chips.push({
+      key: `${param}:${value}`,
+      label: `${prefix}: ${value}`,
+      href: buildRemoveFilterValueHref(currentParams, param, value),
+    });
+  }
+}
+
+function addRawValueChips(
+  chips: ActiveFilterChip[],
+  currentParams: Record<string, string | string[] | undefined>,
+  param: string,
+  current: string | undefined,
+  prefix: string
+) {
+  for (const value of splitFilterValues(current)) {
+    chips.push({
+      key: `${param}:${value}`,
+      label: `${prefix}: ${value}`,
+      href: buildRemoveFilterValueHref(currentParams, param, value),
+    });
+  }
+}
+
+function buildRemoveFilterValueHref(
+  currentParams: Record<string, string | string[] | undefined>,
+  param: string,
+  value: string
+) {
+  const removeValues = new Set(splitFilterValues(value).map((entry) => entry.toLowerCase()));
+  const nextValue = splitFilterValues(getMultiSearchParam(currentParams, param))
+    .filter((entry) => !removeValues.has(entry.toLowerCase()))
+    .join(",");
+
+  return buildJobsHref(currentParams, {
+    page: undefined,
+    [param]: nextValue || undefined,
+  });
 }
 
 function collectSelectedLabels(
@@ -773,5 +1304,18 @@ function getFilterSummaryText(selectedLabels: string[], emptyLabel: string) {
 }
 
 function splitFilterValues(value?: string) {
-  return value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
+  if (!value) return [];
+  const seen = new Set<string>();
+  const values: string[] = [];
+
+  for (const entry of value.split(",")) {
+    const trimmed = entry.replace(/\s+/g, " ").trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(trimmed);
+  }
+
+  return values;
 }

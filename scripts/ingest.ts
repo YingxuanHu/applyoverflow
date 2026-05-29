@@ -22,6 +22,7 @@ async function main() {
         })
       : await ingestConnector(connector, {
           limit: args.limit,
+          maxRuntimeMs: args.maxRuntimeMs,
           allowOverlappingRuns: args.allowOverlap === true,
         });
     summaries.push(summary);
@@ -44,6 +45,7 @@ function parseArgs(rawArgs: string[]) {
     account?: string;
     accounts?: string;
     limit?: number;
+    maxRuntimeMs?: number;
     dryRun?: boolean;
     allowOverlap?: boolean;
   } = {};
@@ -85,10 +87,17 @@ function parseArgs(rawArgs: string[]) {
     if (key === "account") parsedArgs.account = value;
     if (key === "accounts") parsedArgs.accounts = value;
     if (key === "limit") parsedArgs.limit = Number.parseInt(value, 10);
+    if (key === "max-runtime-ms") parsedArgs.maxRuntimeMs = Number.parseInt(value, 10);
   }
 
   if (parsedArgs.limit !== undefined && Number.isNaN(parsedArgs.limit)) {
     throw new Error(`Invalid --limit value "${String(parsedArgs.limit)}"`);
+  }
+  if (
+    parsedArgs.maxRuntimeMs !== undefined &&
+    Number.isNaN(parsedArgs.maxRuntimeMs)
+  ) {
+    throw new Error(`Invalid --max-runtime-ms value "${String(parsedArgs.maxRuntimeMs)}"`);
   }
 
   return parsedArgs;

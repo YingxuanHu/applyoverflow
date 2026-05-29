@@ -7,6 +7,12 @@ import { findCrossSourceCanonicalMatch } from "@/lib/ingestion/dedupe";
 import { parseSourceConnectorJobFromRawPayload } from "@/lib/ingestion/normalized-records";
 import { deriveSourceIdentitySnapshot } from "@/lib/ingestion/source-quality";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
+import {
+  coerceNormalizedCareerStage,
+  coerceNormalizedEmploymentType,
+  coerceNormalizedIndustry,
+  coerceNormalizedRoleCategory,
+} from "@/lib/job-metadata";
 import { Prisma } from "@/generated/prisma/client";
 
 process.env.DATABASE_PROCESS_ROLE ??= "expansion_pipeline";
@@ -44,6 +50,10 @@ type BenchmarkSample = {
   shortSummary: string;
   industry: NormalizedJobInput["industry"];
   roleFamily: string;
+  normalizedEmploymentType: string | null;
+  normalizedCareerStage: string | null;
+  normalizedIndustry: string | null;
+  normalizedRoleCategory: string | null;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;
@@ -133,6 +143,10 @@ function buildNormalizedJob(sample: BenchmarkSample): NormalizedJobInput {
     shortSummary: sample.shortSummary,
     industry: sample.industry,
     roleFamily: sample.roleFamily,
+    normalizedEmploymentType: coerceNormalizedEmploymentType(sample.normalizedEmploymentType),
+    normalizedCareerStage: coerceNormalizedCareerStage(sample.normalizedCareerStage),
+    normalizedIndustry: coerceNormalizedIndustry(sample.normalizedIndustry),
+    normalizedRoleCategory: coerceNormalizedRoleCategory(sample.normalizedRoleCategory),
     applyUrl: sample.applyUrl,
     applyUrlKey: sample.applyUrlKey,
     postedAt: sample.postedAt,
@@ -302,6 +316,10 @@ async function main() {
       shortSummary: true,
       industry: true,
       roleFamily: true,
+      normalizedEmploymentType: true,
+      normalizedCareerStage: true,
+      normalizedIndustry: true,
+      normalizedRoleCategory: true,
       applyUrl: true,
       applyUrlKey: true,
       postedAt: true,

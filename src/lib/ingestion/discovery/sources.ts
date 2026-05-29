@@ -11,6 +11,7 @@ import {
   createTeamtailorConnector,
   createLeverConnector,
   createMuseConnector,
+  createOfficialCompanyConnector,
   createRemoteOkConnector,
   createRemotiveConnector,
   createTaleoConnector,
@@ -26,6 +27,7 @@ import {
   validateSuccessFactorsBoard,
   buildWorkdayBoardUrl,
   buildWorkdaySourceToken,
+  parseOfficialCompanySourceToken,
 } from "@/lib/ingestion/connectors";
 import { extractUrlsFromText } from "@/lib/ingestion/discovery/rippling";
 import { previewConnectorIngestion } from "@/lib/ingestion/pipeline";
@@ -256,6 +258,8 @@ export function buildDiscoveredSourceName(
         return "USAJobs";
       case "weworkremotely":
         return "WeWorkRemotely";
+      case "official-company":
+        return "OfficialCompany";
       default:
         return connectorName.charAt(0).toUpperCase() + connectorName.slice(1);
     }
@@ -318,6 +322,19 @@ export function buildDiscoveredSourceUrl(
       return "https://www.themuse.com/jobs";
     case "weworkremotely":
       return "https://weworkremotely.com/remote-jobs";
+    case "official-company": {
+      const parsed = parseOfficialCompanySourceToken(token);
+      switch (parsed.company) {
+        case "amazon":
+          return "https://www.amazon.jobs";
+        case "apple":
+          return "https://jobs.apple.com";
+        case "microsoft":
+          return "https://apply.careers.microsoft.com/careers";
+        case "nvidia":
+          return "https://jobs.nvidia.com/careers";
+      }
+    }
     default:
       throw new Error(`Unsupported discovered source connector: ${connectorName}`);
   }
@@ -1426,6 +1443,10 @@ export function createConnectorForCandidate(candidate: DiscoveredSourceCandidate
       return createRemotiveConnector();
     case "themuse":
       return createMuseConnector();
+    case "official-company": {
+      const parsed = parseOfficialCompanySourceToken(candidate.token);
+      return createOfficialCompanyConnector(parsed);
+    }
     default:
       throw new Error(
         `Unsupported discovered source connector: ${candidate.connectorName}`

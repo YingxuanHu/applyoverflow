@@ -1,23 +1,40 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { ConnectorFreshnessMode } from "@/lib/ingestion/types";
 
+const FIRST_PARTY_COMPANY_PREFIXES = new Set([
+  "OfficialCompany",
+  "FirstPartyCompany",
+]);
+
 const DIRECT_COMPANY_PREFIXES = new Set([
+  "CompanyHtml",
+  "CompanyJson",
   "Ashby",
+  "BreezyHR",
   "Greenhouse",
+  "Hireology",
+  "HrSmart",
+  "Jobvite",
   "Lever",
+  "OracleCloud",
+  "Paradox",
   "Recruitee",
   "Rippling",
   "SmartRecruiters",
   "SuccessFactors",
   "Taleo",
+  "Teamtailor",
   "Workable",
   "Workday",
   "iCIMS",
 ]);
 
 const STRUCTURED_BOARD_PREFIXES = new Set([
+  "BuiltIn",
+  "HiringCafe",
   "Himalayas",
   "JobBank",
+  "JobBankLive",
   "TheMuse",
   "USAJobs",
   "WeWorkRemotely",
@@ -25,30 +42,49 @@ const STRUCTURED_BOARD_PREFIXES = new Set([
 
 const AGGREGATOR_PREFIXES = new Set([
   "Adzuna",
+  "JSearch",
   "Jobicy",
   "Jooble",
   "RemoteOK",
   "Remotive",
+  "WorkAtAStartup",
 ]);
 
 const DIRECT_HOST_HINTS = [
   "ashbyhq.com",
   "greenhouse.io",
+  "breezy.hr",
+  "hireology.com",
+  "jobvite.com",
   "lever.co",
+  "oraclecloud.com",
+  "paradox.ai",
   "recruitee.com",
   "ats.rippling.com",
   "smartrecruiters.com",
   "successfactors.com",
   "successfactors.eu",
   "taleo.net",
+  "teamtailor.com",
   "apply.workable.com",
   "myworkdayjobs.com",
   "myworkdaysite.com",
   "icims.com",
 ];
 
+const FIRST_PARTY_COMPANY_HOST_HINTS = [
+  "amazon.jobs",
+  "jobs.apple.com",
+  "apply.careers.microsoft.com",
+  "jobs.nvidia.com",
+  "careers.google.com",
+  "metacareers.com",
+];
+
 const STRUCTURED_BOARD_HOST_HINTS = [
   "himalayas.app",
+  "builtin.com",
+  "hiring.cafe",
   "jobbank.gc.ca",
   "themuse.com",
   "usajobs.gov",
@@ -57,6 +93,7 @@ const STRUCTURED_BOARD_HOST_HINTS = [
 
 const AGGREGATOR_HOST_HINTS = [
   "adzuna.com",
+  "jsearch.p.rapidapi.com",
   "jooble.org",
   "jobicy.com",
   "remoteok.com",
@@ -80,6 +117,7 @@ const STABLE_QUERY_PARAMS = [
 ];
 
 export type SourceQualityKind =
+  | "FIRST_PARTY_COMPANY"
   | "DIRECT_COMPANY"
   | "STRUCTURED_BOARD"
   | "AGGREGATOR_REDIRECT"
@@ -179,40 +217,54 @@ export function getSourceQualitySnapshot(input: {
   const prefix = input.sourceName.split(":")[0] ?? input.sourceName;
   const sourceHost = getHost(input.sourceUrl);
   const applyHost = getHost(input.applyUrl);
+  const isAggregatorSource =
+    AGGREGATOR_PREFIXES.has(prefix) ||
+    hasHostSuffix(sourceHost, AGGREGATOR_HOST_HINTS);
 
   let base: SourceQualitySnapshot;
 
   if (
-    DIRECT_COMPANY_PREFIXES.has(prefix) ||
-    hasHostSuffix(sourceHost, DIRECT_HOST_HINTS) ||
-    hasHostSuffix(applyHost, DIRECT_HOST_HINTS)
+    !isAggregatorSource &&
+    (FIRST_PARTY_COMPANY_PREFIXES.has(prefix) ||
+      hasHostSuffix(sourceHost, FIRST_PARTY_COMPANY_HOST_HINTS) ||
+      hasHostSuffix(applyHost, FIRST_PARTY_COMPANY_HOST_HINTS))
+  ) {
+    base = {
+      kind: "FIRST_PARTY_COMPANY",
+      rank: 1000,
+    };
+  } else if (
+    !isAggregatorSource &&
+    (DIRECT_COMPANY_PREFIXES.has(prefix) ||
+      hasHostSuffix(sourceHost, DIRECT_HOST_HINTS) ||
+      hasHostSuffix(applyHost, DIRECT_HOST_HINTS))
   ) {
     base = {
       kind: "DIRECT_COMPANY",
-      rank: 400,
+      rank: 800,
     };
   } else if (
-    STRUCTURED_BOARD_PREFIXES.has(prefix) ||
-    hasHostSuffix(sourceHost, STRUCTURED_BOARD_HOST_HINTS) ||
-    hasHostSuffix(applyHost, STRUCTURED_BOARD_HOST_HINTS)
+    !isAggregatorSource &&
+    (STRUCTURED_BOARD_PREFIXES.has(prefix) ||
+      hasHostSuffix(sourceHost, STRUCTURED_BOARD_HOST_HINTS) ||
+      hasHostSuffix(applyHost, STRUCTURED_BOARD_HOST_HINTS))
   ) {
     base = {
       kind: "STRUCTURED_BOARD",
-      rank: 300,
+      rank: 500,
     };
   } else if (
-    AGGREGATOR_PREFIXES.has(prefix) ||
-    hasHostSuffix(sourceHost, AGGREGATOR_HOST_HINTS) ||
+    isAggregatorSource ||
     hasHostSuffix(applyHost, AGGREGATOR_HOST_HINTS)
   ) {
     base = {
       kind: "AGGREGATOR_REDIRECT",
-      rank: 200,
+      rank: 25,
     };
   } else {
     base = {
       kind: "WEAK_SCRAPED_COPY",
-      rank: 100,
+      rank: 50,
     };
   }
 
@@ -220,7 +272,9 @@ export function getSourceQualitySnapshot(input: {
     kind: base.kind,
     rank:
       base.rank +
-      scoreApplyUrlQuality(input.applyUrl) +
+      (base.kind === "AGGREGATOR_REDIRECT"
+        ? scoreAggregatorApplyUrlQuality(input.applyUrl)
+        : scoreApplyUrlQuality(input.applyUrl)) +
       (normalizeUrlIdentityKey(input.sourceUrl) ? 5 : 0),
   } satisfies SourceQualitySnapshot;
 }
@@ -229,10 +283,22 @@ export function scoreApplyUrlQuality(url: string | null) {
   const host = getHost(url);
 
   if (!host) return 0;
-  if (hasHostSuffix(host, DIRECT_HOST_HINTS)) return 40;
-  if (hasHostSuffix(host, STRUCTURED_BOARD_HOST_HINTS)) return 20;
-  if (hasHostSuffix(host, AGGREGATOR_HOST_HINTS)) return 0;
+  if (hasHostSuffix(host, FIRST_PARTY_COMPANY_HOST_HINTS)) return 120;
+  if (hasHostSuffix(host, DIRECT_HOST_HINTS)) return 90;
+  if (hasHostSuffix(host, STRUCTURED_BOARD_HOST_HINTS)) return 35;
+  if (hasHostSuffix(host, AGGREGATOR_HOST_HINTS)) return -25;
   return 10;
+}
+
+function scoreAggregatorApplyUrlQuality(url: string | null) {
+  const host = getHost(url);
+
+  if (!host) return 0;
+  if (hasHostSuffix(host, AGGREGATOR_HOST_HINTS)) return -25;
+  if (hasHostSuffix(host, FIRST_PARTY_COMPANY_HOST_HINTS)) return 20;
+  if (hasHostSuffix(host, DIRECT_HOST_HINTS)) return 20;
+  if (hasHostSuffix(host, STRUCTURED_BOARD_HOST_HINTS)) return 8;
+  return 2;
 }
 
 export function deriveSourceLifecycleSnapshot(input: {
@@ -250,6 +316,13 @@ export function deriveSourceLifecycleSnapshot(input: {
   let sourceReliability = 0.7;
 
   if (
+    FIRST_PARTY_COMPANY_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
+    hasHostSuffix(sourceHost, FIRST_PARTY_COMPANY_HOST_HINTS) ||
+    hasHostSuffix(applyHost, FIRST_PARTY_COMPANY_HOST_HINTS)
+  ) {
+    sourceType = "COMPANY_JSON";
+    sourceReliability = 0.97;
+  } else if (
     DIRECT_COMPANY_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
     hasHostSuffix(sourceHost, DIRECT_HOST_HINTS) ||
     hasHostSuffix(applyHost, DIRECT_HOST_HINTS)
@@ -269,7 +342,7 @@ export function deriveSourceLifecycleSnapshot(input: {
     hasHostSuffix(applyHost, AGGREGATOR_HOST_HINTS)
   ) {
     sourceType = "AGGREGATOR";
-    sourceReliability = 0.55;
+    sourceReliability = 0.35;
   } else if (sourceFamily.includes("json")) {
     sourceType = "COMPANY_JSON";
     sourceReliability = 0.85;
@@ -731,6 +804,8 @@ function mapTrustTierFromQualityKind(
   qualityKind: SourceQualityKind
 ): SourceTrustTier {
   switch (qualityKind) {
+    case "FIRST_PARTY_COMPANY":
+      return "HIGH";
     case "DIRECT_COMPANY":
       return "HIGH";
     case "STRUCTURED_BOARD":
@@ -746,6 +821,8 @@ function mapOriginPreferenceFromQualityKind(
   qualityKind: SourceQualityKind
 ): CanonicalOriginPreference {
   switch (qualityKind) {
+    case "FIRST_PARTY_COMPANY":
+      return "PRIMARY";
     case "DIRECT_COMPANY":
       return "PRIMARY";
     case "STRUCTURED_BOARD":

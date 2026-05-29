@@ -3,15 +3,27 @@
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { ChevronDown, ChevronRight, FileText, MoreHorizontal, Sparkles } from "lucide-react";
+import {
+  Bell,
+  CalendarClock,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  MoreHorizontal,
+  Pencil,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import {
+  addTimelineEvent,
   addTag,
   deleteTimelineEvent,
   importJobDescription,
   linkDocument,
   removeTag,
   unlinkDocument,
+  updateTimelineEvent,
   updateApplicationField,
   updateApplicationHeader,
   updateApplicationStatus,
@@ -317,84 +329,6 @@ function SubmitBtn({
         label
       )}
     </Button>
-  );
-}
-
-function EditableField({
-  applicationId,
-  field,
-  label,
-  value,
-  placeholder,
-}: {
-  applicationId: string;
-  field: "notes";
-  label: string;
-  value: string;
-  placeholder: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const [state, formAction] = useActionState(updateApplicationField, INITIAL_ACTION_STATE);
-  useActionNotifications(state);
-
-  function handleCancel() {
-    setDraft(value);
-    setEditing(false);
-  }
-
-  return (
-    <div className="rounded-xl border border-border/70 bg-background/50 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>{label}</h3>
-        {!editing ? (
-          <button
-            className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
-            onClick={() => setEditing(true)}
-            type="button"
-          >
-            Edit
-          </button>
-        ) : null}
-      </div>
-
-      {editing ? (
-        <form
-          action={async (formData) => {
-            await formAction(formData);
-            setEditing(false);
-          }}
-          className="mt-3 grid gap-2"
-        >
-          <input name="applicationId" type="hidden" value={applicationId} />
-          <input name="field" type="hidden" value={field} />
-          <Textarea
-            className="min-h-[80px] resize-y text-sm"
-            name="value"
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={placeholder}
-            rows={4}
-            value={draft}
-          />
-          <div className="flex gap-2">
-            <SubmitBtn label="Save" saving="Saving..." />
-            <Button
-              className="h-8 px-3 text-xs"
-              onClick={handleCancel}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <p className="mt-3 whitespace-pre-wrap text-sm text-foreground/80">
-          {value || <span className="italic text-muted-foreground">{placeholder}</span>}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -1085,6 +1019,268 @@ function JobDescriptionField({
   );
 }
 
+function toDateTimeLocalInputValue(date: Date | null) {
+  if (!date) return "";
+  const value = new Date(date);
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function compareReminderEvents(left: TimelineEvent, right: TimelineEvent) {
+  const leftTime = left.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const rightTime = right.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return right.timestamp.getTime() - left.timestamp.getTime();
+}
+
+function ReminderRow({
+  applicationId,
+  reminder,
+}: {
+  applicationId: string;
+  reminder: TimelineEvent;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(reminder.note ?? "");
+  const [timeDraft, setTimeDraft] = useState(toDateTimeLocalInputValue(reminder.reminderAt));
+  const [updateState, updateAction] = useActionState(updateTimelineEvent, INITIAL_ACTION_STATE);
+  const [deleteState, deleteAction] = useActionState(deleteTimelineEvent, INITIAL_ACTION_STATE);
+  useActionNotifications(updateState);
+  useActionNotifications(deleteState);
+
+  function cancelEdit() {
+    setNoteDraft(reminder.note ?? "");
+    setTimeDraft(toDateTimeLocalInputValue(reminder.reminderAt));
+    setEditing(false);
+  }
+
+  function dispatchDelete() {
+    const payload = new FormData();
+    payload.set("applicationId", applicationId);
+    payload.set("eventId", reminder.id);
+    setDeleteOpen(false);
+    startTransition(() => deleteAction(payload));
+  }
+
+  if (editing) {
+    return (
+      <form
+        action={async (formData) => {
+          await updateAction(formData);
+          setEditing(false);
+        }}
+        className="rounded-xl border border-border/70 bg-background/70 p-3"
+      >
+        <input name="applicationId" type="hidden" value={applicationId} />
+        <input name="eventId" type="hidden" value={reminder.id} />
+        <input name="type" type="hidden" value="REMINDER" />
+        <div className="grid gap-2">
+          <Textarea
+            className="min-h-[78px] resize-y text-sm"
+            name="note"
+            onChange={(event) => setNoteDraft(event.target.value)}
+            placeholder="Reminder"
+            required
+            rows={3}
+            value={noteDraft}
+          />
+          <label className="grid gap-1.5 text-xs text-muted-foreground sm:max-w-72">
+            <span className="font-medium uppercase tracking-[0.12em]">Notify at</span>
+            <Input
+              className="h-9 text-sm"
+              name="reminderAt"
+              onChange={(event) => setTimeDraft(event.target.value)}
+              type="datetime-local"
+              value={timeDraft}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <SubmitBtn label="Save reminder" saving="Saving..." />
+            <Button
+              className="h-8 px-3 text-xs"
+              onClick={cancelEdit}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    // `min-w-0 overflow-hidden` on the card itself: without this, an
+    // unbreakable JWT token inside the note could push the card wider
+    // than its grid column. The grid columns use minmax(0, …) but if any
+    // ancestor flex/grid item lacks min-width:0, child content can still
+    // force the layout wide. Belt-and-suspenders.
+    <div className="min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/60 p-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/35 text-muted-foreground">
+          <Bell className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {/*
+            `break-all` is the most aggressive wrap mode — it breaks at any
+            character, even mid-word. We need this because reminder notes
+            commonly contain pasted JWT URLs (400+ chars, no whitespace) and
+            the gentler `break-words` only triggers as a last resort. The
+            container also has `overflow-hidden` as a final safety net.
+            `whitespace-pre-wrap` still preserves user-typed newlines.
+          */}
+          <p className="whitespace-pre-wrap break-all text-sm leading-6 text-foreground/85 [overflow-wrap:anywhere]">
+            {reminder.note}
+          </p>
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarClock className="h-3.5 w-3.5" />
+            {reminder.reminderAt ? formatDateTime(reminder.reminderAt) : "No notification time"}
+            {reminder.reminderNotifiedAt ? " · sent" : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label="Edit reminder"
+            className="h-8 w-8 px-0"
+            onClick={() => setEditing(true)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            aria-label="Delete reminder"
+            className="h-8 w-8 px-0 text-destructive hover:text-destructive"
+            onClick={() => setDeleteOpen(true)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <ConfirmActionDialog
+        confirmLabel="Delete"
+        description="Delete this reminder?"
+        destructive
+        onConfirm={dispatchDelete}
+        onOpenChange={setDeleteOpen}
+        open={deleteOpen}
+        title="Delete reminder?"
+      />
+    </div>
+  );
+}
+
+function RemindersSection({
+  applicationId,
+  reminders,
+}: {
+  applicationId: string;
+  reminders: TimelineEvent[];
+}) {
+  const [adding, setAdding] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [timeDraft, setTimeDraft] = useState("");
+  const [state, formAction] = useActionState(addTimelineEvent, INITIAL_ACTION_STATE);
+  useActionNotifications(state);
+  const sortedReminders = [...reminders].sort(compareReminderEvents);
+
+  return (
+    // `min-w-0 overflow-hidden` on the outer Reminders section so a single
+    // reminder with an ultra-long pasted URL cannot stretch the whole
+    // section beyond its grid column.
+    <section className="min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/50 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>Reminders</h3>
+        {!adding ? (
+          <Button
+            className="h-8 px-3 text-xs"
+            onClick={() => setAdding(true)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Add reminder
+          </Button>
+        ) : null}
+      </div>
+
+      {adding ? (
+        <form
+          action={async (formData) => {
+            await formAction(formData);
+            setAdding(false);
+            setNoteDraft("");
+            setTimeDraft("");
+          }}
+          className="mt-3 grid gap-2 rounded-xl border border-border/70 bg-background/70 p-3"
+        >
+          <input name="applicationId" type="hidden" value={applicationId} />
+          <input name="type" type="hidden" value="REMINDER" />
+          <Textarea
+            className="min-h-[82px] resize-y text-sm"
+            name="note"
+            onChange={(event) => setNoteDraft(event.target.value)}
+            placeholder="Reminder"
+            required
+            rows={3}
+            value={noteDraft}
+          />
+          <label className="grid gap-1.5 text-xs text-muted-foreground sm:max-w-72">
+            <span className="font-medium uppercase tracking-[0.12em]">Notify at</span>
+            <Input
+              className="h-9 text-sm"
+              name="reminderAt"
+              onChange={(event) => setTimeDraft(event.target.value)}
+              type="datetime-local"
+              value={timeDraft}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <SubmitBtn label="Save reminder" saving="Saving..." />
+            <Button
+              className="h-8 px-3 text-xs"
+              onClick={() => {
+                setAdding(false);
+                setNoteDraft("");
+                setTimeDraft("");
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      <div className="mt-3 grid gap-2">
+        {sortedReminders.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+            No reminders yet.
+          </p>
+        ) : (
+          sortedReminders.map((reminder) => (
+            <ReminderRow
+              applicationId={applicationId}
+              key={reminder.id}
+              reminder={reminder}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function EventRow({ applicationId, event }: { applicationId: string; event: TimelineEvent }) {
   const [state, formAction] = useActionState(deleteTimelineEvent, INITIAL_ACTION_STATE);
   const [open, setOpen] = useState(false);
@@ -1175,7 +1371,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
                   <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     {isReminder ? "Reminder note" : "Note"}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/85">{note}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-all text-sm text-foreground/85 [overflow-wrap:anywhere]">{note}</p>
                 </div>
               ) : null}
             </div>
@@ -1442,6 +1638,8 @@ export function ApplicationWorkspaceClient({
     (link) => link.slot === "SENT_COVER_LETTER" && link.document.type === "COVER_LETTER"
   );
   const [headerEditing, setHeaderEditing] = useState(initialHeaderEditing);
+  const reminders = application.events.filter((event) => event.type === "REMINDER");
+  const timelineEvents = application.events.filter((event) => event.type !== "REMINDER");
 
   return (
     <div className="grid gap-6">
@@ -1528,13 +1726,7 @@ export function ApplicationWorkspaceClient({
             userDocuments={userDocuments}
           />
 
-          <EditableField
-            applicationId={application.id}
-            field="notes"
-            label="Notes"
-            placeholder="Add notes about this application..."
-            value={application.notes ?? ""}
-          />
+          <RemindersSection applicationId={application.id} reminders={reminders} />
         </div>
 
         <div className="grid content-start gap-6 self-start">
@@ -1546,7 +1738,7 @@ export function ApplicationWorkspaceClient({
               hasCoverLetter={Boolean(coverLetterLink)}
               hasFitAnalysis={Boolean(application.fitAnalysis)}
               hasJobDescription={Boolean(application.jobDescription)}
-              hasNotes={Boolean(application.notes)}
+              hasNotes={reminders.length > 0}
               hasResume={Boolean(resumeLink)}
               roleTitle={application.roleTitle}
             />
@@ -1556,13 +1748,13 @@ export function ApplicationWorkspaceClient({
             <h2 className="text-base font-semibold text-foreground">Timeline</h2>
 
             <div className="mt-3 grid gap-3">
-              {application.events.length === 0 ? (
+              {timelineEvents.length === 0 ? (
                 <p className="py-4 text-center text-sm italic text-muted-foreground">
                   No events recorded yet.
                 </p>
               ) : (
                 <div className="grid gap-1">
-                  {application.events.map((event) => (
+                  {timelineEvents.map((event) => (
                     <EventRow applicationId={application.id} event={event} key={event.id} />
                   ))}
                 </div>

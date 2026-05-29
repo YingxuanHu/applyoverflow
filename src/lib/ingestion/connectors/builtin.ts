@@ -31,7 +31,22 @@ import type {
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
 
-const BUILTIN_LISTING_URL = "https://builtin.com/jobs/all";
+// Built In has a national board (builtin.com/jobs/all) plus city subsites
+// (built in NYC, LA, Boston, Austin, Chicago, Seattle, Denver/Colorado,
+// SF). Each city subsite paginates its own job set, so adding them as
+// separate profiles 5-8× the connector's throughput vs. running just the
+// national board. Maps profile name → base listing URL.
+const BUILTIN_LISTING_URLS: Record<string, string> = {
+  national: "https://builtin.com/jobs/all",
+  nyc: "https://www.builtinnyc.com/jobs/all",
+  la: "https://www.builtinla.com/jobs/all",
+  boston: "https://www.builtinboston.com/jobs/all",
+  chicago: "https://www.builtinchicago.org/jobs/all",
+  austin: "https://www.builtinaustin.com/jobs/all",
+  seattle: "https://www.builtinseattle.com/jobs/all",
+  colorado: "https://www.builtincolorado.com/jobs/all",
+  sf: "https://www.builtinsf.com/jobs/all",
+};
 const BUILTIN_DEFAULT_MAX_PAGES = 8;
 const BUILTIN_DEFAULT_RATE_DELAY_MS = 600;
 const BUILTIN_USER_AGENT =
@@ -84,20 +99,44 @@ type JsonLdJobPosting = {
   industry?: string;
 };
 
-export function createBuiltInConnector(): SourceConnector {
+export type BuiltInConnectorOptions = {
+  /**
+   * Which Built In subsite to scrape. Defaults to "national" (builtin.com).
+   * City profiles paginate independently — running multiple profiles in
+   * parallel multiplies throughput.
+   */
+  profile?: keyof typeof BUILTIN_LISTING_URLS;
+};
+
+export function createBuiltInConnector(
+  options: BuiltInConnectorOptions = {}
+): SourceConnector {
+  const profile = (options.profile ?? "national") as keyof typeof BUILTIN_LISTING_URLS;
+  const baseUrl = BUILTIN_LISTING_URLS[profile];
+  if (!baseUrl) {
+    throw new Error(
+      `BuiltIn connector got unknown profile '${String(profile)}'. Known: ${Object.keys(BUILTIN_LISTING_URLS).join(", ")}`
+    );
+  }
+
+  // Preserve "builtin:feed" key for the national profile so existing
+  // IngestionRun history + checkpoints + adaptive-budget signals carry
+  // over. City profiles get distinct keys.
+  const keySuffix = profile === "national" ? "feed" : profile;
+
   const fetchCache = new Map<string, Promise<SourceConnectorFetchResult>>();
   return {
-    key: "builtin:feed",
-    sourceName: "BuiltIn:feed",
+    key: `builtin:${keySuffix}`,
+    sourceName: `BuiltIn:${keySuffix}`,
     sourceTier: "TIER_2",
     freshnessMode: "FULL_SNAPSHOT",
     async fetchJobs(
-      options: SourceConnectorFetchOptions
+      fetchOptions: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
-      const cacheKey = String(options.limit ?? "all");
+      const cacheKey = String(fetchOptions.limit ?? "all");
       const existing = fetchCache.get(cacheKey);
       if (existing) return existing;
-      const request = fetchBuiltInJobs(options);
+      const request = fetchBuiltInJobs(fetchOptions, baseUrl);
       fetchCache.set(cacheKey, request);
       return request;
     },
@@ -105,7 +144,8 @@ export function createBuiltInConnector(): SourceConnector {
 }
 
 async function fetchBuiltInJobs(
-  options: SourceConnectorFetchOptions
+  options: SourceConnectorFetchOptions,
+  baseListingUrl: string
 ): Promise<SourceConnectorFetchResult> {
   throwIfAborted(options.signal);
   const now = options.now ?? new Date();
@@ -127,7 +167,7 @@ async function fetchBuiltInJobs(
     throwIfAborted(options.signal);
 
     const listingUrl =
-      page === 1 ? BUILTIN_LISTING_URL : `${BUILTIN_LISTING_URL}?page=${page}`;
+      page === 1 ? baseListingUrl : `${baseListingUrl}?page=${page}`;
 
     let html: string;
     try {
@@ -186,7 +226,7 @@ async function fetchBuiltInJobs(
   return {
     jobs,
     metadata: {
-      listingUrl: BUILTIN_LISTING_URL,
+      listingUrl: baseListingUrl,
       pagesFetched,
       urlsCollected: collectedUrls.size,
       jobPageFailures,
@@ -220,7 +260,13 @@ async function fetchBuiltInJobPage(
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
-const JOB_URL_REGEX = /https:\/\/builtin\.com\/job\/[a-z0-9][a-z0-9\-]*\/\d+/g;
+// Accept all BuiltIn host variants: builtin.com (national), builtinnyc.com,
+// builtinla.com, builtinboston.com, builtinaustin.com, builtinseattle.com,
+// builtincolorado.com, builtinsf.com, builtinchicago.org. Previously
+// hardcoded to `builtin.com` which meant the city subsites' job URLs all
+// got filtered out and the city shards produced zero jobs.
+const JOB_URL_REGEX =
+  /https:\/\/(?:www\.)?builtin[a-z]*\.(?:com|org)\/job\/[a-z0-9][a-z0-9\-]*\/\d+/g;
 
 function extractBuiltInJobUrls(html: string): string[] {
   const matches = html.match(JOB_URL_REGEX);

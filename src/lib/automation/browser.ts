@@ -125,18 +125,26 @@ export async function detectBlockers(
 
   // CAPTCHA detection
   const captchaSelectors = [
-    'iframe[src*="recaptcha"]',
-    'iframe[src*="hcaptcha"]',
-    'iframe[src*="captcha"]',
-    '[class*="captcha"]',
-    "#captcha",
-    '[data-sitekey]',
+    { selector: 'iframe[src*="recaptcha"]', label: "reCAPTCHA iframe" },
+    { selector: 'iframe[src*="hcaptcha"]', label: "hCaptcha iframe" },
+    { selector: 'iframe[src*="captcha"]', label: "CAPTCHA iframe" },
+    { selector: '[class*="captcha"]', label: "CAPTCHA container" },
+    { selector: "#captcha", label: "CAPTCHA element" },
+    { selector: "[data-sitekey]", label: "CAPTCHA site key" },
   ];
 
-  for (const selector of captchaSelectors) {
-    const found = await page.locator(selector).count();
+  for (const { selector, label } of captchaSelectors) {
+    const locator = page.locator(selector);
+    const found = await locator.count().catch(() => 0);
     if (found > 0) {
-      blockers.push({ type: "captcha", detail: `Detected via ${selector}` });
+      const visible = await locator
+        .first()
+        .isVisible()
+        .catch(() => false);
+      blockers.push({
+        type: "captcha",
+        detail: `${label} detected${visible ? "" : " on the page"}. Automation cannot submit or bypass CAPTCHA-protected forms.`,
+      });
       break;
     }
   }
@@ -151,7 +159,7 @@ export async function detectBlockers(
   ];
 
   for (const selector of loginSelectors) {
-    const found = await page.locator(selector).count();
+    const found = await page.locator(selector).count().catch(() => 0);
     if (found > 0) {
       blockers.push({
         type: "login_required",

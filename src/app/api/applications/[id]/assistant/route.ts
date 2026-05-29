@@ -320,7 +320,18 @@ export async function POST(request: Request, context: RouteContext) {
         deadline: true,
         jobDescription: true,
         fitAnalysis: true,
-        notes: true,
+        events: {
+          where: { type: "REMINDER" },
+          orderBy: [
+            { reminderAt: { sort: "asc", nulls: "last" } },
+            { timestamp: "desc" },
+          ],
+          select: {
+            note: true,
+            reminderAt: true,
+            reminderNotifiedAt: true,
+          },
+        },
         documentLinks: {
           where: { slot: { in: ["SENT_RESUME", "SENT_COVER_LETTER"] } },
           orderBy: { slot: "asc" },
@@ -376,9 +387,19 @@ export async function POST(request: Request, context: RouteContext) {
       application.fitAnalysis?.trim()
         ? `Fit Analysis:\n${truncate(application.fitAnalysis, 4000)}`
         : "Fit Analysis: Not available.",
-      application.notes?.trim()
-        ? `Application Notes:\n${truncate(application.notes, 2500)}`
-        : "Application Notes: Not available.",
+      application.events.length > 0
+        ? `Application Reminders:\n${application.events
+            .map((event) =>
+              [
+                event.reminderAt ? `Notify at ${event.reminderAt.toISOString()}` : "No notification time",
+                event.reminderNotifiedAt ? "Already notified" : "Not notified",
+                truncate(event.note, 400),
+              ]
+                .filter(Boolean)
+                .join(" | ")
+            )
+            .join("\n")}`
+        : "Application Reminders: Not available.",
       `Linked Documents:\n${formatDocumentContext(
         application.documentLinks as Array<{
           slot: "SENT_RESUME" | "SENT_COVER_LETTER";
@@ -403,7 +424,7 @@ export async function POST(request: Request, context: RouteContext) {
             role: "system",
             content: `You are the job-scoped AI assistant inside Application Tracker.
 
-You answer questions about ONE specific application using ONLY the provided application context, linked document text, fit analysis, notes, and the user's profile.
+You answer questions about ONE specific application using ONLY the provided application context, linked document text, fit analysis, reminders, and the user's profile.
 
 What you help with:
 - understanding the role and priorities

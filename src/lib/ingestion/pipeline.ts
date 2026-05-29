@@ -7,7 +7,7 @@ import {
 import {
   backfillCanonicalDedupeFields,
   findCrossSourceCanonicalMatch,
-  isCanonicalMatchCompatible,
+  isCanonicalMatchCompatibleForSource,
   type CanonicalMatchResult,
 } from "@/lib/ingestion/dedupe";
 import { getLifecycleProfile } from "@/lib/ingestion/lifecycle-config";
@@ -25,6 +25,7 @@ import {
   createRuntimeBudgetExceededError,
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
+import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
 import type {
   IngestionSummary,
   NormalizedJobInput,
@@ -49,6 +50,26 @@ const RAW_PAYLOAD_FINGERPRINT_IGNORED_KEYS = new Set([
   "searchKeyword",
   "searchLocation",
 ]);
+
+const GENERIC_ATS_COMPANY_UNKNOWN_VALUES = [
+  "Unknown",
+  "Ashbyhq",
+  "Greenhouse",
+  "Lever",
+  "Myworkdayjobs",
+  "Smartrecruiters",
+  "Workable",
+  "Icims",
+  "Jobvite",
+  "Bamboohr",
+  "J",
+  "Oraclecloud",
+  "GC",
+];
+
+const GENERIC_ATS_COMPANY_KEY_UNKNOWN_VALUES = GENERIC_ATS_COMPANY_UNKNOWN_VALUES.map((value) =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+);
 
 type IngestConnectorOptions = {
   now?: Date;
@@ -212,7 +233,15 @@ export async function ingestConnector(
         : null;
     runtimeTimer?.unref?.();
 
-    await backfillCanonicalDedupeFields();
+    if (process.env.INGEST_RUN_GLOBAL_DEDUPE_BACKFILL === "1") {
+      try {
+        await backfillCanonicalDedupeFields();
+      } catch (error) {
+        console.warn(
+          `[connector:${connector.key}] Skipping global canonical dedupe backfill before ingestion: ${getErrorSummary(error)}`
+        );
+      }
+    }
     try {
       await performConnectorIngestion(
         connector,
@@ -439,40 +468,53 @@ export async function bulkSyncCanonicalStatuses(options: {
   //    getRecentAliveConfirmationFloor), so status correctly reflects the confirmation.
   //    This avoids needing a per-job refresh for every recently-confirmed job.
   //    REMOVED jobs are never touched.
-  const syncResult = await prisma.$executeRaw`
-    UPDATE "JobCanonical"
-    SET
-      "availabilityScore" = CASE
-        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
-          THEN GREATEST("availabilityScore", ${liveConfirmationFloor})
-        ELSE "availabilityScore"
-      END,
-      status = CASE
-        WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
-        WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
-        WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
-        WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
-        ELSE                                'EXPIRED'::"JobStatus"
-      END
-    WHERE status != 'REMOVED'::"JobStatus"
-  `;
+  //
+  // IMPORTANT: This single-statement UPDATE touches every non-REMOVED row in
+  // JobCanonical (~270k+ at the time of writing). DO managed Postgres defaults
+  // `statement_timeout` to ~120-180s on the doadmin role, which the bulk
+  // UPDATE breaches and kills the entire daemon cycle. Prisma also defaults
+  // interactive transactions to 5s, so keep the DB and Prisma timeouts aligned.
+  const [syncResult, feedVisibilitySyncResult] = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '15min'");
+      const canonicalSyncResult = await tx.$executeRaw`
+        UPDATE "JobCanonical"
+        SET
+          "availabilityScore" = CASE
+            WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+              THEN GREATEST("availabilityScore", ${liveConfirmationFloor})
+            ELSE "availabilityScore"
+          END,
+          status = CASE
+            WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
+            WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+            WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+            WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
+            ELSE                                'EXPIRED'::"JobStatus"
+          END
+        WHERE status != 'REMOVED'::"JobStatus"
+      `;
+      const feedSyncResult = await tx.$executeRaw`
+        UPDATE "JobFeedIndex" jfi
+        SET
+          status = 'REMOVED'::"JobStatus",
+          "updatedAt" = NOW()
+        FROM "JobCanonical" jc
+        WHERE jfi."canonicalJobId" = jc.id
+          AND jfi.status = 'LIVE'::"JobStatus"
+          AND (
+            jc.status != 'LIVE'::"JobStatus"
+            OR jc."availabilityScore" < 60
+            OR jc."deadSignalAt" IS NOT NULL
+            OR (jc.deadline IS NOT NULL AND jc.deadline < ${now})
+            OR jc."applyUrl" !~* '^https?://'
+          )
+      `;
 
-  const feedVisibilitySyncResult = await prisma.$executeRaw`
-    UPDATE "JobFeedIndex" jfi
-    SET
-      status = 'REMOVED'::"JobStatus",
-      "updatedAt" = NOW()
-    FROM "JobCanonical" jc
-    WHERE jfi."canonicalJobId" = jc.id
-      AND jfi.status = 'LIVE'::"JobStatus"
-      AND (
-        jc.status != 'LIVE'::"JobStatus"
-        OR jc."availabilityScore" < 60
-        OR jc."deadSignalAt" IS NOT NULL
-        OR (jc.deadline IS NOT NULL AND jc.deadline < ${now})
-        OR jc."applyUrl" !~* '^https?://'
-      )
-  `;
+      return [canonicalSyncResult, feedSyncResult] as const;
+    },
+    { maxWait: 30_000, timeout: 15 * 60 * 1000 }
+  );
 
   // 2. Incremental per-job refresh for AGING/STALE cohort — these are most
   //    likely to transition and need freshness/expiry logic applied.
@@ -657,14 +699,6 @@ async function performConnectorIngestion(
       fetchedAt: now,
     });
 
-    await upsertNormalizedJobRecordFromSourceJob({
-      rawJobId: rawJobResult.rawJob.id,
-      rawSourceName: connector.sourceName,
-      rawSourceId: sourceJob.sourceId,
-      rawPayload: rawJobResult.rawJob.rawPayload,
-      fetchedAt: now,
-    });
-
     if (rawJobResult.created) {
       summary.rawCreatedCount += 1;
     } else {
@@ -705,6 +739,14 @@ async function performConnectorIngestion(
         continue;
       }
     }
+
+    await upsertNormalizedJobRecordFromSourceJob({
+      rawJobId: rawJobResult.rawJob.id,
+      rawSourceName: connector.sourceName,
+      rawSourceId: sourceJob.sourceId,
+      rawPayload: rawJobResult.rawJob.rawPayload,
+      fetchedAt: now,
+    });
 
     const normalizationResult = normalizeSourceJob({
       job: sourceJob,
@@ -770,12 +812,22 @@ async function performConnectorIngestion(
     const mappedCanonical = await findMappedCanonical(rawJobResult.rawJob.id);
     const compatibleMappedCanonical =
       mappedCanonical &&
-      isCanonicalMatchCompatible(normalizationResult.job, mappedCanonical.canonical)
+      isCanonicalMatchCompatibleForSource(
+        normalizationResult.job,
+        mappedCanonical.canonical,
+        sourceIdentity
+      )
         ? mappedCanonical
         : null;
+    const incompatibleMappedCanonicalId =
+      mappedCanonical && !compatibleMappedCanonical ? mappedCanonical.canonical.id : null;
     const crossSourceMatch = compatibleMappedCanonical
       ? null
-      : await findCrossSourceCanonicalMatch(normalizationResult.job, sourceIdentity);
+      : await findCrossSourceCanonicalMatch(normalizationResult.job, sourceIdentity, {
+          excludeCanonicalIds: incompatibleMappedCanonicalId
+            ? [incompatibleMappedCanonicalId]
+            : [],
+        });
     const canonicalMatch = compatibleMappedCanonical ?? crossSourceMatch;
 
     if (canonicalMatch && canonicalMatch.matchedBy !== "rawJob") {
@@ -946,12 +998,22 @@ async function performConnectorPreview(
       : null;
     const compatibleMappedCanonical =
       mappedCanonical &&
-      isCanonicalMatchCompatible(normalizationResult.job, mappedCanonical.canonical)
+      isCanonicalMatchCompatibleForSource(
+        normalizationResult.job,
+        mappedCanonical.canonical,
+        sourceIdentity
+      )
         ? mappedCanonical
         : null;
+    const incompatibleMappedCanonicalId =
+      mappedCanonical && !compatibleMappedCanonical ? mappedCanonical.canonical.id : null;
     const crossSourceMatch = compatibleMappedCanonical
       ? null
-      : await findCrossSourceCanonicalMatch(normalizationResult.job, sourceIdentity);
+      : await findCrossSourceCanonicalMatch(normalizationResult.job, sourceIdentity, {
+          excludeCanonicalIds: incompatibleMappedCanonicalId
+            ? [incompatibleMappedCanonicalId]
+            : [],
+        });
     const canonicalMatch = compatibleMappedCanonical ?? crossSourceMatch;
 
     if (canonicalMatch && canonicalMatch.matchedBy !== "rawJob") {
@@ -1110,7 +1172,10 @@ function buildRunUpdateData(
 
 async function loadResumeCheckpoint(connectorKey: string) {
   const recentRuns = await prisma.ingestionRun.findMany({
-    where: { connectorKey },
+    where: {
+      connectorKey,
+      status: "SUCCESS",
+    },
     orderBy: { startedAt: "desc" },
     take: 10,
     select: {
@@ -1188,10 +1253,18 @@ async function upsertRawJob({
   if (existingRawJob) {
     const nextRawPayload = data.rawPayload;
     const unchanged = rawPayloadsEquivalent(existingRawJob.rawPayload, nextRawPayload);
-    const rawJob = await prisma.jobRaw.update({
-      where: { id: existingRawJob.id },
-      data,
-    });
+    const rawJob = unchanged
+      ? await prisma.jobRaw.update({
+          where: { id: existingRawJob.id },
+          data: {
+            sourceTier: connector.sourceTier,
+            fetchedAt,
+          },
+        })
+      : await prisma.jobRaw.update({
+          where: { id: existingRawJob.id },
+          data,
+        });
     return { rawJob, created: false as const, unchanged };
   }
 
@@ -1327,6 +1400,10 @@ const canonicalMatchSelect = {
   locationKey: true,
   applyUrlKey: true,
   roleFamily: true,
+  normalizedEmploymentType: true,
+  normalizedCareerStage: true,
+  normalizedIndustry: true,
+  normalizedRoleCategory: true,
   workMode: true,
 } as const;
 
@@ -1403,6 +1480,10 @@ export async function upsertCanonicalJob({
       shortSummary: true,
       industry: true,
       roleFamily: true,
+      normalizedEmploymentType: true,
+      normalizedCareerStage: true,
+      normalizedIndustry: true,
+      normalizedRoleCategory: true,
       applyUrl: true,
       applyUrlKey: true,
       postedAt: true,
@@ -1423,7 +1504,21 @@ export async function upsertCanonicalJob({
   });
 
   const currentPrimaryRank = currentCanonical.sourceMappings[0]?.sourceQualityRank ?? 0;
-  const preferIncomingSource = sourceIdentity.sourceQualityRank >= currentPrimaryRank;
+  const preferIncomingSource = shouldIncomingSourceUpdateCanonicalFields({
+    currentPrimaryRank,
+    incomingRank: sourceIdentity.sourceQualityRank,
+    incomingOriginPreference: sourceIdentity.canonicalOriginPreference,
+  });
+  const currentCompanyIsGeneric = hasUnresolvedGenericCompanyName(
+    currentCanonical.company,
+    currentCanonical.applyUrl
+  );
+  const incomingCompanyIsGeneric = hasUnresolvedGenericCompanyName(
+    normalizedJob.company,
+    normalizedJob.applyUrl
+  );
+  const shouldReplaceGenericCompany =
+    currentCompanyIsGeneric && !incomingCompanyIsGeneric;
   const incomingHasSalary =
     normalizedJob.salaryMin != null || normalizedJob.salaryMax != null;
   const currentHasSalary =
@@ -1433,7 +1528,9 @@ export async function upsertCanonicalJob({
   const canonicalJob = await prisma.jobCanonical.update({
     where: { id: currentCanonical.id },
     data: {
-      companyId: currentCanonical.companyId ?? companyRecord.id,
+      companyId: shouldReplaceGenericCompany
+        ? companyRecord.id
+        : (currentCanonical.companyId ?? companyRecord.id),
       title: chooseCanonicalStringValue({
         currentValue: currentCanonical.title,
         nextValue: normalizedJob.title,
@@ -1442,13 +1539,14 @@ export async function upsertCanonicalJob({
       company: chooseCanonicalStringValue({
         currentValue: currentCanonical.company,
         nextValue: normalizedJob.company,
-        preferNext: preferIncomingSource,
-        unknownValues: ["Unknown"],
+        preferNext: preferIncomingSource || shouldReplaceGenericCompany,
+        unknownValues: GENERIC_ATS_COMPANY_UNKNOWN_VALUES,
       }),
       companyKey: chooseCanonicalStringValue({
         currentValue: currentCanonical.companyKey,
         nextValue: normalizedJob.companyKey,
-        preferNext: preferIncomingSource,
+        preferNext: preferIncomingSource || shouldReplaceGenericCompany,
+        unknownValues: GENERIC_ATS_COMPANY_KEY_UNKNOWN_VALUES,
       }),
       titleKey: chooseCanonicalStringValue({
         currentValue: currentCanonical.titleKey,
@@ -1524,6 +1622,30 @@ export async function upsertCanonicalJob({
         nextValue: normalizedJob.roleFamily,
         preferNext: preferIncomingSource,
         unknownValues: ["Unknown"],
+      }),
+      normalizedEmploymentType: chooseCanonicalStringValue({
+        currentValue: currentCanonical.normalizedEmploymentType ?? "UNKNOWN",
+        nextValue: normalizedJob.normalizedEmploymentType,
+        preferNext: preferIncomingSource,
+        unknownValues: ["UNKNOWN"],
+      }),
+      normalizedCareerStage: chooseCanonicalStringValue({
+        currentValue: currentCanonical.normalizedCareerStage ?? "UNKNOWN",
+        nextValue: normalizedJob.normalizedCareerStage,
+        preferNext: preferIncomingSource,
+        unknownValues: ["UNKNOWN"],
+      }),
+      normalizedIndustry: chooseCanonicalStringValue({
+        currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+        nextValue: normalizedJob.normalizedIndustry,
+        preferNext: preferIncomingSource,
+        unknownValues: ["OTHER_UNKNOWN"],
+      }),
+      normalizedRoleCategory: chooseCanonicalStringValue({
+        currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+        nextValue: normalizedJob.normalizedRoleCategory,
+        preferNext: preferIncomingSource,
+        unknownValues: ["OTHER_UNKNOWN"],
       }),
       applyUrl: chooseCanonicalUrl({
         currentValue: currentCanonical.applyUrl,
@@ -2381,6 +2503,31 @@ function stripUnsafeChars(s: string | null | undefined): string | undefined {
   return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
 }
 
+function sanitizeJsonForPostgres(value: Prisma.InputJsonValue): Prisma.InputJsonValue {
+  if (typeof value === "string") {
+    return stripUnsafeChars(value) ?? "";
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      sanitizeJsonForPostgres(entry as Prisma.InputJsonValue)
+    ) as Prisma.InputJsonArray;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, Prisma.InputJsonValue | null>).map(
+      ([key, entry]) => [
+        stripUnsafeChars(key) ?? key,
+        entry == null ? entry : sanitizeJsonForPostgres(entry),
+      ]
+    )
+  ) as Prisma.InputJsonObject;
+}
+
 function buildRawPayload(
   connector: Pick<SourceConnector, "sourceName" | "freshnessMode">,
   sourceJob: SourceConnectorJob,
@@ -2396,21 +2543,19 @@ function buildRawPayload(
   });
 
   return {
-    title: sourceJob.title,
-    company: sourceJob.company,
-    location: sourceJob.location,
-    // Strip null bytes before storing as JSON — PostgreSQL rejects \u0000 in
-    // jsonb columns and this is the raw (pre-normalization) description path.
+    title: stripUnsafeChars(sourceJob.title) ?? "",
+    company: stripUnsafeChars(sourceJob.company) ?? "",
+    location: stripUnsafeChars(sourceJob.location) ?? "",
     description: stripUnsafeChars(sourceJob.description),
-    applyUrl: sourceJob.applyUrl,
-    sourceUrl: sourceJob.sourceUrl,
+    applyUrl: stripUnsafeChars(sourceJob.applyUrl) ?? "",
+    sourceUrl: stripUnsafeChars(sourceJob.sourceUrl) ?? null,
     postedAt: sourceJob.postedAt?.toISOString() ?? null,
     deadline: sourceJob.deadline?.toISOString() ?? null,
     salaryMin: sourceJob.salaryMin,
     salaryMax: sourceJob.salaryMax,
-    salaryCurrency: sourceJob.salaryCurrency,
+    salaryCurrency: stripUnsafeChars(sourceJob.salaryCurrency) ?? null,
     fetchedAt: fetchedAt.toISOString(),
-    metadata: mergeSourceMetadata(sourceJob.metadata, provenance),
+    metadata: sanitizeJsonForPostgres(mergeSourceMetadata(sourceJob.metadata, provenance)),
   } as Prisma.InputJsonValue;
 }
 
@@ -2471,6 +2616,29 @@ async function refreshPrimarySourceMapping(canonicalJobId: string) {
     where: { id: primaryId },
     data: { isPrimary: true },
   });
+}
+
+function shouldIncomingSourceUpdateCanonicalFields(input: {
+  currentPrimaryRank: number;
+  incomingRank: number;
+  incomingOriginPreference: string | null | undefined;
+}) {
+  if (input.currentPrimaryRank <= 0) {
+    return true;
+  }
+
+  if (input.incomingOriginPreference === "PRIMARY") {
+    return input.incomingRank >= input.currentPrimaryRank;
+  }
+
+  if (input.incomingOriginPreference === "SECONDARY") {
+    return input.incomingRank > input.currentPrimaryRank;
+  }
+
+  // Aggregators and weak scraped copies are useful as discovery/fallback
+  // mappings, but they should not churn canonical user-facing fields unless
+  // the current primary source is also weak and the incoming source is better.
+  return input.currentPrimaryRank < 200 && input.incomingRank > input.currentPrimaryRank;
 }
 
 function chooseCanonicalStringValue({

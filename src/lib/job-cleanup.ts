@@ -4,7 +4,7 @@ import {
 } from "@/lib/ingestion/html-description";
 
 const TITLE_ROLE_HINT_RE =
-  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|operations|lighter|trainer|student|co-?op)\b/i;
+  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|operations|lighter|trainer|tutor|student|co-?op)\b/i;
 
 const TITLE_BAD_MARKER_RE =
   /\b(work at|careers?\b|career page|find real[- ]time|parking|join (?:our )?team|we make work|intelligent parking|close search|skip to main content|about us|our current job openings|what do we offer)\b/i;
@@ -31,14 +31,19 @@ const COMPANY_HOST_BLOCKLIST = new Set([
   "jooble",
   "lever",
   "myworkdayjobs",
+  "oraclecloud",
+  "recruitee",
   "smartrecruiters",
   "workable",
+  "gc",
 ]);
 
 const UNKNOWN_COMPANY_NAMES = new Set([
   "",
   "unknown",
   "unknown company",
+  "yourcompany",
+  "your company",
 ]);
 
 const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
@@ -49,11 +54,14 @@ const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
   { company: "greenhouse", hostPattern: /greenhouse\.io/i },
   { company: "lever", hostPattern: /lever\.co/i },
   { company: "myworkdayjobs", hostPattern: /myworkdayjobs\.com/i },
+  { company: "recruitee", hostPattern: /recruitee\.com/i },
   { company: "smartrecruiters", hostPattern: /smartrecruiters\.com/i },
   { company: "workable", hostPattern: /workable\.com/i },
   { company: "icims", hostPattern: /icims\.com/i },
   { company: "jobvite", hostPattern: /jobvite\.com/i },
   { company: "bamboohr", hostPattern: /bamboohr\.com/i },
+  { company: "oraclecloud", hostPattern: /oraclecloud\.com/i },
+  { company: "gc", hostPattern: /(?:jobbank\.gc\.ca|\.gc\.ca)/i },
 ];
 
 const CHROME_LINE_PATTERNS = [
@@ -90,7 +98,8 @@ export function sanitizeJobTitle(value: unknown) {
   const normalized = compactWhitespace(decodeHtmlEntitiesFull(asText(value)).replace(/[®™]/g, ""));
   if (!normalized) return "";
 
-  const candidates = new Set<string>([normalized]);
+  const locationStripped = stripTrailingLocationQualifier(normalized);
+  const candidates = new Set<string>([normalized, locationStripped]);
   const addCandidate = (candidate: string) => {
     const compacted = compactWhitespace(candidate);
     if (!compacted) return;
@@ -112,7 +121,7 @@ export function sanitizeJobTitle(value: unknown) {
     addCandidate(lookingForMatch[1]);
   }
 
-  for (const segment of normalized
+  for (const segment of locationStripped
     .split(/\s+[|–—-]\s+/)
     .map((part) => compactWhitespace(part))
     .filter(Boolean)) {
@@ -124,7 +133,7 @@ export function sanitizeJobTitle(value: unknown) {
 
   for (const candidate of candidates) {
     const score = scoreTitleCandidate(candidate);
-    if (score > bestScore || (score === bestScore && candidate.length < best.length)) {
+    if (score > bestScore || (score === bestScore && isBetterTiedTitle(candidate, best))) {
       best = candidate;
       bestScore = score;
     }
@@ -241,6 +250,13 @@ export function hasUnresolvedGenericCompanyName(
   }
 
   const url = applyUrl ?? "";
+  if (normalizedCompany === "j" && /apply\.workable\.com/i.test(url)) {
+    return true;
+  }
+  if (normalizedCompany === "gc" && /(?:jobbank\.gc\.ca|\.gc\.ca)/i.test(url)) {
+    return true;
+  }
+
   return GENERIC_ATS_COMPANY_HOST_PATTERNS.some(
     (entry) =>
       normalizedCompany === entry.company && entry.hostPattern.test(url)
@@ -252,12 +268,82 @@ function scoreTitleCandidate(candidate: string) {
   const locationCandidate = candidate.replace(/[()]/g, "").trim();
   if (candidate.length >= 4 && candidate.length <= 100) score += 2;
   if (TITLE_ROLE_HINT_RE.test(candidate)) score += 6;
+  if (TITLE_ROLE_HINT_RE.test(candidate) && hasMeaningfulTitleQualifier(candidate)) {
+    score += 2;
+  }
   if (candidate.split(/\s+/).length <= 10) score += 1;
   if (TITLE_LOCATION_ONLY_RE.test(locationCandidate)) score -= 10;
   if (TITLE_BAD_MARKER_RE.test(candidate)) score -= 8;
   if (/\?$/.test(candidate)) score -= 4;
   if (/^[a-z]/.test(candidate)) score -= 1;
   return score;
+}
+
+function stripTrailingLocationQualifier(value: string) {
+  let current = compactWhitespace(value);
+
+  for (let index = 0; index < 3; index += 1) {
+    const withoutParenthetical = current.replace(/\s*\(([^()]+)\)\s*$/u, (match, content) =>
+      isLocationOrWorkModeQualifier(content) ? "" : match
+    );
+    if (withoutParenthetical !== current) {
+      current = compactWhitespace(withoutParenthetical);
+      continue;
+    }
+
+    const delimiterMatch = current.match(/^(.*?)(?:\s+[|–—-]\s+)([^|–—-]+)$/u);
+    if (delimiterMatch?.[1] && delimiterMatch[2]) {
+      const suffix = compactWhitespace(delimiterMatch[2]);
+      if (isLocationOrWorkModeQualifier(suffix)) {
+        current = compactWhitespace(delimiterMatch[1]);
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  return current || value;
+}
+
+function hasMeaningfulTitleQualifier(candidate: string) {
+  const parts = candidate
+    .split(/\s+[|–—-]\s+/u)
+    .map((part) => compactWhitespace(part))
+    .filter(Boolean);
+
+  if (parts.length < 2) return false;
+  if (!TITLE_ROLE_HINT_RE.test(parts[0] ?? "")) return false;
+  return parts.slice(1).some((part) => !isLocationOrWorkModeQualifier(part));
+}
+
+function isBetterTiedTitle(candidate: string, current: string) {
+  const candidateHasQualifier = hasMeaningfulTitleQualifier(candidate);
+  const currentHasQualifier = hasMeaningfulTitleQualifier(current);
+  if (candidateHasQualifier !== currentHasQualifier) return candidateHasQualifier;
+
+  return candidate.length < current.length;
+}
+
+function isLocationOrWorkModeQualifier(value: string) {
+  const normalized = compactWhitespace(value.replace(/[()]/g, ""));
+  if (!normalized) return false;
+  if (TITLE_LOCATION_ONLY_RE.test(normalized)) return true;
+
+  const parts = normalized
+    .split(/\s+(?:[|–—-]|\/)\s+|,\s*/u)
+    .map((part) => compactWhitespace(part))
+    .filter(Boolean);
+
+  if (parts.length <= 1) {
+    return /^(?:remote|hybrid|onsite|on-site)$/i.test(normalized);
+  }
+
+  return parts.every(
+    (part) =>
+      /^(?:remote|hybrid|onsite|on-site)$/i.test(part) ||
+      TITLE_LOCATION_ONLY_RE.test(part)
+  );
 }
 
 function scoreCompanyCandidate(candidate: string, hostCandidate: string | null) {
@@ -334,7 +420,14 @@ function deriveKnownAtsCompanyName(hostname: string, pathParts: string[]) {
   }
 
   if (hostname === "apply.workable.com" && pathParts[0]) {
+    if (pathParts[0].toLowerCase() === "j") {
+      return null;
+    }
     return formatCompanySlug(pathParts[0]);
+  }
+
+  if (hostname.endsWith(".recruitee.com")) {
+    return formatCompanySlug(hostname.split(".")[0] ?? "");
   }
 
   if (hostname === "jobs.smartrecruiters.com" && pathParts[0]) {
@@ -356,6 +449,10 @@ function deriveKnownAtsCompanyName(hostname: string, pathParts: string[]) {
     return formatCompanySlug(subdomain.replace(/^careers[-.]?/i, ""));
   }
 
+  if (hostname.endsWith(".oraclecloud.com")) {
+    return null;
+  }
+
   if (hostname === "jobs.jobvite.com" && pathParts[0]) {
     return formatCompanySlug(pathParts[0]);
   }
@@ -364,6 +461,11 @@ function deriveKnownAtsCompanyName(hostname: string, pathParts: string[]) {
 }
 
 function formatCompanySlug(value: string) {
+  const override = COMPANY_SLUG_NAME_OVERRIDES.get(
+    value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+  );
+  if (override) return override;
+
   const compacted = value
     .replace(/[-_]+/g, " ")
     .replace(/\b(careers?|jobs?|external|career site)\b/gi, " ")
@@ -374,6 +476,23 @@ function formatCompanySlug(value: string) {
   return compacted.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+const COMPANY_SLUG_NAME_OVERRIDES = new Map<string, string>([
+  ["cmegroup", "CME Group"],
+  ["crowdstrike", "CrowdStrike"],
+  ["andurilindustries", "Anduril Industries"],
+  ["asmglobal", "ASM Global"],
+  ["bah", "Booz Allen Hamilton"],
+  ["bayada", "BAYADA Home Health Care"],
+  ["databricks", "Databricks"],
+  ["dovercorporation", "Dover Corporation"],
+  ["openai", "OpenAI"],
+  ["prolificacademicltd", "Prolific Academic Ltd"],
+  ["spacex", "SpaceX"],
+  ["thenewyorktimes", "The New York Times"],
+  ["uipath", "UiPath"],
+  ["wppmedia", "WPP Media"],
+]);
+
 function normalizeComparable(value: string) {
   return value.toLowerCase().replace(/[®™]/g, "").replace(/\s+/g, " ").trim();
 }
@@ -383,5 +502,7 @@ function compactWhitespace(value: string) {
 }
 
 function asText(value: unknown) {
-  return typeof value === "string" ? value : "";
+  return typeof value === "string"
+    ? value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    : "";
 }

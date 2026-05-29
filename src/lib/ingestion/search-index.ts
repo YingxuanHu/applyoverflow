@@ -1,16 +1,18 @@
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/generated/prisma/client";
 import {
   buildSearchText,
   computeFreshnessScore,
   computeRankingScore,
   computeTrustScore,
 } from "@/lib/ingestion/quality";
-import { inferGeoScope, isExplicitlyOutOfScopeGeoScope } from "@/lib/geo-scope";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
 
 const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
 const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
 const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
+
+export type JobFeedIndexRepairMode = "missing" | "stale" | "all";
 
 function shouldExcludeFromFeedIndex(input: {
   location: string;
@@ -55,15 +57,6 @@ function shouldExcludeFromFeedIndex(input: {
     (normalizedCompany === "jooble" || normalizedCompany === "jooble.org") &&
     /jooble\.org/i.test(input.applyUrl)
   ) {
-    return true;
-  }
-
-  const geoScope = inferGeoScope(input.location, input.region);
-  if (isExplicitlyOutOfScopeGeoScope(geoScope)) {
-    return true;
-  }
-
-  if (input.region == null && input.workMode !== "REMOTE") {
     return true;
   }
 
@@ -129,95 +122,118 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
     submissionCategory: canonical.eligibility?.submissionCategory ?? null,
   });
 
-  await prisma.$transaction([
-    prisma.jobCanonical.update({
-      where: { id: canonicalJobId },
-      data: {
-        trustScore,
-        freshnessScore,
-      },
-    }),
-    prisma.jobFeedIndex.upsert({
-      where: { canonicalJobId },
-      create: {
-        canonicalJobId,
-        status: indexStatus,
-        submissionCategory: canonical.eligibility?.submissionCategory ?? null,
+  await prisma.$executeRaw`
+    UPDATE "JobCanonical"
+    SET
+      "trustScore" = ${trustScore},
+      "freshnessScore" = ${freshnessScore}
+    WHERE
+      id = ${canonicalJobId}
+      AND (
+        "trustScore" IS DISTINCT FROM ${trustScore}
+        OR "freshnessScore" IS DISTINCT FROM ${freshnessScore}
+      )
+  `;
+  await prisma.jobFeedIndex.upsert({
+    where: { canonicalJobId },
+    create: {
+      canonicalJobId,
+      status: indexStatus,
+      submissionCategory: canonical.eligibility?.submissionCategory ?? null,
+      title: canonical.title,
+      company: canonical.company,
+      location: canonical.location,
+      region: canonical.region,
+      workMode: canonical.workMode,
+      employmentType: canonical.employmentType,
+      experienceLevel: canonical.experienceLevel,
+      industry: canonical.industry,
+      roleFamily: canonical.roleFamily,
+      normalizedEmploymentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+      normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+      normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+      salaryMin: canonical.salaryMin,
+      salaryMax: canonical.salaryMax,
+      salaryCurrency: canonical.salaryCurrency,
+      postedAt: canonical.postedAt,
+      deadline: canonical.deadline,
+      qualityScore,
+      trustScore,
+      freshnessScore,
+      rankingScore,
+      sourceCount,
+      applyUrl: canonical.applyUrl,
+      searchText: buildSearchText({
         title: canonical.title,
         company: canonical.company,
         location: canonical.location,
-        region: canonical.region,
-        workMode: canonical.workMode,
-        employmentType: canonical.employmentType,
-        experienceLevel: canonical.experienceLevel,
-        industry: canonical.industry,
         roleFamily: canonical.roleFamily,
-        salaryMin: canonical.salaryMin,
-        salaryMax: canonical.salaryMax,
-        salaryCurrency: canonical.salaryCurrency,
-        postedAt: canonical.postedAt,
-        deadline: canonical.deadline,
-        qualityScore,
-        trustScore,
-        freshnessScore,
-        rankingScore,
-        sourceCount,
-        applyUrl: canonical.applyUrl,
-        searchText: buildSearchText({
-          title: canonical.title,
-          company: canonical.company,
-          location: canonical.location,
-          roleFamily: canonical.roleFamily,
-          shortSummary: canonical.shortSummary,
-          description: canonical.description,
-        }),
-        metadataJson: {
-          availabilityScore: canonical.availabilityScore,
-          lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
-          sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        shortSummary: canonical.shortSummary,
+        description: canonical.description,
+      }),
+      metadataJson: {
+        availabilityScore: canonical.availabilityScore,
+        lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
+        sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        normalizedMetadata: {
+          employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+          careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+          industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
         },
-        indexedAt: new Date(),
       },
-      update: {
-        status: indexStatus,
-        submissionCategory: canonical.eligibility?.submissionCategory ?? null,
+      indexedAt: new Date(),
+    },
+    update: {
+      status: indexStatus,
+      submissionCategory: canonical.eligibility?.submissionCategory ?? null,
+      title: canonical.title,
+      company: canonical.company,
+      location: canonical.location,
+      region: canonical.region,
+      workMode: canonical.workMode,
+      employmentType: canonical.employmentType,
+      experienceLevel: canonical.experienceLevel,
+      industry: canonical.industry,
+      roleFamily: canonical.roleFamily,
+      normalizedEmploymentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+      normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+      normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+      salaryMin: canonical.salaryMin,
+      salaryMax: canonical.salaryMax,
+      salaryCurrency: canonical.salaryCurrency,
+      postedAt: canonical.postedAt,
+      deadline: canonical.deadline,
+      qualityScore,
+      trustScore,
+      freshnessScore,
+      rankingScore,
+      sourceCount,
+      applyUrl: canonical.applyUrl,
+      searchText: buildSearchText({
         title: canonical.title,
         company: canonical.company,
         location: canonical.location,
-        region: canonical.region,
-        workMode: canonical.workMode,
-        employmentType: canonical.employmentType,
-        experienceLevel: canonical.experienceLevel,
-        industry: canonical.industry,
         roleFamily: canonical.roleFamily,
-        salaryMin: canonical.salaryMin,
-        salaryMax: canonical.salaryMax,
-        salaryCurrency: canonical.salaryCurrency,
-        postedAt: canonical.postedAt,
-        deadline: canonical.deadline,
-        qualityScore,
-        trustScore,
-        freshnessScore,
-        rankingScore,
-        sourceCount,
-        applyUrl: canonical.applyUrl,
-        searchText: buildSearchText({
-          title: canonical.title,
-          company: canonical.company,
-          location: canonical.location,
-          roleFamily: canonical.roleFamily,
-          shortSummary: canonical.shortSummary,
-          description: canonical.description,
-        }),
-        metadataJson: {
-          availabilityScore: canonical.availabilityScore,
-          lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
-          sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        shortSummary: canonical.shortSummary,
+        description: canonical.description,
+      }),
+      metadataJson: {
+        availabilityScore: canonical.availabilityScore,
+        lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
+        sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        normalizedMetadata: {
+          employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+          careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+          industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
         },
-        indexedAt: new Date(),
       },
-    }),
-  ]);
+      indexedAt: new Date(),
+    },
+  });
 }
 
 export async function upsertJobFeedIndexes(
@@ -231,4 +247,105 @@ export async function upsertJobFeedIndexes(
     const chunk = uniqueIds.slice(start, start + concurrency);
     await Promise.all(chunk.map((id) => upsertJobFeedIndex(id)));
   }
+}
+
+function buildJobFeedIndexRepairQuery(mode: JobFeedIndexRepairMode, limit: number) {
+  const missingClause = Prisma.sql`jfi."canonicalJobId" IS NULL`;
+  const staleClause = Prisma.sql`jfi."canonicalJobId" IS NOT NULL AND jfi."indexedAt" < jc."updatedAt"`;
+  const hiddenButVisibleClause = Prisma.sql`
+    jfi."canonicalJobId" IS NOT NULL
+    AND jc.status = 'LIVE'
+    AND jfi.status <> 'LIVE'
+    AND jc."deadSignalAt" IS NULL
+    AND jc."availabilityScore" >= ${JOB_BOARD_MIN_AVAILABILITY_SCORE}
+    AND (jc.deadline IS NULL OR jc.deadline >= NOW())
+    AND jc."applyUrl" ~* '^https?://'
+    AND (
+      (
+        jc."lastSourceSeenAt" IS NOT NULL
+        AND jc."lastSourceSeenAt" >= NOW() - INTERVAL '14 days'
+      )
+      OR (
+        jc."lastConfirmedAliveAt" IS NOT NULL
+        AND jc."lastConfirmedAliveAt" >= NOW() - INTERVAL '30 days'
+      )
+    )
+  `;
+  const whereClause =
+    mode === "missing"
+      ? missingClause
+      : mode === "stale"
+        ? staleClause
+        : Prisma.sql`(${missingClause} OR ${staleClause} OR (${hiddenButVisibleClause}))`;
+
+  return Prisma.sql`
+    SELECT jc.id
+    FROM "JobCanonical" jc
+    LEFT JOIN "JobFeedIndex" jfi
+      ON jfi."canonicalJobId" = jc.id
+    WHERE
+      jc.status IN ('LIVE', 'AGING', 'STALE')
+      AND ${whereClause}
+    ORDER BY
+      CASE WHEN jfi."canonicalJobId" IS NULL THEN 0 ELSE 1 END ASC,
+      CASE WHEN ${hiddenButVisibleClause} THEN 0 ELSE 1 END ASC,
+      jc."updatedAt" DESC
+    LIMIT ${limit}
+  `;
+}
+
+export async function repairJobFeedIndexBatch(options: {
+  mode?: JobFeedIndexRepairMode;
+  limit?: number;
+  concurrency?: number;
+} = {}) {
+  const mode = options.mode ?? "all";
+  const limit = Math.max(1, options.limit ?? 250);
+  const concurrency = Math.max(1, options.concurrency ?? 4);
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(
+    buildJobFeedIndexRepairQuery(mode, limit)
+  );
+  const summary = {
+    mode,
+    scanned: rows.length,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+    samples: [] as Array<{ canonicalJobId: string; error: string }>,
+  };
+
+  for (let start = 0; start < rows.length; start += concurrency) {
+    const chunk = rows.slice(start, start + concurrency);
+    const results = await Promise.all(
+      chunk.map(async (row) => {
+        try {
+          await upsertJobFeedIndex(row.id);
+          return { success: true } as const;
+        } catch (error) {
+          return {
+            success: false,
+            canonicalJobId: row.id,
+            error: error instanceof Error ? error.message : String(error),
+          } as const;
+        }
+      })
+    );
+
+    for (const result of results) {
+      summary.processed += 1;
+      if (result.success) {
+        summary.succeeded += 1;
+      } else {
+        summary.failed += 1;
+        if (summary.samples.length < 10) {
+          summary.samples.push({
+            canonicalJobId: result.canonicalJobId,
+            error: result.error,
+          });
+        }
+      }
+    }
+  }
+
+  return summary;
 }

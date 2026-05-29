@@ -10,6 +10,18 @@ import {
 } from "@/lib/queries/tracker";
 import { revalidateNotificationCenterViews } from "@/lib/revalidation";
 
+function getNotificationHref(notification: Awaited<ReturnType<typeof getNotificationCenterData>>["notifications"][number]) {
+  if (notification.trackedApplication?.canonicalJobId) {
+    return `/jobs/${notification.trackedApplication.canonicalJobId}`;
+  }
+
+  if (notification.trackedApplicationId) {
+    return `/applications/${notification.trackedApplicationId}`;
+  }
+
+  return null;
+}
+
 export default async function NotificationsPage() {
   const sessionUser = await getOptionalSessionUser();
   if (!sessionUser) {
@@ -44,14 +56,6 @@ export default async function NotificationsPage() {
             Deadline reminders and tracker updates.
           </p>
         </div>
-        <div className="page-actions">
-          <Link href="/applications">
-            Applications
-          </Link>
-          <Link href="/settings">
-            Settings
-          </Link>
-        </div>
       </div>
 
       <section className="surface-panel p-4 sm:p-5">
@@ -72,7 +76,7 @@ export default async function NotificationsPage() {
         </div>
 
         {notifications.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center">
+          <div className="mt-4 rounded-lg border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center">
             <p className="text-sm font-medium text-foreground">No notifications yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
               Deadline reminders and tracker activity will appear here.
@@ -80,56 +84,65 @@ export default async function NotificationsPage() {
           </div>
         ) : (
           <div className="mt-4 space-y-3">
-            {notifications.map((notification) => (
-              <article
-                key={notification.id}
-                className="rounded-2xl border border-border/60 bg-background/50 p-4"
-              >
-                {notification.readAt ? (
+            {notifications.map((notification) => {
+              const href = getNotificationHref(notification);
+              const content = (
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {notification.title}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {notification.message}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatMediumDateTimeEnCa(notification.createdAt)}
+                  </p>
+                </div>
+              );
+
+              return (
+                <article
+                  key={notification.id}
+                  className="rounded-lg border border-border/60 bg-background/50 p-4"
+                >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {notification.title}
-                      </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {notification.message}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatMediumDateTimeEnCa(notification.createdAt)}
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-                      Read
-                    </span>
-                  </div>
-                ) : (
-                  <form action={markOneAction}>
-                    <input type="hidden" name="notificationId" value={notification.id} />
-                    <button
-                      type="submit"
-                      className="w-full rounded-xl px-1 py-1 text-left transition hover:bg-muted/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {notification.title}
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {notification.message}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {formatMediumDateTimeEnCa(notification.createdAt)}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background">
-                          Unread
+                    {href ? (
+                      <Link
+                        className="min-w-0 flex-1 rounded-lg transition hover:bg-muted/35"
+                        href={href}
+                      >
+                        {content}
+                      </Link>
+                    ) : (
+                      <div className="min-w-0 flex-1">{content}</div>
+                    )}
+
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      {notification.readAt ? (
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                          Read
                         </span>
-                      </div>
-                    </button>
-                  </form>
-                )}
-              </article>
-            ))}
+                      ) : (
+                        <>
+                          <span className="rounded-full bg-foreground px-2 py-0.5 text-[11px] text-background">
+                            Unread
+                          </span>
+                          <form action={markOneAction}>
+                            <input type="hidden" name="notificationId" value={notification.id} />
+                            <button
+                              type="submit"
+                              className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                            >
+                              Mark read
+                            </button>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

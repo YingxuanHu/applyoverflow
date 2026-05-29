@@ -6,6 +6,7 @@
  *
  * Options:
  *   --job=<id>         Run against a single job ID
+ *   --user=<profileId> Run as this UserProfile id
  *   --mode=<mode>      Override mode: dry_run | fill_only | fill_and_submit
  *   --max=<n>          Max jobs to process (default 10)
  *   --ats=<name>       Only process jobs from this ATS (greenhouse, lever, ashby)
@@ -31,6 +32,7 @@ async function main() {
   console.log("  AutoApply Engine");
   console.log("═══════════════════════════════════════════════════════");
   console.log(`  Mode:    ${args.mode ?? "auto (based on eligibility + user settings)"}`);
+  console.log(`  User:    ${args.userId ?? process.env.AUTO_APPLY_USER_PROFILE_ID ?? "required"}`);
   console.log(`  Job:     ${args.jobId ?? "batch (eligible candidates)"}`);
   console.log(`  Max:     ${args.max}`);
   console.log(`  ATS:     ${args.ats ?? "all"}`);
@@ -38,6 +40,7 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════\n");
 
   const results = await runAutoApply({
+    userId: args.userId,
     jobId: args.jobId,
     mode: args.mode,
     maxPerRun: args.max,
@@ -83,6 +86,7 @@ async function main() {
 
 function parseArgs(argv: string[]) {
   const args: {
+    userId?: string;
     jobId?: string;
     mode?: AutomationRunMode;
     max: number;
@@ -96,6 +100,8 @@ function parseArgs(argv: string[]) {
   for (const arg of argv) {
     if (arg.startsWith("--job=")) {
       args.jobId = arg.slice(6);
+    } else if (arg.startsWith("--user=")) {
+      args.userId = arg.slice(7);
     } else if (arg.startsWith("--mode=")) {
       const mode = arg.slice(7);
       if (mode === "dry_run" || mode === "fill_only" || mode === "fill_and_submit") {

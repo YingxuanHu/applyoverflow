@@ -21,23 +21,58 @@ const NON_JOB_TITLE_PATTERNS = [
   /^get involved$/i,
   /^announcing\b/i,
   /^careers? blog$/i,
+  /^careers?(?: at .+)?$/i,
+  /^jobs?(?: at .+)?$/i,
   /^faqs?$/i,
   /^benefits$/i,
+  /^benefits and perks$/i,
   /^learn more$/i,
   /^open positions?$/i,
   /^roles we fill$/i,
   /^our services$/i,
   /^our process$/i,
   /^we make work an adventure!?$/i,
+  /^work (?:at|with|for) .+$/i,
+  /^join (?:us|our team|the team)\b/i,
+  /^come work with us\b/i,
   /^join our team and thrive!?$/i,
   /^search careers? at .+$/i,
   /^grow your career(?: with us)?[!.]?$/i,
   /^build your career(?: at .+)?[!.]?$/i,
   /^brilliant thrives here(?: search careers? at .+)?$/i,
   /^current opportunities$/i,
+  /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i,
+  /\bnot an active opening\b/i,
+  /\bbuilding (?:a )?talent pipeline\b/i,
+  /\[(?:pipeline|talent pool)\]/i,
+  /\btalent pool\b/i,
+  /\btalent community\b/i,
+  /\bgeneral application\b/i,
+  /\bopen application\b/i,
+  /\bexpression of interest\b/i,
+  /\bsubmit your (?:resume|cv)\b/i,
+  /\bfuture opportunities\b/i,
+  /\bevergreen\b/i,
   /^recruitment scams$/i,
   /^modal-role$/i,
   /^rxnews\b/i,
+] satisfies RegExp[];
+
+const LOCATION_ONLY_TITLE_RE =
+  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore)(?:\s+(?:office|area|region|centre|center|city))?$/i;
+
+const GENERIC_CAREER_LANDING_TITLE_PATTERNS = [
+  /^careers?(?: at .+)?$/i,
+  /^jobs?(?: at .+)?$/i,
+  /^open positions?$/i,
+  /^current opportunities$/i,
+  /^work (?:at|with|for) .+$/i,
+  /^join (?:us|our team|the team)\b/i,
+  /^join .+\b/i,
+  /^come work with us\b/i,
+  /^build your career\b/i,
+  /^grow your career\b/i,
+  /^help us\b/i,
 ] satisfies RegExp[];
 
 const NON_JOB_CONTENT_PATTERNS = [
@@ -73,6 +108,17 @@ const NON_JOB_CONTENT_PATTERNS = [
   /\bwatch this video\b/i,
   /\bopen positions\b/i,
   /\bour current job openings\b/i,
+  /\bnot an active opening\b/i,
+  /\bbuilding (?:a )?talent pipeline\b/i,
+  /\[(?:pipeline|talent pool)\]/i,
+  /\btalent pool\b/i,
+  /\btalent community\b/i,
+  /\bgeneral application\b/i,
+  /\bopen application\b/i,
+  /\bexpression of interest\b/i,
+  /\bsubmit your (?:resume|cv)\b/i,
+  /\bfuture opportunities\b/i,
+  /\bevergreen (?:role|opportunity|opening)\b/i,
   /\bwhat do we offer\??\b/i,
   /\bwho we are\b/i,
   /\bshortcuts\b/i,
@@ -152,23 +198,42 @@ export function classifyNonJobPosting(input: {
     };
   }
 
-  if ((genericCareerUrl || questionLikeCareerTitle) && negativeHits >= 2 && positiveHits === 0) {
+  if (title && LOCATION_ONLY_TITLE_RE.test(title.replace(/[()]/g, "").trim())) {
     return {
       detected: true,
-      reason: genericCareerUrl ? "generic_careers_url" : "career_question_title",
+      reason: "location_only_title",
+      negativeHits,
+      positiveHits,
+    };
+  }
+
+  if (articleOrDocsUrl) {
+    return {
+      detected: true,
+      reason: "article_or_docs_url",
       negativeHits,
       positiveHits,
     };
   }
 
   if (
-    articleOrDocsUrl &&
-    (negativeHits >= 1 || /^(how to|what is|a guide to|the .* guide to|thank you for)\b/i.test(title)) &&
-    positiveHits <= 1
+    genericCareerUrl &&
+    (!title ||
+      positiveHits <= 1 ||
+      GENERIC_CAREER_LANDING_TITLE_PATTERNS.some((pattern) => pattern.test(title)))
   ) {
     return {
       detected: true,
-      reason: "article_or_docs_url",
+      reason: "generic_careers_url",
+      negativeHits,
+      positiveHits,
+    };
+  }
+
+  if ((genericCareerUrl || questionLikeCareerTitle) && negativeHits >= 2 && positiveHits === 0) {
+    return {
+      detected: true,
+      reason: genericCareerUrl ? "generic_careers_url" : "career_question_title",
       negativeHits,
       positiveHits,
     };
@@ -224,18 +289,21 @@ function looksLikeGenericCareerUrl(url: string) {
 
   try {
     const parsed = new URL(url);
-    const pathname = parsed.pathname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+
+    if (
+      /(?:^|\/)(careers?|jobs?|open-positions?|job-openings?)$/.test(pathname) ||
+      /\/career-search$/.test(pathname) ||
+      /\/careers-at-[a-z0-9-]+$/.test(pathname)
+    ) {
+      return true;
+    }
 
     if (JOB_URL_HINT_RE.test(pathname)) {
       return false;
     }
 
-    return (
-      /\/careers?(?:\/|$)/i.test(pathname) ||
-      /\/career-search(?:\/|$)/i.test(pathname) ||
-      /\/careers-at-[a-z0-9-]+(?:\/|$)/i.test(pathname) ||
-      /\/jobs?(?:\/)?$/i.test(pathname)
-    );
+    return false;
   } catch {
     return false;
   }

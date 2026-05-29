@@ -66,6 +66,10 @@ function parseArgs(): ParsedArgs {
   return { interval, once, maxRuntimeMs };
 }
 
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function lastRunAgeMinutes(connectorKey: string, now: Date) {
   const last = await prisma.ingestionRun.findFirst({
     where: { connectorKey, status: "SUCCESS" },
@@ -118,13 +122,13 @@ async function runCycle(args: ParsedArgs) {
         live: result.liveCount ?? 0,
         durationSec,
       });
-    } catch (e: any) {
+    } catch (error: unknown) {
       const durationSec = (Date.now() - t0) / 1000;
       results.push({
         key: entry.key,
         skipped: false,
         durationSec,
-        error: e?.message ?? String(e),
+        error: formatErrorMessage(error),
       });
     }
   }
@@ -185,8 +189,8 @@ async function main() {
     try {
       const results = await runCycle(args);
       console.log(formatResults(results, cycleNum, cycleStart));
-    } catch (e: any) {
-      console.error(`[agg-loop] Cycle #${cycleNum} failed:`, e?.message ?? e);
+    } catch (error: unknown) {
+      console.error(`[agg-loop] Cycle #${cycleNum} failed:`, formatErrorMessage(error));
     }
     if (args.once || !running) break;
     const sleepMs = args.interval * 60 * 1000;

@@ -218,7 +218,7 @@ async function main() {
     } catch (error) {
       console.error(
         `[recovery-worker] cycle=${cycle} role=${args.role} failed:`,
-        error instanceof Error ? error.message : error
+        error instanceof Error ? (error.stack ?? error.message) : error
       );
     }
 

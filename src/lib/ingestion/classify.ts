@@ -12,8 +12,9 @@ type PortalTier = "structured" | "semi_structured" | "aggregator" | "unknown";
 /**
  * Classify the application portal tier based on source name and apply URL.
  *
- * - **structured**: ATS with implemented, submit-capable application fillers
- *   (Greenhouse, Lever, Ashby)
+ * - **structured**: ATS with implemented application fillers (Greenhouse,
+ *   Lever, Ashby). Form reachability and required-field coverage are still
+ *   verified later in the review/preflight flow before submit is allowed.
  * - **semi_structured**: Corporate portals that have forms but may vary
  *   (SuccessFactors, Taleo, company career pages)
  * - **aggregator**: Job boards that link out to external application pages
@@ -88,13 +89,23 @@ export function buildEligibilityDraft({
     );
 
   const higherTouchRole =
+    job.normalizedCareerStage === "SENIOR" ||
+    job.normalizedCareerStage === "STAFF_PRINCIPAL" ||
+    job.normalizedCareerStage === "MANAGER" ||
+    job.normalizedCareerStage === "DIRECTOR" ||
+    job.normalizedCareerStage === "EXECUTIVE" ||
     job.experienceLevel === "LEAD" ||
     job.experienceLevel === "EXECUTIVE" ||
     /\b(manager|director|principal|staff\s+engineer|distinguished|fellow|chief|cto|cfo|coo|vp\b|vice president|head of)\b/i.test(job.title);
 
-  const nonStandardEmployment = job.employmentType !== "FULL_TIME";
+  const nonStandardEmployment =
+    job.normalizedEmploymentType !== "FULL_TIME" ||
+    job.employmentType !== "FULL_TIME";
 
   const isInternship =
+    job.normalizedCareerStage === "INTERNSHIP_COOP_STUDENT" ||
+    job.normalizedEmploymentType === "INTERNSHIP" ||
+    job.normalizedEmploymentType === "CO_OP" ||
     job.roleFamily === "Internship" ||
     /\b(intern|co-op|coop|internship|stagiaire)\b/i.test(job.title);
 
@@ -186,19 +197,15 @@ export function buildEligibilityDraft({
     );
   }
 
-  // All clear → auto-submit ready
-  return {
-    submissionCategory: "AUTO_SUBMIT_READY",
-    reasonCode: "structured_ats_flow",
-    reasonDescription:
-      "Structured ATS flow detected with standard fields and no custom writing blockers. Ready for automated submission.",
-    jobValidityConfidence: 0.94,
-    formAutomationConfidence: 0.9,
-    packageFitConfidence: 0.86,
-    submissionQualityConfidence: 0.84,
-    customizationLevel: 1,
-    evaluatedAt: evaluationTime,
-  };
+  // Structured + low-complexity means the job can enter review-first
+  // auto-fill. It is not labeled fully auto-submit-ready until the live form
+  // is reached and required fields are verified in the Auto Apply preflight.
+  return makeReview(
+    "structured_ats_preflight_required",
+    "Supported structured ATS detected. The form must be verified and reviewed before submission.",
+    evaluationTime,
+    { jobValidity: 0.94, formAutomation: 0.82, packageFit: 0.86, submissionQuality: 0.84 }
+  );
 }
 
 function normalizeText(value: unknown) {

@@ -3,11 +3,11 @@ import type { ApplicationReviewState, JobCardData } from "@/types";
 
 export const SUBMISSION_CATEGORY_META = {
   AUTO_SUBMIT_READY: {
-    label: "Auto-apply",
+    label: "Auto-apply candidate",
     badgeVariant: "default" as const,
   },
   AUTO_FILL_REVIEW: {
-    label: "Manual only",
+    label: "Review required",
     badgeVariant: "outline" as const,
   },
   MANUAL_ONLY: {
@@ -24,9 +24,9 @@ export const APPLICATION_REVIEW_STATE_META: Record<
   }
 > = {
   READY_FOR_REVIEW: {
-    label: "Auto-apply ready",
+    label: "Review before submit",
     description:
-      "The job is structured well enough for the automated apply flow.",
+      "The job can enter the supported auto-fill flow, but fields must be reviewed before any submission.",
   },
   MANUAL_ONLY: {
     label: "Manual only",
@@ -47,7 +47,10 @@ export function getSubmissionMeta(job: Pick<JobCardData, "eligibility">) {
 }
 
 export function shouldShowSubmissionMeta(job: Pick<JobCardData, "eligibility">) {
-  return job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY";
+  return (
+    job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" ||
+    job.eligibility?.submissionCategory === "AUTO_FILL_REVIEW"
+  );
 }
 
 export function getEligibilityReasonDescription(
@@ -55,7 +58,7 @@ export function getEligibilityReasonDescription(
 ) {
   if (!eligibility) return "Eligibility has not been evaluated yet.";
   if (eligibility.submissionCategory === "AUTO_FILL_REVIEW") {
-    return "This role should stay in the manual application path.";
+    return "This role can be assisted by auto-fill, but should be reviewed before submission.";
   }
   return eligibility.reasonDescription;
 }

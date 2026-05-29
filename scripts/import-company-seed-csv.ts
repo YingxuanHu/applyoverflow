@@ -27,6 +27,7 @@ type CliArgs = {
   file: string | null;
   dryRun: boolean;
   includeEmptyUrls: boolean;
+  fast: boolean;
 };
 
 type CsvRow = {
@@ -86,6 +87,7 @@ function parseArgs(argv: string[]): CliArgs {
     file: null,
     dryRun: false,
     includeEmptyUrls: false,
+    fast: false,
   };
 
   for (const arg of argv) {
@@ -110,6 +112,11 @@ function parseArgs(argv: string[]): CliArgs {
 
     if (key === "include-empty-urls") {
       parsed.includeEmptyUrls = true;
+      continue;
+    }
+
+    if (key === "fast" || key === "skip-page-scan") {
+      parsed.fast = true;
     }
   }
 
@@ -170,27 +177,33 @@ function parseCsv(content: string, fileLabel: string): CsvRow[] {
   const companyNameIndex = findHeaderIndex(normalizedHeader, [
     "company_name",
     "company name",
+    "companyname",
   ]);
   const careersUrlIndex = findHeaderIndex(normalizedHeader, [
     "careers_url",
     "careers url",
+    "careersurl",
   ]);
   const atsVendorIndex = findHeaderIndex(normalizedHeader, [
     "ats_vendor",
     "ats/vendor",
     "ats vendor",
+    "atsvendor",
   ]);
 
-  if (companyNameIndex < 0 || careersUrlIndex < 0 || atsVendorIndex < 0) {
+  if (companyNameIndex < 0 || careersUrlIndex < 0) {
     throw new Error(
-      `Unexpected CSV header in ${fileLabel}. Expected company_name, careers_url, ats_vendor.`
+      `Unexpected CSV header in ${fileLabel}. Expected company_name/companyName and careers_url/careersUrl.`
     );
   }
 
   return dataRows.map((row, rowIndex) => ({
     companyName: (row[companyNameIndex] ?? "").trim(),
     careersUrl: normalizeUrl(row[careersUrlIndex] ?? ""),
-    atsVendor: normalizeNullableString(row[atsVendorIndex] ?? ""),
+    atsVendor:
+      atsVendorIndex >= 0
+        ? normalizeNullableString(row[atsVendorIndex] ?? "")
+        : null,
     lineNumber: rowIndex + 2,
   }));
 }
@@ -696,6 +709,7 @@ async function main() {
     const firstPartyCareersUrls = careersUrls.filter((url) => isFirstPartyCareersUrl(url));
     const directDiscovery = await discoverSourceCandidatesFromUrls(careersUrls);
     const shouldScanFirstPartyPages =
+      !args.fast &&
       firstPartyCareersUrls.length > 0 &&
       (directDiscovery.candidates.length === 0 ||
         isSupportedImportedAtsVendor(vendorHintConnector));
@@ -735,6 +749,14 @@ async function main() {
         summary.atsCompanies += 1;
         summary.validationTasksQueued += uniqueCandidates.length;
       } else if (preferredCareersUrl) {
+        if (args.fast) {
+          summary.companySiteCompanies += 1;
+          summary.validationTasksQueued += 1;
+          summary.discoveryTasksQueued += 1;
+          summary.importedCompanies += 1;
+          continue;
+        }
+
         try {
           const inspection = await inspectCompanySiteRoute(preferredCareersUrl);
           if (shouldProvisionImportedCompanySiteRoute(inspection)) {
@@ -816,7 +838,7 @@ async function main() {
       continue;
     }
 
-    if (preferredCareersUrl) {
+    if (preferredCareersUrl && !args.fast) {
       try {
         const inspection = await inspectCompanySiteRoute(preferredCareersUrl);
         if (shouldProvisionImportedCompanySiteRoute(inspection)) {
@@ -844,6 +866,41 @@ async function main() {
       } catch {
         // Fall through to normal discovery queue below.
       }
+    }
+
+    if (args.fast && preferredCareersUrl) {
+      summary.companySiteCompanies += 1;
+      const provisioned = await upsertCompanySiteSource({
+        companyId: company.id,
+        companyKey: aggregate.companyKey,
+        route: {
+          url: preferredCareersUrl,
+          extractionRoute: "HTML_FALLBACK",
+          parserVersion: "csv-import:fast-company-site:v1",
+          confidence: 0.48,
+          metadata: {
+            seedPageUrl: preferredCareersUrl,
+            deferredInspection: true,
+          },
+        },
+        careersUrls,
+        csvVendors: [...aggregate.atsVendors].sort(),
+        now,
+      });
+      if (provisioned.queuedValidation) summary.validationTasksQueued += 1;
+
+      await enqueueUniqueSourceTask({
+        kind: "COMPANY_DISCOVERY",
+        companyId: company.id,
+        priorityScore: 55,
+        notBeforeAt: now,
+        payloadJson: {
+          origin: "csv_seed_import_fast_company_site",
+          careersUrl: preferredCareersUrl,
+        },
+      });
+      summary.discoveryTasksQueued += 1;
+      continue;
     }
 
     if (careersUrls.length > 0) {

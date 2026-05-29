@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { Bot, ExternalLink } from "lucide-react";
 import { ApplicationReviewActions } from "@/components/jobs/application-review-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
-import { JobNotes } from "@/components/jobs/job-notes";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import {
   APPLICATION_REVIEW_STATE_META,
@@ -171,15 +170,6 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
             before preparing a package.
           </p>
         )}
-      </div>
-
-      {/* Personal notes */}
-      <div className="border-t border-border py-4">
-        <p className="mb-2 text-xs text-muted-foreground">Notes</p>
-        <JobNotes
-          jobId={job.id}
-          initialNotes={latestPackage?.userNotes ?? null}
-        />
       </div>
 
       {/* Submission history — visible if there are any */}

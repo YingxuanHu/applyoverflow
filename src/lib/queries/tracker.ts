@@ -20,6 +20,21 @@ export type TrackerSortFilter =
   | "DEADLINE_DESC"
   | "COMPANY_ASC"
   | "COMPANY_DESC";
+export type TrackerSearchScope = "all" | "title" | "company" | "location" | "tag" | "reminder";
+
+const TRACKED_SEARCH_STATUS_LABELS: Array<{
+  status: TrackedApplicationStatus;
+  labels: string[];
+}> = [
+  { status: "WISHLIST", labels: ["wishlist", "wishlisted", "saved"] },
+  { status: "PREPARING", labels: ["preparing", "prepare"] },
+  { status: "APPLIED", labels: ["applied", "submitted"] },
+  { status: "SCREEN", labels: ["screen", "screening"] },
+  { status: "INTERVIEW", labels: ["interview"] },
+  { status: "OFFER", labels: ["offer"] },
+  { status: "REJECTED", labels: ["rejected"] },
+  { status: "WITHDRAWN", labels: ["withdrawn"] },
+];
 
 function startOfUtcDay(value: Date) {
   const date = new Date(value);
@@ -175,11 +190,144 @@ function buildTrackedOrderBy(sort: TrackerSortFilter): Prisma.TrackedApplication
   }
 }
 
+function appendTrackedAndCondition(
+  where: Prisma.TrackedApplicationWhereInput,
+  condition: Prisma.TrackedApplicationWhereInput
+) {
+  const existing = where.AND
+    ? Array.isArray(where.AND)
+      ? where.AND
+      : [where.AND]
+    : [];
+  where.AND = [...existing, condition];
+}
+
+function buildTrackedSearchWhere(
+  search: string,
+  userId: string,
+  scope: TrackerSearchScope = "all"
+): Prisma.TrackedApplicationWhereInput | null {
+  const query = search.trim().slice(0, 120);
+  if (!query) return null;
+
+  if (scope !== "all") {
+    return buildScopedTrackedSearchWhere(query, userId, scope);
+  }
+
+  const normalizedQuery = query.toLowerCase();
+  const matchedStatuses = TRACKED_SEARCH_STATUS_LABELS
+    .filter(({ labels }) =>
+      labels.some((label) => label.includes(normalizedQuery) || normalizedQuery.includes(label))
+    )
+    .map(({ status }) => status);
+
+  const clauses: Prisma.TrackedApplicationWhereInput[] = [
+    { company: { contains: query, mode: "insensitive" } },
+    { roleTitle: { contains: query, mode: "insensitive" } },
+    { roleUrl: { contains: query, mode: "insensitive" } },
+    { notes: { contains: query, mode: "insensitive" } },
+    {
+      canonicalJob: {
+        is: {
+          OR: [
+            { location: { contains: query, mode: "insensitive" } },
+            { company: { contains: query, mode: "insensitive" } },
+            { title: { contains: query, mode: "insensitive" } },
+            { roleFamily: { contains: query, mode: "insensitive" } },
+          ],
+        },
+      },
+    },
+    {
+      tags: {
+        some: {
+          tag: {
+            userId,
+            name: { contains: query, mode: "insensitive" },
+          },
+        },
+      },
+    },
+    {
+      events: {
+        some: {
+          type: "REMINDER",
+          note: { contains: query, mode: "insensitive" },
+        },
+      },
+    },
+  ];
+
+  if (matchedStatuses.length > 0) {
+    clauses.push({ status: { in: matchedStatuses } });
+  }
+
+  return { OR: clauses };
+}
+
+function buildScopedTrackedSearchWhere(
+  query: string,
+  userId: string,
+  scope: Exclude<TrackerSearchScope, "all">
+): Prisma.TrackedApplicationWhereInput {
+  switch (scope) {
+    case "title":
+      return {
+        OR: [
+          { roleTitle: { contains: query, mode: "insensitive" } },
+          { canonicalJob: { is: { title: { contains: query, mode: "insensitive" } } } },
+        ],
+      };
+    case "company":
+      return {
+        OR: [
+          { company: { contains: query, mode: "insensitive" } },
+          { canonicalJob: { is: { company: { contains: query, mode: "insensitive" } } } },
+        ],
+      };
+    case "location":
+      return {
+        canonicalJob: {
+          is: {
+            location: { contains: query, mode: "insensitive" },
+          },
+        },
+      };
+    case "tag":
+      return {
+        tags: {
+          some: {
+            tag: {
+              userId,
+              name: { contains: query, mode: "insensitive" },
+            },
+          },
+        },
+      };
+    case "reminder":
+      return {
+        events: {
+          some: {
+            type: "REMINDER",
+            note: { contains: query, mode: "insensitive" },
+          },
+        },
+      };
+  }
+}
+
 export async function getTrackedDashboardData(input: {
   status?: TrackedApplicationStatus | "ALL";
   deadline?: TrackerDeadlineFilter;
   sort?: TrackerSortFilter;
   tags?: string[];
+  search?: string;
+  searchScope?: TrackerSearchScope;
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  tagSearch?: string;
+  reminderSearch?: string;
 }) {
   const userId = await requireCurrentAuthUserId();
   const status = input.status ?? "ALL";
@@ -203,16 +351,36 @@ export async function getTrackedDashboardData(input: {
   }
 
   if (tags.length > 0) {
-    where.AND = tags.map((name) => ({
-      tags: {
-        some: {
-          tag: {
-            name,
-            userId,
+    for (const name of tags) {
+      appendTrackedAndCondition(where, {
+        tags: {
+          some: {
+            tag: {
+              name,
+              userId,
+            },
           },
         },
-      },
-    }));
+      });
+    }
+  }
+
+  const searchWhere = buildTrackedSearchWhere(input.search ?? "", userId, input.searchScope ?? "all");
+  if (searchWhere) {
+    appendTrackedAndCondition(where, searchWhere);
+  }
+  const scopedSearches: Array<[Exclude<TrackerSearchScope, "all">, string | undefined]> = [
+    ["title", input.titleSearch],
+    ["company", input.companySearch],
+    ["location", input.locationSearch],
+    ["tag", input.tagSearch],
+    ["reminder", input.reminderSearch],
+  ];
+  for (const [scope, value] of scopedSearches) {
+    const scopedWhere = buildTrackedSearchWhere(value ?? "", userId, scope);
+    if (scopedWhere) {
+      appendTrackedAndCondition(where, scopedWhere);
+    }
   }
 
   const orderBy = buildTrackedOrderBy(input.sort ?? "UPDATED_DESC");
@@ -254,6 +422,21 @@ export async function getTrackedDashboardData(input: {
               },
             },
           },
+          events: {
+            where: { type: "REMINDER" },
+            orderBy: [
+              { reminderAt: { sort: "asc", nulls: "last" } },
+              { timestamp: "desc" },
+            ],
+            select: {
+              id: true,
+              type: true,
+              timestamp: true,
+              note: true,
+              reminderAt: true,
+              reminderNotifiedAt: true,
+            },
+          },
         },
         orderBy,
       }),
@@ -290,6 +473,7 @@ export async function getTrackedDashboardData(input: {
     unreadNotificationCount,
     userTags,
     selectedTags: tags,
+    loadedAt: new Date(),
   };
 }
 
@@ -454,6 +638,14 @@ export async function getNotificationCenterData() {
         message: true,
         createdAt: true,
         readAt: true,
+        trackedApplication: {
+          select: {
+            id: true,
+            canonicalJobId: true,
+            company: true,
+            roleTitle: true,
+          },
+        },
       },
     }),
     prisma.notification.count({
@@ -577,9 +769,12 @@ export async function createTrackedApplication(input: {
   status?: TrackedApplicationStatus;
   deadline?: Date | null;
   notes?: string | null;
+  initialReminderNote?: string | null;
+  initialReminderAt?: Date | null;
 }) {
   const userId = await requireCurrentAuthUserId();
   const status = input.status ?? "WISHLIST";
+  const initialReminderNote = input.initialReminderNote?.trim() ?? "";
 
   const created = await prisma.trackedApplication.create({
     data: {
@@ -603,6 +798,17 @@ export async function createTrackedApplication(input: {
           : `Application created with status ${status.toLowerCase()}.`,
     },
   });
+
+  if (initialReminderNote) {
+    await prisma.trackedApplicationEvent.create({
+      data: {
+        trackedApplicationId: created.id,
+        type: "REMINDER",
+        note: initialReminderNote,
+        reminderAt: input.initialReminderAt ?? null,
+      },
+    });
+  }
 
   await checkSingleTrackedApplicationReminder(created.id);
   return created;
@@ -897,6 +1103,62 @@ export async function addTrackedApplicationEvent(input: {
         updatedAt: new Date(),
         ...(mappedStatus[input.type] ? { status: mappedStatus[input.type] } : {}),
       },
+    }),
+  ]);
+}
+
+export async function updateTrackedApplicationEvent(input: {
+  applicationId: string;
+  eventId: string;
+  note?: string | null;
+  reminderAt?: Date | null;
+}) {
+  const userId = await requireCurrentAuthUserId();
+  const event = await prisma.trackedApplicationEvent.findFirst({
+    where: {
+      id: input.eventId,
+      trackedApplication: {
+        id: input.applicationId,
+        userId,
+      },
+    },
+    select: {
+      id: true,
+      type: true,
+      reminderAt: true,
+      reminderNotifiedAt: true,
+    },
+  });
+
+  if (!event) {
+    throw new Error("Timeline event not found");
+  }
+
+  if (event.type !== "REMINDER") {
+    throw new Error("Only reminders can be edited here.");
+  }
+
+  const note = input.note?.trim() ?? "";
+  if (!note) {
+    throw new Error("Reminder text is required.");
+  }
+
+  const nextReminderAt = input.reminderAt ?? null;
+  const reminderChanged =
+    (event.reminderAt?.getTime() ?? null) !== (nextReminderAt?.getTime() ?? null);
+
+  await prisma.$transaction([
+    prisma.trackedApplicationEvent.update({
+      where: { id: event.id },
+      data: {
+        note,
+        reminderAt: nextReminderAt,
+        reminderNotifiedAt: reminderChanged ? null : event.reminderNotifiedAt,
+      },
+    }),
+    prisma.trackedApplication.update({
+      where: { id: input.applicationId },
+      data: { updatedAt: new Date() },
     }),
   ]);
 }

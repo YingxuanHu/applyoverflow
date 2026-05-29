@@ -267,7 +267,9 @@ export async function claimSourceTasks(
   }
 
   await recoverStaleRunningSourceTasks(kind, now);
-  await collapseDuplicatePendingSourceTasks(kind, now);
+  if (kind !== "CONNECTOR_POLL") {
+    await collapseDuplicatePendingSourceTasks(kind, now);
+  }
 
   const companySourceFilter =
     companySourceIds.length > 0

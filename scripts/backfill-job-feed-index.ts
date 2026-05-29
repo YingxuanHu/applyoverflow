@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
-import { Prisma } from "@/generated/prisma/client";
-import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
+import {
+  repairJobFeedIndexBatch,
+  type JobFeedIndexRepairMode,
+} from "@/lib/ingestion/search-index";
 import { acquireRuntimeLock } from "./_runtime-lock";
 
 let releaseRuntimeLock: (() => Promise<void>) | null = null;
@@ -16,38 +18,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function readModeArg() {
+function readModeArg(): JobFeedIndexRepairMode {
   const exact = process.argv.find((arg) => arg.startsWith("--mode="));
   const value = exact?.slice("--mode=".length) ?? "missing";
   if (value === "all" || value === "stale" || value === "missing") {
     return value;
   }
   return "missing";
-}
-
-function buildQuery(mode: "missing" | "stale" | "all", batchSize: number) {
-  const missingClause = Prisma.sql`jfi."canonicalJobId" IS NULL`;
-  const staleClause = Prisma.sql`jfi."canonicalJobId" IS NOT NULL AND jfi."indexedAt" < jc."updatedAt"`;
-  const whereClause =
-    mode === "missing"
-      ? missingClause
-      : mode === "stale"
-        ? staleClause
-        : Prisma.sql`(${missingClause} OR ${staleClause})`;
-
-  return Prisma.sql`
-    SELECT jc.id
-    FROM "JobCanonical" jc
-    LEFT JOIN "JobFeedIndex" jfi
-      ON jfi."canonicalJobId" = jc.id
-    WHERE
-      jc.status IN ('LIVE', 'AGING', 'STALE')
-      AND ${whereClause}
-    ORDER BY
-      CASE WHEN jfi."canonicalJobId" IS NULL THEN 0 ELSE 1 END ASC,
-      jc."updatedAt" DESC
-    LIMIT ${batchSize}
-  `;
 }
 
 async function main() {
@@ -109,43 +86,27 @@ async function main() {
     let processedThisCycle = 0;
 
     for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
-      const rows = await prisma.$queryRaw<Array<{ id: string }>>(buildQuery(mode, batchSize));
+      const batch = await repairJobFeedIndexBatch({
+        mode,
+        limit: batchSize,
+        concurrency,
+      });
 
-      if (rows.length === 0) {
+      if (batch.scanned === 0) {
         break;
       }
 
       summary.batches += 1;
+      summary.processed += batch.processed;
+      summary.succeeded += batch.succeeded;
+      summary.failed += batch.failed;
+      processedThisCycle += batch.processed;
 
-      for (let start = 0; start < rows.length; start += concurrency) {
-        const chunk = rows.slice(start, start + concurrency);
-        const results = await Promise.all(
-          chunk.map(async (row) => {
-            try {
-              await upsertJobFeedIndex(row.id);
-              return { success: true } as const;
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              if (summary.samples.length < 20) {
-                summary.samples.push({
-                  canonicalJobId: row.id,
-                  error: message,
-                });
-              }
-              return { success: false } as const;
-            }
-          })
-        );
-
-        for (const result of results) {
-          summary.processed += 1;
-          processedThisCycle += 1;
-          if (result.success) {
-            summary.succeeded += 1;
-          } else {
-            summary.failed += 1;
-          }
+      for (const sample of batch.samples) {
+        if (summary.samples.length >= 20) {
+          break;
         }
+        summary.samples.push(sample);
       }
 
       console.log(
@@ -153,7 +114,7 @@ async function main() {
           {
             batch: summary.batches,
             mode,
-            fetched: rows.length,
+            fetched: batch.scanned,
             processed: summary.processed,
             succeeded: summary.succeeded,
             failed: summary.failed,

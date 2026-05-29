@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { LoaderCircle, MoreHorizontal } from "lucide-react";
 
 import {
@@ -642,17 +642,18 @@ export function ResumeManager({
   const aiResumes = resumes.filter((resume) => resume.isAiGenerated);
 
   return (
-    <div className="grid gap-6">
-      <div>
+    <div className="grid gap-5">
+      <DocumentGroup
+        count={uploadedResumes.length}
+        description="Uploaded resume versions. Keep one primary, then sync any version back into the structured profile."
+        title="Resumes"
+      >
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
             Uploaded by you
           </h3>
           <span className="text-xs text-muted-foreground">{uploadedResumes.length}</span>
         </div>
-        <p className="mb-2 text-xs text-muted-foreground">
-          Upload resume versions here, keep one primary, and sync any version back into the structured profile.
-        </p>
 
         {uploadedResumes.length === 0 && resumeFormKeys.length === 0 ? (
           <p className="py-2 text-sm italic text-muted-foreground">No resumes yet.</p>
@@ -685,16 +686,16 @@ export function ResumeManager({
         >
           + Add resume
         </button>
-      </div>
+      </DocumentGroup>
 
       {/* AI-generated group — appears only once the user has at least one
           tailored resume from the workspace. Kept visually distinct via the
           dashed border + label so it can't be confused with uploads. */}
       {aiResumes.length > 0 ? (
-        <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-3">
+        <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              AI generated
+              Generated resumes
             </h3>
             <span className="text-xs text-muted-foreground">{aiResumes.length}</span>
           </div>
@@ -709,15 +710,11 @@ export function ResumeManager({
         </div>
       ) : null}
 
-      <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Resume templates</h3>
-          <span className="text-xs text-muted-foreground">{templates.length}</span>
-        </div>
-        <p className="mb-2 text-xs text-muted-foreground">
-          Upload a text-readable format file. The primary template is used when generating tailored resumes.
-        </p>
-
+      <DocumentGroup
+        count={templates.length}
+        description="Text-readable source files used when generating tailored resumes."
+        title="Resume templates"
+      >
         {templates.length === 0 && !showAddTemplate ? (
           <p className="py-2 text-sm italic text-muted-foreground">No templates yet.</p>
         ) : (
@@ -745,7 +742,34 @@ export function ResumeManager({
             + Add template
           </button>
         )}
-      </div>
+      </DocumentGroup>
     </div>
+  );
+}
+
+function DocumentGroup({
+  children,
+  count,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  count: number;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-lg border border-border/70 bg-background/45 p-3">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {title}
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <span className="text-xs text-muted-foreground">{count}</span>
+      </div>
+      {children}
+    </section>
   );
 }

@@ -10,21 +10,28 @@ import {
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
-import {
-  OUT_OF_SCOPE_GEO_MARKERS,
-  inferGeoScope,
-  isExplicitlyOutOfScopeGeoScope,
-} from "@/lib/geo-scope";
+import { inferGeoScope } from "@/lib/geo-scope";
 import {
   normalizeEducations,
   normalizeExperiences,
   normalizeSkills,
 } from "@/lib/profile";
 import {
-  CAREER_STAGE_DEFINITIONS,
   normalizeCareerStageFilterValue,
-  type CareerStageFilter,
-} from "@/lib/career-stage";
+  normalizeEmploymentTypeFilterValue,
+  normalizeIndustryFilterValue,
+  normalizeRoleCategoryFilterValue,
+} from "@/lib/job-metadata";
+import {
+  convertSalaryAmount,
+  convertSalaryRange,
+  FALLBACK_SALARY_EXCHANGE_RATES,
+  normalizeSalaryCurrency,
+  SALARY_COMPARISON_CURRENCIES,
+  type SalaryComparisonCurrency,
+  type SalaryExchangeRates,
+} from "@/lib/currency-conversion";
+import { loadSalaryExchangeRates } from "@/lib/salary-exchange-rates";
 import { resolveATSFiller } from "@/lib/automation/fillers";
 
 // ─── Full-text search ────────────────────────────────────────────────────────
@@ -82,6 +89,15 @@ const TIMED_CACHE_MAX_ENTRIES = 128;
 const DIVERSIFICATION_OVERSCAN = 80;
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
 const timedCacheStore = new Map<string, { expiresAt: number; value: unknown }>();
+export type JobSearchScope = "all" | "title" | "company" | "location";
+type ScopedJobSearchScope = Exclude<JobSearchScope, "all">;
+export type JobSortBy = "relevance" | "newest" | "deadline" | "company";
+const JOB_SORT_VALUES = new Set<string>(["relevance", "newest", "deadline", "company"]);
+const SEARCH_SCOPE_COLUMNS: Record<ScopedJobSearchScope, string> = {
+  title: "title",
+  company: "company",
+  location: "location",
+};
 
 /**
  * Race a count() query against a timeout. Returns `null` if the count doesn't
@@ -203,27 +219,8 @@ function buildApplyableVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
   };
 }
 
-function buildNorthAmericaVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
-  const outOfScopeLocationClauses = OUT_OF_SCOPE_GEO_MARKERS.map((marker) => ({
-    location: { contains: marker, mode: "insensitive" as const },
-  }));
-
-  return {
-    OR: [
-      { region: { in: ["US", "CA"] } },
-      {
-        AND: [
-          { region: null },
-          { workMode: "REMOTE" },
-          {
-            NOT: {
-              OR: outOfScopeLocationClauses,
-            },
-          },
-        ],
-      },
-    ],
-  };
+function buildGlobalVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
+  return {};
 }
 
 function buildRecentApplyEvidenceWhere(now: Date = new Date()): PrismaTypes.JobCanonicalWhereInput {
@@ -271,7 +268,7 @@ function buildDefaultJobBoardVisibilityWhere(
       buildAvailabilityVisibilityWhere(minAvailabilityScore),
       buildApplyableVisibilityWhere(),
       buildCompanyVisibilityWhere(),
-      buildNorthAmericaVisibilityWhere(),
+      buildGlobalVisibilityWhere(),
       buildVisibleDeadlineWhere(now),
       buildRecentApplyEvidenceWhere(now),
     ],
@@ -291,7 +288,37 @@ function toTsQuery(raw: string): string {
 }
 
 function splitFilterValues(value?: string) {
-  return value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
+  if (!value) return [];
+  const seen = new Set<string>();
+  const values: string[] = [];
+
+  for (const entry of value.split(",")) {
+    const trimmed = entry.replace(/\s+/g, " ").trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(trimmed);
+  }
+
+  return values;
+}
+
+function getPostedAfterDate(value?: string, now: Date = new Date()) {
+  const days =
+    value === "1d"
+      ? 1
+      : value === "3d"
+        ? 3
+        : value === "7d"
+          ? 7
+          : value === "14d"
+            ? 14
+            : value === "30d"
+              ? 30
+              : null;
+
+  return days ? new Date(now.getTime() - days * 86_400_000) : null;
 }
 
 function normalizeJobStatusFilter(value?: string) {
@@ -299,115 +326,9 @@ function normalizeJobStatusFilter(value?: string) {
   return value as "AGING" | "LIVE" | "EXPIRED" | "REMOVED" | "STALE";
 }
 
-function buildKeywordContainsClauses(
-  field: "title" | "description" | "roleFamily",
-  keywords: string[]
-): PrismaTypes.JobCanonicalWhereInput[] {
-  return keywords.map((keyword) => ({
-    [field]: {
-      contains: keyword,
-      mode: "insensitive",
-    },
-  })) as PrismaTypes.JobCanonicalWhereInput[];
-}
-
-function buildPositiveCareerStageWhere(
-  stage: CareerStageFilter
-): PrismaTypes.JobCanonicalWhereInput | null {
-  const definition = CAREER_STAGE_DEFINITIONS[stage];
-  const clauses: PrismaTypes.JobCanonicalWhereInput[] = [];
-
-  if (definition.employmentTypes?.length) {
-    clauses.push({
-      employmentType: {
-        in: definition.employmentTypes,
-      },
-    });
-  }
-
-  if (definition.roleFamilyKeywords?.length) {
-    clauses.push(...buildKeywordContainsClauses("roleFamily", definition.roleFamilyKeywords));
-  }
-
-  if (definition.titleKeywords.length) {
-    clauses.push(...buildKeywordContainsClauses("title", definition.titleKeywords));
-  }
-
-  if (definition.descriptionKeywords.length) {
-    clauses.push(...buildKeywordContainsClauses("description", definition.descriptionKeywords));
-  }
-
-  return clauses.length > 0 ? { OR: clauses } : null;
-}
-
-function buildCareerStageWhere(
-  stage: CareerStageFilter
-): PrismaTypes.JobCanonicalWhereInput | null {
-  const internshipWhere = buildPositiveCareerStageWhere("INTERNSHIP");
-  const administrativeWhere = buildPositiveCareerStageWhere("ADMINISTRATIVE_SUPPORT");
-  const seniorWhere = buildPositiveCareerStageWhere("SENIOR_LEVEL");
-  const associateWhere = buildPositiveCareerStageWhere("ASSOCIATE");
-  const entryWhere = buildPositiveCareerStageWhere("ENTRY_LEVEL");
-
-  switch (stage) {
-    case "INTERNSHIP":
-      return internshipWhere;
-    case "ADMINISTRATIVE_SUPPORT":
-      return administrativeWhere;
-    case "SENIOR_LEVEL":
-      return seniorWhere && internshipWhere && administrativeWhere
-        ? {
-            AND: [
-              seniorWhere,
-              { NOT: internshipWhere },
-              { NOT: administrativeWhere },
-            ],
-          }
-        : seniorWhere;
-    case "ASSOCIATE":
-      return associateWhere && internshipWhere && administrativeWhere && seniorWhere
-        ? {
-            AND: [
-              associateWhere,
-              { NOT: internshipWhere },
-              { NOT: administrativeWhere },
-              { NOT: seniorWhere },
-            ],
-          }
-        : associateWhere;
-    case "ENTRY_LEVEL":
-      return entryWhere &&
-        internshipWhere &&
-        administrativeWhere &&
-        seniorWhere &&
-        associateWhere
-        ? {
-            AND: [
-              entryWhere,
-              { NOT: internshipWhere },
-              { NOT: administrativeWhere },
-              { NOT: seniorWhere },
-              { NOT: associateWhere },
-            ],
-          }
-        : entryWhere;
-  }
-}
-
-function buildCareerStageFiltersWhere(
-  stages: CareerStageFilter[]
-): PrismaTypes.JobCanonicalWhereInput | null {
-  if (stages.length === 0) return null;
-
-  const stageClauses = stages
-    .map((stage) => buildCareerStageWhere(stage))
-    .filter(Boolean) as PrismaTypes.JobCanonicalWhereInput[];
-
-  if (stageClauses.length === 0) {
-    return null;
-  }
-
-  return stageClauses.length === 1 ? stageClauses[0] : { OR: stageClauses };
+export function normalizeJobSortBy(value?: string): JobSortBy | undefined {
+  if (!value || !JOB_SORT_VALUES.has(value)) return undefined;
+  return value as JobSortBy;
 }
 
 function appendAndCondition(
@@ -422,19 +343,31 @@ function appendAndCondition(
   where.AND = [...existingAnd, condition];
 }
 
-function shouldUseJobFeedIndex(filters: JobFilterParams) {
-  return process.env.USE_JOB_FEED_INDEX === "1" && !filters.search;
+function shouldUseJobFeedIndex(filters: JobFilterParams, viewerProfileId: string | null) {
+  return (
+    process.env.USE_JOB_FEED_INDEX === "1" &&
+    !viewerProfileId &&
+    !hasSearchFilters(filters) &&
+    !filters.source
+  );
 }
 
 async function getJobsFromFeedIndex(input: {
   filters: JobFilterParams;
   viewerProfileId: string | null;
+  salaryExchangeRates: SalaryExchangeRates;
   summaryPromise: Promise<JobFeedSummary>;
   includeExactTotal: boolean;
   useSqlDemoVisibilityFilter: boolean;
 }) {
-  const { filters, viewerProfileId, summaryPromise, includeExactTotal, useSqlDemoVisibilityFilter } =
-    input;
+  const {
+    filters,
+    viewerProfileId,
+    salaryExchangeRates,
+    summaryPromise,
+    includeExactTotal,
+    useSqlDemoVisibilityFilter,
+  } = input;
   const page = filters.page ?? 1;
   const skip = (page - 1) * PAGE_SIZE;
   const where: Prisma.JobFeedIndexWhereInput = {};
@@ -470,7 +403,14 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.industry) {
-    where.industry = { in: filters.industry.split(",") as ("TECH" | "FINANCE")[] };
+    const industries = splitFilterValues(normalizeIndustryFilterValue(filters.industry));
+    where.normalizedIndustry = industries.length > 0 ? { in: industries } : { in: [] };
+  }
+
+  if (filters.roleCategory) {
+    const roleCategories = splitFilterValues(normalizeRoleCategoryFilterValue(filters.roleCategory));
+    where.normalizedRoleCategory =
+      roleCategories.length > 0 ? { in: roleCategories } : { in: [] };
   }
 
   if (filters.roleFamily) {
@@ -482,8 +422,34 @@ async function getJobsFromFeedIndex(input: {
     }
   }
 
-  if (filters.salaryMin) {
-    where.salaryMax = { gte: filters.salaryMin };
+  if (filters.location) {
+    where.location = { contains: filters.location, mode: "insensitive" };
+  }
+
+  if (filters.employmentType) {
+    const employmentTypes = splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType));
+    where.normalizedEmploymentType =
+      employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] };
+  }
+
+  const postedAfter = getPostedAfterDate(filters.posted);
+  if (postedAfter) {
+    where.postedAt = { gte: postedAfter };
+  }
+
+  const salaryRangeWhere = buildSalaryRangeIndexWhere(
+    filters.salaryMin,
+    filters.salaryMax,
+    filters.salaryCurrency ?? "USD",
+    salaryExchangeRates
+  );
+  if (salaryRangeWhere) {
+    const existingAnd = where.AND
+      ? Array.isArray(where.AND)
+        ? where.AND
+        : [where.AND]
+      : [];
+    where.AND = [...existingAnd, salaryRangeWhere];
   }
 
   if (filters.expiry === "soon") {
@@ -495,20 +461,11 @@ async function getJobsFromFeedIndex(input: {
     };
   }
 
-  if (filters.experienceLevel) {
-    const stages = splitFilterValues(normalizeCareerStageFilterValue(filters.experienceLevel));
-    const careerStageWhere = buildCareerStageFiltersWhere(stages as CareerStageFilter[]);
-
-    if (careerStageWhere) {
-      canonicalRelationWhere.AND = [
-        ...(Array.isArray(canonicalRelationWhere.AND)
-          ? canonicalRelationWhere.AND
-          : canonicalRelationWhere.AND
-            ? [canonicalRelationWhere.AND]
-            : []),
-        careerStageWhere,
-      ];
-    }
+  if (filters.careerStage || filters.experienceLevel) {
+    const stages = splitFilterValues(
+      normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+    );
+    where.normalizedCareerStage = stages.length > 0 ? { in: stages } : { in: [] };
   }
 
   if (filters.submissionCategory) {
@@ -564,9 +521,7 @@ async function getJobsFromFeedIndex(input: {
     { postedAt: "desc" },
   ];
 
-  if (filters.sortBy === "salary") {
-    orderBy = { salaryMax: "desc" };
-  } else if (filters.sortBy === "deadline") {
+  if (filters.sortBy === "deadline") {
     orderBy = [
       { deadline: { sort: "asc", nulls: "last" } },
       { rankingScore: "desc" },
@@ -574,6 +529,8 @@ async function getJobsFromFeedIndex(input: {
     ];
   } else if (filters.sortBy === "newest") {
     orderBy = { postedAt: "desc" };
+  } else if (filters.sortBy === "company") {
+    orderBy = [{ company: "asc" }, { postedAt: "desc" }];
   }
 
   const indexedRows = await prisma.jobFeedIndex.findMany({
@@ -655,25 +612,91 @@ async function getJobsFromFeedIndex(input: {
  * Strategy:
  *  1. Try tsvector full-text search first (fast, uses GIN index).
  *  2. If no results or query is very short (≤2 chars), fall back to
- *     trigram similarity on title and company (uses GIN trigram indexes).
+ *     trigram similarity on title, company, role family, and location.
  *
  * Returns up to `limit` matching job IDs, ordered by relevance.
  */
 async function searchJobIds(
   query: string,
-  limit: number = SEARCH_SCORING_WINDOW_SIZE
+  scope: JobSearchScope = "all",
+  limit: number = SEARCH_MATCH_ID_LIMIT
 ): Promise<string[] | null> {
   const tsQuery = toTsQuery(query);
   if (!tsQuery) return null;
+
+  const escapedLikeQuery = query.replace(/[%_\\]/g, "\\$&");
+  const companyLikePattern = `%${escapedLikeQuery}%`;
+  const likePattern = `%${escapedLikeQuery}%`;
+
+  if (scope !== "all") {
+    const column = SEARCH_SCOPE_COLUMNS[scope];
+    const scopedFtsResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM "JobCanonical"
+       WHERE to_tsvector('english', coalesce("${column}", '')) @@ to_tsquery('english', $1)
+       ORDER BY
+         CASE
+           WHEN lower("${column}") = lower($3) THEN 0
+           WHEN "${column}" ILIKE $4 THEN 1
+           ELSE 2
+         END,
+         ts_rank(to_tsvector('english', coalesce("${column}", '')), to_tsquery('english', $1)) DESC
+       LIMIT $2`,
+      tsQuery,
+      limit,
+      query,
+      likePattern
+    );
+
+    if (scopedFtsResults.length > 0) {
+      return scopedFtsResults.map((r) => r.id);
+    }
+
+    const scopedLikeResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM "JobCanonical"
+       WHERE "${column}" ILIKE $1
+       ORDER BY
+         CASE
+           WHEN lower("${column}") = lower($2) THEN 0
+           WHEN "${column}" ILIKE $1 THEN 1
+           ELSE 2
+         END
+       LIMIT $3`,
+      likePattern,
+      query,
+      limit
+    );
+
+    return scopedLikeResults.length > 0
+      ? scopedLikeResults.map((r) => r.id)
+      : [];
+  }
 
   // Try full-text search first
   const ftsResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM "JobCanonical"
      WHERE "searchVector" @@ to_tsquery('english', $1)
-     ORDER BY ts_rank("searchVector", to_tsquery('english', $1)) DESC
+     ORDER BY
+       CASE
+         WHEN lower(company) = lower($3) THEN 0
+         WHEN company ILIKE $4 THEN 1
+         ELSE 2
+       END,
+       CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM "JobSourceMapping" jsm
+           WHERE jsm."canonicalJobId" = "JobCanonical".id
+             AND jsm."removedAt" IS NULL
+             AND jsm."sourceName" ILIKE 'OfficialCompany:%'
+         ) THEN 0
+         ELSE 1
+       END,
+       ts_rank("searchVector", to_tsquery('english', $1)) DESC
      LIMIT $2`,
     tsQuery,
-    limit
+    limit,
+    query,
+    companyLikePattern
   );
 
   if (ftsResults.length > 0) {
@@ -682,20 +705,253 @@ async function searchJobIds(
 
   // Fallback: trigram similarity for short queries or terms not in the
   // English dictionary (acronyms, company names, etc.)
-  const likePattern = `%${query.replace(/[%_\\]/g, "\\$&")}%`;
   const trigramResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM "JobCanonical"
      WHERE title ILIKE $1
         OR company ILIKE $1
         OR "roleFamily" ILIKE $1
-     LIMIT $2`,
+        OR location ILIKE $1
+     ORDER BY
+       CASE
+         WHEN lower(company) = lower($2) THEN 0
+         WHEN company ILIKE $1 THEN 1
+         ELSE 2
+       END,
+       CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM "JobSourceMapping" jsm
+           WHERE jsm."canonicalJobId" = "JobCanonical".id
+             AND jsm."removedAt" IS NULL
+             AND jsm."sourceName" ILIKE 'OfficialCompany:%'
+         ) THEN 0
+         ELSE 1
+       END
+     LIMIT $3`,
     likePattern,
+    query,
     limit
   );
 
   return trigramResults.length > 0
     ? trigramResults.map((r) => r.id)
     : [];
+}
+
+function hasSearchFilters(filters: JobFilterParams) {
+  return Boolean(
+    filters.search ||
+      filters.titleSearch ||
+      filters.companySearch ||
+      filters.locationSearch
+  );
+}
+
+function buildScopedTextSearchWhere(
+  field: ScopedJobSearchScope,
+  query: string | undefined
+): PrismaTypes.JobCanonicalWhereInput | null {
+  const tokens = query
+    ?.slice(0, MAX_SEARCH_LENGTH)
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, MAX_SEARCH_TOKENS);
+
+  if (!tokens?.length) return null;
+
+  const clauses = tokens.map((token) => ({
+    [field]: {
+      contains: token,
+      mode: "insensitive" as const,
+    },
+  })) as PrismaTypes.JobCanonicalWhereInput[];
+
+  return clauses.length === 1 ? clauses[0] : { AND: clauses };
+}
+
+function appendScopedTextSearchWhere(
+  where: Prisma.JobCanonicalWhereInput,
+  field: ScopedJobSearchScope,
+  query: string | undefined
+) {
+  const condition = buildScopedTextSearchWhere(field, query);
+  if (condition) appendAndCondition(where, condition);
+}
+
+function buildLocationSearchWhere(
+  query: string | undefined
+): PrismaTypes.JobCanonicalWhereInput | null {
+  const locations = splitFilterValues(query);
+  if (locations.length === 0) return null;
+
+  const clauses = locations.flatMap((location) => {
+    const textCondition = buildScopedTextSearchWhere("location", location);
+    if (!textCondition) return [];
+
+    const region = inferProfileRegion(location);
+    if (!region) return [textCondition];
+
+    return [
+      textCondition,
+      {
+        AND: [
+          { region },
+          {
+            workMode: {
+              in: ["REMOTE", "FLEXIBLE"],
+            },
+          },
+        ],
+      } satisfies PrismaTypes.JobCanonicalWhereInput,
+    ];
+  });
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { OR: clauses };
+}
+
+function appendLocationSearchWhere(
+  where: Prisma.JobCanonicalWhereInput,
+  query: string | undefined
+) {
+  const condition = buildLocationSearchWhere(query);
+  if (condition) appendAndCondition(where, condition);
+}
+
+function buildNumericSalaryRangeWhere(
+  salaryMin: number | undefined,
+  salaryMax: number | undefined
+): PrismaTypes.JobCanonicalWhereInput | null {
+  const clauses: PrismaTypes.JobCanonicalWhereInput[] = [];
+
+  if (salaryMin) {
+    clauses.push({
+      OR: [{ salaryMax: { gte: salaryMin } }, { salaryMin: { gte: salaryMin } }],
+    });
+  }
+
+  if (salaryMax) {
+    clauses.push({
+      OR: [
+        { salaryMin: { lte: salaryMax } },
+        {
+          AND: [{ salaryMin: null }, { salaryMax: { lte: salaryMax } }],
+        },
+      ],
+    });
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { AND: clauses };
+}
+
+function buildNumericSalaryRangeIndexWhere(
+  salaryMin: number | undefined,
+  salaryMax: number | undefined
+): PrismaTypes.JobFeedIndexWhereInput | null {
+  const clauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
+
+  if (salaryMin) {
+    clauses.push({
+      OR: [{ salaryMax: { gte: salaryMin } }, { salaryMin: { gte: salaryMin } }],
+    });
+  }
+
+  if (salaryMax) {
+    clauses.push({
+      OR: [
+        { salaryMin: { lte: salaryMax } },
+        {
+          AND: [{ salaryMin: null }, { salaryMax: { lte: salaryMax } }],
+        },
+      ],
+    });
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { AND: clauses };
+}
+
+function buildSalaryRangeWhere(
+  salaryMin: number | undefined,
+  salaryMax: number | undefined,
+  comparisonCurrency: SalaryComparisonCurrency,
+  exchangeRates: SalaryExchangeRates
+): PrismaTypes.JobCanonicalWhereInput | null {
+  if (!salaryMin && !salaryMax) return null;
+
+  const clauses: PrismaTypes.JobCanonicalWhereInput[] = [];
+
+  for (const jobCurrency of SALARY_COMPARISON_CURRENCIES) {
+    const convertedMin =
+      salaryMin != null
+        ? convertSalaryAmount(salaryMin, comparisonCurrency, jobCurrency, exchangeRates) ??
+          undefined
+        : undefined;
+    const convertedMax =
+      salaryMax != null
+        ? convertSalaryAmount(salaryMax, comparisonCurrency, jobCurrency, exchangeRates) ??
+          undefined
+        : undefined;
+    const rangeWhere = buildNumericSalaryRangeWhere(convertedMin, convertedMax);
+    if (!rangeWhere) continue;
+
+    clauses.push({
+      AND: [{ salaryCurrency: jobCurrency }, rangeWhere],
+    });
+  }
+
+  const rawFallback = buildNumericSalaryRangeWhere(salaryMin, salaryMax);
+  if (rawFallback && comparisonCurrency === "USD") {
+    clauses.push({
+      AND: [{ salaryCurrency: null }, rawFallback],
+    });
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { OR: clauses };
+}
+
+function buildSalaryRangeIndexWhere(
+  salaryMin: number | undefined,
+  salaryMax: number | undefined,
+  comparisonCurrency: SalaryComparisonCurrency,
+  exchangeRates: SalaryExchangeRates
+): PrismaTypes.JobFeedIndexWhereInput | null {
+  if (!salaryMin && !salaryMax) return null;
+
+  const clauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
+
+  for (const jobCurrency of SALARY_COMPARISON_CURRENCIES) {
+    const convertedMin =
+      salaryMin != null
+        ? convertSalaryAmount(salaryMin, comparisonCurrency, jobCurrency, exchangeRates) ??
+          undefined
+        : undefined;
+    const convertedMax =
+      salaryMax != null
+        ? convertSalaryAmount(salaryMax, comparisonCurrency, jobCurrency, exchangeRates) ??
+          undefined
+        : undefined;
+    const rangeWhere = buildNumericSalaryRangeIndexWhere(convertedMin, convertedMax);
+    if (!rangeWhere) continue;
+
+    clauses.push({
+      AND: [{ salaryCurrency: jobCurrency }, rangeWhere],
+    });
+  }
+
+  const rawFallback = buildNumericSalaryRangeIndexWhere(salaryMin, salaryMax);
+  if (rawFallback && comparisonCurrency === "USD") {
+    clauses.push({
+      AND: [{ salaryCurrency: null }, rawFallback],
+    });
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { OR: clauses };
 }
 
 // ─── Ranking ──────────────────────────────────────────────────────────────────
@@ -710,6 +966,9 @@ type ProfileMatchSignals = {
   locationRegion: "US" | "CA" | null;
   preferredWorkMode: string | null;
   experienceLevel: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  salaryCurrency: SalaryComparisonCurrency;
   summaryPhrases: string[];
   summaryTokens: Set<string>;
   experiencePhrases: string[];
@@ -718,11 +977,24 @@ type ProfileMatchSignals = {
   educationPhrases: string[];
 };
 
+type SearchBoostJob = {
+  title: string;
+  company: string;
+  location: string;
+  sourceMappings: Array<{
+    sourceName: string;
+    removedAt: Date | null;
+  }>;
+};
+
 const EMPTY_PROFILE_MATCH_SIGNALS: ProfileMatchSignals = {
   location: null,
   locationRegion: null,
   preferredWorkMode: null,
   experienceLevel: null,
+  salaryMin: null,
+  salaryMax: null,
+  salaryCurrency: "USD",
   summaryPhrases: [],
   summaryTokens: new Set<string>(),
   experiencePhrases: [],
@@ -730,6 +1002,58 @@ const EMPTY_PROFILE_MATCH_SIGNALS: ProfileMatchSignals = {
   skillPhrases: [],
   educationPhrases: [],
 };
+
+function scoreSearchResultBoost(
+  job: SearchBoostJob,
+  query: string | undefined,
+  scope: JobSearchScope = "all"
+) {
+  const normalizedQuery = query?.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+
+  const company = job.company.toLowerCase();
+  const title = job.title.toLowerCase();
+  const location = job.location.toLowerCase();
+  const hasOfficialSource = job.sourceMappings.some(
+    (mapping) =>
+      mapping.removedAt === null &&
+      mapping.sourceName.toLowerCase().startsWith("officialcompany:")
+  );
+
+  let score = 0;
+  if (scope === "company") {
+    if (company === normalizedQuery) score += 1000;
+    else if (company.includes(normalizedQuery)) score += 600;
+  } else if (scope === "title") {
+    if (title === normalizedQuery) score += 800;
+    else if (title.includes(normalizedQuery)) score += 500;
+  } else if (scope === "location") {
+    if (location === normalizedQuery) score += 700;
+    else if (location.includes(normalizedQuery)) score += 450;
+  } else {
+    if (company === normalizedQuery) score += 1000;
+    else if (company.includes(normalizedQuery)) score += 600;
+    else if (title.includes(normalizedQuery)) score += 100;
+    else if (location.includes(normalizedQuery)) score += 80;
+  }
+
+  if (hasOfficialSource) score += 75;
+  return score;
+}
+
+function scoreSearchFiltersBoost(job: SearchBoostJob, filters: JobFilterParams) {
+  const locationBoost = splitFilterValues(filters.locationSearch).reduce(
+    (score, location) => Math.max(score, scoreSearchResultBoost(job, location, "location")),
+    0
+  );
+
+  return (
+    scoreSearchResultBoost(job, filters.search, filters.searchScope ?? "all") +
+    scoreSearchResultBoost(job, filters.titleSearch, "title") +
+    scoreSearchResultBoost(job, filters.companySearch, "company") +
+    locationBoost
+  );
+}
 
 const PROFILE_MATCH_STOP_WORDS = new Set([
   "and",
@@ -951,6 +1275,9 @@ async function loadProfileMatchSignals(
       headline: true,
       preferredWorkMode: true,
       experienceLevel: true,
+      salaryMin: true,
+      salaryMax: true,
+      salaryCurrency: true,
       summary: true,
       skillsText: true,
       experienceText: true,
@@ -994,6 +1321,9 @@ async function loadProfileMatchSignals(
     locationRegion: inferProfileRegion(profile.location),
     preferredWorkMode: profile.preferredWorkMode,
     experienceLevel: profile.experienceLevel,
+    salaryMin: profile.salaryMin,
+    salaryMax: profile.salaryMax,
+    salaryCurrency: normalizeSalaryCurrency(profile.salaryCurrency) ?? "USD",
     summaryPhrases: dedupeNormalizedPhrases(summaryInputs),
     summaryTokens: extractProfileTokens(summaryInputs),
     experiencePhrases: dedupeNormalizedPhrases(experienceInputs),
@@ -1006,7 +1336,16 @@ async function loadProfileMatchSignals(
 function scoreProfileMatch(
   job: Pick<
     ScoringJobInput,
-    "title" | "shortSummary" | "roleFamily" | "workMode" | "experienceLevel" | "location" | "region"
+    | "title"
+    | "shortSummary"
+    | "roleFamily"
+    | "workMode"
+    | "experienceLevel"
+    | "location"
+    | "region"
+    | "salaryMin"
+    | "salaryMax"
+    | "salaryCurrency"
   >,
   profile: ProfileMatchSignals
 ) {
@@ -1015,6 +1354,8 @@ function scoreProfileMatch(
     (!profile.location &&
       !profile.experienceLevel &&
       !profile.preferredWorkMode &&
+      !profile.salaryMin &&
+      !profile.salaryMax &&
       profile.summaryPhrases.length === 0 &&
       profile.experiencePhrases.length === 0 &&
       profile.skillPhrases.length === 0 &&
@@ -1091,6 +1432,34 @@ function scoreProfileMatch(
 
   if (job.region && profile.locationRegion && job.region === profile.locationRegion) {
     score += 3;
+  }
+
+  if (profile.salaryMin || profile.salaryMax) {
+    const convertedSalary = convertSalaryRange({
+      salaryMin: job.salaryMin,
+      salaryMax: job.salaryMax,
+      fromCurrency: job.salaryCurrency,
+      toCurrency: profile.salaryCurrency,
+    });
+    const jobMin = convertedSalary.salaryMin;
+    const jobMax = convertedSalary.salaryMax;
+
+    if (profile.salaryMin && jobMax) {
+      if (jobMax >= profile.salaryMin) {
+        score += 5;
+        if (jobMin && jobMin >= profile.salaryMin) {
+          score += 2;
+        }
+      } else if (jobMax >= Math.round(profile.salaryMin * 0.9)) {
+        score += 1;
+      } else {
+        score -= 5;
+      }
+    }
+
+    if (profile.salaryMax && jobMin && jobMin <= profile.salaryMax) {
+      score += 1;
+    }
   }
 
   return score;
@@ -1200,7 +1569,7 @@ async function loadBehaviorProfile(userId?: string | null): Promise<BehaviorProf
   };
 }
 
-const ATS_SOURCE_RE = /^(Ashby|Greenhouse|Lever|Recruitee|Rippling|SmartRecruiters|SuccessFactors|Workday):/;
+const ATS_SOURCE_RE = /^(OfficialCompany|Ashby|Greenhouse|Jobvite|Lever|Recruitee|Rippling|SmartRecruiters|SuccessFactors|Taleo|Workable|Workday|iCIMS):/;
 
 // ─── Detailed scoring (used by feed ranking + debug view) ────────────────────
 
@@ -1230,6 +1599,9 @@ export type ScoringJobInput = {
   workMode: string | null;
   roleFamily: string | null;
   experienceLevel: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  salaryCurrency: string | null;
   shortSummary?: string | null;
   applyUrl?: string | null;
   company: string | null;
@@ -1248,7 +1620,7 @@ export type ScoringJobInput = {
  *   Eligibility:          0–20  (auto-submit only; everything else is manual)
  *   Freshness:          -16–20  (graduated by age, more strongly demotes very old jobs)
  *   Availability:       -14–18  (health/lifecycle confidence)
- *   Profile match:        0–28  (experience titles, skills, education, mode, level)
+ *   Profile match:       -5–36  (experience titles, skills, education, mode, level, salary)
  *   Preference match:     0–15  (explicit user role-family prefs)
  *   Work mode pref:       0–10  (explicit user work-mode prefs)
  *   Behavior – role:      0–8   (saved/applied role families)
@@ -1312,13 +1684,14 @@ export function scoreJobDetailed(
 
   const geoScope = inferGeoScope(job.location, job.region as "US" | "CA" | null);
 
-  // Geography confidence: prefer jobs clearly in the product's NA footprint,
-  // demote explicit out-of-scope geographies, and mildly penalize unknowns.
+  // Geography confidence: global jobs are now first-class feed entries. Keep a
+  // small boost for clearly resolved regions, but do not demote valid non-NA
+  // jobs just because the legacy Region enum cannot represent their country.
   if (geoScope === "US" || geoScope === "CA") regionConfidence = 6;
   else if (geoScope === "NORTH_AMERICA") regionConfidence = 3;
-  else if (geoScope === "GLOBAL") regionConfidence = -6;
-  else if (geoScope === "UNKNOWN") regionConfidence = -4;
-  else regionConfidence = -14;
+  else if (geoScope === "GLOBAL") regionConfidence = 2;
+  else if (geoScope === "UNKNOWN") regionConfidence = 0;
+  else regionConfidence = 1;
 
   profileMatch = scoreProfileMatch(job, profile);
 
@@ -1543,6 +1916,7 @@ export type { FeedPrefs, BehaviorProfile };
  */
 const DEFAULT_SCORING_WINDOW_SIZE = 1200;
 const SEARCH_SCORING_WINDOW_SIZE = 1800;
+const SEARCH_MATCH_ID_LIMIT = 25_000;
 type JobFeedSummary = {
   liveJobCount: number;
   addedTodayCount: number;
@@ -1691,13 +2065,25 @@ function buildJobsCacheKey(
 ) {
   return `jobs:${viewerProfileId ?? "anon"}:${JSON.stringify({
     search: filters.search ?? null,
+    searchScope: filters.search ? (filters.searchScope ?? "all") : null,
+    titleSearch: filters.titleSearch ?? null,
+    companySearch: filters.companySearch ?? null,
+    locationSearch: filters.locationSearch ?? null,
+    location: filters.location ?? null,
+    source: filters.source ?? null,
     region: filters.region ?? null,
     workMode: filters.workMode ?? null,
+    employmentType: filters.employmentType ?? null,
     industry: filters.industry ?? null,
+    roleCategory: filters.roleCategory ?? null,
     roleFamily: filters.roleFamily ?? null,
     salaryMin: filters.salaryMin ?? null,
+    salaryMax: filters.salaryMax ?? null,
+    salaryCurrency: filters.salaryCurrency ?? null,
+    careerStage: filters.careerStage ?? filters.experienceLevel ?? null,
     experienceLevel: filters.experienceLevel ?? null,
     expiry: filters.expiry ?? null,
+    posted: filters.posted ?? null,
     submissionCategory: filters.submissionCategory ?? null,
     status: filters.status ?? null,
     sortBy: filters.sortBy ?? null,
@@ -1708,19 +2094,43 @@ function buildJobsCacheKey(
 
 function isHotDefaultFeedRequest(filters: JobFilterParams) {
   return !(
-    filters.search ||
+    hasSearchFilters(filters) ||
+    filters.location ||
+    filters.source ||
     filters.region ||
     filters.workMode ||
+    filters.employmentType ||
     filters.industry ||
+    filters.roleCategory ||
     filters.roleFamily ||
     filters.salaryMin ||
+    filters.salaryMax ||
+    filters.careerStage ||
     filters.experienceLevel ||
     filters.expiry ||
+    filters.posted ||
     filters.submissionCategory ||
     filters.status
   ) &&
     (!filters.sortBy || filters.sortBy === "relevance") &&
     (filters.page ?? 1) === 1;
+}
+
+async function loadSalaryComparisonCurrency(
+  requestedCurrency: string | null | undefined,
+  viewerProfileId: string | null
+): Promise<SalaryComparisonCurrency> {
+  const normalizedRequest = normalizeSalaryCurrency(requestedCurrency);
+  if (normalizedRequest) return normalizedRequest;
+
+  if (!viewerProfileId) return "USD";
+
+  const profile = await prisma.userProfile.findUnique({
+    where: { id: viewerProfileId },
+    select: { salaryCurrency: true },
+  });
+
+  return normalizeSalaryCurrency(profile?.salaryCurrency) ?? "USD";
 }
 
 async function getJobFeedSummary() {
@@ -1830,11 +2240,14 @@ async function getJobsByRelevance(
   where: Prisma.JobCanonicalWhereInput,
   viewerProfileId: string | null,
   includeExactTotal: boolean,
-  useSqlDemoVisibilityFilter: boolean
+  useSqlDemoVisibilityFilter: boolean,
+  totalFallback: number | null = null
 ) {
   const page = filters.page ?? 1;
   const skip = (page - 1) * PAGE_SIZE;
-  const scoringWindowSize = filters.search ? SEARCH_SCORING_WINDOW_SIZE : DEFAULT_SCORING_WINDOW_SIZE;
+  const scoringWindowSize = hasSearchFilters(filters)
+    ? SEARCH_SCORING_WINDOW_SIZE
+    : DEFAULT_SCORING_WINDOW_SIZE;
 
   // If the user is requesting a deep page beyond the scoring window,
   // fall back to simple newest-first ordering (fast DB query).
@@ -1876,11 +2289,12 @@ async function getJobsByRelevance(
       () => prisma.jobCanonical.count({ where }),
       5_000
     );
+    const effectiveTotal = total ?? totalFallback;
     return {
       data,
-      total,
+      total: effectiveTotal,
       hasNextPage:
-        total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
+        effectiveTotal !== null ? skip + PAGE_SIZE < effectiveTotal : data.length === PAGE_SIZE,
       page,
       pageSize: PAGE_SIZE,
     };
@@ -1899,6 +2313,9 @@ async function getJobsByRelevance(
       workMode: true,
       roleFamily: true,
       experienceLevel: true,
+      salaryMin: true,
+      salaryMax: true,
+      salaryCurrency: true,
       shortSummary: true,
       applyUrl: true,
       company: true,
@@ -1916,7 +2333,9 @@ async function getJobsByRelevance(
     take: scoringWindowSize,
   });
 
-  const totalPromise = includeExactTotal ? prisma.jobCanonical.count({ where }) : Promise.resolve(null);
+  const totalPromise = includeExactTotal
+    ? withCountTimeout(() => prisma.jobCanonical.count({ where }), 5_000)
+    : Promise.resolve(null);
 
   const [prefs, behavior, profile, scoringJobs, total] = await Promise.all([
     loadFeedPrefs(viewerProfileId),
@@ -1929,9 +2348,7 @@ async function getJobsByRelevance(
   const visibleScoringJobs = useSqlDemoVisibilityFilter
     ? scoringJobs
     : scoringJobs.filter(
-        (job) =>
-          !isDemoOnlySourceMappings(job.sourceMappings) &&
-          !isExplicitlyOutOfScopeGeoScope(inferGeoScope(job.location, job.region))
+        (job) => !isDemoOnlySourceMappings(job.sourceMappings)
       );
   const visibleRealJobs = visibleScoringJobs.filter((job) =>
     isClearlyVisibleJobPosting({
@@ -1974,7 +2391,7 @@ async function getJobsByRelevance(
           prefs,
           behavior,
           profile
-        ),
+        ) + scoreSearchFiltersBoost(job, filters),
       }))
       .sort(
         (a, b) =>
@@ -1985,11 +2402,12 @@ async function getJobsByRelevance(
   );
 
   const pageIds = sorted.slice(skip, skip + PAGE_SIZE).map((job) => job.id);
+  const effectiveTotal = total ?? totalFallback;
   const hasNextPage =
-    total !== null ? skip + PAGE_SIZE < total : sorted.length > skip + PAGE_SIZE;
+    effectiveTotal !== null ? skip + PAGE_SIZE < effectiveTotal : sorted.length > skip + PAGE_SIZE;
 
   if (pageIds.length === 0) {
-    return { data: [], total, hasNextPage: false, page, pageSize: PAGE_SIZE };
+    return { data: [], total: effectiveTotal, hasNextPage: false, page, pageSize: PAGE_SIZE };
   }
 
   // Fetch full data for this page only
@@ -2021,32 +2439,57 @@ async function getJobsByRelevance(
     ];
   });
 
-  return { data, total, hasNextPage, page, pageSize: PAGE_SIZE };
+  return { data, total: effectiveTotal, hasNextPage, page, pageSize: PAGE_SIZE };
 }
 
 export type JobFilterParams = {
   search?: string;
+  searchScope?: JobSearchScope;
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  location?: string;
+  source?: string;
   region?: string;
   workMode?: string;
+  employmentType?: string;
   industry?: string;
+  roleCategory?: string;
   roleFamily?: string;
   salaryMin?: number;
+  salaryMax?: number;
+  salaryCurrency?: SalaryComparisonCurrency;
   experienceLevel?: string;
+  careerStage?: string;
   expiry?: string;
+  posted?: string;
   submissionCategory?: string;
   status?: string;
-  sortBy?: string;
+  sortBy?: JobSortBy;
   page?: number;
 };
 
 export async function getJobs(
-  filters: JobFilterParams,
+  inputFilters: JobFilterParams,
   options?: { viewerProfileId?: string | null }
 ) {
   const viewerProfileId =
     options && "viewerProfileId" in options
       ? (options.viewerProfileId ?? null)
       : await getOptionalCurrentProfileId();
+  const salaryCurrency = await loadSalaryComparisonCurrency(
+    inputFilters.salaryCurrency,
+    viewerProfileId
+  );
+  const filters: JobFilterParams = {
+    ...inputFilters,
+    salaryCurrency,
+    sortBy: normalizeJobSortBy(inputFilters.sortBy),
+  };
+  const salaryExchangeRates =
+    filters.salaryMin || filters.salaryMax
+      ? await loadSalaryExchangeRates()
+      : FALLBACK_SALARY_EXCHANGE_RATES;
   const useHotFeedSnapshot = isHotDefaultFeedRequest(filters);
   const heartbeat = useHotFeedSnapshot ? await getIngestionHeartbeat() : null;
   const cacheKey = buildJobsCacheKey(
@@ -2062,15 +2505,24 @@ export async function getJobs(
   const request = (async () => {
     const page = filters.page ?? 1;
     const skip = (page - 1) * PAGE_SIZE;
+    const hasAnySearch = hasSearchFilters(filters);
     const summaryPromise = getJobFeedSummary();
     const includeExactTotal = Boolean(
+      hasAnySearch ||
+      filters.location ||
+      filters.source ||
       filters.region ||
       filters.workMode ||
+      filters.employmentType ||
       filters.industry ||
+      filters.roleCategory ||
       filters.roleFamily ||
       filters.salaryMin ||
+      filters.salaryMax ||
+      filters.careerStage ||
       filters.experienceLevel ||
       filters.expiry ||
+      filters.posted ||
       filters.submissionCategory ||
       filters.status
     );
@@ -2086,6 +2538,7 @@ export async function getJobs(
       );
 
     const where: Prisma.JobCanonicalWhereInput = {};
+    let searchMatchTotalHint: number | null = null;
 
     if (useSqlDemoVisibilityFilter) {
       where.sourceMappings = {
@@ -2107,7 +2560,10 @@ export async function getJobs(
     }
 
     if (filters.search) {
-      const matchingIds = await searchJobIds(filters.search);
+      const matchingIds = await searchJobIds(
+        filters.search,
+        filters.searchScope ?? "all"
+      );
       if (matchingIds !== null) {
         if (matchingIds.length === 0) {
           // No search results — short-circuit to empty response
@@ -2120,8 +2576,19 @@ export async function getJobs(
             summary: await summaryPromise,
           });
         }
+        searchMatchTotalHint = matchingIds.length;
         where.id = { in: matchingIds };
       }
+    }
+
+    appendScopedTextSearchWhere(where, "title", filters.titleSearch);
+    appendScopedTextSearchWhere(where, "company", filters.companySearch);
+    appendLocationSearchWhere(where, filters.locationSearch);
+
+    if (filters.location) {
+      appendAndCondition(where, {
+        location: { contains: filters.location, mode: "insensitive" },
+      });
     }
 
     if (filters.region) {
@@ -2136,9 +2603,22 @@ export async function getJobs(
       };
     }
 
+    if (filters.employmentType) {
+      const employmentTypes = splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType));
+      appendAndCondition(where, {
+        normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
+      });
+    }
+
     if (filters.industry) {
-      const industries = filters.industry.split(",");
-      where.industry = { in: industries as ("TECH" | "FINANCE")[] };
+      const industries = splitFilterValues(normalizeIndustryFilterValue(filters.industry));
+      where.normalizedIndustry = industries.length > 0 ? { in: industries } : { in: [] };
+    }
+
+    if (filters.roleCategory) {
+      const roleCategories = splitFilterValues(normalizeRoleCategoryFilterValue(filters.roleCategory));
+      where.normalizedRoleCategory =
+        roleCategories.length > 0 ? { in: roleCategories } : { in: [] };
     }
 
     if (filters.roleFamily) {
@@ -2150,8 +2630,30 @@ export async function getJobs(
       }
     }
 
-    if (filters.salaryMin) {
-      where.salaryMax = { gte: filters.salaryMin };
+    if (filters.source) {
+      appendAndCondition(where, {
+        sourceMappings: {
+          some: {
+            removedAt: null,
+            sourceName: { contains: filters.source, mode: "insensitive" },
+          },
+        },
+      });
+    }
+
+    const salaryRangeWhere = buildSalaryRangeWhere(
+      filters.salaryMin,
+      filters.salaryMax,
+      filters.salaryCurrency ?? "USD",
+      salaryExchangeRates
+    );
+    if (salaryRangeWhere) {
+      appendAndCondition(where, salaryRangeWhere);
+    }
+
+    const postedAfter = getPostedAfterDate(filters.posted);
+    if (postedAfter) {
+      appendAndCondition(where, { postedAt: { gte: postedAfter } });
     }
 
     if (filters.expiry === "soon") {
@@ -2163,13 +2665,13 @@ export async function getJobs(
       };
     }
 
-    if (filters.experienceLevel) {
-      const stages = splitFilterValues(normalizeCareerStageFilterValue(filters.experienceLevel));
-      const careerStageWhere = buildCareerStageFiltersWhere(stages as CareerStageFilter[]);
-
-      if (careerStageWhere) {
-        appendAndCondition(where, careerStageWhere);
-      }
+    if (filters.careerStage || filters.experienceLevel) {
+      const stages = splitFilterValues(
+        normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+      );
+      appendAndCondition(where, {
+        normalizedCareerStage: stages.length > 0 ? { in: stages } : { in: [] },
+      });
     }
 
     if (filters.submissionCategory) {
@@ -2208,7 +2710,7 @@ export async function getJobs(
       where.status = requestedStatus ?? { in: [] };
     } else {
       where.status = {
-        in: filters.search
+        in: hasAnySearch
           ? [...DEFAULT_SEARCH_VISIBLE_JOB_STATUSES]
           : [...DEFAULT_VISIBLE_JOB_STATUSES],
       };
@@ -2217,18 +2719,19 @@ export async function getJobs(
       where,
       buildDefaultJobBoardVisibilityWhere(
         new Date(),
-        filters.search
+        hasAnySearch
           ? DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE
           : DEFAULT_MIN_AVAILABILITY_SCORE
       )
     );
 
     if (!filters.sortBy || filters.sortBy === "relevance") {
-      if (shouldUseJobFeedIndex(filters)) {
+      if (shouldUseJobFeedIndex(filters, viewerProfileId)) {
         return cacheResult(
           await getJobsFromFeedIndex({
             filters,
             viewerProfileId,
+            salaryExchangeRates,
             summaryPromise,
             includeExactTotal,
             useSqlDemoVisibilityFilter,
@@ -2241,18 +2744,20 @@ export async function getJobs(
           where,
           viewerProfileId,
           includeExactTotal,
-          useSqlDemoVisibilityFilter
+          useSqlDemoVisibilityFilter,
+          searchMatchTotalHint
         ),
         summaryPromise,
       ]);
       return cacheResult({ ...result, summary });
     }
 
-    if (shouldUseJobFeedIndex(filters)) {
+    if (shouldUseJobFeedIndex(filters, viewerProfileId)) {
       return cacheResult(
         await getJobsFromFeedIndex({
           filters,
           viewerProfileId,
+          salaryExchangeRates,
           summaryPromise,
           includeExactTotal,
           useSqlDemoVisibilityFilter,
@@ -2265,13 +2770,13 @@ export async function getJobs(
       | Prisma.JobCanonicalOrderByWithRelationInput[] = {
       postedAt: "desc",
     };
-    if (filters.sortBy === "salary") {
-      orderBy = { salaryMax: "desc" };
-    } else if (filters.sortBy === "deadline") {
+    if (filters.sortBy === "deadline") {
       orderBy = [
         { deadline: { sort: "asc", nulls: "last" } },
         { postedAt: "desc" },
       ];
+    } else if (filters.sortBy === "company") {
+      orderBy = [{ company: "asc" }, { postedAt: "desc" }];
     }
 
     const jobs = await prisma.jobCanonical.findMany({
@@ -2313,11 +2818,12 @@ export async function getJobs(
       5_000
     );
 
+    const effectiveTotal = total ?? searchMatchTotalHint;
     return cacheResult({
       data,
-      total,
+      total: effectiveTotal,
       hasNextPage:
-        total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
+        effectiveTotal !== null ? skip + PAGE_SIZE < effectiveTotal : data.length === PAGE_SIZE,
       page,
       pageSize: PAGE_SIZE,
       summary: await summaryPromise,

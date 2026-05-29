@@ -2,6 +2,7 @@
 
 import { saveTrackerSettings } from "@/lib/queries/tracker";
 import { UnauthorizedError } from "@/lib/current-user";
+import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
 import { revalidatePaths } from "@/lib/revalidation";
 
 import type { SettingsActionState } from "./action-state";
@@ -52,6 +53,11 @@ export async function savePreferencesSettings(
     const experienceLevelRaw = formData.get("experienceLevel");
     const salaryMin = parseOptionalInt(formData.get("salaryMin"));
     const salaryMax = parseOptionalInt(formData.get("salaryMax"));
+    const salaryCurrency = normalizeSalaryCurrency(
+      typeof formData.get("salaryCurrency") === "string"
+        ? String(formData.get("salaryCurrency"))
+        : null
+    );
 
     if (salaryMin !== null && salaryMax !== null && salaryMin > salaryMax) {
       return {
@@ -82,10 +88,7 @@ export async function savePreferencesSettings(
           : null,
       salaryMin,
       salaryMax,
-      salaryCurrency:
-        typeof formData.get("salaryCurrency") === "string"
-          ? String(formData.get("salaryCurrency"))
-          : undefined,
+      salaryCurrency: salaryCurrency ?? undefined,
       location:
         typeof formData.get("location") === "string"
           ? String(formData.get("location"))

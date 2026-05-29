@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { X } from "lucide-react";
 
 import { ApplicationListCard } from "@/components/applications/application-list-card";
+import {
+  ApplicationRemindersSummary,
+  type ApplicationReminderGroup,
+} from "@/components/applications/application-reminders-summary";
+import { ApplicationsSearchField } from "@/components/applications/applications-search-field";
 import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
@@ -9,6 +15,7 @@ import { getOptionalSessionUser } from "@/lib/current-user";
 import {
   getTrackedDashboardData,
   type TrackerDeadlineFilter,
+  type TrackerSearchScope,
   type TrackerSortFilter,
 } from "@/lib/queries/tracker";
 
@@ -17,6 +24,13 @@ type ApplicationsSearchParams = {
   deadline?: string;
   sort?: string;
   tags?: string;
+  search?: string;
+  searchScope?: string;
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  tagSearch?: string;
+  reminderSearch?: string;
 };
 
 function parseStatusFilter(rawValue?: string) {
@@ -63,19 +77,131 @@ function parseSortFilter(rawValue?: string): TrackerSortFilter {
   return "UPDATED_DESC";
 }
 
-function buildApplicationsUrl(input: {
-  status?: string;
-  deadline?: string;
-  sort?: string;
-  tags?: string[];
-}) {
+const APPLICATION_SEARCH_PARAM_KEYS = [
+  "search",
+  "titleSearch",
+  "companySearch",
+  "locationSearch",
+  "tagSearch",
+  "reminderSearch",
+] as const;
+
+function normalizeTextParam(value?: string) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
+function parseSearchScope(rawValue?: string): TrackerSearchScope {
+  if (
+    rawValue === "title" ||
+    rawValue === "company" ||
+    rawValue === "location" ||
+    rawValue === "tag" ||
+    rawValue === "reminder"
+  ) {
+    return rawValue;
+  }
+  return "all";
+}
+
+function hasApplicationSearchParams(params: URLSearchParams) {
+  return APPLICATION_SEARCH_PARAM_KEYS.some((key) =>
+    Boolean(params.get(key)?.trim())
+  );
+}
+
+function buildApplicationsHref(
+  currentParams: ApplicationsSearchParams,
+  overrides: Record<string, string | undefined>
+) {
   const params = new URLSearchParams();
-  if (input.status && input.status !== "ALL") params.set("status", input.status);
-  if (input.deadline && input.deadline !== "ALL") params.set("deadline", input.deadline);
-  if (input.sort && input.sort !== "UPDATED_DESC") params.set("sort", input.sort);
-  if (input.tags && input.tags.length > 0) params.set("tags", input.tags.join(","));
+  for (const [key, value] of Object.entries(currentParams)) {
+    if (key === "reset" || value === undefined || value === "") continue;
+    if (key === "searchScope" && parseSearchScope(value) === "all") continue;
+    params.set(key, value);
+  }
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value) params.set(key, value);
+    else params.delete(key);
+  }
+
+  if (!hasApplicationSearchParams(params)) {
+    params.delete("searchScope");
+  }
+
   const query = params.toString();
   return query ? `/applications?${query}` : "/applications";
+}
+
+function buildSearchFormInitialValues(input: {
+  search?: string;
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  tagSearch?: string;
+  reminderSearch?: string;
+}): Record<TrackerSearchScope, string> {
+  return {
+    all: input.search ?? "",
+    title: input.titleSearch ?? "",
+    company: input.companySearch ?? "",
+    location: input.locationSearch ?? "",
+    tag: input.tagSearch ?? "",
+    reminder: input.reminderSearch ?? "",
+  };
+}
+
+type ActiveApplicationChip = {
+  key: string;
+  label: string;
+  href: string;
+};
+
+function buildActiveApplicationSearchChips(
+  currentParams: ApplicationsSearchParams,
+  input: {
+    search?: string;
+    titleSearch?: string;
+    companySearch?: string;
+    locationSearch?: string;
+    tagSearch?: string;
+    reminderSearch?: string;
+  }
+) {
+  const chips: ActiveApplicationChip[] = [];
+  const add = (
+    key: keyof typeof input,
+    label: string,
+    legacyScope?: Exclude<TrackerSearchScope, "all">
+  ) => {
+    const overrides: Record<string, string | undefined> = { [key]: undefined };
+    if (legacyScope && parseSearchScope(currentParams.searchScope) === legacyScope) {
+      overrides.search = undefined;
+      overrides.searchScope = undefined;
+    }
+    chips.push({
+      key,
+      label,
+      href: buildApplicationsHref(currentParams, overrides),
+    });
+  };
+
+  if (input.search) add("search", `Search: ${input.search}`);
+  if (input.titleSearch) {
+    add("titleSearch", `Title search: ${input.titleSearch}`, "title");
+  }
+  if (input.companySearch) {
+    add("companySearch", `Company search: ${input.companySearch}`, "company");
+  }
+  if (input.locationSearch) {
+    add("locationSearch", `Location search: ${input.locationSearch}`, "location");
+  }
+  if (input.tagSearch) add("tagSearch", `Tag search: ${input.tagSearch}`, "tag");
+  if (input.reminderSearch) {
+    add("reminderSearch", `Reminder search: ${input.reminderSearch}`, "reminder");
+  }
+  return chips;
 }
 
 function toggleTag(selectedTags: string[], tag: string) {
@@ -98,6 +224,32 @@ export default async function ApplicationsPage({
   const status = parseStatusFilter(params.status);
   const deadline = parseDeadlineFilter(params.deadline);
   const sort = parseSortFilter(params.sort);
+  const selectedSearchScope = parseSearchScope(params.searchScope);
+  const rawSearch = normalizeTextParam(params.search);
+  let search = rawSearch;
+  let titleSearch = normalizeTextParam(params.titleSearch);
+  let companySearch = normalizeTextParam(params.companySearch);
+  let locationSearch = normalizeTextParam(params.locationSearch);
+  let tagSearch = normalizeTextParam(params.tagSearch);
+  let reminderSearch = normalizeTextParam(params.reminderSearch);
+
+  if (rawSearch && selectedSearchScope === "title") {
+    titleSearch = titleSearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "company") {
+    companySearch = companySearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "location") {
+    locationSearch = locationSearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "tag") {
+    tagSearch = tagSearch ?? rawSearch;
+    search = undefined;
+  } else if (rawSearch && selectedSearchScope === "reminder") {
+    reminderSearch = reminderSearch ?? rawSearch;
+    search = undefined;
+  }
+
   const selectedTags = String(params.tags ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -109,6 +261,13 @@ export default async function ApplicationsPage({
     deadline,
     sort,
     tags: selectedTags,
+    search,
+    searchScope: selectedSearchScope,
+    titleSearch,
+    companySearch,
+    locationSearch,
+    tagSearch,
+    reminderSearch,
   });
   const expiredCount = data.applications.filter(
     (application) => application.canonicalJob?.status === "EXPIRED"
@@ -117,7 +276,48 @@ export default async function ApplicationsPage({
     status !== "ALL" ||
     deadline !== "ALL" ||
     sort !== "UPDATED_DESC" ||
+    Boolean(search) ||
+    Boolean(titleSearch) ||
+    Boolean(companySearch) ||
+    Boolean(locationSearch) ||
+    Boolean(tagSearch) ||
+    Boolean(reminderSearch) ||
     selectedTags.length > 0;
+  const searchValues = {
+    search,
+    titleSearch,
+    companySearch,
+    locationSearch,
+    tagSearch,
+    reminderSearch,
+  };
+  const activeSearchChips = buildActiveApplicationSearchChips(params, searchValues);
+  const now = data.loadedAt.getTime();
+  const reminderGroups: ApplicationReminderGroup[] = data.applications
+    .map((application) => {
+      const reminders = application.events
+        .filter(
+          (event) =>
+            !event.reminderNotifiedAt ||
+            !event.reminderAt ||
+            event.reminderAt.getTime() >= now
+        )
+        .sort((left, right) => {
+          const leftTime = left.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          const rightTime = right.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return right.timestamp.getTime() - left.timestamp.getTime();
+        });
+
+      return {
+        applicationId: application.id,
+        canonicalJobId: application.canonicalJobId,
+        company: application.company,
+        roleTitle: application.roleTitle,
+        reminders,
+      };
+    })
+    .filter((group) => group.reminders.length > 0);
 
   return (
     <div className="app-page space-y-6">
@@ -132,14 +332,6 @@ export default async function ApplicationsPage({
             Track feed submissions and manual applications in one workflow.
           </p>
         </div>
-        <div className="page-actions">
-          <Link href="/applications/history">Apply history</Link>
-          <Link href="/notifications">
-            Notifications
-            {data.unreadNotificationCount > 0 ? ` (${data.unreadNotificationCount})` : ""}
-          </Link>
-          <Link href="/jobs">Feed</Link>
-        </div>
       </div>
 
       <ApplicationsOverviewBar
@@ -149,6 +341,8 @@ export default async function ApplicationsPage({
         expiredCount={expiredCount}
       />
 
+      <ApplicationRemindersSummary groups={reminderGroups} />
+
       <section className="surface-panel p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -157,20 +351,17 @@ export default async function ApplicationsPage({
               Jobs submitted from the feed appear here automatically.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <Link href="/documents/compare" className="hover:text-foreground">
-              Compare documents
-            </Link>
-            <Link href="/settings" className="hover:text-foreground">
-              Settings
-            </Link>
-          </div>
         </div>
 
         <form
           method="GET"
-          className="mt-4 grid gap-3 rounded-xl border border-border/60 bg-background/60 p-4 lg:grid-cols-[1fr_1fr_1fr_auto]"
+          className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-lg border border-border/60 bg-background/60 p-4 lg:grid-cols-2 xl:grid-cols-[minmax(28rem,1fr)_8.5rem_8.5rem_10.5rem]"
         >
+          <ApplicationsSearchField
+            initialScope={selectedSearchScope}
+            initialValues={buildSearchFormInitialValues(searchValues)}
+          />
+
           <label className="grid gap-1.5 text-sm">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Status
@@ -226,13 +417,13 @@ export default async function ApplicationsPage({
             </select>
           </label>
 
-          <div className="flex items-end gap-3">
+          <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-3 lg:col-span-2 xl:col-span-4">
             {selectedTags.length > 0 ? (
               <input type="hidden" name="tags" value={selectedTags.join(",")} />
             ) : null}
             <button
               type="submit"
-              className="h-9 rounded-lg bg-foreground px-4 text-sm font-medium text-background"
+              className="h-9 rounded-lg bg-foreground px-4 text-sm font-medium text-background transition hover:bg-foreground/90"
             >
               Apply
             </button>
@@ -249,6 +440,21 @@ export default async function ApplicationsPage({
           </div>
         </form>
 
+        {activeSearchChips.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeSearchChips.map((chip) => (
+              <Link
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                href={chip.href}
+                key={chip.key}
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </Link>
+            ))}
+          </div>
+        ) : null}
+
         {data.userTags.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {data.userTags.map((tag) => {
@@ -256,11 +462,8 @@ export default async function ApplicationsPage({
               return (
                 <Link
                   key={tag.id}
-                  href={buildApplicationsUrl({
-                    status,
-                    deadline,
-                    sort,
-                    tags: toggleTag(selectedTags, tag.name),
+                  href={buildApplicationsHref(params, {
+                    tags: toggleTag(selectedTags, tag.name).join(",") || undefined,
                   })}
                   className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                     active

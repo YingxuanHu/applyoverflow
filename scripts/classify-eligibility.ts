@@ -15,6 +15,12 @@
 import { prisma } from "@/lib/db";
 import { buildEligibilityDraft } from "@/lib/ingestion/classify";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
+import {
+  coerceNormalizedCareerStage,
+  coerceNormalizedEmploymentType,
+  coerceNormalizedIndustry,
+  coerceNormalizedRoleCategory,
+} from "@/lib/job-metadata";
 import type { Region, WorkMode, EmploymentType, ExperienceLevel, Industry } from "@/generated/prisma/client";
 
 const args = process.argv.slice(2);
@@ -92,6 +98,10 @@ async function main() {
         shortSummary: job.shortSummary ?? "",
         industry: job.industry as Industry | null,
         roleFamily: job.roleFamily ?? "",
+        normalizedEmploymentType: coerceNormalizedEmploymentType(job.normalizedEmploymentType),
+        normalizedCareerStage: coerceNormalizedCareerStage(job.normalizedCareerStage),
+        normalizedIndustry: coerceNormalizedIndustry(job.normalizedIndustry),
+        normalizedRoleCategory: coerceNormalizedRoleCategory(job.normalizedRoleCategory),
         applyUrl: job.applyUrl,
         applyUrlKey: job.applyUrlKey,
         postedAt: job.postedAt,

@@ -82,7 +82,7 @@ export async function getApplicationHistory(): Promise<ApplicationHistoryItem[]>
 export async function getApplicationReviewData(
   jobId: string
 ): Promise<ApplicationReviewData | null> {
-  const userId = await getOptionalCurrentProfileId({ fallbackToDemo: true });
+  const userId = await getOptionalCurrentProfileId();
   if (!userId) return null;
 
   const [job, profile] = await Promise.all([
@@ -260,7 +260,7 @@ export async function prepareAutoApplyPackage(
     coverLetterContent?: string | null;
     savedAnswers?: Record<string, string>;
   }
-): Promise<{ packageId: string }> {
+): Promise<{ packageId: string; savedAnswers: Record<string, string> }> {
   const userId = await requireCurrentProfileId();
 
   // Validate the resume variant belongs to this user.
@@ -300,6 +300,7 @@ export async function prepareAutoApplyPackage(
       },
       {}
     ),
+    ...jsonValueToStringRecord(latestPackage?.savedAnswers ?? null),
     ...(input.savedAnswers ?? {}),
   };
 
@@ -329,7 +330,7 @@ export async function prepareAutoApplyPackage(
       })
     : await prisma.applicationPackage.create({ data });
 
-  return { packageId: packageRecord.id };
+  return { packageId: packageRecord.id, savedAnswers: mergedAnswersMap };
 }
 
 export async function submitApplicationReview(jobId: string) {
@@ -888,7 +889,7 @@ function getApplicationReviewState(job: JobDetailData): ApplicationReviewState {
 function isManualApplicationCategory(
   category: NonNullable<JobCardEligibility>["submissionCategory"] | null | undefined
 ) {
-  return category === "MANUAL_ONLY" || category === "AUTO_FILL_REVIEW";
+  return category === "MANUAL_ONLY";
 }
 
 function jsonObjectToEntries(value: Prisma.JsonValue) {
@@ -903,6 +904,19 @@ function jsonObjectToEntries(value: Prisma.JsonValue) {
           ? "null"
           : JSON.stringify(entryValue),
   }));
+}
+
+function jsonValueToStringRecord(value: Prisma.JsonValue | null | undefined) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, entryValue]) => [key, entryValue.trim()])
+      .filter(([, entryValue]) => entryValue.length > 0)
+  );
 }
 
 function canUpdateSubmission(
