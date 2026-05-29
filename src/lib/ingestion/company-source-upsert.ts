@@ -86,6 +86,13 @@ function buildIdentityWhere(identity: CompanySourceIdentity): Prisma.CompanySour
     },
   ];
 
+  if (identity.connectorName !== "company-site") {
+    clauses.push({
+      connectorName: identity.connectorName,
+      token: identity.token,
+    });
+  }
+
   if (identity.atsTenantId) {
     clauses.unshift({ atsTenantId: identity.atsTenantId });
   }
@@ -105,7 +112,9 @@ function buildSafeIdentityUpdate(
   const sourceNameConflict = matches.some(
     (match) => match.id !== existing.id && match.sourceName === input.identity.sourceName
   );
-  if (!sourceNameConflict) {
+  if (sourceNameConflict) {
+    delete updateData.sourceName;
+  } else {
     updateData.sourceName = input.identity.sourceName;
   }
 
@@ -114,7 +123,17 @@ function buildSafeIdentityUpdate(
       match.id !== existing.id &&
       identityMatchesCompound(match, input.identity)
   );
-  if (!compoundConflict) {
+  const globalAtsTokenMatch =
+    input.identity.connectorName !== "company-site" &&
+    existing.connectorName === input.identity.connectorName &&
+    existing.token === input.identity.token &&
+    existing.companyId !== input.identity.companyId;
+
+  if (compoundConflict || globalAtsTokenMatch) {
+    delete updateData.companyId;
+    delete updateData.connectorName;
+    delete updateData.token;
+  } else {
     updateData.companyId = input.identity.companyId;
     updateData.connectorName = input.identity.connectorName;
     updateData.token = input.identity.token;
@@ -125,7 +144,9 @@ function buildSafeIdentityUpdate(
       (match) =>
         match.id !== existing.id && match.atsTenantId === input.identity.atsTenantId
     );
-    if (!atsTenantConflict) {
+    if (atsTenantConflict) {
+      delete updateData.atsTenantId;
+    } else {
       updateData.atsTenantId = input.identity.atsTenantId ?? null;
     }
   }

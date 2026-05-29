@@ -132,6 +132,8 @@ type AggregatedAtsSignal = {
 const DEFAULT_FRONTIER_PROMOTION_THRESHOLD = 0.82;
 const DEFAULT_PAGE_DISCOVERY_LIMIT = 300;
 const DEFAULT_PAGE_DISCOVERY_CONCURRENCY = 8;
+const LOW_QUALITY_ATS_TENANT_RE =
+  /(?:^|[-_.:/])(jooble|jobgether|lensa|talentify|jobcase|jobillico|ziprecruiter|indeed|linkedin\d*|glassdoor|monster|careerbuilder|simplyhired|adzuna|neuvoo|whatjobs|grabjobs|bebee|jobrapido|jobleads|recruit\.net|jobstreet|jobsora|workcircle|myjobhelper|usasurveyjob)(?:$|[-_.:/])/i;
 const EXTERNAL_FRONTIER_SOURCE_SET = new Set<CompanyFrontierSeedFamily>([
   "companies-house",
   "opencorporates",
@@ -693,6 +695,9 @@ function aggregateAtsSignals(signals: AtsExpansionSignal[]) {
 
     const connectorName = mapPlatformToConnectorName(detected.platform);
     if (!connectorName) continue;
+    if (isLowQualityAtsTenantSignal(signal, detected.tenantKey, detected.normalizedBoardUrl)) {
+      continue;
+    }
 
     const platformKey = `${connectorName}:${detected.tenantKey}`;
     const existing = merged.get(platformKey) ?? {
@@ -733,6 +738,21 @@ function aggregateAtsSignals(signals: AtsExpansionSignal[]) {
   }
 
   return [...merged.values()];
+}
+
+function isLowQualityAtsTenantSignal(
+  signal: AtsExpansionSignal,
+  tenantKey: string,
+  boardUrl: string
+) {
+  const values = [
+    tenantKey,
+    boardUrl,
+    signal.url,
+    signal.companyNameHint ?? "",
+  ];
+
+  return values.some((value) => LOW_QUALITY_ATS_TENANT_RE.test(value));
 }
 
 function mapPlatformToConnectorName(platform: AtsPlatform) {

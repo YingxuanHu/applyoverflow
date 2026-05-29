@@ -6,6 +6,8 @@ export const DEMO_SOURCE_NAMES = [
 
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
 const TRUSTED_SOURCE_PREFIXES = [
+  "OfficialCompany:",
+  "FirstPartyCompany:",
   "Adzuna:",
   "Ashby:",
   "Greenhouse:",
@@ -26,6 +28,10 @@ const TRUSTED_SOURCE_PREFIXES = [
   "Workday:",
 ];
 const TRUSTED_HOST_SUFFIXES = [
+  "amazon.jobs",
+  "jobs.apple.com",
+  "apply.careers.microsoft.com",
+  "jobs.nvidia.com",
   "icims.com",
   "jobs.ashbyhq.com",
   "boards.greenhouse.io",

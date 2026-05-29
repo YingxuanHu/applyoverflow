@@ -121,6 +121,25 @@ const DISCOVERY_CATEGORIES = [
   "sales-jobs",
 ];
 
+// GENERAL white-collar Adzuna categories split into two profiles so each can
+// paginate more pages of fresh content per run under the adaptive budget.
+// Mirrors the Jooble per-family split — pull HR/legal/CS/admin in one
+// profile, marketing/sales/design in another. Categories that are mostly
+// blue-collar / industrial (manufacturing, energy, warehouse) intentionally
+// stay out — EXCLUDED_TITLE_PATTERNS filters individual leaks downstream.
+const GENERAL_PEOPLE_CATEGORIES = [
+  "hr-jobs",
+  "legal-jobs",
+  "customer-services-jobs",
+  "admin-jobs",
+];
+
+const GENERAL_COMMERCIAL_CATEGORIES = [
+  "pr-advertising-marketing-jobs",
+  "sales-jobs",
+  "creative-design-jobs",
+];
+
 type AdzunaProfile = {
   name: string;
   categories: string[];
@@ -170,6 +189,23 @@ const ADZUNA_PROFILES: Record<string, AdzunaProfile> = {
   discovery: {
     name: "discovery",
     categories: DISCOVERY_CATEGORIES,
+    maxPages: ADZUNA_MAX_PAGES,
+    maxDaysOld: 14,
+    categoryStrategy: "ROUND_ROBIN",
+  },
+  // GENERAL family profiles — added alongside the broadening from
+  // TECH+FINANCE first to all white-collar. Each runs its own checkpoint so
+  // categories paginate independently of techcore / specialist.
+  "general-people": {
+    name: "general-people",
+    categories: GENERAL_PEOPLE_CATEGORIES,
+    maxPages: ADZUNA_MAX_PAGES,
+    maxDaysOld: 14,
+    categoryStrategy: "ROUND_ROBIN",
+  },
+  "general-commercial": {
+    name: "general-commercial",
+    categories: GENERAL_COMMERCIAL_CATEGORIES,
     maxPages: ADZUNA_MAX_PAGES,
     maxDaysOld: 14,
     categoryStrategy: "ROUND_ROBIN",

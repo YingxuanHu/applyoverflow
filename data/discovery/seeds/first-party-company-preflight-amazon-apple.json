@@ -1,0 +1,100 @@
+[
+  {
+    "rank": 1,
+    "companyName": "Amazon",
+    "companyKey": "amazon",
+    "careersUrl": "https://www.amazon.jobs",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Massive job volume; many duplicate aggregator entries",
+    "notes": "Validate endpoint and dedupe priority",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "amazon",
+      "token": "amazon:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Amazon",
+      "boardUrl": "https://www.amazon.jobs",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Amazon exposes a first-party search.json endpoint with direct job and apply URLs."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://www.amazon.jobs",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "Software Development Engineer, Selling Partner Financial Technology",
+      "Sr Software Dev Engineer III, RDS for Oracle"
+    ],
+    "sampleLocations": [
+      "Vancouver, British Columbia, CAN",
+      "Vancouver, British Columbia, CAN"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": {
+      "companyExists": true,
+      "companySourceCount": 2,
+      "officialCompanySourceCount": 1,
+      "lowerTrustSourceCount": 1,
+      "liveCanonicalCount": 301
+    },
+    "registeredCompanySourceId": "cmpnnt3oe00007df7wybhlesb",
+    "queuedTask": "CONNECTOR_POLL"
+  },
+  {
+    "rank": 4,
+    "companyName": "Apple",
+    "companyKey": "apple",
+    "careersUrl": "https://jobs.apple.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Official structured job pages with retail and corporate volume",
+    "notes": "Validate pagination and job IDs",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "apple",
+      "token": "apple:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Apple",
+      "boardUrl": "https://jobs.apple.com",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Apple exposes server-rendered structured search data with stable position IDs."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://jobs.apple.com",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "CA - Specialist: Seasonal, Part-time",
+      "People Business Partner"
+    ],
+    "sampleLocations": [
+      "Canada",
+      "Vancouver Metro Area, Canada"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": {
+      "companyExists": true,
+      "companySourceCount": 2,
+      "officialCompanySourceCount": 1,
+      "lowerTrustSourceCount": 1,
+      "liveCanonicalCount": 59
+    },
+    "registeredCompanySourceId": "cmpnnt3te00027df79cej80yg",
+    "queuedTask": "CONNECTOR_POLL"
+  }
+]

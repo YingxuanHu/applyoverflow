@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-05-27T06:27:44.220Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 1,
+  "previewLimit": 2,
+  "byFeasibility": {
+    "NEEDS_CONNECTOR": 1
+  },
+  "implemented": [],
+  "needsConnector": [
+    {
+      "companyName": "AMD",
+      "careersUrl": "https://www.amd.com/en/corporate/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    }
+  ],
+  "blockedOrFragile": [],
+  "persistence": {
+    "registered": 0,
+    "skipped": 1,
+    "validationTasksQueued": 0,
+    "pollTasksQueued": 0
+  }
+}

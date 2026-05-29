@@ -429,6 +429,10 @@ function decidePromotion(preview: SourceDiscoveryPreviewResult | null) {
     return { recommendedPromotion: false, reason: preview.error };
   }
 
+  const createdRatio =
+    preview.acceptedCount > 0
+      ? preview.previewCreatedCount / preview.acceptedCount
+      : 0;
   const acceptedCanadaRatio =
     preview.acceptedCount > 0
       ? preview.acceptedCanadaCount / preview.acceptedCount
@@ -437,6 +441,18 @@ function decidePromotion(preview: SourceDiscoveryPreviewResult | null) {
     preview.previewCreatedCount > 0
       ? preview.previewCreatedCanadaCount / preview.previewCreatedCount
       : 0;
+
+  if (preview.previewCreatedCount >= 25 && createdRatio >= 0.04) {
+    return { recommendedPromotion: true, reason: "global_high_created_volume" };
+  }
+
+  if (preview.previewCreatedCount >= 10 && createdRatio >= 0.08) {
+    return { recommendedPromotion: true, reason: "global_strong_created_yield" };
+  }
+
+  if (preview.previewCreatedCount >= 3 && createdRatio >= 0.2) {
+    return { recommendedPromotion: true, reason: "global_dense_small_board" };
+  }
 
   if (preview.previewCreatedCanadaCount >= 3) {
     return { recommendedPromotion: true, reason: "canada_heavy_created_volume" };
@@ -474,7 +490,7 @@ function decidePromotion(preview: SourceDiscoveryPreviewResult | null) {
     return { recommendedPromotion: true, reason: "fully_canada_aligned" };
   }
 
-  return { recommendedPromotion: false, reason: "insufficient_canada_weighted_yield" };
+  return { recommendedPromotion: false, reason: "insufficient_global_created_yield" };
 }
 
 async function ingestPromotedRecords(
@@ -702,7 +718,7 @@ function parseArgs(argv: string[]) {
     "corpus-limit": 1000,
     "preview-limit": 100,
     "ingest-limit": 200,
-    "min-canada-count": 1,
+    "min-canada-count": 0,
     "min-live-count": 1,
   };
 

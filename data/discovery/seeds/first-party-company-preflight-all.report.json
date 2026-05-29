@@ -1,0 +1,1083 @@
+{
+  "generatedAt": "2026-05-27T06:25:52.163Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 220,
+  "previewLimit": 1,
+  "byFeasibility": {
+    "IMPLEMENTED": 4,
+    "FRAGILE": 1,
+    "BLOCKED": 1,
+    "ERROR": 42,
+    "NEEDS_CONNECTOR": 170,
+    "PROMOTE_COMPANY_SITE": 2
+  },
+  "implemented": [
+    {
+      "companyName": "Amazon",
+      "connector": "amazon:north-america",
+      "jobsFound": 1,
+      "sampleTitles": [
+        "Software Development Engineer, Selling Partner Financial Technology"
+      ]
+    },
+    {
+      "companyName": "Microsoft",
+      "connector": "microsoft:north-america",
+      "jobsFound": 1,
+      "sampleTitles": [
+        "Software Engineer II- Front End Development"
+      ]
+    },
+    {
+      "companyName": "Apple",
+      "connector": "apple:north-america",
+      "jobsFound": 1,
+      "sampleTitles": [
+        "CA - Specialist: Seasonal, Part-time"
+      ]
+    },
+    {
+      "companyName": "NVIDIA",
+      "connector": "nvidia:north-america",
+      "jobsFound": 1,
+      "sampleTitles": [
+        "Senior Systems Software Engineer, LPU"
+      ]
+    }
+  ],
+  "needsConnector": [
+    {
+      "companyName": "Shopify",
+      "careersUrl": "https://www.shopify.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Salesforce",
+      "careersUrl": "https://careers.salesforce.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Oracle",
+      "careersUrl": "https://www.oracle.com/corporate/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "IBM",
+      "careersUrl": "https://www.ibm.com/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Intel",
+      "careersUrl": "https://jobs.intel.com",
+      "extractionRoute": "UNKNOWN",
+      "recommendation": "The careers URL is reachable but did not expose a stable structured feed. Add a custom connector before promoting."
+    },
+    {
+      "companyName": "Cisco",
+      "careersUrl": "https://www.cisco.com/c/en/us/about/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Adobe",
+      "careersUrl": "https://careers.adobe.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Uber",
+      "careersUrl": "https://www.uber.com/us/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Airbnb",
+      "careersUrl": "https://careers.airbnb.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Netflix",
+      "careersUrl": "https://jobs.netflix.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "LinkedIn",
+      "careersUrl": "https://careers.linkedin.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Stripe",
+      "careersUrl": "https://stripe.com/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Block",
+      "careersUrl": "https://block.xyz/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Square",
+      "careersUrl": "https://squareup.com/us/en/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Intuit",
+      "careersUrl": "https://www.intuit.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Atlassian",
+      "careersUrl": "https://www.atlassian.com/company/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Databricks",
+      "careersUrl": "https://www.databricks.com/company/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Snowflake",
+      "careersUrl": "https://careers.snowflake.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Palantir",
+      "careersUrl": "https://www.palantir.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Anthropic",
+      "careersUrl": "https://www.anthropic.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Cohere",
+      "careersUrl": "https://cohere.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Hugging Face",
+      "careersUrl": "https://huggingface.co/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Scale AI",
+      "careersUrl": "https://www.scale.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Anduril",
+      "careersUrl": "https://www.anduril.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "SpaceX",
+      "careersUrl": "https://www.spacex.com/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Roblox",
+      "careersUrl": "https://careers.roblox.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Snap",
+      "careersUrl": "https://careers.snap.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Pinterest",
+      "careersUrl": "https://www.pinterestcareers.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Reddit",
+      "careersUrl": "https://www.redditinc.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Discord",
+      "careersUrl": "https://discord.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "GitHub",
+      "careersUrl": "https://github.careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "GitLab",
+      "careersUrl": "https://about.gitlab.com/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Cloudflare",
+      "careersUrl": "https://www.cloudflare.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Fastly",
+      "careersUrl": "https://www.fastly.com/about/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Akamai",
+      "careersUrl": "https://www.akamai.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Datadog",
+      "careersUrl": "https://careers.datadoghq.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "MongoDB",
+      "careersUrl": "https://www.mongodb.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Elastic",
+      "careersUrl": "https://www.elastic.co/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Twilio",
+      "careersUrl": "https://www.twilio.com/en-us/company/jobs",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Zoom",
+      "careersUrl": "https://careers.zoom.us",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Dropbox",
+      "careersUrl": "https://jobs.dropbox.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Asana",
+      "careersUrl": "https://asana.com/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Notion",
+      "careersUrl": "https://www.notion.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Figma",
+      "careersUrl": "https://www.figma.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "ServiceNow",
+      "careersUrl": "https://careers.servicenow.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Workday",
+      "careersUrl": "https://www.workday.com/en-us/company/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "SAP",
+      "careersUrl": "https://www.sap.com/about/careers.html",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Siemens",
+      "careersUrl": "https://www.siemens.com/global/en/company/jobs.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Siemens Healthineers",
+      "careersUrl": "https://www.siemens-healthineers.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Nokia",
+      "careersUrl": "https://www.nokia.com/about-us/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Samsung",
+      "careersUrl": "https://www.samsung.com/us/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Sony",
+      "careersUrl": "https://www.sonyjobs.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Dell Technologies",
+      "careersUrl": "https://jobs.dell.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "HP",
+      "careersUrl": "https://jobs.hp.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Lenovo",
+      "careersUrl": "https://jobs.lenovo.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Qualcomm",
+      "careersUrl": "https://careers.qualcomm.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Texas Instruments",
+      "careersUrl": "https://careers.ti.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Micron",
+      "careersUrl": "https://www.micron.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "ASML",
+      "careersUrl": "https://www.asml.com/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Arm",
+      "careersUrl": "https://careers.arm.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Garmin",
+      "careersUrl": "https://careers.garmin.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Roku",
+      "careersUrl": "https://www.roku.com/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Electronic Arts",
+      "careersUrl": "https://www.ea.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Ubisoft",
+      "careersUrl": "https://www.ubisoft.com/en-us/company/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Unity",
+      "careersUrl": "https://unity.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Take-Two Interactive",
+      "careersUrl": "https://www.take2games.com/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Riot Games",
+      "careersUrl": "https://www.riotgames.com/en/work-with-us",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Warner Bros. Discovery",
+      "careersUrl": "https://careers.wbd.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Disney",
+      "careersUrl": "https://jobs.disneycareers.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Comcast",
+      "careersUrl": "https://jobs.comcast.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "NBCUniversal",
+      "careersUrl": "https://www.nbcunicareers.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Paramount",
+      "careersUrl": "https://www.paramount.com/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Spotify",
+      "careersUrl": "https://www.lifeatspotify.com/jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "TikTok",
+      "careersUrl": "https://careers.tiktok.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "ByteDance",
+      "careersUrl": "https://jobs.bytedance.com",
+      "extractionRoute": "UNKNOWN",
+      "recommendation": "The careers URL is reachable but did not expose a stable structured feed. Add a custom connector before promoting."
+    },
+    {
+      "companyName": "X",
+      "careersUrl": "https://careers.x.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Y Combinator",
+      "careersUrl": "https://www.ycombinator.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Waymo",
+      "careersUrl": "https://waymo.com/joinus",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Cruise",
+      "careersUrl": "https://getcruise.com/careers",
+      "extractionRoute": "UNKNOWN",
+      "recommendation": "The careers URL is reachable but did not expose a stable structured feed. Add a custom connector before promoting."
+    },
+    {
+      "companyName": "Rivian",
+      "careersUrl": "https://rivian.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Lucid Motors",
+      "careersUrl": "https://lucidmotors.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Ford",
+      "careersUrl": "https://corporate.ford.com/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "General Motors",
+      "careersUrl": "https://search-careers.gm.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Stellantis",
+      "careersUrl": "https://careers.stellantis.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Mercedes-Benz",
+      "careersUrl": "https://group.mercedes-benz.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "BMW Group",
+      "careersUrl": "https://www.bmwgroup.jobs",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "FedEx",
+      "careersUrl": "https://careers.fedex.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "UPS",
+      "careersUrl": "https://www.jobs-ups.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "DHL",
+      "careersUrl": "https://careers.dhl.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Walmart",
+      "careersUrl": "https://careers.walmart.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Walmart Canada",
+      "careersUrl": "https://careers.walmart.ca",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Target",
+      "careersUrl": "https://corporate.target.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Best Buy",
+      "careersUrl": "https://jobs.bestbuy.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Home Depot",
+      "careersUrl": "https://careers.homedepot.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Lowe's",
+      "careersUrl": "https://talent.lowes.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Canadian Tire",
+      "careersUrl": "https://corp.canadiantire.ca/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Loblaw",
+      "careersUrl": "https://www.loblaw.ca/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Metro Inc.",
+      "careersUrl": "https://corpo.metro.ca/en/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Starbucks",
+      "careersUrl": "https://www.starbucks.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Tim Hortons",
+      "careersUrl": "https://www.timhortons.ca/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Restaurant Brands International",
+      "careersUrl": "https://www.rbi.com/English/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Chipotle",
+      "careersUrl": "https://jobs.chipotle.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Nike",
+      "careersUrl": "https://jobs.nike.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Adidas",
+      "careersUrl": "https://careers.adidas-group.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Lululemon",
+      "careersUrl": "https://careers.lululemon.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Gap Inc.",
+      "careersUrl": "https://www.gapinc.com/en-us/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "H&M",
+      "careersUrl": "https://career.hm.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Zara / Inditex",
+      "careersUrl": "https://www.inditexcareers.com",
+      "extractionRoute": "UNKNOWN",
+      "recommendation": "The careers URL is reachable but did not expose a stable structured feed. Add a custom connector before promoting."
+    },
+    {
+      "companyName": "L'Oreal",
+      "careersUrl": "https://careers.loreal.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Procter & Gamble",
+      "careersUrl": "https://www.pgcareers.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Unilever",
+      "careersUrl": "https://careers.unilever.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Johnson & Johnson",
+      "careersUrl": "https://www.careers.jnj.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Pfizer",
+      "careersUrl": "https://www.pfizer.com/about/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Moderna",
+      "careersUrl": "https://www.modernatx.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Roche",
+      "careersUrl": "https://careers.roche.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Novartis",
+      "careersUrl": "https://www.novartis.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Sanofi",
+      "careersUrl": "https://jobs.sanofi.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "AstraZeneca",
+      "careersUrl": "https://careers.astrazeneca.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Merck",
+      "careersUrl": "https://jobs.merck.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Abbott",
+      "careersUrl": "https://www.jobs.abbott",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Medtronic",
+      "careersUrl": "https://www.medtronic.com/us-en/about/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "GE HealthCare",
+      "careersUrl": "https://careers.gehealthcare.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "GE Vernova",
+      "careersUrl": "https://www.gevernova.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "General Electric",
+      "careersUrl": "https://www.ge.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Honeywell",
+      "careersUrl": "https://careers.honeywell.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Caterpillar",
+      "careersUrl": "https://www.caterpillar.com/en/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "John Deere",
+      "careersUrl": "https://www.deere.com/en/our-company/john-deere-careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Eaton",
+      "careersUrl": "https://www.eaton.com/us/en-us/company/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Bosch",
+      "careersUrl": "https://www.bosch.com/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Philips",
+      "careersUrl": "https://www.careers.philips.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Magna",
+      "careersUrl": "https://www.magna.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Bombardier",
+      "careersUrl": "https://bombardier.com/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "SNC-Lavalin / AtkinsRealis",
+      "careersUrl": "https://www.atkinsrealis.com/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "AECOM",
+      "careersUrl": "https://aecom.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Stantec",
+      "careersUrl": "https://www.stantec.com/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Hatch",
+      "careersUrl": "https://www.hatch.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "EllisDon",
+      "careersUrl": "https://www.ellisdon.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "PCL Construction",
+      "careersUrl": "https://www.pcl.com/ca/en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Brookfield",
+      "careersUrl": "https://www.brookfield.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Canada Life",
+      "careersUrl": "https://www.canadalife.com/about-us/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Intact",
+      "careersUrl": "https://careers.intactfc.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "RBC",
+      "careersUrl": "https://jobs.rbc.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "TD",
+      "careersUrl": "https://jobs.td.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Scotiabank",
+      "careersUrl": "https://jobs.scotiabank.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "BMO",
+      "careersUrl": "https://jobs.bmo.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "CIBC",
+      "careersUrl": "https://www.cibc.com/en/about-cibc/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "National Bank of Canada",
+      "careersUrl": "https://jobs.nbc.ca",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Capital One",
+      "careersUrl": "https://www.capitalonecareers.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "JPMorgan Chase",
+      "careersUrl": "https://careers.jpmorgan.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Goldman Sachs",
+      "careersUrl": "https://www.goldmansachs.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Citi",
+      "careersUrl": "https://jobs.citi.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Wells Fargo",
+      "careersUrl": "https://www.wellsfargojobs.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "American Express",
+      "careersUrl": "https://www.americanexpress.com/en-us/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "Mastercard",
+      "careersUrl": "https://careers.mastercard.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Fiserv",
+      "careersUrl": "https://www.careers.fiserv.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Fidelity",
+      "careersUrl": "https://jobs.fidelity.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "BlackRock",
+      "careersUrl": "https://careers.blackrock.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Vanguard",
+      "careersUrl": "https://www.vanguardjobs.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Charles Schwab",
+      "careersUrl": "https://www.schwabjobs.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Deloitte",
+      "careersUrl": "https://www2.deloitte.com/global/en/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "PwC",
+      "careersUrl": "https://www.pwc.com/gx/en/careers.html",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "EY",
+      "careersUrl": "https://www.ey.com/en_gl/careers",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "KPMG",
+      "careersUrl": "https://kpmg.com/xx/en/home/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Accenture",
+      "careersUrl": "https://www.accenture.com/us-en/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Bain & Company",
+      "careersUrl": "https://www.bain.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Boston Consulting Group",
+      "careersUrl": "https://careers.bcg.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Oliver Wyman",
+      "careersUrl": "https://www.oliverwyman.com/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Mercer",
+      "careersUrl": "https://www.mercer.com/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Willis Towers Watson",
+      "careersUrl": "https://careers.wtwco.com",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    },
+    {
+      "companyName": "Thomson Reuters",
+      "careersUrl": "https://www.thomsonreuters.com/en/careers.html",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting."
+    }
+  ],
+  "blockedOrFragile": [
+    {
+      "companyName": "Google",
+      "feasibility": "FRAGILE",
+      "recommendation": "Google careers data is embedded in page payloads, but the current parser is not stable enough to promote without a custom connector."
+    },
+    {
+      "companyName": "Meta",
+      "feasibility": "BLOCKED",
+      "recommendation": "Meta Careers has a prominent automated collection notice; keep it out of automated first-party ingestion until legal/robots handling is clarified."
+    }
+  ],
+  "persistence": null
+}

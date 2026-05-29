@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-05-27T06:29:05.421Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 4,
+  "previewLimit": 2,
+  "byFeasibility": {
+    "IMPLEMENTED": 4
+  },
+  "implemented": [
+    {
+      "companyName": "Amazon",
+      "connector": "amazon:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Software Development Engineer, Selling Partner Financial Technology",
+        "Sr Software Dev Engineer III, RDS for Oracle"
+      ]
+    },
+    {
+      "companyName": "Microsoft",
+      "connector": "microsoft:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Software Engineer II- Front End Development",
+        "Software Engineer- Full stack"
+      ]
+    },
+    {
+      "companyName": "Apple",
+      "connector": "apple:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "CA - Specialist: Seasonal, Part-time",
+        "People Business Partner"
+      ]
+    },
+    {
+      "companyName": "NVIDIA",
+      "connector": "nvidia:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Senior Systems Software Engineer, LPU",
+        "Senior Account Manager, Canada - WWFO"
+      ]
+    }
+  ],
+  "needsConnector": [],
+  "blockedOrFragile": [],
+  "persistence": {
+    "registered": 4,
+    "skipped": 0,
+    "validationTasksQueued": 0,
+    "pollTasksQueued": 0
+  }
+}

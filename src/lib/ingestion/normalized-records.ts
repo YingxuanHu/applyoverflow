@@ -11,6 +11,7 @@ import {
   computeTrustScore,
 } from "@/lib/ingestion/quality";
 import { normalizeSourceJob } from "@/lib/ingestion/normalize";
+import { classifyJobMetadata } from "@/lib/job-metadata";
 import { sanitizeCompanyName, sanitizeJobDescriptionText, sanitizeJobTitle } from "@/lib/job-cleanup";
 import type { SourceConnectorJob } from "@/lib/ingestion/types";
 import { Prisma } from "@/generated/prisma/client";
@@ -96,6 +97,17 @@ function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetche
     region: null,
     applyUrl: sourceJob.applyUrl,
   });
+  const metadata = classifyJobMetadata({
+    title,
+    company,
+    description,
+    location,
+    sourceEmploymentType: sourceJob.employmentType,
+    inferredEmploymentType: "UNKNOWN",
+    legacyIndustry: null,
+    roleFamily: "Unknown",
+    workMode: sourceJob.workMode ?? "UNKNOWN",
+  });
 
   return {
     title,
@@ -117,6 +129,10 @@ function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetche
     shortSummary: description.slice(0, 280),
     industry: null,
     roleFamily: "Unknown",
+    normalizedEmploymentType: metadata.normalizedEmploymentType,
+    normalizedCareerStage: metadata.normalizedCareerStage,
+    normalizedIndustry: metadata.normalizedIndustry,
+    normalizedRoleCategory: metadata.normalizedRoleCategory,
     applyUrl: sourceJob.applyUrl,
     applyUrlKey: dedupeFields.applyUrlKey,
     postedAt: sourceJob.postedAt ?? fetchedAt,

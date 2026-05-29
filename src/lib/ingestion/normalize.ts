@@ -20,9 +20,9 @@ import {
   sanitizeJobTitle,
 } from "@/lib/job-cleanup";
 import { classifyNonJobPosting } from "@/lib/job-integrity";
+import { classifyJobMetadata } from "@/lib/job-metadata";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
 import { inferExperienceLevel } from "@/lib/career-stage";
-import { inferGeoScope, isExplicitlyOutOfScopeGeoScope } from "@/lib/geo-scope";
 
 const US_STATE_CODES = new Set([
   "AL",
@@ -321,6 +321,11 @@ const ROLE_PATTERNS: Array<{
     industry: "TECH",
     roleFamily: "Data Science",
   },
+  {
+    pattern: /\b(ai tutor|ai trainer|llm evaluator|model trainer|data annotator|ai data specialist)\b/i,
+    industry: "TECH",
+    roleFamily: "AI Training",
+  },
   // Data Engineering: pipeline / platform engineering (distinct from analyst/science)
   {
     pattern: /\b(data engineer|etl engineer|data pipeline engineer|data platform engineer|database engineer|database developer)\b/i,
@@ -365,15 +370,11 @@ const ROLE_PATTERNS: Array<{
     industry: "TECH",
     roleFamily: "IT Operations",
   },
-  // Marketing: tech marketing roles at tech companies — product marketing, growth, demand gen
-  // Scoped to compound titles to avoid matching pure "marketing" which would catch non-tech roles.
-  // Listed before Design and SWE to prevent "Growth Marketing Engineer" noise.
-  {
-    pattern:
-      /\b(product marketing|growth marketing|performance marketing|content marketing|marketing manager|demand generation|marketing analyst|field marketing|digital marketing|brand marketing|marketing operations|lifecycle marketing|marketing lead|marketing director|marketing intern|marketing coordinator|marketing specialist|brand ambassador|marketer|marketing)\b/i,
-    industry: "TECH",
-    roleFamily: "Marketing",
-  },
+  // (Marketing was historically classified as TECH/Marketing here so the
+  // pool had any home for it. With GENERAL/Marketing live below, marketing
+  // titles route there instead — see line ~488. The only marketing-coded
+  // titles that stay TECH are explicitly engineering-flavored ones, which
+  // are caught by the SWE pattern via the `engineer` keyword.)
   // Technical Writing / Developer Relations: technical content and community roles
   {
     pattern:
@@ -395,6 +396,17 @@ const ROLE_PATTERNS: Array<{
       /\b(customer success|customer success manager|customer success engineer|technical account manager|technical support engineer|support engineer|customer engineer|implementation consultant|onboarding specialist)\b/i,
     industry: "TECH",
     roleFamily: "Customer Success",
+  },
+  // Engineering (non-software): mechanical, civil, electrical, chemical,
+  // biomedical, materials, aerospace, environmental, industrial,
+  // manufacturing. The 12-priority "Engineering" category. Must come
+  // BEFORE the SWE catch-all so "Mechanical Engineer" → Engineering, not
+  // SWE.
+  {
+    pattern:
+      /\b(mechanical engineer|mechanical design engineer|hardware engineer|mechatronics engineer|civil engineer|structural engineer|transportation engineer|geotechnical engineer|electrical engineer|electronics engineer|power systems engineer|controls engineer|chemical engineer|process engineer|process safety engineer|aerospace engineer|avionics engineer|propulsion engineer|biomedical engineer|validation engineer|industrial engineer|manufacturing engineer|quality engineer|environmental engineer|energy engineer|renewable energy engineer|sustainability engineer|materials engineer|metallurgical engineer)\b/i,
+    industry: "TECH",
+    roleFamily: "Engineering",
   },
   // SWE: broad engineering catch-all — listed last among tech so specific roles above take priority
   // "web" is scoped to "web engineer|web developer" to avoid matching design/content titles.
@@ -421,10 +433,12 @@ const ROLE_PATTERNS: Array<{
     industry: "FINANCE",
     roleFamily: "FP&A",
   },
-  // Accounting: accountants, auditors, tax specialists
+  // Accounting: accountants, auditors, tax specialists, bookkeepers,
+  // payroll accountants, AP/AR specialists. Also catches "tax preparer"
+  // and "bookkeeping" titles that previously slipped through.
   {
     pattern:
-      /\b(accountant|accounting|accounting manager|fund accountant|tax analyst|tax manager|auditor|audit manager|bookkeeper|accounts payable|accounts receivable|cpa)\b/i,
+      /\b(accountant|accounting|accounting manager|fund accountant|staff accountant|senior accountant|cost accountant|forensic accountant|corporate accountant|general ledger accountant|revenue accountant|tax analyst|tax manager|tax preparer|tax associate|tax consultant|tax accountant|tax senior|auditor|audit manager|audit associate|audit senior|external audit|internal audit|bookkeeper|bookkeeping|accounts payable|accounts receivable|ap specialist|ar specialist|billing specialist|collections specialist|cpa|payroll accountant|comptable|controller|assistant controller)\b/i,
     industry: "FINANCE",
     roleFamily: "Accounting",
   },
@@ -435,13 +449,11 @@ const ROLE_PATTERNS: Array<{
     industry: "FINANCE",
     roleFamily: "Quantitative Finance",
   },
-  // Actuarial / Insurance: actuaries, underwriters, claims
-  {
-    pattern:
-      /\b(actuary|actuarial|underwriter|underwriting|claims analyst|insurance analyst|loss adjuster)\b/i,
-    industry: "FINANCE",
-    roleFamily: "Actuarial",
-  },
+  // (Actuarial / Insurance was historically classified as FINANCE here.
+  // It's been moved to GENERAL/Insurance below — the product treats
+  // insurance underwriting + claims as a distinct white-collar family,
+  // not a finance sub-family. The pre-existing pattern is intentionally
+  // removed so the GENERAL family wins.)
   {
     pattern: /\b(investment banking|investment bank)\b/i,
     industry: "FINANCE",
@@ -474,12 +486,13 @@ const ROLE_PATTERNS: Array<{
     industry: "FINANCE",
     roleFamily: "Wealth Management",
   },
-  // Operations: finance/tech ops; biz ops at tech companies is also captured here
-  {
-    pattern: /\b(operations analyst|biz ops|bizops|business operations|operations manager|operations director|operations)\b/i,
-    industry: "FINANCE",
-    roleFamily: "Operations",
-  },
+  // (Generic Operations was historically classified as FINANCE/Operations
+  // here. With GENERAL live, "operations manager / business operations /
+  // operations analyst / director of operations" all route to GENERAL
+  // through the Ops/Admin family further down, or to the General
+  // Professional catch-all when titled less specifically. Finance-specific
+  // ops (treasury operations, trading operations) stays under their own
+  // FINANCE families above.)
 
   // ── White-collar cross-industry roles (Industry: GENERAL) ─────────────────────
   // These were previously tagged TECH/FINANCE as a workaround. With GENERAL now
@@ -492,18 +505,21 @@ const ROLE_PATTERNS: Array<{
     industry: "GENERAL",
     roleFamily: "Marketing",
   },
-  // HR / People: HR business partners, people ops, talent acquisition leaders
-  // (Previously excluded — restored as a legitimate white-collar function.)
+  // HR / People: HR business partners, people ops, talent acquisition leaders,
+  // payroll, HRBP shorthand, recruiter variants. (Previously excluded —
+  // restored as a legitimate white-collar function.)
   {
     pattern:
-      /\b(hr manager|hr director|hr generalist|hr partner|hr business partner|human resources|people partner|people operations|people ops|chief people officer|chro|head of people|talent acquisition|head of talent|talent partner|compensation analyst|benefits manager|hris analyst|hr analyst|hr coordinator|people analytics|learning and development|l&d manager|training manager|organizational development|culture manager|employee relations)\b/i,
+      /\b(hr manager|hr director|hr generalist|hr partner|hr business partner|hrbp|human resources|people partner|people operations|people ops|chief people officer|chro|head of people|talent acquisition|head of talent|talent partner|compensation analyst|benefits manager|hris analyst|hr analyst|hr coordinator|people analytics|learning and development|l&d manager|training manager|organizational development|culture manager|employee relations|payroll manager|payroll analyst|payroll specialist|payroll coordinator|payroll administrator|service de la paie|technical recruiter|corporate recruiter|executive recruiter|university recruiter|campus recruiter|diversity recruiter|recruiting coordinator|recruiting manager|head of recruiting|head of recruitment|talent sourcer|total rewards|rewards analyst|dei manager|diversity equity inclusion|leadership development|employee experience)\b/i,
     industry: "GENERAL",
     roleFamily: "HR / People",
   },
-  // Sales & Revenue: direct revenue-generating roles
+  // Sales & Revenue: direct revenue-generating roles. Includes "sales
+  // advisor", "membership sales", "account manager" — common variants that
+  // were silently falling to General Professional.
   {
     pattern:
-      /\b(account executive|sales manager|sales director|sales representatives?|sales lead|inside sales|outside sales|sales operations|revenue manager|revenue operations|sales development|sdr\b|bdr\b|business development representative|enterprise sales|regional sales|national sales|sales analyst|sales enablement|channel sales|partner sales|sales consultant|inbound sales|sales executive|sales team|sales trainer|vendeur|vendeuse|ventes|représentant.*ventes?)\b/i,
+      /\b(account executive|sales manager|sales director|sales representatives?|sales lead|sales advisor|membership sales|account manager|inside sales|outside sales|sales operations|revenue manager|revenue operations|sales development|sdr\b|bdr\b|business development representative|enterprise sales|regional sales|national sales|sales analyst|sales enablement|channel sales|partner sales|sales consultant|inbound sales|sales executive|sales team|sales trainer|vendeur|vendeuse|ventes|représentant.*ventes?)\b/i,
     industry: "GENERAL",
     roleFamily: "Sales",
   },
@@ -535,10 +551,13 @@ const ROLE_PATTERNS: Array<{
     industry: "GENERAL",
     roleFamily: "Supply Chain",
   },
-  // Communications / PR: corporate communications and public relations
+  // Communications / PR: corporate communications and public relations.
+  // Editor titles ("editorial", "managing editor", "editor in chief") moved
+  // out — they live in the dedicated Editorial family below where they
+  // belong.
   {
     pattern:
-      /\b(communications manager|communications director|public relations|pr manager|corporate communications|internal communications|media relations|investor relations|media manager|content manager|editorial|editor in chief|managing editor|publicist|spokesperson)\b/i,
+      /\b(communications manager|communications director|public relations|pr manager|corporate communications|internal communications|media relations|investor relations|media manager|content manager|publicist|spokesperson)\b/i,
     industry: "GENERAL",
     roleFamily: "Communications",
   },
@@ -549,11 +568,93 @@ const ROLE_PATTERNS: Array<{
     industry: "GENERAL",
     roleFamily: "Administrative",
   },
-
-  // Technical / Engineering (non-software): inspectors, lab techs, QC, environmental
+  // Operations (non-finance, non-IT): general business operations,
+  // ops analysts, ops directors. Filled the gap left when we removed
+  // the FINANCE/Operations catch-all pattern.
   {
     pattern:
-      /\b(quality inspector|quality control|environmental.*(?:analyst|monitor|specialist|engineer)|lab(?:oratory)?\s+(?:technician|analyst|assistant)|test(?:er|ing)\b|quality assurance.*(?:analyst|inspector)|maintenance.*(?:engineer|leader|manager|technician)|plant.*(?:manager|engineer)|controls\s+(?:engineer|technician)|field\s+(?:engineer|technician)|process\s+engineer|chemical\s+engineer|mechanical\s+(?:engineer|designer)|electrical\s+engineer|civil\s+engineer|structural\s+engineer|manufacturing\s+engineer|industrial\s+engineer|biostatistic|statistician|scientist|researcher|research\s+(?:analyst|assistant|associate)|webmestre|webmaster)\b/i,
+      /\b(operations manager|operations director|operations analyst|operations lead|operations associate|operations specialist|business operations|biz ops|bizops|head of operations|director of operations|vp of operations|strategy and operations|strategy & operations)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Operations",
+  },
+  // Insurance: underwriters, adjusters, brokers, actuarial roles. Pulled
+  // by the new Jooble insurance-* shards.
+  {
+    pattern:
+      /\b(underwriter|underwriting analyst|underwriting manager|claims analyst|claims adjuster|claim rep|claims representative|claims examiner|claims specialist|insurance broker|insurance agent|insurance specialist|reinsurance analyst|actuarial analyst|actuary)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Insurance",
+  },
+  // Healthcare Administration (non-clinical): hospital admin, practice
+  // managers, medical billing/coding, health systems analysts. Distinct
+  // from the clinical roles that EXCLUDED_TITLE_PATTERNS filters out.
+  {
+    pattern:
+      /\b(hospital administrator|healthcare operations|healthcare program manager|healthcare admin|practice manager|clinic operations|medical office manager|medical biller|medical billing|medical coder|medical coding|revenue cycle|patient experience|credentialing|health policy|health systems analyst|hospital operations|health insurance analyst)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Healthcare Admin",
+  },
+  // Real Estate: investment analysts, asset managers, leasing, property
+  // managers — non-trades. Trades-side roles (contractor, plumber, etc.)
+  // already excluded by EXCLUDED_TITLE_PATTERNS.
+  {
+    pattern:
+      /\b(real estate analyst|real estate associate|real estate manager|real estate director|asset manager.*real estate|real estate.*asset manager|leasing manager|leasing director|leasing consultant|property manager|property administrator|portfolio analyst.*real estate|real estate.*portfolio|acquisitions analyst|investment analyst.*real estate|commercial real estate|reit analyst|reit manager)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Real Estate",
+  },
+  // Hospitality Management (corporate / revenue / events, not frontline):
+  // hotel ops, revenue managers, events managers. Frontline (cook,
+  // server, bartender, etc.) already excluded.
+  {
+    pattern:
+      /\b(hotel manager|hotel operations|revenue manager.*(?:hotel|hospitality)|guest experience|events manager|event operations|catering operations|hospitality program|travel operations manager)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Hospitality Management",
+  },
+  // Government / Public Sector: policy, regulatory, program officers,
+  // public administration. Excludes military / law enforcement (in
+  // EXCLUDED_TITLE_PATTERNS).
+  {
+    pattern:
+      /\b(policy analyst|policy advisor|policy researcher|program officer|program analyst|public administrator|government affairs|regulatory analyst|regulatory affairs(?!.*pharma)|intelligence analyst|legislative analyst|legislative aide|federal contractor|public sector consultant|municipal analyst|grants analyst)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Government",
+  },
+  // Editorial & Publishing: editors, content directors, copy editors,
+  // staff writers, producers. Distinct from Marketing/Comms.
+  {
+    pattern:
+      /\b(senior editor|managing editor|editor in chief|copy editor|production editor|editorial manager|editorial assistant|staff writer|content director|video producer|podcast producer|creative producer|content producer|publisher\b)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Editorial",
+  },
+  // Nonprofit & Philanthropy: development directors, grant writers,
+  // fundraising managers, foundation program officers.
+  {
+    pattern:
+      /\b(development director.*nonprofit|nonprofit program|grant writer|grants manager|fundraising manager|donor relations|foundation program officer|advocacy manager|philanthropy manager|nonprofit executive director)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Nonprofit",
+  },
+  // Education Administration (non-classroom): registrars, admissions,
+  // student affairs, academic advisors, institutional research. Teaching
+  // titles still excluded by EXCLUDED_TITLE_PATTERNS.
+  {
+    pattern:
+      /\b(registrar|admissions counselor|admissions director|admissions officer|student affairs|academic advisor|career counselor|financial aid administrator|academic program manager|institutional research|education program manager|edtech program|university administrator)\b/i,
+    industry: "GENERAL",
+    roleFamily: "Education Admin",
+  },
+
+  // (Engineering pattern was moved above the SWE catch-all so non-software
+  // engineering routes correctly — see line ~395.)
+  // Technical / Engineering misc: inspectors, lab techs, QC, plant/field
+  // techs, statisticians, researchers — the bench-side roles that don't
+  // fit the Engineering family but are still tech-adjacent.
+  {
+    pattern:
+      /\b(quality inspector|quality control|environmental.*(?:analyst|monitor|specialist)|lab(?:oratory)?\s+(?:technician|analyst|assistant)|test(?:er|ing)\b|quality assurance.*(?:analyst|inspector)|maintenance.*(?:engineer|leader|manager|technician)|plant.*(?:manager|engineer)|field\s+(?:engineer|technician)|biostatistic|statistician|scientist|researcher|research\s+(?:analyst|assistant|associate)|webmestre|webmaster)\b/i,
     industry: "TECH",
     roleFamily: "Technical",
   },
@@ -592,8 +693,13 @@ export const EXCLUDED_TITLE_PATTERNS = [
   /\b(babysitter|nanny|caregiver|childcare|au pair)\b/i,
   // Food service / Retail frontline
   /\b(barista|server|cook\b|chef\b|dishwasher|busser|bartender|cashier|stocker|grocery)\b/i,
-  // Education (non-tech)
-  /\b(teacher|professor|lecturer|tutor(?!ial)|principal(?!\s+(?:engineer|architect|consultant|analyst|developer|scientist|designer|manager|director|swe|technical|planning|product|data|security|program|software|cloud|platform|solutions|financial|investment))|superintendent|librarian|dean\b|provost)\b/i,
+  // Education (non-tech). "dean" alone is too broad — academic deans of
+  // operations / career services / student affairs / business admin /
+  // research are legitimate white-collar admin roles. Allow those by
+  // requiring "dean" NOT be followed by an admin-flavoured noun, mirroring
+  // the same lookahead trick used for "principal" above. "associate dean"
+  // / "assistant dean" of operations / administration / finance also pass.
+  /\b(teacher|professor|lecturer|tutor(?!ial)|principal(?!\s+(?:engineer|architect|consultant|analyst|developer|scientist|designer|manager|director|swe|technical|planning|product|data|security|program|software|cloud|platform|solutions|financial|investment))|superintendent|librarian|dean\b(?!\s+(?:of\s+)?(?:operations|administration|admin|finance|business|career\s+services|student\s+affairs|enrollment|research|admissions|advancement|external\s+affairs|institutional))|provost)\b/i,
   // Skilled trades / Construction
   /\b(crane operator|heavy equipment|excavat|concrete|paving|asphalt|demolition|scaffolding|surveyor)\b/i,
   // Law enforcement / Emergency / Military (not corporate security)
@@ -711,13 +817,17 @@ export function normalizeSourceJob({
     employmentType,
     roleFamily
   );
-  if (shouldRejectOutOfScopeLocation({ location, region, workMode })) {
-    return {
-      kind: "rejected",
-      reason: "out_of_scope_location",
-    };
-  }
-
+  const metadata = classifyJobMetadata({
+    title,
+    company,
+    description,
+    location,
+    roleFamily,
+    legacyIndustry: industry,
+    sourceEmploymentType: job.employmentType,
+    inferredEmploymentType: employmentType,
+    workMode,
+  });
   const postedAt = job.postedAt ?? fetchedAt;
   const deadline =
     job.deadline && job.deadline.getTime() > fetchedAt.getTime() ? job.deadline : null;
@@ -757,6 +867,10 @@ export function normalizeSourceJob({
     shortSummary: buildShortSummary(title, company, workMode, description),
     industry,
     roleFamily,
+    normalizedEmploymentType: metadata.normalizedEmploymentType,
+    normalizedCareerStage: metadata.normalizedCareerStage,
+    normalizedIndustry: metadata.normalizedIndustry,
+    normalizedRoleCategory: metadata.normalizedRoleCategory,
     applyUrl,
     applyUrlKey: dedupeFields.applyUrlKey,
     postedAt,
@@ -768,19 +882,6 @@ export function normalizeSourceJob({
     kind: "accepted",
     job: normalized,
   };
-}
-
-function shouldRejectOutOfScopeLocation(input: {
-  location: string;
-  region: Region | null;
-  workMode: WorkMode;
-}) {
-  const geoScope = inferGeoScope(input.location, input.region);
-  if (isExplicitlyOutOfScopeGeoScope(geoScope)) {
-    return true;
-  }
-
-  return input.region == null && input.workMode !== "REMOTE";
 }
 
 export function inferRegion(location: string): Region | null {
@@ -901,7 +1002,11 @@ export function inferRegion(location: string): Region | null {
   return null;
 }
 
-function inferRoleProfile(title: string) {
+// Exported for unit tests covering the per-family expansion (marketing,
+// sales, HR, legal, ops/admin, supply chain, consulting, communications,
+// customer success, biz dev). Not part of the stable public ingestion API
+// — call sites in the codebase still go through `normalizeSourceJob`.
+export function inferRoleProfile(title: string) {
   return ROLE_PATTERNS.find((rolePattern) => rolePattern.pattern.test(title)) ?? null;
 }
 
@@ -932,11 +1037,25 @@ function inferEmploymentType(
   description: string,
   suggestedEmploymentType: EmploymentType | null
 ): EmploymentType {
+  const normalizedTitle = title.toLowerCase();
+  const normalizedDescription = description.toLowerCase();
+
+  // Intern/co-op should be title or structured-source driven. Full job
+  // descriptions often mention "interns" as mentorship or internal mobility,
+  // which previously polluted senior jobs into internship filters.
+  if (/\bintern(?:ship)?s?\b|\bco[- ]?op\b|\bcoop\b|\bstudent\b/.test(normalizedTitle)) {
+    return "INTERNSHIP";
+  }
+
   if (suggestedEmploymentType) return suggestedEmploymentType;
 
-  const combinedText = `${title} ${description}`.toLowerCase();
+  const combinedText = `${normalizedTitle} ${normalizedDescription}`;
 
-  if (/\bintern(ship)?\b|\bco[- ]?op\b/.test(combinedText)) {
+  if (
+    /\binternship\s+program\b|\bco[- ]?op\s+(?:program|position|role|term)\b|\bstudent\s+(?:placement|work term|program)\b/.test(
+      normalizedDescription
+    )
+  ) {
     return "INTERNSHIP";
   }
   if (
@@ -1051,22 +1170,59 @@ export function detectDeadSignal(input: {
   }
 
   const combined = `${input.title}\n${input.description}`;
-  const matchedPattern = DEAD_CONTENT_PATTERNS.find((pattern) => pattern.test(combined));
+  let matchedText: string | null = null;
+  for (const pattern of DEAD_CONTENT_PATTERNS) {
+    const match = combined.match(pattern);
+    if (!match) continue;
 
-  if (!matchedPattern) {
+    const candidate = match[0]?.trim() ?? null;
+    if (candidate && isDeadSignalFalsePositive({ combined, match, matchedText: candidate })) {
+      continue;
+    }
+
+    matchedText = candidate;
+    break;
+  }
+
+  if (!matchedText) {
     return {
       detected: false,
       reason: null,
     };
   }
 
-  const matchedText = combined.match(matchedPattern)?.[0]?.trim() ?? null;
   return {
     detected: true,
     reason: matchedText
       ? `Explicit dead signal detected: ${matchedText}`
       : "Explicit dead signal detected in source content.",
   };
+}
+
+function isDeadSignalFalsePositive({
+  combined,
+  match,
+  matchedText,
+}: {
+  combined: string;
+  match: RegExpMatchArray;
+  matchedText: string;
+}) {
+  const index = match.index ?? -1;
+  if (index < 0) return false;
+
+  const normalizedMatch = matchedText.toLowerCase();
+  if (
+    normalizedMatch !== "position is filled" &&
+    normalizedMatch !== "position filled" &&
+    normalizedMatch !== "role is filled" &&
+    normalizedMatch !== "role filled"
+  ) {
+    return false;
+  }
+
+  const precedingContext = combined.slice(Math.max(0, index - 80), index).toLowerCase();
+  return /\buntil\s+(?:the\s+)?$/.test(precedingContext);
 }
 
 function sanitizeSummaryLine(line: string) {

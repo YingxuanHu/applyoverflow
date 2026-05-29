@@ -10,6 +10,12 @@ import type {
   SubmissionCategory,
   WorkMode,
 } from "@/generated/prisma/client";
+import type {
+  NormalizedCareerStage,
+  NormalizedEmploymentType,
+  NormalizedIndustry,
+  NormalizedRoleCategory,
+} from "@/lib/job-metadata";
 
 export type ConnectorFreshnessMode = "FULL_SNAPSHOT" | "INCREMENTAL";
 
@@ -84,6 +90,14 @@ export type NormalizedJobInput = {
   industry: Industry | null;
   /** "Unknown" when title did not match any role-family pattern */
   roleFamily: string;
+  /** Standardized user-facing employment taxonomy used by filters. */
+  normalizedEmploymentType: NormalizedEmploymentType;
+  /** Standardized user-facing career-stage taxonomy used by filters. */
+  normalizedCareerStage: NormalizedCareerStage;
+  /** Standardized top-level industry taxonomy used by filters. */
+  normalizedIndustry: NormalizedIndustry;
+  /** Standardized job-family taxonomy used by filters. */
+  normalizedRoleCategory: NormalizedRoleCategory;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;

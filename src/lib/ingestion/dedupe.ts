@@ -48,6 +48,25 @@ const DESCRIPTION_FINGERPRINT_STOP_WORDS = new Set([
   "ability",
 ]);
 
+const GENERIC_TITLE_CORE_KEYS = new Set([
+  "analyst",
+  "associate",
+  "assistant",
+  "building-maintenance",
+  "consultant",
+  "coordinator",
+  "customer-service-associate",
+  "developer",
+  "driver",
+  "engineer",
+  "intern",
+  "maintenance",
+  "manager",
+  "representative",
+  "specialist",
+  "technician",
+]);
+
 type DedupeFields = Pick<
   NormalizedJobInput,
   | "companyKey"
@@ -132,6 +151,21 @@ export function isCanonicalMatchCompatible(
   return scoreCanonicalMatch(normalizedJob, candidate).score > 0;
 }
 
+export function isCanonicalMatchCompatibleForSource(
+  normalizedJob: NormalizedJobInput,
+  candidate: CanonicalMatchCandidate,
+  sourceIdentity: SourceIdentitySnapshot
+) {
+  if (shouldRequireExactIdentifierMatch(sourceIdentity)) {
+    if (sourceIdentity.applyUrlKey) {
+      return candidate.applyUrlKey === sourceIdentity.applyUrlKey;
+    }
+    return false;
+  }
+
+  return isCanonicalMatchCompatible(normalizedJob, candidate);
+}
+
 export function buildCanonicalDedupeFields(input: {
   company: string;
   title: string;
@@ -204,8 +238,10 @@ export async function backfillCanonicalDedupeFields() {
 
 export async function findCrossSourceCanonicalMatch(
   normalizedJob: NormalizedJobInput,
-  sourceIdentity: SourceIdentitySnapshot
+  sourceIdentity: SourceIdentitySnapshot,
+  options: { excludeCanonicalIds?: string[] } = {}
 ): Promise<CanonicalMatchResult | null> {
+  const excludeCanonicalIds = options.excludeCanonicalIds ?? [];
   const exactKeyMatches = [
     { field: "applyUrlKey", key: sourceIdentity.applyUrlKey },
     { field: "sourceUrlKey", key: sourceIdentity.sourceUrlKey },
@@ -215,7 +251,11 @@ export async function findCrossSourceCanonicalMatch(
   for (const exactMatch of exactKeyMatches) {
     if (!exactMatch.key) continue;
 
-    const mappingMatch = await findMappingCanonicalMatch(exactMatch.field, exactMatch.key);
+    const mappingMatch = await findMappingCanonicalMatch(
+      exactMatch.field,
+      exactMatch.key,
+      excludeCanonicalIds
+    );
     if (mappingMatch) {
       return {
         matchedBy: exactMatch.field,
@@ -230,7 +270,13 @@ export async function findCrossSourceCanonicalMatch(
 
     if (exactMatch.field === "applyUrlKey") {
       const canonicalApplyUrlMatch = await prisma.jobCanonical.findFirst({
-        where: { applyUrlKey: exactMatch.key },
+        where: {
+          applyUrlKey: exactMatch.key,
+          ...(excludeCanonicalIds.length > 0
+            ? { id: { notIn: excludeCanonicalIds } }
+            : {}),
+          status: { not: "REMOVED" },
+        },
         select: canonicalMatchSelect,
       });
 
@@ -248,9 +294,22 @@ export async function findCrossSourceCanonicalMatch(
     }
   }
 
-  if (normalizedJob.companyKey !== UNKNOWN_COMPANY_KEY) {
+  if (shouldRequireExactIdentifierMatch(sourceIdentity)) {
+    return null;
+  }
+
+  if (
+    normalizedJob.companyKey !== UNKNOWN_COMPANY_KEY &&
+    shouldUseDuplicateClusterMatch(normalizedJob)
+  ) {
     const exactClusterMatch = await prisma.jobCanonical.findFirst({
-      where: { duplicateClusterId: normalizedJob.duplicateClusterId },
+      where: {
+        duplicateClusterId: normalizedJob.duplicateClusterId,
+        ...(excludeCanonicalIds.length > 0
+          ? { id: { notIn: excludeCanonicalIds } }
+          : {}),
+        status: { not: "REMOVED" },
+      },
       select: canonicalMatchSelect,
     });
 
@@ -272,6 +331,10 @@ export async function findCrossSourceCanonicalMatch(
 
   const candidates = await prisma.jobCanonical.findMany({
     where: {
+      status: { not: "REMOVED" },
+      ...(excludeCanonicalIds.length > 0
+        ? { id: { notIn: excludeCanonicalIds } }
+        : {}),
       companyKey: normalizedJob.companyKey,
       AND: [
         {
@@ -319,14 +382,21 @@ export async function findCrossSourceCanonicalMatch(
 
 async function findMappingCanonicalMatch(
   field: "applyUrlKey" | "sourceUrlKey" | "postingIdKey",
-  key: string
+  key: string,
+  excludeCanonicalIds: string[] = []
 ) {
   const mappingMatch = await prisma.jobSourceMapping.findFirst({
     where: {
       [field]: key,
+      removedAt: null,
+      canonicalJob: {
+        ...(excludeCanonicalIds.length > 0
+          ? { id: { notIn: excludeCanonicalIds } }
+          : {}),
+        status: { not: "REMOVED" },
+      },
     },
     orderBy: [
-      { removedAt: "asc" },
       { isPrimary: "desc" },
       { sourceQualityRank: "desc" },
       { lastSeenAt: "desc" },
@@ -391,6 +461,10 @@ function scoreCanonicalMatch(
     candidate.shortSummary || candidate.description,
     normalizedJob.shortSummary || normalizedJob.description
   );
+  const hasStrongContentOverlap =
+    descriptionFingerprintExact ||
+    sharedDescriptionTokenCount >= 8 ||
+    snippetOverlapCount >= 8;
 
   if (
     !titleCoreExact &&
@@ -403,6 +477,39 @@ function scoreCanonicalMatch(
       evidence: {
         titleExact,
         titleCoreExact,
+        sharedTitleTokenCount,
+        sharedDescriptionTokenCount,
+        snippetOverlapCount,
+      },
+    };
+  }
+
+  if (
+    isGenericTitleCoreKey(normalizedJob.titleCoreKey) &&
+    !hasStrongContentOverlap
+  ) {
+    return {
+      score: 0,
+      evidence: {
+        titleExact,
+        titleCoreExact,
+        descriptionFingerprintExact,
+        locationExact,
+        sharedTitleTokenCount,
+        sharedDescriptionTokenCount,
+        snippetOverlapCount,
+      },
+    };
+  }
+
+  if (!locationExact) {
+    return {
+      score: 0,
+      evidence: {
+        titleExact,
+        titleCoreExact,
+        descriptionFingerprintExact,
+        locationExact,
         sharedTitleTokenCount,
         sharedDescriptionTokenCount,
         snippetOverlapCount,
@@ -445,6 +552,31 @@ function scoreCanonicalMatch(
       daysApart: Math.round(daysApart * 10) / 10,
     } satisfies CanonicalMatchEvidence,
   };
+}
+
+function shouldUseDuplicateClusterMatch(normalizedJob: NormalizedJobInput) {
+  if (isGenericTitleCoreKey(normalizedJob.titleCoreKey)) return false;
+  if (!normalizedJob.locationKey || normalizedJob.locationKey === "unknown") return false;
+  if (normalizedJob.locationKey === "remote") {
+    return normalizedJob.descriptionFingerprint.split("-").filter(Boolean).length >= 8;
+  }
+  return normalizedJob.titleCoreKey.split("-").filter(Boolean).length >= 3;
+}
+
+export function shouldRequireExactIdentifierMatch(
+  sourceIdentity: SourceIdentitySnapshot
+) {
+  if (!sourceIdentity.applyUrlKey && !sourceIdentity.postingIdKey) return false;
+  return (
+    sourceIdentity.sourceQualityKind === "FIRST_PARTY_COMPANY" ||
+    sourceIdentity.sourceQualityKind === "DIRECT_COMPANY"
+  );
+}
+
+function isGenericTitleCoreKey(value: string) {
+  const tokens = value.split("-").filter(Boolean);
+  if (tokens.length <= 1) return true;
+  return GENERIC_TITLE_CORE_KEYS.has(value);
 }
 
 function countSharedDelimitedTokens(leftValue: string, rightValue: string) {
