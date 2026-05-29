@@ -132,6 +132,18 @@ const overnightAccelerationApps = overnightAccelerationEnabled
             process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "20",
         }
       ),
+      buildOvernightShellApp(
+        "ingest-high-yield-source-poll",
+        "-lc 'while true; do timeout 360s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --limit=50 --concurrency=6 --min-age-minutes=120 --max-runtime-ms=150000; sleep 900; done'",
+        "./logs/high-yield-source-poll-overnight-out.log",
+        "./logs/high-yield-source-poll-overnight-err.log",
+        {
+          DATABASE_POOL_MAX_RECOVERY_POLL:
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "6",
+          INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "12",
+        }
+      ),
       buildOvernightApp(
         "ingest-search-index-scheduler",
         "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --schedule-only --limit=500 --raw-parse-limit=0 --dedupe-limit=0 --lifecycle-limit=0 --search-index-limit=50000 --idle-sleep-ms=60000 --error-sleep-ms=90000 --forever --skip-metrics",
