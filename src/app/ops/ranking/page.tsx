@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { prisma } from "@/lib/db";
-import { DEMO_USER_ID } from "@/lib/constants";
+import { requireCurrentProfileId } from "@/lib/current-user";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
+import { requireOpsAdmin } from "@/lib/ops-auth";
 import {
   loadFeedPrefs,
   loadBehaviorProfile,
@@ -13,16 +14,18 @@ import {
 const DEBUG_LIMIT = 50;
 
 export default async function RankingDebugPage() {
+  await requireOpsAdmin("/ops/ranking");
   await connection();
+  const profileId = await requireCurrentProfileId();
 
   const [prefs, behavior, jobs] = await Promise.all([
-    loadFeedPrefs(),
-    loadBehaviorProfile(),
+    loadFeedPrefs(profileId),
+    loadBehaviorProfile(profileId),
     prisma.jobCanonical.findMany({
       where: {
         status: { in: ["LIVE", "AGING"] },
         behaviorSignals: {
-          none: { userId: DEMO_USER_ID, action: "PASS" },
+          none: { userId: profileId, action: "PASS" },
         },
         sourceMappings: {
           some: { sourceName: { notIn: [...DEMO_SOURCE_NAMES] } },
@@ -37,6 +40,9 @@ export default async function RankingDebugPage() {
         roleFamily: true,
         workMode: true,
         experienceLevel: true,
+        salaryMin: true,
+        salaryMax: true,
+        salaryCurrency: true,
         postedAt: true,
         status: true,
         availabilityScore: true,

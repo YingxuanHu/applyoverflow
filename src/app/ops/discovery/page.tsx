@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { connection } from "next/server";
+import { requireOpsAdmin } from "@/lib/ops-auth";
 import { getDiscoveryOpsOverview } from "@/lib/queries/discovery-ops";
 
 export default async function DiscoveryOpsPage() {
+  await requireOpsAdmin("/ops/discovery");
   await connection();
   const overview = await getDiscoveryOpsOverview();
 

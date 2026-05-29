@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { connection } from "next/server";
+import { requireOpsAdmin } from "@/lib/ops-auth";
 import { getHealthOpsOverview } from "@/lib/queries/discovery-ops";
 
 export default async function HealthOpsPage() {
+  await requireOpsAdmin("/ops/health");
   await connection();
   const overview = await getHealthOpsOverview();
 
