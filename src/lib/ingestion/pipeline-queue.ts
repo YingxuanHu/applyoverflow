@@ -67,6 +67,13 @@ export async function enqueueUniquePipelineTask(input: {
     return existing;
   }
 
+  if (
+    existing.status === "FAILED" &&
+    existing.attemptCount >= existing.maxAttempts
+  ) {
+    return existing;
+  }
+
   return prisma.pipelineTask.update({
     where: { id: existing.id },
     data: {
