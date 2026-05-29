@@ -160,6 +160,16 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/search-index-scheduler-overnight-out.log",
         "./logs/search-index-scheduler-overnight-err.log"
       ),
+      buildOvernightShellApp(
+        "ingest-feed-index-sync",
+        "-lc 'sleep 900; while true; do timeout 300s node_modules/.bin/tsx -r dotenv/config scripts/backfill-job-feed-index.ts --mode=all --batch-size=250 --max-batches=4 --concurrency=2 --sleep-ms=100; sleep 1800; done'",
+        "./logs/feed-index-sync-overnight-out.log",
+        "./logs/feed-index-sync-overnight-err.log",
+        {
+          DATABASE_POOL_MAX_RECOVERY_POLL:
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+        }
+      ),
       buildOvernightApp(
         "ingest-bulk-fast",
         "-r dotenv/config scripts/bulk-recovery-loop.ts --interval=10 --catchup-seconds=30 --keys=hiringcafe:feed,himalayas:na_scale,jobicy:feed,remotive:feed,remoteok:feed,weworkremotely:feed,jobbank-live:feed,workatastartup:feed",
