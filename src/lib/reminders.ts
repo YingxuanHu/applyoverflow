@@ -12,6 +12,7 @@ type ReminderRunResult = {
 
 type TrackedApplicationWithUser = {
   id: string;
+  canonicalJobId: string | null;
   company: string;
   roleTitle: string;
   deadline: Date | null;
@@ -102,13 +103,21 @@ function shouldSendScheduledEmail(
   );
 }
 
-function getApplicationsUrl() {
+function getTrackedTargetUrl(application: {
+  id: string;
+  canonicalJobId?: string | null;
+}) {
   const baseUrl =
     process.env.BETTER_AUTH_URL?.trim() ||
     process.env.NEXT_PUBLIC_BETTER_AUTH_URL?.trim() ||
     "http://localhost:3000";
+  const base = baseUrl.replace(/\/$/, "");
 
-  return `${baseUrl.replace(/\/$/, "")}/applications`;
+  if (application.canonicalJobId) {
+    return `${base}/jobs/${application.canonicalJobId}`;
+  }
+
+  return `${base}/applications/${application.id}`;
 }
 
 async function processTrackedApplicationReminder(
@@ -154,7 +163,7 @@ async function processTrackedApplicationReminder(
     },
   });
 
-  const applicationsUrl = getApplicationsUrl();
+  const targetUrl = getTrackedTargetUrl(application);
   const shouldEmail = sendEmailImmediately
     ? application.user.emailNotificationsEnabled
     : shouldSendScheduledEmail(
@@ -166,11 +175,11 @@ async function processTrackedApplicationReminder(
     await sendEmail({
       to: application.user.email,
       subject: copy.title,
-      text: `${copy.message}\n\nOpen applications: ${applicationsUrl}`,
+      text: `${copy.message}\n\nOpen job: ${targetUrl}`,
       html: `
         <p>Hello${application.user.name ? ` ${application.user.name}` : ""},</p>
         <p>${copy.message}</p>
-        <p><a href="${applicationsUrl}">Open applications</a></p>
+        <p><a href="${targetUrl}">Open job</a></p>
       `,
     });
   }
@@ -188,6 +197,7 @@ export async function runDeadlineReminders(now = new Date()): Promise<ReminderRu
     },
     select: {
       id: true,
+      canonicalJobId: true,
       company: true,
       roleTitle: true,
       deadline: true,
@@ -235,6 +245,7 @@ export async function checkCustomReminders(now = new Date()) {
       trackedApplication: {
         select: {
           id: true,
+          canonicalJobId: true,
           company: true,
           roleTitle: true,
           userId: true,
@@ -255,6 +266,8 @@ export async function checkCustomReminders(now = new Date()) {
     const title = `Reminder: ${label}`;
     const message = event.note ? event.note : `Custom reminder for ${label}.`;
 
+    const targetUrl = getTrackedTargetUrl(event.trackedApplication);
+
     await prisma.notification.create({
       data: {
         userId: event.trackedApplication.userId,
@@ -274,11 +287,11 @@ export async function checkCustomReminders(now = new Date()) {
       await sendEmail({
         to: event.trackedApplication.user.email,
         subject: title,
-        text: `${message}\n\nOpen applications: ${getApplicationsUrl()}`,
+        text: `${message}\n\nOpen application: ${targetUrl}`,
         html: `
           <p>Hello${event.trackedApplication.user.name ? ` ${event.trackedApplication.user.name}` : ""},</p>
           <p>${message}</p>
-          <p><a href="${getApplicationsUrl()}">Open applications</a></p>
+          <p><a href="${targetUrl}">Open application</a></p>
         `,
       });
     }
@@ -296,6 +309,7 @@ export async function checkSingleTrackedApplicationReminder(applicationId: strin
     },
     select: {
       id: true,
+      canonicalJobId: true,
       company: true,
       roleTitle: true,
       deadline: true,

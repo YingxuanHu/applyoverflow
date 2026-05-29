@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, MoreHorizontal } from "lucide-react";
 
 import {
@@ -189,18 +189,18 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
   );
 
   return (
-    <div className="grid gap-6">
-      <div>
+    <div className="grid gap-5">
+      <DocumentGroup
+        count={uploadedCoverLetters.length}
+        description="Uploaded cover letters you can attach from the application workspace."
+        title="Cover letters"
+      >
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
             Uploaded by you
           </h3>
           <span className="text-xs text-muted-foreground">{uploadedCoverLetters.length}</span>
         </div>
-        <p className="mb-2 text-xs text-muted-foreground">
-          Upload cover letter versions to your library and attach them to applications from the workspace.
-        </p>
-
         {uploadedCoverLetters.length === 0 && !showAdd ? (
           <p className="py-2 text-sm italic text-muted-foreground">
             No uploaded cover letters yet.
@@ -229,13 +229,13 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
             + Add cover letter
           </button>
         )}
-      </div>
+      </DocumentGroup>
 
       {aiCoverLetters.length > 0 ? (
-        <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-3">
+        <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              AI generated
+              Generated cover letters
             </h3>
             <span className="text-xs text-muted-foreground">{aiCoverLetters.length}</span>
           </div>
@@ -250,5 +250,32 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
         </div>
       ) : null}
     </div>
+  );
+}
+
+function DocumentGroup({
+  children,
+  count,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  count: number;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-lg border border-border/70 bg-background/45 p-3">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {title}
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <span className="text-xs text-muted-foreground">{count}</span>
+      </div>
+      {children}
+    </section>
   );
 }

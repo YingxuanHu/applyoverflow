@@ -35,7 +35,7 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
         applyUrl: true,
         status: true,
         eligibility: {
-          select: { submissionCategory: true },
+          select: { submissionCategory: true, reasonDescription: true },
         },
       },
     }),
@@ -48,7 +48,11 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
         location: true,
         workAuthorization: true,
         linkedinUrl: true,
+        githubUrl: true,
         portfolioUrl: true,
+        salaryMin: true,
+        salaryMax: true,
+        salaryCurrency: true,
         resumeVariants: {
           orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
           select: {
@@ -70,10 +74,11 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
     notFound();
   }
 
-  // Eligibility gate. Only AUTO_SUBMIT_READY jobs route to this page; everything
-  // else should use the /jobs/[id]/apply review workspace instead.
+  // Eligibility gate. Supported structured ATS jobs can enter the review-first
+  // auto-apply flow; manual-only jobs stay on the standard job page.
   const isAutoEligible =
-    job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" &&
+    Boolean(job.eligibility) &&
+    job.eligibility?.submissionCategory !== "MANUAL_ONLY" &&
     job.status === "LIVE" &&
     /^https?:\/\//i.test(job.applyUrl);
 
@@ -111,7 +116,11 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
     location: profile.location,
     workAuthorization: profile.workAuthorization,
     linkedinUrl: profile.linkedinUrl,
+    githubUrl: profile.githubUrl,
     portfolioUrl: profile.portfolioUrl,
+    salaryMin: profile.salaryMin,
+    salaryMax: profile.salaryMax,
+    salaryCurrency: profile.salaryCurrency,
   };
 
   const defaultResumeId =

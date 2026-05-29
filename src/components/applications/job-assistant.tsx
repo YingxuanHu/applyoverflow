@@ -332,7 +332,7 @@ export function JobAssistant({
             </p>
             <h3 className="mt-1 text-base font-semibold text-foreground">Ask AI about this job</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Uses the current role, your full profile, your uploaded resumes, linked documents, fit analysis, and notes.
+              Uses the current role, your full profile, your uploaded resumes, linked documents, fit analysis, and reminders.
             </p>
           </div>
           {messages.length > 0 ? (
@@ -356,7 +356,7 @@ export function JobAssistant({
           <ContextBadge active={hasResume} label="Resume" />
           <ContextBadge active={hasCoverLetter} label="Cover letter" />
           <ContextBadge active={hasFitAnalysis} label="Fit analysis" />
-          <ContextBadge active={hasNotes} label="Notes" />
+          <ContextBadge active={hasNotes} label="Reminders" />
         </div>
       </div>
 

@@ -26,6 +26,10 @@ function makeJob(overrides: Partial<NormalizedJobInput> = {}): NormalizedJobInpu
     shortSummary: "Build product features with TypeScript and React.",
     industry: "TECH",
     roleFamily: "SWE",
+    normalizedEmploymentType: "FULL_TIME",
+    normalizedCareerStage: "MID_LEVEL",
+    normalizedIndustry: "TECHNOLOGY",
+    normalizedRoleCategory: "SOFTWARE_ENGINEERING",
     applyUrl: "https://boards.greenhouse.io/example/jobs/123",
     applyUrlKey: "boards.greenhouse.io/example/jobs/123",
     postedAt: new Date("2026-05-26T12:00:00Z"),
@@ -35,12 +39,13 @@ function makeJob(overrides: Partial<NormalizedJobInput> = {}): NormalizedJobInpu
   };
 }
 
-test("eligibility only marks implemented ATS fillers as auto-submit ready", () => {
+test("eligibility does not call a known ATS fully auto-submittable before preflight", () => {
   const greenhouse = buildEligibilityDraft({
     sourceName: "Greenhouse:Example",
     job: makeJob(),
   });
-  assert.equal(greenhouse.submissionCategory, "AUTO_SUBMIT_READY");
+  assert.equal(greenhouse.submissionCategory, "AUTO_FILL_REVIEW");
+  assert.match(greenhouse.reasonDescription, /verified|reviewed|preflight/i);
 
   const workday = buildEligibilityDraft({
     sourceName: "Workday:Example",
@@ -53,13 +58,18 @@ test("eligibility only marks implemented ATS fillers as auto-submit ready", () =
   assert.match(workday.reasonDescription, /manual/i);
 });
 
-test("auto-apply API only exposes real submit mode and syncs successful submissions to Applications", () => {
+test("auto-apply API requires review intent and explicit submit confirmation", () => {
   const routeSource = readFileSync(
     new URL("../src/app/api/jobs/[id]/auto-apply/route.ts", import.meta.url),
     "utf8"
   );
 
   assert.match(routeSource, /VALID_MODES:[\s\S]*\["fill_and_submit"\]/);
+  assert.match(routeSource, /VALID_INTENTS[\s\S]*"review"[\s\S]*"submit"/);
+  assert.match(routeSource, /confirmSubmission/);
+  assert.match(routeSource, /Review and explicit confirmation are required before submission/);
+  assert.match(routeSource, /mode:\s*"dry_run"/);
+  assert.match(routeSource, /recordResult:\s*false/);
   assert.doesNotMatch(routeSource, /"fill_only",\s*"fill_and_submit"/);
   assert.match(routeSource, /syncTrackedApplicationFromSubmission\(jobId\)/);
   assert.match(routeSource, /saveJob\(jobId,\s*"APPLIED"\)/);

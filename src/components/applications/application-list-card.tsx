@@ -252,9 +252,6 @@ export function ApplicationListCard({ application }: { application: ApplicationL
             <p className="mt-2 text-sm text-muted-foreground">
               Deadline: {formatTrackerDate(application.deadline)}
             </p>
-            {application.notes ? (
-              <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{application.notes}</p>
-            ) : null}
             {application.tags.length > 0 ? (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {application.tags.map(({ tag }) => (

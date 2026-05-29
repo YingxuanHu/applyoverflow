@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { KeyRound, LoaderCircle } from "lucide-react";
 
 import { useNotifications } from "@/components/ui/notification-provider";
+import {
+  normalizeSalaryCurrency,
+  SALARY_COMPARISON_CURRENCIES,
+} from "@/lib/currency-conversion";
 import { cn } from "@/lib/utils";
 
 import { initialSettingsState, type SettingsActionState } from "./action-state";
@@ -162,6 +166,8 @@ export function PreferencesForm({
     initialSettingsState
   );
   useSettingsFeedback(state);
+  const defaultSalaryCurrency =
+    normalizeSalaryCurrency(defaults.salaryCurrency) ?? "USD";
 
   return (
     <form action={formAction} className="mt-4 grid gap-4">
@@ -254,12 +260,15 @@ export function PreferencesForm({
           </label>
           <select
             className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-            defaultValue={defaults.salaryCurrency}
+            defaultValue={defaultSalaryCurrency}
             id="pref-currency"
             name="salaryCurrency"
           >
-            <option value="USD">USD</option>
-            <option value="CAD">CAD</option>
+            {SALARY_COMPARISON_CURRENCIES.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -339,7 +348,12 @@ export function AutomationForm({
     saveAutomationSettings,
     initialSettingsState
   );
+  const [selectedMode, setSelectedMode] = useState(normalizedCurrentMode);
   useSettingsFeedback(state);
+
+  useEffect(() => {
+    setSelectedMode(normalizedCurrentMode);
+  }, [normalizedCurrentMode]);
 
   return (
     <form action={formAction} className="mt-4 grid gap-3">
@@ -349,11 +363,11 @@ export function AutomationForm({
         role="radiogroup"
       >
         {AUTOMATION_MODE_OPTIONS.map((option) => {
-          const isActive = normalizedCurrentMode === option.value;
+          const isActive = selectedMode === option.value;
           return (
             <label
               className={cn(
-                "relative flex cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 transition-colors",
+                "relative flex cursor-pointer flex-col gap-1 rounded-lg border px-4 py-3 transition-colors",
                 isActive
                   ? "border-foreground bg-accent/40"
                   : "border-border/70 bg-background/60 hover:bg-accent/30"
@@ -362,8 +376,9 @@ export function AutomationForm({
             >
               <input
                 className="sr-only"
-                defaultChecked={isActive}
+                checked={isActive}
                 name="automationMode"
+                onChange={() => setSelectedMode(option.value)}
                 type="radio"
                 value={option.value}
               />
@@ -412,7 +427,7 @@ export function NotificationsForm({
 
   return (
     <form action={formAction} className="mt-4 grid gap-3">
-      <label className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3 text-sm text-foreground">
+      <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/60 px-4 py-3 text-sm text-foreground">
         <input
           className="mt-1 h-4 w-4 rounded border border-input"
           defaultChecked={defaultEnabled}

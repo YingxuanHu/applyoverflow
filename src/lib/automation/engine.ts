@@ -49,6 +49,8 @@ export type EngineOptions = {
   atsFilter?: string[];
   /** Log function */
   log?: (message: string) => void;
+  /** Persist ApplicationSubmission logs. Review/preflight runs should leave this false. */
+  recordResult?: boolean;
 };
 
 // ─── Main entry point ────────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
     mode: modeOverride,
     maxPerRun = DEFAULT_MAX_PER_HOUR,
     delayBetweenMs = DEFAULT_DELAY_BETWEEN_MS,
+    recordResult = true,
     log = console.log,
   } = options;
 
@@ -112,8 +115,12 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
       const result = await runSingleJob(candidate, filler, profile, runMode, log);
       results.push(result);
 
-      // Record result to database
-      await recordAutomationResult(candidate, result, runMode, userId);
+      // Record result to database only for real automation runs. Review
+      // preflights are intentionally read-only so users can inspect the form
+      // without creating submission history.
+      if (recordResult) {
+        await recordAutomationResult(candidate, result, runMode, userId);
+      }
 
       // Rate limiting delay
       if (i < candidates.length - 1) {
@@ -138,7 +145,25 @@ export async function runAutoApply(options: EngineOptions = {}): Promise<AutoApp
 
 export function resolveAutomationUserId(userId: string | null | undefined) {
   const trimmedUserId = userId?.trim();
-  return trimmedUserId || DEMO_USER_ID;
+  if (trimmedUserId) {
+    return trimmedUserId;
+  }
+
+  const configuredUserId = process.env.AUTO_APPLY_USER_PROFILE_ID?.trim();
+  if (configuredUserId) {
+    return configuredUserId;
+  }
+
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.ALLOW_DEMO_USER_FALLBACK === "1"
+  ) {
+    return DEMO_USER_ID;
+  }
+
+  throw new Error(
+    "Auto-apply requires an explicit user profile id. Pass userId, set AUTO_APPLY_USER_PROFILE_ID, or set ALLOW_DEMO_USER_FALLBACK=1 for local demo runs."
+  );
 }
 
 // ─── Single job runner ───────────────────────────────────────────────────────
@@ -199,12 +224,13 @@ function resolveRunMode(
   submissionCategory: string,
   userAutomationMode: string
 ): AutomationRunMode {
-  // Never auto-submit unless both the job and user settings allow it
+  // Never auto-submit from ambient settings. A submit-capable caller must pass
+  // mode="fill_and_submit" explicitly after a user has reviewed the fields.
   if (
     submissionCategory === "AUTO_SUBMIT_READY" &&
     userAutomationMode === "STRICT_AUTO_APPLY"
   ) {
-    return "fill_and_submit";
+    return "fill_only";
   }
 
   if (
@@ -229,6 +255,7 @@ type ProfileData = {
   name: string;
   email: string;
   phone: string | null;
+  location: string | null;
   linkedinUrl: string | null;
   githubUrl: string | null;
   portfolioUrl: string | null;
@@ -236,6 +263,9 @@ type ProfileData = {
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
+  skillsText: string | null;
+  experienceText: string | null;
+  educationText: string | null;
   automationMode: string;
   resumeVariants: Array<{
     id: string;
@@ -373,8 +403,10 @@ function buildFillerProfile(profile: ProfileData): FillerProfile {
   return {
     firstName: nameParts[0] ?? "",
     lastName: nameParts.slice(1).join(" ") || (nameParts[0] ?? ""),
+    preferredName: null,
     email: profile.email,
     phone: profile.phone,
+    location: profile.location,
     linkedinUrl: profile.linkedinUrl,
     githubUrl: profile.githubUrl,
     portfolioUrl: profile.portfolioUrl,
@@ -382,6 +414,9 @@ function buildFillerProfile(profile: ProfileData): FillerProfile {
     salaryMin: profile.salaryMin,
     salaryMax: profile.salaryMax,
     salaryCurrency: profile.salaryCurrency,
+    skillsText: profile.skillsText,
+    experienceText: profile.experienceText,
+    educationText: profile.educationText,
   };
 }
 

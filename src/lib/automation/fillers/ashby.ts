@@ -27,6 +27,7 @@ import type {
   AutomationBlocker,
 } from "../types";
 import { buildFieldValueMap, matchLabelToConcept } from "../field-map";
+import { detectMappedFieldsForReview } from "../form-detection";
 import { navigateToForm, detectBlockers } from "../browser";
 import { captureScreenshot } from "../screenshots";
 
@@ -52,6 +53,7 @@ async function fillAshbyForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
 
   // Ashby is a SPA — wait for React to hydrate
   await page.waitForTimeout(3000);
+  await openAshbyApplicationForm(page);
 
   // Wait for form to appear
   const formLoaded = await page
@@ -72,6 +74,7 @@ async function fillAshbyForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
     }
   }
 
+  await hydrateAshbyApplicationFields(page);
   screenshots.push(await captureScreenshot(page, screenshotDir, "01_form_loaded"));
 
   // ─── Check blockers ────────────────────────────────────────────────
@@ -80,14 +83,28 @@ async function fillAshbyForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
     for (const b of detectedBlockers) {
       blockers.push({ type: b.type as AutomationBlocker["type"], detail: b.detail });
     }
-    return makeResult("blocked", filledFields, unfillableFields, blockers, screenshots, start);
+  }
+
+  const detectedForReview = await detectMappedFieldsForReview(
+    page,
+    values,
+    ctx.applicationPackage.savedAnswers,
+    { platform: "Ashby" }
+  );
+
+  if (blockers.length > 0) {
+    screenshots.push(await captureScreenshot(page, screenshotDir, "02_blocked_preflight"));
+    return makeResult("blocked", detectedForReview.filled, detectedForReview.unfillable, blockers, screenshots, start,
+      "Ashby form inspected, but automation is blocked by site protection or another unsupported step.");
   }
 
   if (mode === "dry_run") {
     screenshots.push(await captureScreenshot(page, screenshotDir, "02_dry_run"));
-    return makeResult("filled", [], [], blockers, screenshots, start,
-      "Dry run: Ashby SPA form detected.");
+    return makeResult("filled", detectedForReview.filled, detectedForReview.unfillable, blockers, screenshots, start,
+      "Dry run: Ashby SPA form detected. Fields identified but not filled.");
   }
+
+  mergeUnfillableFields(unfillableFields, detectedForReview.unfillable);
 
   // ─── Fill fields by label matching ─────────────────────────────────
   // Ashby doesn't use consistent IDs — we rely on label text
@@ -123,8 +140,11 @@ async function fillAshbyForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
     await fillFieldByLabel(page, /cover\s*letter/i, values.cover_letter, "Cover letter", false, filledFields, unfillableFields);
   }
 
+  // ─── Structured choice/select controls detected during preflight ────
+  await fillAshbyDetectedChoiceFields(page, detectedForReview.filled, filledFields);
+
   // ─── Custom questions (heuristic) ──────────────────────────────────
-  await fillAshbyCustomQuestions(page, values, ctx.applicationPackage.savedAnswers, filledFields, unfillableFields);
+  await fillAshbyCustomQuestions(page, values, ctx.applicationPackage.savedAnswers, filledFields);
 
   screenshots.push(await captureScreenshot(page, screenshotDir, "03_form_filled"));
 
@@ -183,6 +203,56 @@ async function fillAshbyForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function openAshbyApplicationForm(page: Page) {
+  const controls = await page.locator("input, textarea, select").count();
+  if (controls > 0 || /\/application\/?$/i.test(new URL(page.url()).pathname)) {
+    return;
+  }
+
+  const applicationLink = page
+    .locator(
+      'a[href$="/application"], a:has-text("Apply for this Job"), a:has-text("Application")'
+    )
+    .first();
+  if ((await applicationLink.count()) > 0) {
+    const href = await applicationLink.getAttribute("href").catch(() => null);
+    if (href) {
+      await page
+        .goto(new URL(href, page.url()).toString(), {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        })
+        .catch(() => null);
+      await page.waitForTimeout(3000);
+      return;
+    }
+    await applicationLink.click({ timeout: 5000 }).catch(() => null);
+    await page.waitForTimeout(3000);
+    return;
+  }
+
+  const applyButton = page.getByRole("button", { name: /apply/i }).first();
+  if ((await applyButton.count()) > 0) {
+    await applyButton.click({ timeout: 5000 }).catch(() => null);
+    await page.waitForTimeout(3000);
+  }
+}
+
+async function hydrateAshbyApplicationFields(page: Page) {
+  await page
+    .evaluate(async () => {
+      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+      for (let y = 0; y <= maxScroll; y += 700) {
+        window.scrollTo(0, y);
+        await delay(120);
+      }
+      window.scrollTo(0, 0);
+    })
+    .catch(() => null);
+  await page.waitForTimeout(500);
+}
 
 async function fillFieldByLabel(
   page: Page,
@@ -255,8 +325,7 @@ async function fillAshbyCustomQuestions(
   page: Page,
   values: Record<string, string | null>,
   savedAnswers: Record<string, string>,
-  filledFields: FilledField[],
-  unfillableFields: UnfillableField[]
+  filledFields: FilledField[]
 ) {
   // Look for question-like containers not already handled
   const allLabels = page.locator("label");
@@ -302,6 +371,149 @@ async function fillAshbyCustomQuestions(
       }
     }
   }
+}
+
+async function fillAshbyDetectedChoiceFields(
+  page: Page,
+  detectedFields: FilledField[],
+  filledFields: FilledField[]
+) {
+  for (const field of detectedFields) {
+    if (
+      field.fieldType !== "select" &&
+      field.fieldType !== "radio" &&
+      field.fieldType !== "checkbox"
+    ) {
+      continue;
+    }
+
+    if (field.fieldType === "select") {
+      const select = page.locator(field.selector).first();
+      if ((await select.count().catch(() => 0)) === 0) continue;
+      const selected = await select.selectOption({ label: field.value }).then(
+        () => true,
+        () => false
+      );
+      if (selected) {
+        filledFields.push({
+          label: field.label,
+          selector: field.selector,
+          value: field.value,
+          required: field.required,
+          fieldType: field.fieldType,
+          options: field.options,
+          sourcePlatform: field.sourcePlatform,
+          confidence: field.confidence,
+          sensitive: field.sensitive,
+          custom: field.custom,
+          reviewRequired: field.reviewRequired,
+        });
+      }
+      continue;
+    }
+
+    const inputs = page.locator(field.selector);
+    const count = Math.min(await inputs.count().catch(() => 0), 24);
+    for (let index = 0; index < count; index++) {
+      const input = inputs.nth(index);
+      const optionLabel = await getAshbyOptionLabel(page, input);
+      if (!optionMatches(optionLabel, field.value)) continue;
+
+      const clickedButton = await clickAshbyButtonOption(input, field.value);
+      const checked = clickedButton || await input.check({ force: true }).then(
+        () => true,
+        () => false
+      );
+      if (checked) {
+        filledFields.push({
+          label: field.label,
+          selector: `${field.selector}:option(${index})`,
+          value: field.value,
+          required: field.required,
+          fieldType: field.fieldType,
+          options: field.options,
+          sourcePlatform: field.sourcePlatform,
+          confidence: field.confidence,
+          sensitive: field.sensitive,
+          custom: field.custom,
+          reviewRequired: field.reviewRequired,
+        });
+      }
+      break;
+    }
+  }
+}
+
+async function clickAshbyButtonOption(
+  input: ReturnType<Page["locator"]>,
+  value: string
+) {
+  const buttons = input.locator("xpath=ancestor::div[1]//button");
+  const count = Math.min(await buttons.count().catch(() => 0), 8);
+  for (let index = 0; index < count; index++) {
+    const button = buttons.nth(index);
+    const text = await button.innerText({ timeout: 500 }).catch(() => "");
+    if (!optionMatches(text, value)) continue;
+    return button.click({ timeout: 1000 }).then(
+      () => true,
+      () => false
+    );
+  }
+  return false;
+}
+
+async function getAshbyOptionLabel(page: Page, input: ReturnType<Page["locator"]>) {
+  const id = await input.getAttribute("id").catch(() => null);
+  if (id) {
+    const labelText = await page
+      .locator(`label[for="${escapeAttributeValue(id)}"]`)
+      .first()
+      .innerText({ timeout: 500 })
+      .catch(() => "");
+    if (labelText.trim()) return labelText.trim();
+  }
+
+  const parentLabel = await input
+    .locator("xpath=ancestor::label[1]")
+    .innerText({ timeout: 500 })
+    .catch(() => "");
+  if (parentLabel.trim()) return parentLabel.trim();
+
+  return (await input.getAttribute("value").catch(() => null)) ?? "";
+}
+
+function optionMatches(label: string, value: string) {
+  const normalizedLabel = normalize(label);
+  const normalizedValue = normalize(value);
+  if (!normalizedLabel || !normalizedValue) return false;
+  return (
+    normalizedLabel === normalizedValue ||
+    normalizedLabel.includes(normalizedValue) ||
+    normalizedValue.includes(normalizedLabel)
+  );
+}
+
+function mergeUnfillableFields(
+  target: UnfillableField[],
+  fields: UnfillableField[]
+) {
+  const existing = new Set(
+    target.map((field) => `${normalize(field.label)}:${field.required}`)
+  );
+  for (const field of fields) {
+    const key = `${normalize(field.label)}:${field.required}`;
+    if (existing.has(key)) continue;
+    target.push(field);
+    existing.add(key);
+  }
+}
+
+function normalize(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function escapeAttributeValue(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function makeResult(

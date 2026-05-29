@@ -237,7 +237,7 @@ export async function saveProfile(
 
 /**
  * Quick-edit action used by the auto-apply review screen. Updates JUST the
- * contact fields (phone, location, linkedin, portfolio, work auth) without
+ * contact fields (phone, location, linkedin, github, portfolio, work auth) without
  * touching the structured profile data. Saves the user a trip to /profile
  * mid-flow.
  *
@@ -259,11 +259,12 @@ export async function updateAutoApplyContactAction(
   const phone = String(formData.get("phone") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
   const linkedinUrl = String(formData.get("linkedinUrl") ?? "").trim();
+  const githubUrl = String(formData.get("githubUrl") ?? "").trim();
   const portfolioUrl = String(formData.get("portfolioUrl") ?? "").trim();
   const workAuthorization = String(formData.get("workAuthorization") ?? "").trim();
 
   // Load the existing contact JSON so we can preserve fields we don't
-  // touch (full name, email, github).
+  // touch (full name, email).
   const existing = await prisma.userProfile.findUnique({
     where: { id: user.id },
     select: { contactJson: true },
@@ -275,6 +276,7 @@ export async function updateAutoApplyContactAction(
     phone,
     location,
     linkedInUrl: linkedinUrl,
+    githubUrl,
     portfolioUrl,
   };
 
@@ -289,6 +291,7 @@ export async function updateAutoApplyContactAction(
       phone: phone || null,
       location: location || null,
       linkedinUrl: linkedinUrl || null,
+      githubUrl: githubUrl || null,
       portfolioUrl: portfolioUrl || null,
       workAuthorization: workAuthorization || null,
     },

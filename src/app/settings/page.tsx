@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Bell,
-  Briefcase,
   Download,
   ExternalLink,
   KeyRound,
@@ -26,7 +25,6 @@ import {
   AccountForm,
   AutomationForm,
   NotificationsForm,
-  PreferencesForm,
 } from "./settings-forms";
 
 function formatMemberSince(value: Date | null | undefined) {
@@ -59,14 +57,9 @@ export default async function SettingsPage() {
         <div>
           <h1 className="page-title">Settings</h1>
           <p className="page-description">
-            Manage your account, job preferences, automation guardrails, and
+            Manage your account, automation guardrails, notifications, and
             workspace experience.
           </p>
-        </div>
-        <div className="page-actions">
-          <Link href="/profile">Profile</Link>
-          <Link href="/applications">Applications</Link>
-          <Link href="/notifications">Notifications</Link>
         </div>
       </div>
 
@@ -125,7 +118,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Account */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel scroll-mt-24 p-5" id="account">
         <header className="flex items-center gap-2">
           <UserIcon className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Account</h2>
@@ -136,39 +129,8 @@ export default async function SettingsPage() {
         <AccountForm defaultName={user.name} email={user.email} />
       </section>
 
-      {/* Job preferences */}
-      <section className="surface-panel p-5">
-        <header className="flex items-center gap-2">
-          <Briefcase className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Job preferences
-          </h2>
-        </header>
-        <p className="mt-1 text-sm text-muted-foreground">
-          These hints shape the feed ranking and the auto-apply eligibility
-          checks.
-        </p>
-        <PreferencesForm
-          defaults={{
-            preferredWorkMode: profile?.preferredWorkMode ?? "",
-            experienceLevel: profile?.experienceLevel ?? "",
-            salaryMin:
-              profile?.salaryMin !== null && profile?.salaryMin !== undefined
-                ? String(profile.salaryMin)
-                : "",
-            salaryMax:
-              profile?.salaryMax !== null && profile?.salaryMax !== undefined
-                ? String(profile.salaryMax)
-                : "",
-            salaryCurrency: profile?.salaryCurrency ?? "USD",
-            location: profile?.location ?? "",
-            workAuthorization: profile?.workAuthorization ?? "",
-          }}
-        />
-      </section>
-
       {/* Automation */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel scroll-mt-24 p-5" id="automation">
         <header className="flex items-center gap-2">
           <Wand2 className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -183,7 +145,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Notifications */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel scroll-mt-24 p-5" id="notifications">
         <header className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -198,12 +160,12 @@ export default async function SettingsPage() {
       </section>
 
       {/* Appearance */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel scroll-mt-24 p-5" id="appearance">
         <header className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
         </header>
-        <div className="mt-4 flex flex-col gap-4 rounded-xl border border-border/60 bg-background/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-4 rounded-lg border border-border/60 bg-background/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">Theme</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -215,7 +177,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Privacy & Data */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel scroll-mt-24 p-5" id="data">
         <header className="flex items-center gap-2">
           <Download className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -223,27 +185,23 @@ export default async function SettingsPage() {
           </h2>
         </header>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-border/60 bg-background/60 px-4 py-4">
+          <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
             <p className="text-sm font-medium text-foreground">
               Export your data
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Download a copy of your profile, tracked applications, and
-              notifications. We&apos;ll email you when the export is ready.
+              Download a JSON copy of your profile, tracked applications,
+              notifications, saved jobs, and application history.
             </p>
-            <button
-              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/70 disabled:opacity-60"
-              disabled
-              type="button"
+            <a
+              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/70"
+              href="/api/settings/export"
             >
               <Download className="h-3 w-3" />
-              Request export
-            </button>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Coming soon.
-            </p>
+              Download export
+            </a>
           </div>
-          <div className="rounded-xl border border-border/60 bg-background/60 px-4 py-4">
+          <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
             <p className="text-sm font-medium text-foreground">
               Resumes &amp; documents
             </p>

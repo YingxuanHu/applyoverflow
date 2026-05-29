@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 
-import { DEMO_USER_ID } from "@/lib/constants";
-import { prisma, withPrismaConnectionRetry } from "@/lib/db";
+import { withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
 
@@ -41,14 +40,6 @@ async function getSessionUser(): Promise<SessionUser | null> {
   }
 }
 
-async function getDemoProfile() {
-  return withPrismaConnectionRetry(() =>
-    prisma.userProfile.findUnique({
-      where: { id: DEMO_USER_ID },
-    })
-  );
-}
-
 async function ensureProfileForUser(user: SessionUser) {
   return syncProfileForAuthUser(user);
 }
@@ -61,17 +52,11 @@ export async function getOptionalCurrentAuthUserId() {
   return (await getSessionUser())?.id ?? null;
 }
 
-export async function getOptionalCurrentUserProfile(options?: {
-  fallbackToDemo?: boolean;
-}) {
+export async function getOptionalCurrentUserProfile() {
   const sessionUser = await getSessionUser();
 
   if (sessionUser) {
     return ensureProfileForUser(sessionUser);
-  }
-
-  if (options?.fallbackToDemo) {
-    return getDemoProfile();
   }
 
   return null;
@@ -87,14 +72,27 @@ export async function requireCurrentUserProfile() {
   return profile;
 }
 
-export async function getOptionalCurrentProfileId(options?: {
-  fallbackToDemo?: boolean;
-}) {
-  return (await getOptionalCurrentUserProfile(options))?.id ?? null;
+export async function getOptionalCurrentProfileId() {
+  return (await getOptionalCurrentUserProfile())?.id ?? null;
 }
 
 export async function requireCurrentProfileId() {
   return (await requireCurrentUserProfile()).id;
+}
+
+export async function requireCurrentUserIds() {
+  const sessionUser = await getSessionUser();
+
+  if (!sessionUser) {
+    throw new UnauthorizedError();
+  }
+
+  const profile = await ensureProfileForUser(sessionUser);
+
+  return {
+    authUserId: sessionUser.id,
+    profileId: profile.id,
+  };
 }
 
 export async function requireCurrentAuthUserId() {

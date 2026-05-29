@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "playwright";
 
@@ -28,6 +28,20 @@ export async function captureScreenshot(
 ): Promise<string> {
   const filename = `${label.replace(/[^a-z0-9_-]/gi, "_")}.png`;
   const filepath = join(dir, filename);
-  await page.screenshot({ path: filepath, fullPage: true });
-  return filepath;
+  try {
+    await page.screenshot({ path: filepath, fullPage: true });
+    return filepath;
+  } catch (error) {
+    const fallbackPath = join(
+      dir,
+      `${label.replace(/[^a-z0-9_-]/gi, "_")}.unavailable.txt`
+    );
+    const message = error instanceof Error ? error.message : String(error);
+    writeFileSync(
+      fallbackPath,
+      `Screenshot unavailable for ${label}: ${message}\n`,
+      "utf8"
+    );
+    return fallbackPath;
+  }
 }

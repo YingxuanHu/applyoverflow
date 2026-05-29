@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { FileText, Mail, Star, User2 } from "lucide-react";
+import { Briefcase, FileText, FolderOpen, User2 } from "lucide-react";
 
 import { prisma } from "@/lib/db";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
@@ -11,6 +11,7 @@ import { CoverLetterManager } from "@/components/profile/cover-letter-manager";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { ResumeManager } from "@/components/profile/resume-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PreferencesForm } from "@/app/settings/settings-forms";
 
 type ProfileSummary = {
   headline: boolean;
@@ -48,7 +49,11 @@ function buildCompleteness(values: ReturnType<typeof buildProfileFormValues>): {
   return { pct, filled, total, missing };
 }
 
-export default async function ProfilePage() {
+export default async function ProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const sessionUser = await getOptionalSessionUser();
 
   if (!sessionUser) {
@@ -71,6 +76,11 @@ export default async function ProfilePage() {
         githubUrl: true,
         portfolioUrl: true,
         workAuthorization: true,
+        preferredWorkMode: true,
+        experienceLevel: true,
+        salaryMin: true,
+        salaryMax: true,
+        salaryCurrency: true,
         skillsText: true,
         experienceText: true,
         educationText: true,
@@ -134,33 +144,32 @@ export default async function ProfilePage() {
   const resumeCount = resumes.length;
   const primaryResume = resumes.find((resume) => resume.isPrimary) ?? null;
   const coverLetterCount = coverLetters.length;
+  const documentCount = resumeCount + templates.length + coverLetterCount;
   const missingApplicationDetails =
     !initialValues.contact.phone.trim() ||
     !initialValues.contact.linkedInUrl.trim() ||
     !initialValues.contact.portfolioUrl.trim() ||
     !initialValues.workAuthorization.trim();
 
-  // Pick a sensible default tab: resumes if none uploaded yet, else About-you
-  // if profile is incomplete, else resumes.
-  const defaultTab = missingApplicationDetails
-    ? "about"
-    : resumeCount === 0
-    ? "resumes"
-    : completeness.pct < 70
-    ? "about"
-    : "resumes";
+  const params = await searchParams;
+  const requestedTab =
+    params.tab === "details" ? "details" : params.tab === "documents" ? "documents" : null;
+  const defaultTab =
+    requestedTab ?? (missingApplicationDetails || completeness.pct < 70 ? "details" : "documents");
 
   return (
     <div className="app-page space-y-6">
-      <header className="space-y-1">
-        <h1 className="page-title">Profile</h1>
-        <p className="page-description">
-          Your identity across applications — resumes, cover letters, and the details we send with every submission.
-        </p>
+      <header className="page-header">
+        <div>
+          <h1 className="page-title">Profile</h1>
+          <p className="page-description">
+            Your identity across applications — resumes, cover letters, and the details we send with every submission.
+          </p>
+        </div>
       </header>
 
       {/* Summary strip */}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}
           label="Profile complete"
@@ -175,111 +184,146 @@ export default async function ProfilePage() {
           progress={completeness.pct}
         />
         <SummaryTile
-          icon={<FileText className="h-4 w-4" />}
-          label="Resumes"
-          value={resumeCount.toString()}
+          icon={<FolderOpen className="h-4 w-4" />}
+          label="Documents"
+          value={documentCount.toString()}
           hint={
             primaryResume
               ? `Primary: ${primaryResume.title || primaryResume.originalFileName}`
-              : resumeCount > 0
-              ? "No primary set"
-              : "Upload one to start applying"
+              : documentCount > 0
+                ? "Resume, template, and cover letter library"
+                : "Upload a resume to start applying"
           }
         />
         <SummaryTile
-          icon={<Mail className="h-4 w-4" />}
-          label="Cover letters"
-          value={coverLetterCount.toString()}
-          hint={
-            coverLetterCount > 0
-              ? "Ready to attach to applications"
-              : "Optional — add one for personalized submissions"
-          }
-        />
-        <SummaryTile
-          icon={<Star className="h-4 w-4" />}
+          icon={<FileText className="h-4 w-4" />}
           label="Templates"
           value={templates.length.toString()}
           hint={
             templates.length > 0
-              ? "Used to format generated resumes"
-              : "No template uploaded"
+              ? `${coverLetterCount} cover letter${coverLetterCount === 1 ? "" : "s"} saved`
+              : "Optional formatting for generated resumes"
           }
         />
       </section>
 
       {/* Tabs */}
-      <Tabs defaultValue={defaultTab} className="w-full">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="resumes">Resumes &amp; templates</TabsTrigger>
-          <TabsTrigger value="cover-letters">Cover letters</TabsTrigger>
-          <TabsTrigger value="about">Application details</TabsTrigger>
+      <Tabs defaultValue={defaultTab} key={defaultTab} className="w-full">
+        <TabsList className="w-full justify-start" variant="line">
+          <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="details">Application profile</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="resumes" className="mt-4">
-          <div className="surface-panel p-4 sm:p-5">
-            <ResumeManager
-              resumes={resumes.map((resume) => ({
-                id: resume.id,
-                title: resume.title,
-                originalFileName: resume.originalFileName,
-                mimeType: resume.mimeType,
-                sizeLabel: formatFileSize(resume.sizeBytes),
-                createdAtLabel: formatMediumDateTimeEnCa(resume.createdAt),
-                isPrimary: resume.isPrimary,
-                isAiGenerated: resume.isAiGenerated,
-                downloadHref: `/api/profile/documents/${resume.id}/download`,
-                importSummary:
-                  (resume.analysis?.importSummaryJson as ResumeImportSummary | null) ?? null,
-                isImported: resume.analysis !== null,
-              }))}
-              templates={templates.map((template) => ({
-                id: template.id,
-                title: template.title,
-                originalFileName: template.originalFileName,
-                mimeType: template.mimeType,
-                isPrimary: template.isPrimary,
-                downloadHref: `/api/profile/documents/${template.id}/download`,
-              }))}
-              storageConfigured={storageReadiness.configured}
-            />
-          </div>
+        <TabsContent value="documents" className="mt-4" id="documents">
+          <section className="surface-panel p-4 sm:p-5">
+            <header className="flex items-start gap-2">
+              <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">
+                  Resume and cover letter library
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                  Keep uploaded resumes, generation templates, and cover letters organized for review and auto-apply.
+                </p>
+              </div>
+            </header>
+
+            <div className="mt-5 grid gap-5">
+              <ResumeManager
+                resumes={resumes.map((resume) => ({
+                  id: resume.id,
+                  title: resume.title,
+                  originalFileName: resume.originalFileName,
+                  mimeType: resume.mimeType,
+                  sizeLabel: formatFileSize(resume.sizeBytes),
+                  createdAtLabel: formatMediumDateTimeEnCa(resume.createdAt),
+                  isPrimary: resume.isPrimary,
+                  isAiGenerated: resume.isAiGenerated,
+                  downloadHref: `/api/profile/documents/${resume.id}/download`,
+                  importSummary:
+                    (resume.analysis?.importSummaryJson as ResumeImportSummary | null) ?? null,
+                  isImported: resume.analysis !== null,
+                }))}
+                templates={templates.map((template) => ({
+                  id: template.id,
+                  title: template.title,
+                  originalFileName: template.originalFileName,
+                  mimeType: template.mimeType,
+                  isPrimary: template.isPrimary,
+                  downloadHref: `/api/profile/documents/${template.id}/download`,
+                }))}
+                storageConfigured={storageReadiness.configured}
+              />
+              <CoverLetterManager
+                coverLetters={coverLetters.map((coverLetter) => ({
+                  id: coverLetter.id,
+                  title: coverLetter.title,
+                  originalFileName: coverLetter.originalFileName,
+                  mimeType: coverLetter.mimeType,
+                  sizeLabel: formatFileSize(coverLetter.sizeBytes),
+                  createdAtLabel: formatMediumDateTimeEnCa(coverLetter.createdAt),
+                  isAiGenerated: coverLetter.isAiGenerated,
+                  downloadHref: `/api/profile/documents/${coverLetter.id}/download`,
+                }))}
+                storageConfigured={storageReadiness.configured}
+              />
+            </div>
+          </section>
         </TabsContent>
 
-        <TabsContent value="cover-letters" className="mt-4">
-          <div className="surface-panel p-4 sm:p-5">
-            <CoverLetterManager
-              coverLetters={coverLetters.map((coverLetter) => ({
-                id: coverLetter.id,
-                title: coverLetter.title,
-                originalFileName: coverLetter.originalFileName,
-                mimeType: coverLetter.mimeType,
-                sizeLabel: formatFileSize(coverLetter.sizeBytes),
-                createdAtLabel: formatMediumDateTimeEnCa(coverLetter.createdAt),
-                isAiGenerated: coverLetter.isAiGenerated,
-                downloadHref: `/api/profile/documents/${coverLetter.id}/download`,
-              }))}
-              storageConfigured={storageReadiness.configured}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="about" className="mt-4">
-          <div className="surface-panel p-4 sm:p-5">
-            <ProfileForm
-              key={profileFormKey}
-              initialValues={{
-                headline: initialValues.headline,
-                summary: initialValues.summary,
-                location: initialValues.location,
-                workAuthorization: initialValues.workAuthorization,
-                contact: initialValues.contact,
-                skills: initialValues.skills,
-                educations: initialValues.educations,
-                experiences: initialValues.experiences,
-                projects: initialValues.projects,
-              }}
-            />
+        <TabsContent value="details" className="mt-4" id="application-profile-tab">
+          <div className="grid gap-4">
+            <section className="surface-panel scroll-mt-24 p-4 sm:p-5" id="job-preferences">
+              <header className="flex items-center gap-2">
+                <Briefcase className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
+              </header>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Used for best-match ranking, salary-aware filtering defaults, and auto-apply checks.
+              </p>
+              <PreferencesForm
+                defaults={{
+                  preferredWorkMode: profile?.preferredWorkMode ?? "",
+                  experienceLevel: profile?.experienceLevel ?? "",
+                  salaryMin:
+                    profile?.salaryMin !== null && profile?.salaryMin !== undefined
+                      ? String(profile.salaryMin)
+                      : "",
+                  salaryMax:
+                    profile?.salaryMax !== null && profile?.salaryMax !== undefined
+                      ? String(profile.salaryMax)
+                      : "",
+                  salaryCurrency: profile?.salaryCurrency ?? "USD",
+                  location: profile?.location ?? "",
+                  workAuthorization: profile?.workAuthorization ?? "",
+                }}
+              />
+            </section>
+            <section className="surface-panel p-4 sm:p-5" id="application-profile">
+              <header className="flex items-start gap-2">
+                <User2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Application profile</h2>
+                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                    Structured identity, experience, and contact fields used to map application forms safely.
+                  </p>
+                </div>
+              </header>
+              <ProfileForm
+                key={profileFormKey}
+                initialValues={{
+                  headline: initialValues.headline,
+                  summary: initialValues.summary,
+                  location: initialValues.location,
+                  workAuthorization: initialValues.workAuthorization,
+                  contact: initialValues.contact,
+                  skills: initialValues.skills,
+                  educations: initialValues.educations,
+                  experiences: initialValues.experiences,
+                  projects: initialValues.projects,
+                }}
+              />
+            </section>
           </div>
         </TabsContent>
       </Tabs>
@@ -301,7 +345,7 @@ function SummaryTile({
   progress?: number;
 }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
+    <div className="rounded-lg border border-border/70 bg-background/60 p-4">
       <div className="flex items-center gap-2 text-muted-foreground">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-foreground">
           {icon}

@@ -26,6 +26,7 @@ import {
   linkTrackedApplicationDocument,
   removeTrackedApplicationTag,
   unlinkTrackedApplicationDocument,
+  updateTrackedApplicationEvent,
   updateTrackedApplicationField,
   updateTrackedApplicationStatus,
 } from "@/lib/queries/tracker";
@@ -260,11 +261,12 @@ export async function addTimelineEvent(
     const reminderAtRaw = String(formData.get("reminderAt") ?? "").trim();
     let reminderAt: Date | null = null;
 
-    if (typeRaw === "REMINDER") {
-      if (!reminderAtRaw) {
-        return { error: "A date and time is required for reminder events.", success: null };
-      }
+    const note = String(formData.get("note") ?? "").trim();
+    if (typeRaw === "REMINDER" && !note) {
+      return { error: "Reminder text is required.", success: null };
+    }
 
+    if (typeRaw === "REMINDER" && reminderAtRaw) {
       reminderAt = new Date(reminderAtRaw);
       if (Number.isNaN(reminderAt.getTime())) {
         return { error: "Invalid reminder date/time.", success: null };
@@ -277,12 +279,56 @@ export async function addTimelineEvent(
     await addTrackedApplicationEvent({
       applicationId,
       type: typeRaw as TrackedApplicationEventType,
-      note: String(formData.get("note") ?? "").trim() || null,
+      note: note || null,
       reminderAt,
     });
 
     revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
-    return { error: null, success: "Event added." };
+    return { error: null, success: typeRaw === "REMINDER" ? "Reminder added." : "Event added." };
+  } catch (error) {
+    return toActionState(error);
+  }
+}
+
+export async function updateTimelineEvent(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const applicationId = String(formData.get("applicationId") ?? "").trim();
+    const eventId = String(formData.get("eventId") ?? "").trim();
+    const typeRaw = String(formData.get("type") ?? "").trim().toUpperCase();
+    const note = String(formData.get("note") ?? "").trim();
+    const reminderAtRaw = String(formData.get("reminderAt") ?? "").trim();
+
+    if (!applicationId || !eventId || typeRaw !== "REMINDER") {
+      return { error: "Invalid parameters.", success: null };
+    }
+
+    if (!note) {
+      return { error: "Reminder text is required.", success: null };
+    }
+
+    let reminderAt: Date | null = null;
+    if (reminderAtRaw) {
+      reminderAt = new Date(reminderAtRaw);
+      if (Number.isNaN(reminderAt.getTime())) {
+        return { error: "Invalid reminder date/time.", success: null };
+      }
+      if (reminderAt <= new Date()) {
+        return { error: "Reminder date must be in the future.", success: null };
+      }
+    }
+
+    await updateTrackedApplicationEvent({
+      applicationId,
+      eventId,
+      note,
+      reminderAt,
+    });
+
+    revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
+    return { error: null, success: "Reminder saved." };
   } catch (error) {
     return toActionState(error);
   }

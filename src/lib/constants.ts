@@ -1,4 +1,4 @@
-// Hardcoded demo user for MVP — swap for session-based lookup when auth is added
+// Seeded demo profile retained for local fixtures and explicit demo-only flows.
 export const DEMO_USER_ID = "demo-user-001";
 
 // 50 jobs per page — enough density to scan quickly without forcing

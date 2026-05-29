@@ -450,7 +450,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   }
 
   return (
-    <div className="mt-4">
+    <div className="mt-5">
       <input type="hidden" name="contactJson" value={contactJson} />
       <input type="hidden" name="skillsJson" value={skillsJson} />
       <input type="hidden" name="educationsJson" value={educationsJson} />
@@ -508,7 +508,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         )}
         id="contact"
         setActiveSection={setActiveSection}
-        title="Application details"
+        title="Contact and application fields"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
