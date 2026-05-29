@@ -52,6 +52,18 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/expansion-pipeline-overnight-err.log"
       ),
       buildOvernightApp(
+        "ingest-exploration-scheduler",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploration --schedule-only --skip-seed --limit=1200 --idle-sleep-ms=60000 --error-sleep-ms=90000 --forever --skip-metrics",
+        "./logs/exploration-scheduler-overnight-out.log",
+        "./logs/exploration-scheduler-overnight-err.log"
+      ),
+      buildOvernightApp(
+        "ingest-exploration-drain",
+        "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploration --worker-only --limit=800 --max-batches=4 --idle-sleep-ms=30000 --error-sleep-ms=90000 --forever --skip-metrics",
+        "./logs/exploration-drain-overnight-out.log",
+        "./logs/exploration-drain-overnight-err.log"
+      ),
+      buildOvernightApp(
         "ingest-exploitation-drain",
         "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --worker-only --limit=1000 --max-batches=12 --idle-sleep-ms=15000 --error-sleep-ms=60000 --forever --skip-metrics",
         "./logs/exploitation-drain-overnight-out.log",
