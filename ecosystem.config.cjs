@@ -76,6 +76,20 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/operational-drain-overnight-err.log"
       ),
       buildOvernightApp(
+        "ingest-poll-worker-burst",
+        "-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=5",
+        "./logs/poll-worker-burst-out.log",
+        "./logs/poll-worker-burst-err.log",
+        {
+          DATABASE_PROCESS_ROLE: "recovery_poll",
+          INGEST_RECOVERY_MODE: "1",
+          RECOVERY_WORKER_SOURCE_POLL_LIMIT:
+            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "900",
+          INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "18",
+        }
+      ),
+      buildOvernightApp(
         "ingest-search-index-scheduler",
         "-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --schedule-only --limit=500 --raw-parse-limit=0 --dedupe-limit=0 --lifecycle-limit=0 --search-index-limit=50000 --idle-sleep-ms=60000 --error-sleep-ms=90000 --forever --skip-metrics",
         "./logs/search-index-scheduler-overnight-out.log",
