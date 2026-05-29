@@ -99,7 +99,13 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "ingest-bulk-fast",
         "-r dotenv/config scripts/bulk-recovery-loop.ts --interval=10 --catchup-seconds=30 --keys=hiringcafe:feed,himalayas:na_scale,jobicy:feed,remotive:feed,remoteok:feed,weworkremotely:feed,jobbank-live:feed,workatastartup:feed",
         "./logs/bulk-fast-overnight-out.log",
-        "./logs/bulk-fast-overnight-err.log"
+        "./logs/bulk-fast-overnight-err.log",
+        {
+          BULK_RECOVERY_HIRINGCAFE_CADENCE_MINUTES:
+            process.env.BULK_RECOVERY_HIRINGCAFE_CADENCE_MINUTES || "10",
+          BULK_RECOVERY_HIRINGCAFE_MAX_RUNTIME_MS:
+            process.env.BULK_RECOVERY_HIRINGCAFE_MAX_RUNTIME_MS || "120000",
+        }
       ),
       buildOvernightApp(
         "ingest-bulk-builtin",
