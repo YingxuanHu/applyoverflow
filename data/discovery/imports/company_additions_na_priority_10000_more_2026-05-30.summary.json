@@ -1,0 +1,17 @@
+{
+  "sourceFile": "/Users/alvinhu/Downloads/company_additions_na_priority_10000_more_2026-05-30.csv",
+  "totalRows": 10000,
+  "accepted": 9975,
+  "rejected": 25,
+  "appendedToSeed": 9975,
+  "seedPath": "data/discovery/seeds/first_party_company_seeds.csv",
+  "acceptedPath": "data/discovery/imports/company_additions_na_priority_10000_more_2026-05-30.accepted.csv",
+  "rejectedPath": "data/discovery/imports/company_additions_na_priority_10000_more_2026-05-30.rejected.csv",
+  "rejectionReasons": {
+    "duplicate_existing_seed_company_url": 21,
+    "bad_or_generic_host": 1,
+    "duplicate_existing_seed_url": 3
+  },
+  "rankStart": 2368,
+  "rankEnd": 12342
+}
