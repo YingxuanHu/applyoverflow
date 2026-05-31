@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Bot,
   BriefcaseBusiness,
   Building2,
   CircleDollarSign,
@@ -13,9 +12,11 @@ import {
   formatSalary,
   getDeadlineUrgencyAt,
   getExpiringSoonMetaAt,
-  getSubmissionMeta,
-  shouldShowSubmissionMeta,
 } from "@/lib/job-display";
+import {
+  getNormalizedRoleCategoryLabel,
+  ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
+} from "@/lib/job-metadata";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
@@ -32,14 +33,16 @@ export function JobSummaryCard({
 }: JobSummaryCardProps) {
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const expiringSoon = getExpiringSoonMetaAt(job.deadline, referenceNow);
-  const showSubmissionMeta = shouldShowSubmissionMeta(job);
-  const submissionMeta = getSubmissionMeta(job);
   const salaryLabel = formatSalary(
     job.salaryMin,
     job.salaryMax,
     job.salaryCurrency
   );
   const summary = job.shortSummary?.trim();
+  const roleLabel =
+    (job.normalizedRoleCategoryConfidence ?? 0) >= ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD
+      ? getNormalizedRoleCategoryLabel(job.normalizedRoleCategory)
+      : null;
 
   // Lifecycle cue shown in the secondary row for non-LIVE jobs
   const lifecycleCue = getLifecycleCue(job.status);
@@ -59,15 +62,6 @@ export function JobSummaryCard({
           >
             {job.title}
           </Link>
-          {showSubmissionMeta ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"
-              title="Auto-apply ready"
-            >
-              <Bot className="h-3 w-3" aria-hidden="true" />
-              {submissionMeta.label}
-            </span>
-          ) : null}
           {lifecycleCue ? (
             <span className={`text-xs font-medium ${lifecycleCue.color}`}>
               {lifecycleCue.label}
@@ -110,8 +104,12 @@ export function JobSummaryCard({
 
         <p className="mt-3 text-xs text-muted-foreground">
           Posted {formatPostedAge(job.postedAt, referenceNow)}
-          <Sep />
-          {job.roleFamily}
+          {roleLabel ? (
+            <>
+              <Sep />
+              {roleLabel}
+            </>
+          ) : null}
           {!expiringSoon && deadlineUrgency ? (
             <>
               <Sep />
@@ -124,10 +122,10 @@ export function JobSummaryCard({
       </div>
 
       {job.primaryExternalLink || footerActions ? (
-        <div className="flex w-full shrink-0 flex-wrap items-start justify-start gap-2 sm:w-auto sm:justify-end">
+        <div className="flex w-full shrink-0 flex-col items-end gap-2 sm:w-auto">
           {job.primaryExternalLink ? (
             <a
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               href={job.primaryExternalLink.href}
               rel="noreferrer"
               target="_blank"

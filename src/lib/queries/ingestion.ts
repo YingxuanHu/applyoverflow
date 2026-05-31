@@ -167,7 +167,7 @@ export async function getIngestionStatus(): Promise<IngestionStatus> {
   }
 
   try {
-    const [lastSuccessRun, liveJobCount, activeManagedSourceCount] =
+    const [lastSuccessRun, summaryCache, activeManagedSourceCount] =
       await withPrismaConnectionRetry(() =>
         Promise.all([
           prisma.ingestionRun.findFirst({
@@ -175,8 +175,9 @@ export async function getIngestionStatus(): Promise<IngestionStatus> {
             orderBy: { startedAt: "desc" },
             select: { endedAt: true, startedAt: true },
           }),
-          prisma.jobCanonical.count({
-            where: { status: { in: [...VISIBLE_JOB_STATUSES] } },
+          prisma.jobFeedSummaryCache.findUnique({
+            where: { id: "singleton" },
+            select: { liveJobCount: true },
           }),
           prisma.companySource.count({
             where: {
@@ -194,7 +195,7 @@ export async function getIngestionStatus(): Promise<IngestionStatus> {
       lastUpdatedAt: lastSuccessRun
         ? (lastSuccessRun.endedAt ?? lastSuccessRun.startedAt).toISOString()
         : null,
-      liveJobCount,
+      liveJobCount: summaryCache?.liveJobCount ?? 0,
       activeSourceCount: activeSourceNames.size + activeManagedSourceCount,
     } satisfies IngestionStatus;
 

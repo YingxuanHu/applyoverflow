@@ -11,6 +11,8 @@ type Args = {
   batchSize: number;
   limit: number | null;
   dryRun: boolean;
+  onlyMissing: boolean;
+  status: "AGING" | "LIVE" | "EXPIRED" | "REMOVED" | "STALE" | null;
 };
 
 type CanonicalJobForBackfill = {
@@ -24,9 +26,14 @@ type CanonicalJobForBackfill = {
   industry: "TECH" | "FINANCE" | "GENERAL" | null;
   roleFamily: string;
   normalizedEmploymentType: string | null;
+  normalizedEmploymentTypeConfidence: number | null;
   normalizedCareerStage: string | null;
+  normalizedCareerStageConfidence: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustryConfidence: number | null;
   normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence: number | null;
+  classificationStatus: string | null;
 };
 
 type CountRow = {
@@ -37,9 +44,14 @@ type CountRow = {
 type ClassifiedUpdate = {
   id: string;
   normalizedEmploymentType: string;
+  normalizedEmploymentTypeConfidence: number;
   normalizedCareerStage: string;
+  normalizedCareerStageConfidence: number;
   normalizedIndustry: string;
+  normalizedIndustryConfidence: number;
   normalizedRoleCategory: string;
+  normalizedRoleCategoryConfidence: number;
+  classificationStatus: string;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -47,19 +59,49 @@ function parseArgs(argv: string[]): Args {
     batchSize: 500,
     limit: null,
     dryRun: false,
+    onlyMissing: false,
+    status: null,
   };
 
   for (const arg of argv) {
     if (arg === "--dry-run") {
       args.dryRun = true;
+    } else if (arg === "--only-missing") {
+      args.onlyMissing = true;
     } else if (arg.startsWith("--batch-size=")) {
       args.batchSize = Math.max(1, Number.parseInt(arg.slice("--batch-size=".length), 10));
     } else if (arg.startsWith("--limit=")) {
       args.limit = Math.max(1, Number.parseInt(arg.slice("--limit=".length), 10));
+    } else if (arg.startsWith("--status=")) {
+      const status = arg.slice("--status=".length).toUpperCase();
+      if (status === "AGING" || status === "LIVE" || status === "EXPIRED" || status === "REMOVED" || status === "STALE") {
+        args.status = status;
+      }
     }
   }
 
   return args;
+}
+
+function buildBackfillWhere(args: Args): Prisma.JobCanonicalWhereInput | undefined {
+  const where: Prisma.JobCanonicalWhereInput = {};
+
+  if (args.status) where.status = args.status;
+  if (args.onlyMissing) {
+    where.OR = [
+      { normalizedEmploymentType: null },
+      { normalizedEmploymentTypeConfidence: null },
+      { normalizedCareerStage: null },
+      { normalizedCareerStageConfidence: null },
+      { normalizedIndustry: null },
+      { normalizedIndustryConfidence: null },
+      { normalizedRoleCategory: null },
+      { normalizedRoleCategoryConfidence: null },
+      { classificationStatus: null },
+    ];
+  }
+
+  return Object.keys(where).length > 0 ? where : undefined;
 }
 
 function classify(job: CanonicalJobForBackfill) {
@@ -82,9 +124,14 @@ function classify(job: CanonicalJobForBackfill) {
 function needsUpdate(job: CanonicalJobForBackfill, metadata: JobMetadataClassification) {
   return (
     job.normalizedEmploymentType !== metadata.normalizedEmploymentType ||
+    job.normalizedEmploymentTypeConfidence !== metadata.confidence.employmentType ||
     job.normalizedCareerStage !== metadata.normalizedCareerStage ||
+    job.normalizedCareerStageConfidence !== metadata.confidence.careerStage ||
     job.normalizedIndustry !== metadata.normalizedIndustry ||
-    job.normalizedRoleCategory !== metadata.normalizedRoleCategory
+    job.normalizedIndustryConfidence !== metadata.confidence.industry ||
+    job.normalizedRoleCategory !== metadata.normalizedRoleCategory ||
+    job.normalizedRoleCategoryConfidence !== metadata.confidence.roleCategory ||
+    job.classificationStatus !== metadata.classificationStatus
   );
 }
 
@@ -121,6 +168,19 @@ function increment(map: Map<string, number>, key: string) {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableWriteError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("deadlock detected") ||
+    message.includes("could not serialize access") ||
+    message.includes("canceling statement due to lock timeout")
+  );
+}
+
 function printMap(title: string, map: Map<string, number>) {
   console.log(`\n${title}`);
   for (const [key, count] of [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
@@ -155,9 +215,14 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
     Prisma.sql`(
       ${update.id},
       ${update.normalizedEmploymentType},
+      ${update.normalizedEmploymentTypeConfidence}::double precision,
       ${update.normalizedCareerStage},
+      ${update.normalizedCareerStageConfidence}::double precision,
       ${update.normalizedIndustry},
-      ${update.normalizedRoleCategory}
+      ${update.normalizedIndustryConfidence}::double precision,
+      ${update.normalizedRoleCategory},
+      ${update.normalizedRoleCategoryConfidence}::double precision,
+      ${update.classificationStatus}
     )`
   );
 
@@ -165,15 +230,25 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
     UPDATE "JobCanonical" AS job
     SET
       "normalizedEmploymentType" = values.normalized_employment_type,
+      "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
+      "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
       "normalizedIndustry" = values.normalized_industry,
-      "normalizedRoleCategory" = values.normalized_role_category
+      "normalizedIndustryConfidence" = values.normalized_industry_confidence,
+      "normalizedRoleCategory" = values.normalized_role_category,
+      "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
       normalized_employment_type,
+      normalized_employment_type_confidence,
       normalized_career_stage,
+      normalized_career_stage_confidence,
       normalized_industry,
-      normalized_role_category
+      normalized_industry_confidence,
+      normalized_role_category,
+      normalized_role_category_confidence,
+      classification_status
     )
     WHERE job.id = values.id
   `;
@@ -182,15 +257,25 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
     UPDATE "JobFeedIndex" AS feed
     SET
       "normalizedEmploymentType" = values.normalized_employment_type,
+      "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
+      "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
       "normalizedIndustry" = values.normalized_industry,
-      "normalizedRoleCategory" = values.normalized_role_category
+      "normalizedIndustryConfidence" = values.normalized_industry_confidence,
+      "normalizedRoleCategory" = values.normalized_role_category,
+      "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
       normalized_employment_type,
+      normalized_employment_type_confidence,
       normalized_career_stage,
+      normalized_career_stage_confidence,
       normalized_industry,
-      normalized_role_category
+      normalized_industry_confidence,
+      normalized_role_category,
+      normalized_role_category_confidence,
+      classification_status
     )
     WHERE feed."canonicalJobId" = values.id
   `;
@@ -199,25 +284,74 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
     UPDATE "NormalizedJobRecord" AS record
     SET
       "normalizedEmploymentType" = values.normalized_employment_type,
+      "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
+      "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
       "normalizedIndustry" = values.normalized_industry,
-      "normalizedRoleCategory" = values.normalized_role_category
+      "normalizedIndustryConfidence" = values.normalized_industry_confidence,
+      "normalizedRoleCategory" = values.normalized_role_category,
+      "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
       normalized_employment_type,
+      normalized_employment_type_confidence,
       normalized_career_stage,
+      normalized_career_stage_confidence,
       normalized_industry,
-      normalized_role_category
+      normalized_industry_confidence,
+      normalized_role_category,
+      normalized_role_category_confidence,
+      classification_status
     )
     WHERE record."canonicalJobId" = values.id
   `;
 }
 
+async function writeMetadataBatchWithRetry(
+  updates: ClassifiedUpdate[],
+  attempt = 1
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  try {
+    await writeMetadataBatch(updates);
+    return;
+  } catch (error) {
+    if (!isRetryableWriteError(error)) {
+      throw error;
+    }
+
+    if (updates.length > 100) {
+      const midpoint = Math.ceil(updates.length / 2);
+      console.warn(
+        `Retryable metadata backfill write conflict on ${updates.length} rows; splitting into ${midpoint}/${updates.length - midpoint}`
+      );
+      await writeMetadataBatchWithRetry(updates.slice(0, midpoint), attempt + 1);
+      await writeMetadataBatchWithRetry(updates.slice(midpoint), attempt + 1);
+      return;
+    }
+
+    if (attempt <= 5) {
+      const delayMs = 250 * attempt * attempt;
+      console.warn(
+        `Retryable metadata backfill write conflict on ${updates.length} rows; retry ${attempt}/5 after ${delayMs}ms`
+      );
+      await sleep(delayMs);
+      await writeMetadataBatchWithRetry(updates, attempt + 1);
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   console.log(
-    `Backfilling normalized job metadata batchSize=${args.batchSize} limit=${args.limit ?? "all"} dryRun=${args.dryRun}`
+    `Backfilling normalized job metadata batchSize=${args.batchSize} limit=${args.limit ?? "all"} dryRun=${args.dryRun} onlyMissing=${args.onlyMissing} status=${args.status ?? "all"}`
   );
+  const backfillWhere = buildBackfillWhere(args);
 
   const before = await Promise.all([
     countByEnumColumn("employmentType"),
@@ -256,6 +390,7 @@ async function main() {
     if (take <= 0) break;
 
     const jobs = await prisma.jobCanonical.findMany({
+      where: backfillWhere,
       orderBy: { id: "asc" },
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       take,
@@ -270,9 +405,14 @@ async function main() {
         industry: true,
         roleFamily: true,
         normalizedEmploymentType: true,
+        normalizedEmploymentTypeConfidence: true,
         normalizedCareerStage: true,
+        normalizedCareerStageConfidence: true,
         normalizedIndustry: true,
+        normalizedIndustryConfidence: true,
         normalizedRoleCategory: true,
+        normalizedRoleCategoryConfidence: true,
+        classificationStatus: true,
       },
     });
 
@@ -301,14 +441,19 @@ async function main() {
         updates.push({
           id: job.id,
           normalizedEmploymentType: metadata.normalizedEmploymentType,
+          normalizedEmploymentTypeConfidence: metadata.confidence.employmentType,
           normalizedCareerStage: metadata.normalizedCareerStage,
+          normalizedCareerStageConfidence: metadata.confidence.careerStage,
           normalizedIndustry: metadata.normalizedIndustry,
+          normalizedIndustryConfidence: metadata.confidence.industry,
           normalizedRoleCategory: metadata.normalizedRoleCategory,
+          normalizedRoleCategoryConfidence: metadata.confidence.roleCategory,
+          classificationStatus: metadata.classificationStatus,
         });
       }
     }
 
-    if (!args.dryRun) await writeMetadataBatch(updates);
+    if (!args.dryRun) await writeMetadataBatchWithRetry(updates);
 
     processed += jobs.length;
     cursor = jobs.at(-1)?.id;

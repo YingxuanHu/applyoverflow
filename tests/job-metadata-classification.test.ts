@@ -88,6 +88,22 @@ test("new grad is entry-level, not internship", () => {
   assert.equal(metadata.normalizedEmploymentType, "FULL_TIME");
 });
 
+test("early career or program pages are not internship without role-level evidence", () => {
+  const metadata = classifyJobMetadata({
+    title: "Site Reliability Engineer (SRE) AI Infrastructure (Early Career)",
+    company: "Example",
+    description: "University recruiting and internship program information may appear elsewhere on the page.",
+    roleFamily: "SWE",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+
+  assert.notEqual(metadata.normalizedCareerStage, "INTERNSHIP_COOP_STUDENT");
+  assert.notEqual(metadata.normalizedEmploymentType, "INTERNSHIP");
+});
+
 test("student-facing senior roles are not treated as student internships", () => {
   const metadata = classifyJobMetadata({
     title: "Program Manager, Student Outreach",
@@ -167,6 +183,207 @@ test("industry and role category are independent labels", () => {
 
   assert.equal(metadata.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
   assert.equal(metadata.normalizedIndustry, "FINANCE_BANKING");
+  assert.ok(metadata.confidence.roleCategory >= 0.75);
+  assert.ok(metadata.confidence.industry >= 0.68);
+  assert.equal(metadata.classificationStatus, "PARTIAL");
+});
+
+test("finance role classification does not absorb software or technology jobs", () => {
+  const badFinanceExamples = [
+    {
+      title: "Senior Software Engineering Lead - TSQL and 837 Medical Claims",
+      company: "Taleo",
+      description: "Build and operate enterprise software for healthcare claims platforms.",
+      roleFamily: "SWE",
+      expected: "SOFTWARE_ENGINEERING",
+    },
+    {
+      title: "Software Development Engineer II, Internet Edge Services - Outbound Traffic Controller",
+      company: "Amazon",
+      description: "We're seeking a talented Software Development Engineer to join our dynamic team.",
+      roleFamily: "SWE",
+      expected: "SOFTWARE_ENGINEERING",
+    },
+    {
+      title: "Backend Developer, Payments",
+      company: "Example Bank",
+      description: "Build APIs and backend services for payment systems.",
+      roleFamily: "SWE",
+      expected: "SOFTWARE_ENGINEERING",
+    },
+    {
+      title: "Data Engineer, Risk Platform",
+      company: "Example Finance",
+      description: "Build data pipelines for risk analytics and reporting.",
+      roleFamily: "Data Engineering",
+      expected: "DATA_ANALYTICS",
+    },
+    {
+      title: "Senior Staff Engineer - Payroll Platform",
+      company: "Example",
+      description: "Lead platform engineering for payroll systems.",
+      roleFamily: "SWE",
+      expected: "SOFTWARE_ENGINEERING",
+    },
+    {
+      title: "Director, Software Engineering - Tax Exempt",
+      company: "Example",
+      description: "Lead software engineering teams for tax exempt products.",
+      roleFamily: "SWE",
+      expected: "SOFTWARE_ENGINEERING",
+    },
+  ];
+
+  for (const example of badFinanceExamples) {
+    const metadata = classifyJobMetadata({
+      title: example.title,
+      company: example.company,
+      description: example.description,
+      roleFamily: example.roleFamily,
+      legacyIndustry: "FINANCE",
+      inferredEmploymentType: "FULL_TIME",
+      sourceEmploymentType: null,
+      workMode: "HYBRID",
+    });
+
+    assert.equal(metadata.normalizedRoleCategory, example.expected, example.title);
+    assert.notEqual(metadata.normalizedRoleCategory, "FINANCE_ACCOUNTING", example.title);
+  }
+
+  const riskAdvisoryTechnology = classifyJobMetadata({
+    title: "Senior Consultant-Risk Advisory Technology",
+    company: "Crosscountry Consulting",
+    description: "Serve as a trusted partner to clients on risk advisory technology programs.",
+    roleFamily: "Risk",
+    legacyIndustry: "FINANCE",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+
+  assert.notEqual(riskAdvisoryTechnology.normalizedRoleCategory, "FINANCE_ACCOUNTING");
+});
+
+test("finance accounting stays strict to finance and accounting roles", () => {
+  const financeExamples = [
+    "FP&A Analyst - Revenue",
+    "Mobility Tax Analyst",
+    "Payroll Specialist",
+    "Accounts Payable Clerk",
+    "Treasury Analyst",
+    "Controller",
+    "Senior Auditor",
+  ];
+
+  for (const title of financeExamples) {
+    const metadata = classifyJobMetadata({
+      title,
+      company: "Example",
+      description: "Finance and accounting team role.",
+      roleFamily: "Accounting",
+      legacyIndustry: "FINANCE",
+      inferredEmploymentType: "FULL_TIME",
+      sourceEmploymentType: null,
+      workMode: "HYBRID",
+    });
+
+    assert.equal(metadata.normalizedRoleCategory, "FINANCE_ACCOUNTING", title);
+    assert.ok(metadata.confidence.roleCategory >= 0.75, title);
+  }
+});
+
+test("software engineering filter evidence is title-specific and avoids adjacent roles", () => {
+  const engineer = classifyJobMetadata({
+    title: "Senior Software Engineer",
+    company: "Example",
+    description: "Build backend services and production software.",
+    roleFamily: "SWE",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+  assert.equal(engineer.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
+
+  const developerAdvocate = classifyJobMetadata({
+    title: "Developer Advocate",
+    company: "Example",
+    description: "Create technical community content and run developer programs.",
+    roleFamily: "Unknown",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+  assert.equal(developerAdvocate.normalizedRoleCategory, "MARKETING");
+  assert.notEqual(developerAdvocate.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
+
+  const productManager = classifyJobMetadata({
+    title: "Product Manager",
+    company: "Example",
+    description: "Own roadmap, prioritization, and customer discovery.",
+    roleFamily: "Product Management",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "HYBRID",
+  });
+  assert.equal(productManager.normalizedRoleCategory, "PRODUCT_MANAGEMENT");
+});
+
+test("uncertain jobs stay searchable without becoming confident filter matches", () => {
+  const metadata = classifyJobMetadata({
+    title: "Associate",
+    company: "Example",
+    description: "Support cross-functional business initiatives.",
+    roleFamily: "Unknown",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "UNKNOWN",
+    sourceEmploymentType: null,
+    workMode: "UNKNOWN",
+  });
+
+  assert.equal(metadata.normalizedRoleCategory, "OTHER_UNKNOWN");
+  assert.equal(metadata.confidence.roleCategory < 0.75, true);
+  assert.equal(metadata.classificationStatus, "PARTIAL");
+});
+
+test("new global role categories classify non-software jobs separately", () => {
+  const mechanical = classifyJobMetadata({
+    title: "Mechanical Engineer",
+    company: "Example Manufacturing",
+    description: "Design mechanical systems for industrial equipment.",
+    roleFamily: "Engineering",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+  assert.equal(mechanical.normalizedRoleCategory, "ENGINEERING_HARDWARE");
+
+  const nurse = classifyJobMetadata({
+    title: "Registered Nurse",
+    company: "Example Hospital",
+    description: "Provide clinical care to patients.",
+    roleFamily: "Unknown",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+  assert.equal(nurse.normalizedRoleCategory, "HEALTHCARE_CLINICAL");
+
+  const teacher = classifyJobMetadata({
+    title: "High School Teacher",
+    company: "Example School",
+    description: "Teach students and prepare curriculum.",
+    roleFamily: "Unknown",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+  assert.equal(teacher.normalizedRoleCategory, "EDUCATION_TEACHING");
 });
 
 test("metadata filter normalization maps legacy values to the new taxonomy", () => {
@@ -179,5 +396,42 @@ test("metadata filter normalization maps legacy values to the new taxonomy", () 
     "FULL_TIME,CO_OP,CONTRACT"
   );
   assert.equal(normalizeIndustryFilterValue("TECH,Finance & Banking"), "TECHNOLOGY,FINANCE_BANKING");
-  assert.equal(normalizeRoleCategoryFilterValue("SWE,Data Analytics"), "SOFTWARE_ENGINEERING,DATA_ANALYTICS");
+  assert.equal(
+    normalizeRoleCategoryFilterValue("SWE,Software Engineering,Data Analytics"),
+    "SOFTWARE_ENGINEERING,DATA_ANALYTICS"
+  );
+  assert.equal(
+    normalizeRoleCategoryFilterValue("Business Development,Supply Chain Logistics,Manufacturing Trades"),
+    "SALES,OPERATIONS,SKILLED_TRADES_FACILITIES"
+  );
+  assert.equal(
+    normalizeRoleCategoryFilterValue("Healthcare Administration,Education Administration"),
+    "HEALTHCARE_CLINICAL,EDUCATION_TEACHING"
+  );
+});
+
+test("new job function taxonomy separates retail service and media communications", () => {
+  const retail = classifyJobMetadata({
+    title: "Retail Associate",
+    company: "Example Store",
+    description: "Help customers and maintain store operations.",
+    roleFamily: "Unknown",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "PART_TIME",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+  assert.equal(retail.normalizedRoleCategory, "RETAIL_SERVICE");
+
+  const communications = classifyJobMetadata({
+    title: "Communications Manager",
+    company: "Example Media",
+    description: "Lead editorial communications and public relations.",
+    roleFamily: "Communications",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "HYBRID",
+  });
+  assert.equal(communications.normalizedRoleCategory, "MEDIA_CONTENT_COMMUNICATIONS");
 });

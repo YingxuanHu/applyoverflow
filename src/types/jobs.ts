@@ -52,6 +52,11 @@ export type JobCardData = {
   industry: Industry | null;
   status: JobStatus;
   roleFamily: string;
+  normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence: number | null;
+  normalizedIndustry: string | null;
+  normalizedIndustryConfidence: number | null;
+  classificationStatus: string | null;
   experienceLevel: ExperienceLevel | null;
   salaryMin: number | null;
   salaryMax: number | null;
@@ -144,6 +149,11 @@ export type ApplicationHistoryItem = {
     industry: Industry | null;
     status: JobStatus;
     roleFamily: string;
+    normalizedRoleCategory: string | null;
+    normalizedRoleCategoryConfidence: number | null;
+    normalizedIndustry: string | null;
+    normalizedIndustryConfidence: number | null;
+    classificationStatus: string | null;
     applyUrl: string;
     postedAt: string;
     eligibility: JobCardEligibility;
@@ -166,11 +176,13 @@ export type JobFilters = {
   workMode?: string;
   employmentType?: string;
   industry?: string;
+  jobFunction?: string;
   roleCategory?: string;
   roleFamily?: string;
   salaryMin?: string;
   salaryMax?: string;
   salaryCurrency?: string;
+  includeUnknownSalary?: string;
   experienceLevel?: string;
   careerStage?: string;
   expiry?: string;
@@ -179,4 +191,5 @@ export type JobFilters = {
   status?: string;
   sortBy?: "relevance" | "newest" | "deadline" | "company";
   page?: string;
+  debugFilters?: string;
 };

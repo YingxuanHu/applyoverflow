@@ -45,6 +45,7 @@ export type NormalizedIndustry =
   | "AGRICULTURE_NATURAL_RESOURCES"
   | "INSURANCE"
   | "AEROSPACE_DEFENSE"
+  | "AUTOMOTIVE"
   | "OTHER_UNKNOWN";
 
 export type NormalizedRoleCategory =
@@ -64,15 +65,30 @@ export type NormalizedRoleCategory =
   | "CUSTOMER_SUCCESS_SUPPORT"
   | "HUMAN_RESOURCES_RECRUITING"
   | "LEGAL_COMPLIANCE"
-  | "HEALTHCARE_ADMINISTRATION"
+  | "HEALTHCARE_CLINICAL"
   | "RESEARCH_SCIENCE"
-  | "EDUCATION_ADMINISTRATION"
+  | "EDUCATION_TEACHING"
   | "ENGINEERING_HARDWARE"
+  | "RETAIL_SERVICE"
+  | "SKILLED_TRADES_FACILITIES"
+  | "MEDIA_CONTENT_COMMUNICATIONS"
+  | "MANUFACTURING_TRADES"
   | "SUPPLY_CHAIN_LOGISTICS"
   | "PROJECT_PROGRAM_MANAGEMENT"
   | "ADMINISTRATIVE"
   | "BUSINESS_DEVELOPMENT"
   | "OTHER_UNKNOWN";
+
+export type JobClassificationStatus =
+  | "CONFIDENT"
+  | "PARTIAL"
+  | "UNKNOWN"
+  | "NEEDS_REVIEW";
+
+export const ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD = 0.75;
+export const CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD = 0.72;
+export const EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD = 0.72;
+export const INDUSTRY_FILTER_CONFIDENCE_THRESHOLD = 0.68;
 
 type TaxonomyOption<T extends string> = {
   label: string;
@@ -114,7 +130,7 @@ export const NORMALIZED_INDUSTRY_OPTIONS: Array<TaxonomyOption<NormalizedIndustr
   { label: "Manufacturing & Industrial", value: "MANUFACTURING_INDUSTRIAL" },
   { label: "Energy & Utilities", value: "ENERGY_UTILITIES" },
   { label: "Government & Public Sector", value: "GOVERNMENT_PUBLIC_SECTOR" },
-  { label: "Legal", value: "LEGAL" },
+  { label: "Legal Services", value: "LEGAL" },
   { label: "Media & Entertainment", value: "MEDIA_ENTERTAINMENT" },
   { label: "Telecommunications", value: "TELECOMMUNICATIONS" },
   { label: "Transportation & Logistics", value: "TRANSPORTATION_LOGISTICS" },
@@ -124,6 +140,8 @@ export const NORMALIZED_INDUSTRY_OPTIONS: Array<TaxonomyOption<NormalizedIndustr
   { label: "Agriculture & Natural Resources", value: "AGRICULTURE_NATURAL_RESOURCES" },
   { label: "Insurance", value: "INSURANCE" },
   { label: "Aerospace & Defense", value: "AEROSPACE_DEFENSE" },
+  { label: "Automotive", value: "AUTOMOTIVE" },
+  { label: "Other", value: "OTHER_UNKNOWN" },
 ];
 
 export const NORMALIZED_ROLE_CATEGORY_OPTIONS: Array<TaxonomyOption<NormalizedRoleCategory>> = [
@@ -135,28 +153,37 @@ export const NORMALIZED_ROLE_CATEGORY_OPTIONS: Array<TaxonomyOption<NormalizedRo
   { label: "IT / Systems / DevOps", value: "IT_SYSTEMS_DEVOPS" },
   { label: "Cybersecurity", value: "CYBERSECURITY" },
   { label: "Finance / Accounting", value: "FINANCE_ACCOUNTING" },
-  { label: "Investment / Banking", value: "INVESTMENT_BANKING" },
+  { label: "Investment Banking / Asset Management", value: "INVESTMENT_BANKING" },
   { label: "Consulting", value: "CONSULTING" },
-  { label: "Sales", value: "SALES" },
-  { label: "Marketing", value: "MARKETING" },
-  { label: "Operations", value: "OPERATIONS" },
+  { label: "Sales / Business Development", value: "SALES" },
+  { label: "Marketing / Growth", value: "MARKETING" },
+  { label: "Operations / Supply Chain", value: "OPERATIONS" },
   { label: "Customer Success / Support", value: "CUSTOMER_SUCCESS_SUPPORT" },
   { label: "Human Resources / Recruiting", value: "HUMAN_RESOURCES_RECRUITING" },
   { label: "Legal / Compliance", value: "LEGAL_COMPLIANCE" },
-  { label: "Healthcare Administration", value: "HEALTHCARE_ADMINISTRATION" },
+  { label: "Healthcare / Clinical", value: "HEALTHCARE_CLINICAL" },
   { label: "Research / Science", value: "RESEARCH_SCIENCE" },
-  { label: "Education Administration", value: "EDUCATION_ADMINISTRATION" },
-  { label: "Engineering / Hardware", value: "ENGINEERING_HARDWARE" },
-  { label: "Supply Chain / Logistics", value: "SUPPLY_CHAIN_LOGISTICS" },
-  { label: "Project / Program Management", value: "PROJECT_PROGRAM_MANAGEMENT" },
-  { label: "Administrative", value: "ADMINISTRATIVE" },
-  { label: "Business Development", value: "BUSINESS_DEVELOPMENT" },
+  { label: "Education / Teaching", value: "EDUCATION_TEACHING" },
+  { label: "Engineering / Manufacturing", value: "ENGINEERING_HARDWARE" },
+  { label: "Administrative / Office", value: "ADMINISTRATIVE" },
+  { label: "Retail / Service", value: "RETAIL_SERVICE" },
+  { label: "Skilled Trades / Facilities", value: "SKILLED_TRADES_FACILITIES" },
+  { label: "Media / Content / Communications", value: "MEDIA_CONTENT_COMMUNICATIONS" },
+  { label: "Other", value: "OTHER_UNKNOWN" },
 ];
 
 const EMPLOYMENT_VALUES = new Set(NORMALIZED_EMPLOYMENT_TYPE_OPTIONS.map((option) => option.value).concat("UNKNOWN"));
 const CAREER_STAGE_VALUES = new Set(NORMALIZED_CAREER_STAGE_OPTIONS.map((option) => option.value).concat("UNKNOWN"));
 const INDUSTRY_VALUES = new Set(NORMALIZED_INDUSTRY_OPTIONS.map((option) => option.value).concat("OTHER_UNKNOWN"));
-const ROLE_CATEGORY_VALUES = new Set(NORMALIZED_ROLE_CATEGORY_OPTIONS.map((option) => option.value).concat("OTHER_UNKNOWN"));
+const ROLE_CATEGORY_VALUES = new Set(
+  NORMALIZED_ROLE_CATEGORY_OPTIONS.map((option) => option.value).concat(
+    "BUSINESS_DEVELOPMENT",
+    "MANUFACTURING_TRADES",
+    "PROJECT_PROGRAM_MANAGEMENT",
+    "SUPPLY_CHAIN_LOGISTICS",
+    "OTHER_UNKNOWN"
+  )
+);
 
 const CAREER_STAGE_ALIASES: Record<string, NormalizedCareerStage> = {
   INTERNSHIP: "INTERNSHIP_COOP_STUDENT",
@@ -184,6 +211,7 @@ const INDUSTRY_ALIASES: Record<string, NormalizedIndustry> = {
   TECH: "TECHNOLOGY",
   FINANCE: "FINANCE_BANKING",
   GENERAL: "OTHER_UNKNOWN",
+  LEGAL_SERVICES: "LEGAL",
 };
 
 const ROLE_FAMILY_ALIASES: Record<string, NormalizedRoleCategory> = {
@@ -192,7 +220,7 @@ const ROLE_FAMILY_ALIASES: Record<string, NormalizedRoleCategory> = {
   "SOLUTIONS ENGINEERING": "SOFTWARE_ENGINEERING",
   "SOLUTIONS ARCHITECTURE": "IT_SYSTEMS_DEVOPS",
   "PRODUCT MANAGEMENT": "PRODUCT_MANAGEMENT",
-  "PROJECT MANAGEMENT": "PROJECT_PROGRAM_MANAGEMENT",
+  "PROJECT MANAGEMENT": "OPERATIONS",
   RESEARCH: "RESEARCH_SCIENCE",
   "DATA SCIENCE": "DATA_ANALYTICS",
   "AI TRAINING": "AI_MACHINE_LEARNING",
@@ -201,7 +229,7 @@ const ROLE_FAMILY_ALIASES: Record<string, NormalizedRoleCategory> = {
   "PRODUCT ANALYST": "DATA_ANALYTICS",
   "BUSINESS ANALYST": "OPERATIONS",
   SECURITY: "CYBERSECURITY",
-  QA: "SOFTWARE_ENGINEERING",
+  QA: "OTHER_UNKNOWN",
   "IT OPERATIONS": "IT_SYSTEMS_DEVOPS",
   "TECHNICAL WRITING": "PROJECT_PROGRAM_MANAGEMENT",
   DESIGN: "DESIGN_UX",
@@ -212,30 +240,33 @@ const ROLE_FAMILY_ALIASES: Record<string, NormalizedRoleCategory> = {
   "QUANTITATIVE FINANCE": "INVESTMENT_BANKING",
   "INVESTMENT BANKING": "INVESTMENT_BANKING",
   BANKING: "INVESTMENT_BANKING",
-  RISK: "FINANCE_ACCOUNTING",
+  RISK: "LEGAL_COMPLIANCE",
   COMPLIANCE: "LEGAL_COMPLIANCE",
   CREDIT: "INVESTMENT_BANKING",
   "WEALTH MANAGEMENT": "INVESTMENT_BANKING",
   MARKETING: "MARKETING",
   "HR / PEOPLE": "HUMAN_RESOURCES_RECRUITING",
   SALES: "SALES",
-  "BUSINESS DEVELOPMENT": "BUSINESS_DEVELOPMENT",
+  "BUSINESS DEVELOPMENT": "SALES",
   CONSULTING: "CONSULTING",
   LEGAL: "LEGAL_COMPLIANCE",
-  "SUPPLY CHAIN": "SUPPLY_CHAIN_LOGISTICS",
-  COMMUNICATIONS: "MARKETING",
+  "SUPPLY CHAIN": "OPERATIONS",
+  COMMUNICATIONS: "MEDIA_CONTENT_COMMUNICATIONS",
   ADMINISTRATIVE: "ADMINISTRATIVE",
   OPERATIONS: "OPERATIONS",
-  INSURANCE: "FINANCE_ACCOUNTING",
-  "HEALTHCARE ADMIN": "HEALTHCARE_ADMINISTRATION",
+  INSURANCE: "OTHER_UNKNOWN",
   "REAL ESTATE": "OPERATIONS",
   "HOSPITALITY MANAGEMENT": "OPERATIONS",
   GOVERNMENT: "OPERATIONS",
-  EDITORIAL: "MARKETING",
+  EDITORIAL: "MEDIA_CONTENT_COMMUNICATIONS",
   NONPROFIT: "OPERATIONS",
-  "EDUCATION ADMIN": "EDUCATION_ADMINISTRATION",
   TECHNICAL: "IT_SYSTEMS_DEVOPS",
   INTERNSHIP: "OTHER_UNKNOWN",
+  "HEALTHCARE ADMIN": "HEALTHCARE_CLINICAL",
+  "EDUCATION ADMIN": "EDUCATION_TEACHING",
+  MANUFACTURING: "SKILLED_TRADES_FACILITIES",
+  TRADES: "SKILLED_TRADES_FACILITIES",
+  "GENERAL PROFESSIONAL": "OTHER_UNKNOWN",
 };
 
 const ROLE_CATEGORY_FILTER_ALIASES: Record<string, NormalizedRoleCategory> = {
@@ -245,6 +276,18 @@ const ROLE_CATEGORY_FILTER_ALIASES: Record<string, NormalizedRoleCategory> = {
   SOFTWARE_ENGINEERING: "SOFTWARE_ENGINEERING",
   DATA: "DATA_ANALYTICS",
   DATA_ANALYTICS: "DATA_ANALYTICS",
+  HEALTHCARE_ADMINISTRATION: "HEALTHCARE_CLINICAL",
+  HEALTHCARE_CLINICAL: "HEALTHCARE_CLINICAL",
+  EDUCATION_ADMINISTRATION: "EDUCATION_TEACHING",
+  EDUCATION_TEACHING: "EDUCATION_TEACHING",
+  BUSINESS_DEVELOPMENT: "SALES",
+  MANUFACTURING_TRADES: "SKILLED_TRADES_FACILITIES",
+  SUPPLY_CHAIN_LOGISTICS: "OPERATIONS",
+  PROJECT_PROGRAM_MANAGEMENT: "OPERATIONS",
+  SKILLED_TRADES: "SKILLED_TRADES_FACILITIES",
+  SKILLED_TRADES_FACILITIES: "SKILLED_TRADES_FACILITIES",
+  RETAIL_SERVICE: "RETAIL_SERVICE",
+  MEDIA_CONTENT_COMMUNICATIONS: "MEDIA_CONTENT_COMMUNICATIONS",
 };
 
 export type JobMetadataInput = {
@@ -264,6 +307,7 @@ export type JobMetadataClassification = {
   normalizedCareerStage: NormalizedCareerStage;
   normalizedIndustry: NormalizedIndustry;
   normalizedRoleCategory: NormalizedRoleCategory;
+  classificationStatus: JobClassificationStatus;
   confidence: {
     employmentType: number;
     careerStage: number;
@@ -298,12 +342,9 @@ const TITLE_INTERNSHIP_PATTERNS = [
 ];
 
 const DESCRIPTION_INTERNSHIP_PATTERNS = [
-  /\b(?:this|the|our)\s+(?:internship|co[-\s]?op|student\s+program)\b/i,
-  /\binternship\s+program\b/i,
-  /\bco[-\s]?op\s+(?:program|position|role|term)\b/i,
-  /\bstudent\s+(?:placement|work\s+term|program)\b/i,
-  /\bearly\s+talent\s+(?:program|role|position)\b/i,
-  /\buniversity\s+(?:program|recruiting|hire)\b/i,
+  /\b(?:this|the|our)\s+(?:internship|co[-\s]?op)\s+(?:role|position|opportunity|placement|term)\b/i,
+  /\b(?:internship|co[-\s]?op)\s+(?:role|position|opportunity|placement|term)\b/i,
+  /\bstudent\s+(?:placement|work\s+term)\b/i,
 ];
 
 const NEW_GRAD_PATTERNS = [
@@ -327,6 +368,42 @@ const TITLE_COOP_ROLE_PATTERNS = [
   /\b(?:intern|student|placement|term|position|role|program)\s+co[-\s]?op\b/i,
 ];
 
+const SOFTWARE_ENGINEERING_TITLE_PATTERNS = [
+  /\b(software|frontend|front-end|backend|back-end|full[-\s]?stack|web|mobile|ios|android)\s+(?:development\s+|engineering\s+)?(?:engineer|developer|programmer|architect|lead|manager)\b/i,
+  /\b(?:engineer|developer|programmer|architect|lead|manager),?\s+(?:software|frontend|front-end|backend|back-end|full[-\s]?stack|web|mobile|ios|android)\b/i,
+  /\b(?:application|app)\s+(?:developer|programmer)\b/i,
+  /\b(?:developer|programmer)\s*(?:l[1-9]|[ivx]{1,4}|[0-9]+)?\b/i,
+  /\bsoftware\s+engineering\b/i,
+  /\b(sdet|qa automation engineer|test automation engineer|software development engineer in test)\b/i,
+  /\b(embedded|firmware)\s+(?:software\s+)?(?:engineer|developer)\b/i,
+  /\b(?:staff|principal|senior|sr\.?|lead)?\s*(?:engineer|engineering lead)\b.*\b(platform|backend|front[-\s]?end|infrastructure|application|distributed systems|api|cloud|data platform)\b/i,
+  /\b(développeur|développeuse|ingénieur logiciel|ingénieure logiciel)\b/i,
+];
+
+const SOFTWARE_ENGINEERING_NEGATIVE_TITLE_PATTERNS = [
+  /\b(developer advocate|developer relations|developer relationship|developer relationships|devrel|technical community)\b/i,
+  /\b(business development|sales development|market development|partnership development|fundraising development|organizational development|learning and development|talent development)\b/i,
+  /\b(content developer|curriculum developer|course developer|training developer|instructional developer|real estate developer|land developer|property developer)\b/i,
+  /\b(product manager|program manager|project manager|account manager|marketing manager|sales manager)\b/i,
+  /\b(instructor|teacher|professor|lecturer|coach)\b/i,
+];
+
+const FINANCE_ACCOUNTING_TITLE_PATTERNS = [
+  /\b(fp&a|financial planning(?:\s+and|\s*&)\s+analysis)\b/i,
+  /\b(?:senior\s+|sr\.?\s+|junior\s+|jr\.?\s+|staff\s+|lead\s+)?(?:financial|finance|revenue)\s+(?:analyst|associate|manager|director|controller|business partner|specialist)\b/i,
+  /\b(?:accountant|accounting\s+(?:analyst|associate|manager|specialist|coordinator|clerk|director)|accounts?\s+(?:payable|receivable)|ap\/ar|bookkeeper|controller)\b/i,
+  /\b(?:tax|treasury|payroll|billing)\s+(?:analyst|associate|specialist|manager|director|accountant|administrator|coordinator|clerk|consultant)\b/i,
+  /\b(?:auditor|audit\s+(?:analyst|associate|specialist|manager|director|consultant))\b/i,
+];
+
+const FINANCE_ACCOUNTING_ROLE_FAMILY_PATTERNS = [
+  /\b(financial analyst|fp&a|accounting|accountant|finance|controller|bookkeeping|treasury|tax|audit|payroll)\b/i,
+];
+
+const FINANCE_ACCOUNTING_TECHNICAL_NEGATIVE_PATTERNS = [
+  /\b(software|developer|development engineer|engineering|backend|front[-\s]?end|full[-\s]?stack|platform|infrastructure|systems?|network|cloud|data engineer|machine learning|sre|devops|site reliability|cybersecurity)\b/i,
+];
+
 const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> = [
   {
     value: "AI_MACHINE_LEARNING",
@@ -337,8 +414,8 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "SOFTWARE_ENGINEERING",
-    title: [/\b(software|frontend|front-end|backend|back-end|full[-\s]?stack|web|mobile|ios|android|developer|sre)\b/i],
-    text: [/\b(typescript|javascript|python|java|react|node\.js|api|microservices|software development)\b/i],
+    title: SOFTWARE_ENGINEERING_TITLE_PATTERNS,
+    text: [/\b(software development|software engineering|build and maintain software|write code|production code|microservices|backend services|frontend applications)\b/i],
     confidence: 0.9,
     signals: ["software_keywords"],
   },
@@ -369,7 +446,7 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "IT_SYSTEMS_DEVOPS",
-    title: [/\b(devops|platform engineer|systems engineer|cloud engineer|network engineer|it support|systems administrator|solutions architect)\b/i],
+    title: [/\b(devops|dev ops|site reliability|sre\b|platform engineer|systems engineer|cloud engineer|infrastructure engineer|network engineer|it support|systems administrator|solutions architect)\b/i],
     confidence: 0.86,
     signals: ["it_systems_keywords"],
   },
@@ -381,7 +458,8 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "FINANCE_ACCOUNTING",
-    title: [/\b(accountant|accounting|finance|financial analyst|fp&a|controller|bookkeeper|tax|audit|treasury|payroll|underwriter|claims)\b/i],
+    title: FINANCE_ACCOUNTING_TITLE_PATTERNS,
+    roleFamily: FINANCE_ACCOUNTING_ROLE_FAMILY_PATTERNS,
     confidence: 0.86,
     signals: ["finance_accounting_keywords"],
   },
@@ -393,15 +471,21 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "SALES",
-    title: [/\b(account executive|sales|business development representative|sdr|bdr|revenue)\b/i],
+    title: [/\b(account executive|sales|business development|partnerships|strategic partnerships|sdr|bdr|revenue)\b/i],
     confidence: 0.84,
     signals: ["sales_keywords"],
   },
   {
     value: "MARKETING",
-    title: [/\b(marketing|growth|brand|content strategist|communications|copywriter|editorial|social media)\b/i],
+    title: [/\b(marketing|growth|brand|social media|developer advocate|developer relations|devrel|technical community)\b/i],
     confidence: 0.84,
     signals: ["marketing_keywords"],
+  },
+  {
+    value: "MEDIA_CONTENT_COMMUNICATIONS",
+    title: [/\b(content strategist|communications|copywriter|editorial|editor|writer|journalist|public relations|pr manager|technical writer)\b/i],
+    confidence: 0.84,
+    signals: ["media_content_communications_keywords"],
   },
   {
     value: "HUMAN_RESOURCES_RECRUITING",
@@ -416,7 +500,7 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
     signals: ["legal_keywords"],
   },
   {
-    value: "SUPPLY_CHAIN_LOGISTICS",
+    value: "OPERATIONS",
     title: [/\b(supply chain|logistics|procurement|buyer|inventory|demand planner|warehouse operations)\b/i],
     confidence: 0.84,
     signals: ["supply_chain_keywords"],
@@ -428,22 +512,28 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
     signals: ["customer_success_keywords"],
   },
   {
-    value: "PROJECT_PROGRAM_MANAGEMENT",
+    value: "OPERATIONS",
     title: [/\b(project manager|program manager|scrum master|delivery manager|technical writer)\b/i],
     confidence: 0.82,
     signals: ["project_program_keywords"],
   },
   {
-    value: "HEALTHCARE_ADMINISTRATION",
-    title: [/\b(healthcare administrator|hospital administrator|medical biller|medical coding|revenue cycle|clinical operations)\b/i],
-    confidence: 0.84,
-    signals: ["healthcare_admin_keywords"],
+    value: "RETAIL_SERVICE",
+    title: [/\b(retail associate|store associate|store manager|cashier|merchandiser|food service|server|barista|cook|restaurant manager|hotel front desk|guest services)\b/i],
+    confidence: 0.82,
+    signals: ["retail_service_keywords"],
   },
   {
-    value: "EDUCATION_ADMINISTRATION",
-    title: [/\b(admissions|registrar|academic advisor|education administrator|student affairs)\b/i],
+    value: "HEALTHCARE_CLINICAL",
+    title: [/\b(registered nurse|nurse practitioner|nursing|physician|surgeon|pharmacist|clinical|healthcare administrator|hospital administrator|medical biller|medical coding|revenue cycle|clinical operations|therapist|radiolog|patholog|medical assistant)\b/i],
+    confidence: 0.84,
+    signals: ["healthcare_clinical_keywords"],
+  },
+  {
+    value: "EDUCATION_TEACHING",
+    title: [/\b(teacher|teaching|professor|lecturer|instructor|tutor|education administrator|admissions|registrar|academic advisor|student affairs|curriculum developer)\b/i],
     confidence: 0.82,
-    signals: ["education_admin_keywords"],
+    signals: ["education_teaching_keywords"],
   },
   {
     value: "RESEARCH_SCIENCE",
@@ -453,21 +543,21 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "ENGINEERING_HARDWARE",
-    title: [/\b(mechanical engineer|electrical engineer|hardware engineer|civil engineer|aerospace engineer|industrial engineer|manufacturing engineer)\b/i],
+    title: [/\b(mechanical engineer|electrical engineer|electronics engineer|hardware engineer|civil engineer|structural engineer|aerospace engineer|industrial engineer|chemical engineer|biomedical engineer|environmental engineer|project engineer|field engineer|mining engineer|nuclear engineer|petroleum engineer)\b/i],
     confidence: 0.82,
     signals: ["hardware_engineering_keywords"],
+  },
+  {
+    value: "SKILLED_TRADES_FACILITIES",
+    title: [/\b(production operator|machine operator|packaging operator|welder|electrician|mechanic|technician|maintenance technician|facilities|assembler|machinist|journeyperson|plant operator|quality technician|quality inspector|forklift|warehouse associate)\b/i],
+    confidence: 0.8,
+    signals: ["manufacturing_trades_keywords"],
   },
   {
     value: "ADMINISTRATIVE",
     title: [/\b(administrative assistant|executive assistant|office manager|office coordinator|scheduler|receptionist)\b/i],
     confidence: 0.82,
     signals: ["administrative_keywords"],
-  },
-  {
-    value: "BUSINESS_DEVELOPMENT",
-    title: [/\b(business development|partnerships|strategic partnerships)\b/i],
-    confidence: 0.82,
-    signals: ["business_development_keywords"],
   },
   {
     value: "OPERATIONS",
@@ -565,6 +655,13 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["aerospace_industry_keywords"],
   },
   {
+    value: "AUTOMOTIVE",
+    company: [/\b(automotive|automobile|vehicle|cars?|ford|toyota|honda|tesla|rivian|stellantis|gm|general motors)\b/i],
+    text: [/\b(automotive|automobile|vehicle manufacturing|electric vehicles?|ev charging|mobility platform)\b/i],
+    confidence: 0.78,
+    signals: ["automotive_industry_keywords"],
+  },
+  {
     value: "TELECOMMUNICATIONS",
     company: [/\b(telecom|telecommunications|wireless|verizon|rogers|bell|telus|at&t)\b/i],
     text: [/\b(telecom|telecommunications|wireless network|5g)\b/i],
@@ -630,6 +727,37 @@ function matchesAny(value: string, patterns: RegExp[] | undefined) {
   return Boolean(patterns?.some((pattern) => pattern.test(value)));
 }
 
+function hasSoftwareEngineeringTitleEvidence(titleValue: string) {
+  const title = normalizeText(titleValue);
+  if (!matchesAny(title, SOFTWARE_ENGINEERING_TITLE_PATTERNS)) return false;
+
+  const explicitSoftwareSignal =
+    /\b(software|frontend|front-end|backend|back-end|full[-\s]?stack|ios|android|embedded|firmware|sdet)\b/i.test(
+      title
+    );
+  if (explicitSoftwareSignal) return true;
+
+  return !matchesAny(title, SOFTWARE_ENGINEERING_NEGATIVE_TITLE_PATTERNS);
+}
+
+function hasFinanceAccountingRoleEvidence(input: { title: string; roleFamily?: string | null }) {
+  const title = normalizeText(input.title);
+  const roleFamily = normalizeText(input.roleFamily);
+
+  const roleFamilyEvidence = matchesAny(roleFamily, FINANCE_ACCOUNTING_ROLE_FAMILY_PATTERNS);
+  const titleEvidence = matchesAny(title, FINANCE_ACCOUNTING_TITLE_PATTERNS);
+
+  if (!roleFamilyEvidence && !titleEvidence) {
+    return false;
+  }
+
+  if (matchesAny(title, FINANCE_ACCOUNTING_TECHNICAL_NEGATIVE_PATTERNS)) {
+    return false;
+  }
+
+  return true;
+}
+
 function firstPatternMatch<T extends string>(
   patterns: Array<PatternDefinition<T>>,
   input: {
@@ -640,12 +768,24 @@ function firstPatternMatch<T extends string>(
   }
 ) {
   for (const pattern of patterns) {
-    if (
-      matchesAny(input.title, pattern.title) ||
-      matchesAny(input.text, pattern.text) ||
-      matchesAny(input.company, pattern.company) ||
-      matchesAny(input.roleFamily, pattern.roleFamily)
-    ) {
+    const titleMatch = matchesAny(input.title, pattern.title);
+    const textMatch = matchesAny(input.text, pattern.text);
+    const companyMatch = matchesAny(input.company, pattern.company);
+    const roleFamilyMatch = matchesAny(input.roleFamily, pattern.roleFamily);
+
+    if (pattern.value === "SOFTWARE_ENGINEERING" && (titleMatch || textMatch || roleFamilyMatch)) {
+      if (!hasSoftwareEngineeringTitleEvidence(input.title)) {
+        continue;
+      }
+    }
+
+    if (pattern.value === "FINANCE_ACCOUNTING" && (titleMatch || textMatch || roleFamilyMatch)) {
+      if (!hasFinanceAccountingRoleEvidence(input)) {
+        continue;
+      }
+    }
+
+    if (titleMatch || textMatch || companyMatch || roleFamilyMatch) {
       return pattern;
     }
   }
@@ -782,7 +922,27 @@ function classifyRoleCategory(input: JobMetadataInput): {
   const roleFamilyKey = normalizeText(input.roleFamily).toUpperCase();
   const roleFamilyAlias = ROLE_FAMILY_ALIASES[roleFamilyKey];
   if (roleFamilyAlias) {
-    return { value: roleFamilyAlias, confidence: 0.9, signals: ["legacy_role_family_mapping"] };
+    if (
+      roleFamilyAlias === "SOFTWARE_ENGINEERING" &&
+      !hasSoftwareEngineeringTitleEvidence(input.title)
+    ) {
+      // Older roleFamily values were produced by a broad "engineer/developer"
+      // matcher. Treat those as hints only; the normalized filter label needs
+      // direct title evidence so non-software engineers and content pages do
+      // not leak into Software Engineering.
+    } else if (
+      roleFamilyAlias === "FINANCE_ACCOUNTING" &&
+      !hasFinanceAccountingRoleEvidence({
+        title: input.title,
+        roleFamily: input.roleFamily,
+      })
+    ) {
+      // Finance/accounting is a strict role filter. Do not let broad legacy
+      // family labels such as risk, claims, payroll platform, or tax platform
+      // turn engineering or technology roles into finance roles.
+    } else {
+      return { value: roleFamilyAlias, confidence: 0.9, signals: ["legacy_role_family_mapping"] };
+    }
   }
 
   const match = firstPatternMatch(ROLE_CATEGORY_PATTERNS, {
@@ -835,25 +995,69 @@ function classifyIndustry(input: JobMetadataInput, roleCategory: NormalizedRoleC
   return { value: "OTHER_UNKNOWN", confidence: 0.2, signals: ["unknown_industry"] };
 }
 
+function resolveClassificationStatus(input: {
+  normalizedEmploymentType: NormalizedEmploymentType;
+  normalizedCareerStage: NormalizedCareerStage;
+  normalizedIndustry: NormalizedIndustry;
+  normalizedRoleCategory: NormalizedRoleCategory;
+  confidence: JobMetadataClassification["confidence"];
+}): JobClassificationStatus {
+  const hasConfidentRole =
+    input.normalizedRoleCategory !== "OTHER_UNKNOWN" &&
+    input.confidence.roleCategory >= ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD;
+  const hasConfidentCareerStage =
+    input.normalizedCareerStage !== "UNKNOWN" &&
+    input.confidence.careerStage >= CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD;
+  const hasConfidentEmploymentType =
+    input.normalizedEmploymentType !== "UNKNOWN" &&
+    input.confidence.employmentType >= EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD;
+  const hasConfidentIndustry =
+    input.normalizedIndustry !== "OTHER_UNKNOWN" &&
+    input.confidence.industry >= INDUSTRY_FILTER_CONFIDENCE_THRESHOLD;
+
+  if (hasConfidentRole && (hasConfidentCareerStage || hasConfidentEmploymentType)) {
+    return "CONFIDENT";
+  }
+
+  if (
+    hasConfidentRole ||
+    hasConfidentCareerStage ||
+    hasConfidentEmploymentType ||
+    hasConfidentIndustry
+  ) {
+    return "PARTIAL";
+  }
+
+  return "UNKNOWN";
+}
+
 export function classifyJobMetadata(input: JobMetadataInput): JobMetadataClassification {
   const employment = classifyEmploymentType(input);
   const careerStage = classifyCareerStage(input);
   const roleCategory = classifyRoleCategory(input);
   const industry = classifyIndustry(input, roleCategory.value);
   const workModeConfidence = input.workMode && input.workMode !== "UNKNOWN" ? 0.8 : 0.2;
+  const confidence = {
+    employmentType: employment.confidence,
+    careerStage: careerStage.confidence,
+    industry: industry.confidence,
+    roleCategory: roleCategory.confidence,
+    workMode: workModeConfidence,
+  };
 
   return {
     normalizedEmploymentType: employment.value,
     normalizedCareerStage: careerStage.value,
     normalizedIndustry: industry.value,
     normalizedRoleCategory: roleCategory.value,
-    confidence: {
-      employmentType: employment.confidence,
-      careerStage: careerStage.confidence,
-      industry: industry.confidence,
-      roleCategory: roleCategory.confidence,
-      workMode: workModeConfidence,
-    },
+    classificationStatus: resolveClassificationStatus({
+      normalizedEmploymentType: employment.value,
+      normalizedCareerStage: careerStage.value,
+      normalizedIndustry: industry.value,
+      normalizedRoleCategory: roleCategory.value,
+      confidence,
+    }),
+    confidence,
     signals: [
       ...employment.signals,
       ...careerStage.signals,
@@ -864,7 +1068,14 @@ export function classifyJobMetadata(input: JobMetadataInput): JobMetadataClassif
 }
 
 function normalizeToken(value: string) {
-  return value.trim().toUpperCase().replace(/[\s-]+/g, "_").replace(/_+&_*|_AND_/g, "_");
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[\/]+/g, "_")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+&_*|_AND_/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
 }
 
 function normalizeFilterValues<T extends string>(
@@ -909,6 +1120,45 @@ export function normalizeRoleCategoryFilterValue(value?: string) {
     value,
     ROLE_CATEGORY_VALUES,
     ROLE_CATEGORY_FILTER_ALIASES
+  );
+}
+
+export function expandNormalizedRoleCategoryFilterValue(value?: string) {
+  const normalized = normalizeRoleCategoryFilterValue(value);
+  if (!normalized) return undefined;
+
+  const expansions: Partial<Record<NormalizedRoleCategory, NormalizedRoleCategory[]>> = {
+    SALES: ["SALES", "BUSINESS_DEVELOPMENT"],
+    OPERATIONS: ["OPERATIONS", "SUPPLY_CHAIN_LOGISTICS", "PROJECT_PROGRAM_MANAGEMENT"],
+    SKILLED_TRADES_FACILITIES: ["SKILLED_TRADES_FACILITIES", "MANUFACTURING_TRADES"],
+  };
+  const seen = new Set<NormalizedRoleCategory>();
+  const values: NormalizedRoleCategory[] = [];
+
+  for (const entry of normalized.split(",") as NormalizedRoleCategory[]) {
+    for (const expanded of expansions[entry] ?? [entry]) {
+      if (seen.has(expanded)) continue;
+      seen.add(expanded);
+      values.push(expanded);
+    }
+  }
+
+  return values.length > 0 ? values.join(",") : undefined;
+}
+
+const ROLE_CATEGORY_DISPLAY_ALIASES: Partial<Record<NormalizedRoleCategory, string>> = {
+  BUSINESS_DEVELOPMENT: "Sales / Business Development",
+  SUPPLY_CHAIN_LOGISTICS: "Operations / Supply Chain",
+  PROJECT_PROGRAM_MANAGEMENT: "Operations / Supply Chain",
+  MANUFACTURING_TRADES: "Skilled Trades / Facilities",
+};
+
+export function getNormalizedRoleCategoryLabel(value?: string | null) {
+  if (!value || value === "OTHER_UNKNOWN") return null;
+  return (
+    ROLE_CATEGORY_DISPLAY_ALIASES[value as NormalizedRoleCategory] ??
+    NORMALIZED_ROLE_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ??
+    null
   );
 }
 

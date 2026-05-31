@@ -41,7 +41,33 @@ const NON_JOB_TITLE_PATTERNS = [
   /^build your career(?: at .+)?[!.]?$/i,
   /^brilliant thrives here(?: search careers? at .+)?$/i,
   /^current opportunities$/i,
+  /^current openings(?: at .+)?$/i,
+  /^search jobs?$/i,
+  /^team$/i,
+  /^internships?$/i,
+  /^employee resource groups$/i,
+  /^change the future of\b/i,
+  /^say yes to$/i,
+  /^supporting our communities$/i,
+  /^where heroes can call home$/i,
+  /^what happens to\b/i,
+  /^become a future leader\b/i,
+  /\bcareer guide$/i,
+  /^top (?:\d+|seven|ten)\b.*\bpositions\b/i,
   /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i,
+  /^privacy notice(?: for job applicants)?$/i,
+  /^notice on fraudulent job offers$/i,
+  /^helpful tips for writing\b/i,
+  /^kb\d+\b/i,
+  /^s\d+\s+e\d+\b/i,
+  /^504 gateway time-?out$/i,
+  /^gateway time-?out$/i,
+  /^access denied$/i,
+  /^your input required$/i,
+  /^building (?:your career|the future)\b/i,
+  /^let'?s go beyond your potential/i,
+  /^on-the-job training .*guide$/i,
+  /^construction .* software made for/i,
   /\bnot an active opening\b/i,
   /\bbuilding (?:a )?talent pipeline\b/i,
   /\[(?:pipeline|talent pool)\]/i,
@@ -290,6 +316,23 @@ function looksLikeGenericCareerUrl(url: string) {
   try {
     const parsed = new URL(url);
     const pathname = parsed.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+
+    // Many real ATS apply URLs end in a literal `/job` segment while carrying
+    // the actual requisition id in the path or query string:
+    //   /open-positions/job?gh_jid=123
+    //   /jobs/123/title/job?mode=apply
+    // Treat those as item pages, not generic job-board landing pages.
+    if (
+      /\/job$/.test(pathname) &&
+      (parsed.searchParams.has("gh_jid") ||
+        parsed.searchParams.has("job_id") ||
+        parsed.searchParams.has("jobId") ||
+        parsed.searchParams.has("mode") ||
+        parsed.searchParams.has("apply") ||
+        /\/jobs?\/\d+\//.test(pathname))
+    ) {
+      return false;
+    }
 
     if (
       /(?:^|\/)(careers?|jobs?|open-positions?|job-openings?)$/.test(pathname) ||

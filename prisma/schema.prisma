@@ -310,6 +310,16 @@ enum DeadlineReminderType {
   DEADLINE_OVERDUE_D1
 }
 
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
+enum AuthSecurityTokenType {
+  PASSWORD_RESET
+}
+
 // ─── Models ─────────────────────────────────────────────
 
 model User {
@@ -318,12 +328,15 @@ model User {
   name                      String
   emailVerified             Boolean  @default(false)
   emailNotificationsEnabled Boolean  @default(true)
+  status                    UserStatus @default(ACTIVE)
+  lastLoginAt               DateTime?
   image                     String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
   accounts            Account[]
   sessions            Session[]
+  authSecurityTokens  AuthSecurityToken[]
   profile             UserProfile?
   trackedApplications TrackedApplication[]
   tags                Tag[]
@@ -511,9 +524,14 @@ model JobCanonical {
   industry                 Industry?
   roleFamily               String
   normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
   normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  classificationStatus     String?
   applyUrl                 String
   applyUrlKey              String?
   postedAt                 DateTime
@@ -995,9 +1013,14 @@ model NormalizedJobRecord {
   industry                 Industry?
   roleFamily               String
   normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
   normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  classificationStatus     String?
   applyUrl                 String
   applyUrlKey              String?
   postedAt                 DateTime
@@ -1058,9 +1081,14 @@ model JobFeedIndex {
   industry                 Industry?
   roleFamily               String
   normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
   normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  classificationStatus     String?
   salaryMin                Int?
   salaryMax                Int?
   salaryCurrency           String?
@@ -1080,12 +1108,19 @@ model JobFeedIndex {
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
 
   @@index([status, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, postedAt(sort: Desc)])
+  @@index([status, deadline, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([region, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([roleFamily, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, workMode, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([submissionCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
 }
 
@@ -1248,6 +1283,21 @@ model Verification {
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model AuthSecurityToken {
+  id        String                @id @default(cuid())
+  userId    String
+  tokenHash String                @unique
+  type      AuthSecurityTokenType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+  @@index([type, expiresAt])
 }
 
 /// Pre-aggregated summary counts for the /jobs page header.
