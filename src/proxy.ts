@@ -18,6 +18,7 @@ const PROTECTED_ROUTE_PREFIXES = [
   "/documents/compare",
   "/profile",
   "/settings",
+  "/account",
   "/ops",
 ] as const;
 
@@ -113,11 +114,18 @@ async function hasValidSession(request: NextRequest) {
       select: {
         expiresAt: true,
         userId: true,
+        user: {
+          select: { status: true },
+        },
       },
     })
   );
 
-  return Boolean(session?.userId && session.expiresAt > new Date());
+  return Boolean(
+    session?.userId &&
+      session.expiresAt > new Date() &&
+      session.user.status === "ACTIVE"
+  );
 }
 
 export async function proxy(request: NextRequest) {
@@ -142,6 +150,7 @@ export const config = {
     "/documents/compare/:path*",
     "/profile/:path*",
     "/settings/:path*",
+    "/account/:path*",
     "/ops/:path*",
   ],
 };

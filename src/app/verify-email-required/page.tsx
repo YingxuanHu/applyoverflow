@@ -12,13 +12,8 @@ export default async function VerifyEmailRequiredPage({
 
   return (
     <AuthShell
-      contextTitle="Verify your email before entering the workspace."
-      contextDescription="Email verification protects your account-specific tracker, profile data, and uploaded application materials."
-      highlights={[
-        "Verification is required before using the jobs feed and tracker.",
-        "Use the same address you signed up with to resend the message.",
-        "After verification, sign-in takes you straight into the app.",
-      ]}
+      contextTitle="Confirm the email for this workspace."
+      contextDescription="Verification keeps your job feed, application tracker, documents, saved answers, and profile details tied to the right account."
     >
       <VerifyEmailCard defaultEmail={params.email ?? ""} />
     </AuthShell>

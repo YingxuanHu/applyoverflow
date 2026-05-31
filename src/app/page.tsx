@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { SignInScreen } from "@/components/auth/sign-in-screen";
+import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 
 type HomePageProps = {
@@ -19,6 +20,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   return (
     <SignInScreen
       callbackUrl={params.callbackUrl || "/jobs"}
+      googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true"}
     />
   );

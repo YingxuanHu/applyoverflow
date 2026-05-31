@@ -12,13 +12,8 @@ export default async function ResetPasswordPage({
 
   return (
     <AuthShell
-      contextTitle="Finish password recovery and return to the workspace."
-      contextDescription="Once your password is updated, you can continue with the feed, tracker, profile, and connected application tools."
-      highlights={[
-        "Use a password you can reuse for ongoing job-search sessions.",
-        "Your account-specific documents and reminders are preserved.",
-        "If the link has expired, request a fresh reset email and try again.",
-      ]}
+      contextTitle="Set a new password and continue."
+      contextDescription="After the update, sign in again and return to the workspace that holds your jobs, documents, answers, and application history."
     >
       <ResetPasswordForm errorCode={params.error} token={params.token} />
     </AuthShell>

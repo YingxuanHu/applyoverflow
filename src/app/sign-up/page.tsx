@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AuthShell } from "@/components/auth/auth-shell";
 import { SignUpForm } from "@/components/auth/sign-up-form";
+import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 
 export default async function SignUpPage() {
@@ -13,16 +14,11 @@ export default async function SignUpPage() {
 
   return (
     <AuthShell
-      contextTitle="Create a workspace that keeps every application connected."
-      contextDescription="Your account ties together the live feed, tracker, profile, uploaded documents, reminders, and automation settings."
-      highlights={[
-        "Jobs you apply to from the feed can flow into the tracker automatically.",
-        "Documents, resume variants, and profile data stay tied to your account.",
-        "Reminder preferences and notifications follow the same workspace.",
-      ]}
+      contextTitle="Build a workspace around the jobs worth applying to."
+      contextDescription="Set up once, then use better job signals, reusable documents, saved answers, and reminders across every application."
       footer={null}
     >
-      <SignUpForm />
+      <SignUpForm googleEnabled={isGoogleAuthEnabled()} />
     </AuthShell>
   );
 }

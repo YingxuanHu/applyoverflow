@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 
 import { SignInScreen } from "@/components/auth/sign-in-screen";
+import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 
 type SignInPageProps = {
-  searchParams: Promise<{ callbackUrl?: string; verified?: string }>;
+  searchParams: Promise<{ callbackUrl?: string; email?: string; verified?: string }>;
 };
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
@@ -18,6 +19,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   return (
     <SignInScreen
       callbackUrl={params.callbackUrl || "/jobs"}
+      defaultEmail={params.email ?? ""}
+      googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true"}
     />
   );

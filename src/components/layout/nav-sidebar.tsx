@@ -10,20 +10,20 @@ import {
   FileText,
   Settings,
   User,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { cn } from "@/lib/utils";
 
 const PRIMARY_NAV_ITEMS = [
   { href: "/jobs", label: "Jobs", icon: Briefcase },
   { href: "/applications", label: "Applications", icon: FileCheck2 },
+  { href: "/profile?tab=documents", label: "Documents", icon: FileText },
 ];
 
 const PROFILE_LINKS = [
-  { href: "/profile?tab=documents", label: "Documents" },
-  { href: "/profile?tab=details#job-preferences", label: "Job preferences" },
   { href: "/profile?tab=details#application-profile", label: "Application profile" },
+  { href: "/profile?tab=details#job-preferences", label: "Job preferences" },
 ];
 
 const SETTINGS_LINKS = [
@@ -51,40 +51,39 @@ export function NavSidebar() {
     return null;
   }
 
+  const isDocumentsActive = pathname.startsWith("/documents");
   const isProfileActive = pathname === "/profile" || pathname.startsWith("/profile/");
   const isSettingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-sidebar md:flex">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar md:flex">
       <div className="px-4 py-5">
         <Link
-          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-sidebar-accent"
+          className="flex items-center gap-3 rounded-[14px] px-2 py-2 transition-colors hover:bg-sidebar-accent"
           href="/jobs"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-foreground text-background">
-            <Zap className="h-4 w-4" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold tracking-tight text-foreground">
-              AutoApplication
-            </p>
-            <p className="text-xs text-muted-foreground">Jobs first. Apply faster.</p>
-          </div>
+          <BrandLogo
+            iconClassName="size-9"
+            textClassName="text-base text-foreground"
+          />
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 pb-4">
+      <nav className="flex-1 space-y-5 px-3 pb-4">
+        <div className="space-y-1">
         {PRIMARY_NAV_ITEMS.map((item) => {
           const isActive =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+            item.label === "Documents"
+              ? isDocumentsActive
+              : pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-[12px] px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-foreground text-background"
+                  ? "bg-sidebar-primary/[0.12] text-sidebar-primary dark:bg-sidebar-primary/[0.18]"
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
               )}
             >
@@ -93,7 +92,9 @@ export function NavSidebar() {
             </Link>
           );
         })}
+        </div>
 
+        <div className="space-y-1">
         <NavGroup
           defaultOpen={isProfileActive}
           href="/profile"
@@ -110,10 +111,11 @@ export function NavSidebar() {
           label="Settings"
           links={SETTINGS_LINKS}
         />
+        </div>
 
-        <div className="pt-4">
+        <div className="border-t border-sidebar-border pt-4">
           <Link
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+            className="flex items-center gap-3 rounded-[12px] px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
             href="/documents/compare"
           >
             <FileText className="h-4 w-4" />
@@ -144,10 +146,10 @@ function NavGroup({
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1 rounded-lg text-sm font-medium text-muted-foreground">
+      <div className="flex items-center gap-1 rounded-[12px] text-sm font-medium text-muted-foreground">
         <Link
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+            "flex min-w-0 flex-1 items-center gap-3 rounded-[12px] px-3 py-2.5 transition-colors",
             isActive
               ? "bg-sidebar-accent text-foreground"
               : "hover:bg-sidebar-accent hover:text-foreground"
@@ -160,7 +162,7 @@ function NavGroup({
         <button
           aria-expanded={open}
           aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-sidebar-accent hover:text-foreground"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-colors hover:bg-sidebar-accent hover:text-foreground"
           onClick={() => setOpen((current) => !current)}
           type="button"
         >
@@ -173,10 +175,10 @@ function NavGroup({
         </button>
       </div>
       {open ? (
-        <div className="ml-7 mt-1 grid gap-1 border-l border-border pl-3">
+        <div className="ml-7 mt-1 grid gap-1 border-l border-sidebar-border pl-3">
           {links.map((link) => (
             <Link
-              className="rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+              className="rounded-[10px] px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
               href={link.href}
               key={link.href}
             >
