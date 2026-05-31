@@ -28,7 +28,7 @@ function buildOvernightApp(name, args, output, error, extraEnv = {}) {
       ...process.env,
       NODE_ENV: process.env.NODE_ENV || "production",
       DATABASE_PROCESS_ROLE: "daemon",
-      DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "8",
+      DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "4",
       DATABASE_POOL_CONNECTION_TIMEOUT_MS:
         process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
       INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
@@ -139,7 +139,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/high-yield-source-poll-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "6",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
             process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "12",
         }
@@ -151,7 +151,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/ats-frontier-expansion-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "4",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         }
       ),
       buildOvernightApp(
@@ -214,7 +214,7 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "daemon",
         DATABASE_POOL_MAX_DAEMON:
-          process.env.DATABASE_POOL_MAX_DAEMON || "8",
+          process.env.DATABASE_POOL_MAX_DAEMON || "4",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
@@ -270,7 +270,7 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
         DATABASE_POOL_MAX_RECOVERY_POLL:
-          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "4",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
@@ -324,7 +324,7 @@ module.exports = {
         RECOVERY_WORKER_VALIDATION_LIMIT:
           process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "250",
         DATABASE_POOL_MAX_RECOVERY_VALIDATION:
-          process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "4",
+          process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
       },
       max_memory_restart: "512M",
     },
@@ -361,7 +361,7 @@ module.exports = {
         RECOVERY_WORKER_REDISCOVERY_LIMIT:
           process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "50",
         DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
-          process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "3",
+          process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "2",
       },
       max_memory_restart: "512M",
     },

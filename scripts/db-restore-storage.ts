@@ -333,7 +333,7 @@ async function main() {
       args.outputFile ||
       path.join(
         os.tmpdir(),
-        "autoapplication-db-restores",
+        "applyoverflow-db-restores",
         sanitizeSegment(databaseName),
         path.basename(key)
       );
