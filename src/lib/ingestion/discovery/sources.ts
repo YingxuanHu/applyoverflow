@@ -1518,7 +1518,7 @@ async function fetchPageText(url: string, accept: string) {
     signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
     headers: {
       Accept: accept,
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-source-discovery/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-source-discovery/1.0)",
     },
     redirect: "follow",
   });

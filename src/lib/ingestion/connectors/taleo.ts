@@ -594,7 +594,7 @@ async function fetchSitemap(target: TaleoTarget): Promise<TaleoSitemapEntry[]> {
     headers: {
       Accept: "application/xml, text/xml, */*",
       "User-Agent":
-        "Mozilla/5.0 (compatible; autoapplication-taleo/1.0)",
+        "Mozilla/5.0 (compatible; applyoverflow-taleo/1.0)",
     },
   });
 

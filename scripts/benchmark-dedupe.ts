@@ -51,9 +51,14 @@ type BenchmarkSample = {
   industry: NormalizedJobInput["industry"];
   roleFamily: string;
   normalizedEmploymentType: string | null;
+  normalizedEmploymentTypeConfidence?: number | null;
   normalizedCareerStage: string | null;
+  normalizedCareerStageConfidence?: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustryConfidence?: number | null;
   normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence?: number | null;
+  classificationStatus?: string | null;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;
@@ -144,9 +149,16 @@ function buildNormalizedJob(sample: BenchmarkSample): NormalizedJobInput {
     industry: sample.industry,
     roleFamily: sample.roleFamily,
     normalizedEmploymentType: coerceNormalizedEmploymentType(sample.normalizedEmploymentType),
+    normalizedEmploymentTypeConfidence: sample.normalizedEmploymentTypeConfidence ?? 0.2,
     normalizedCareerStage: coerceNormalizedCareerStage(sample.normalizedCareerStage),
+    normalizedCareerStageConfidence: sample.normalizedCareerStageConfidence ?? 0.2,
     normalizedIndustry: coerceNormalizedIndustry(sample.normalizedIndustry),
+    normalizedIndustryConfidence: sample.normalizedIndustryConfidence ?? 0.2,
     normalizedRoleCategory: coerceNormalizedRoleCategory(sample.normalizedRoleCategory),
+    normalizedRoleCategoryConfidence: sample.normalizedRoleCategoryConfidence ?? 0.2,
+    classificationStatus:
+      (sample.classificationStatus as NormalizedJobInput["classificationStatus"] | null) ??
+      "UNKNOWN",
     applyUrl: sample.applyUrl,
     applyUrlKey: sample.applyUrlKey,
     postedAt: sample.postedAt,

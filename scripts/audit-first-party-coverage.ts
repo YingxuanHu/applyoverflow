@@ -283,7 +283,7 @@ async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-first-party-audit/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-first-party-audit/1.0)",
     },
   });
   if (!response.ok) {
@@ -296,7 +296,7 @@ async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-first-party-audit/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-first-party-audit/1.0)",
     },
   });
   if (!response.ok) {

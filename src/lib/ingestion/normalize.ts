@@ -296,14 +296,14 @@ const ROLE_PATTERNS: Array<{
   // "product management" (gerund) catches exec titles like "Director, Product Management"
   {
     pattern:
-      /\b(product manager|product management|group product manager|senior product manager|staff product manager|principal product manager|technical program manager|program manager|tpm)\b/i,
+      /\b(product manager|product management|group product manager|senior product manager|staff product manager|principal product manager|product owner|product lead)\b/i,
     industry: "TECH",
     roleFamily: "Product Management",
   },
   // Project / Delivery Management: scrum, agile, release, delivery roles
   {
     pattern:
-      /\b(project manager|scrum master|agile coach|release manager|delivery manager|project management|program management|pmo)\b/i,
+      /\b(project manager|program manager|technical program manager|tpm\b|scrum master|agile coach|release manager|delivery manager|project management|program management|pmo)\b/i,
     industry: "TECH",
     roleFamily: "Project Management",
   },
@@ -370,6 +370,15 @@ const ROLE_PATTERNS: Array<{
     industry: "TECH",
     roleFamily: "IT Operations",
   },
+  // DevOps / cloud / platform / reliability roles. Kept separate from SWE so
+  // filters can route them to IT / Systems / DevOps instead of generic
+  // Software Engineering.
+  {
+    pattern:
+      /\b(devops|dev ops|site reliability|sre\b|cloud engineer|infrastructure engineer|platform engineer|platform engineering|reliability engineer|build engineer|release engineer|automation engineer)\b/i,
+    industry: "TECH",
+    roleFamily: "IT Operations",
+  },
   // (Marketing was historically classified as TECH/Marketing here so the
   // pool had any home for it. With GENERAL/Marketing live below, marketing
   // titles route there instead — see line ~488. The only marketing-coded
@@ -410,11 +419,12 @@ const ROLE_PATTERNS: Array<{
   },
   // SWE: broad engineering catch-all — listed last among tech so specific roles above take priority
   // "web" is scoped to "web engineer|web developer" to avoid matching design/content titles.
-  // "platform" is also scoped to engineering-specific phrases so business titles like
-  // "Platform Partnerships" or "Platform Growth" do not slip into the engineering pool.
+  // Avoid generic "engineer", "developer", and "mobile" matches here; those
+  // caused non-software engineers, developer advocates, and article/product
+  // pages to leak into Software Engineering filters.
   {
     pattern:
-      /\b(software|frontend|front-end|back\s*end|back-end|full[- ]stack|platform engineer|platform engineering|platform developer|mobile|ios|android|devops|dev ops|site reliability|sre|web engineer|web developer|cloud engineer|infrastructure engineer|systems engineer|reliability engineer|build engineer|release engineer|automation engineer|engineer|engineering manager|dx engineer|content engineer|design engineer|embedded|firmware|developer|développeur|ingénieur(?:\s+logiciel)?)\b/i,
+      /\b(software engineer|software developer|software architect|software engineering|frontend engineer|front-end engineer|frontend developer|front-end developer|backend engineer|back-end engineer|backend developer|back-end developer|full[- ]stack engineer|full[- ]stack developer|web engineer|web developer|mobile engineer|mobile developer|ios engineer|ios developer|android engineer|android developer|embedded software engineer|embedded engineer|firmware engineer|firmware developer|sdet|software development engineer in test|qa automation engineer|test automation engineer|développeur|ingénieur logiciel)\b/i,
     industry: "TECH",
     roleFamily: "SWE",
   },
@@ -868,9 +878,14 @@ export function normalizeSourceJob({
     industry,
     roleFamily,
     normalizedEmploymentType: metadata.normalizedEmploymentType,
+    normalizedEmploymentTypeConfidence: metadata.confidence.employmentType,
     normalizedCareerStage: metadata.normalizedCareerStage,
+    normalizedCareerStageConfidence: metadata.confidence.careerStage,
     normalizedIndustry: metadata.normalizedIndustry,
+    normalizedIndustryConfidence: metadata.confidence.industry,
     normalizedRoleCategory: metadata.normalizedRoleCategory,
+    normalizedRoleCategoryConfidence: metadata.confidence.roleCategory,
+    classificationStatus: metadata.classificationStatus,
     applyUrl,
     applyUrlKey: dedupeFields.applyUrlKey,
     postedAt,

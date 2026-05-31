@@ -27,7 +27,7 @@ import type {
 } from "@/lib/ingestion/types";
 
 const BREEZY_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-breezyhr/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-breezyhr/1.0)";
 
 type BreezyHrJob = {
   _id?: string;

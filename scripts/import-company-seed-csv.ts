@@ -183,12 +183,18 @@ function parseCsv(content: string, fileLabel: string): CsvRow[] {
     "careers_url",
     "careers url",
     "careersurl",
+    "company_careers_url",
+    "company careers url",
+    "companycareersurl",
   ]);
   const atsVendorIndex = findHeaderIndex(normalizedHeader, [
     "ats_vendor",
     "ats/vendor",
     "ats vendor",
     "atsvendor",
+    "detected_ats",
+    "detected ats",
+    "detectedats",
   ]);
 
   if (companyNameIndex < 0 || careersUrlIndex < 0) {

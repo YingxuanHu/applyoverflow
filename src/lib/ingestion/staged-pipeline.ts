@@ -20,6 +20,7 @@ import {
 } from "@/lib/ingestion/normalized-records";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
 import {
+  classifyJobMetadata,
   coerceNormalizedCareerStage,
   coerceNormalizedEmploymentType,
   coerceNormalizedIndustry,
@@ -66,6 +67,25 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     applyUrl: sourceJob.applyUrl,
     freshnessMode: connector.freshnessMode,
   });
+  const missingClassification =
+    normalized.normalizedEmploymentTypeConfidence == null ||
+    normalized.normalizedCareerStageConfidence == null ||
+    normalized.normalizedIndustryConfidence == null ||
+    normalized.normalizedRoleCategoryConfidence == null ||
+    normalized.classificationStatus == null;
+  const fallbackMetadata = missingClassification
+    ? classifyJobMetadata({
+        title: normalized.title,
+        company: normalized.company,
+        description: normalized.description,
+        location: normalized.location,
+        roleFamily: normalized.roleFamily,
+        legacyIndustry: normalized.industry,
+        inferredEmploymentType: normalized.employmentType,
+        sourceEmploymentType: null,
+        workMode: normalized.workMode,
+      })
+    : null;
 
   const normalizedJob = {
     title: normalized.title,
@@ -87,10 +107,35 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     shortSummary: normalized.shortSummary,
     industry: normalized.industry,
     roleFamily: normalized.roleFamily,
-    normalizedEmploymentType: coerceNormalizedEmploymentType(normalized.normalizedEmploymentType),
-    normalizedCareerStage: coerceNormalizedCareerStage(normalized.normalizedCareerStage),
-    normalizedIndustry: coerceNormalizedIndustry(normalized.normalizedIndustry),
-    normalizedRoleCategory: coerceNormalizedRoleCategory(normalized.normalizedRoleCategory),
+    normalizedEmploymentType:
+      fallbackMetadata?.normalizedEmploymentType ??
+      coerceNormalizedEmploymentType(normalized.normalizedEmploymentType),
+    normalizedEmploymentTypeConfidence:
+      fallbackMetadata?.confidence.employmentType ??
+      normalized.normalizedEmploymentTypeConfidence ??
+      0.2,
+    normalizedCareerStage:
+      fallbackMetadata?.normalizedCareerStage ??
+      coerceNormalizedCareerStage(normalized.normalizedCareerStage),
+    normalizedCareerStageConfidence:
+      fallbackMetadata?.confidence.careerStage ??
+      normalized.normalizedCareerStageConfidence ??
+      0.2,
+    normalizedIndustry:
+      fallbackMetadata?.normalizedIndustry ?? coerceNormalizedIndustry(normalized.normalizedIndustry),
+    normalizedIndustryConfidence:
+      fallbackMetadata?.confidence.industry ?? normalized.normalizedIndustryConfidence ?? 0.2,
+    normalizedRoleCategory:
+      fallbackMetadata?.normalizedRoleCategory ??
+      coerceNormalizedRoleCategory(normalized.normalizedRoleCategory),
+    normalizedRoleCategoryConfidence:
+      fallbackMetadata?.confidence.roleCategory ??
+      normalized.normalizedRoleCategoryConfidence ??
+      0.2,
+    classificationStatus:
+      fallbackMetadata?.classificationStatus ??
+      (normalized.classificationStatus as NormalizedJobInput["classificationStatus"] | null) ??
+      "UNKNOWN",
     applyUrl: normalized.applyUrl,
     applyUrlKey: normalized.applyUrlKey,
     postedAt: normalized.postedAt,

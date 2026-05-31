@@ -27,7 +27,7 @@ import type {
 } from "@/lib/ingestion/types";
 
 const JSON_LD_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-jsonld/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-jsonld/1.0)";
 
 export type JsonLdBoardOptions = {
   /** Connector family — used in source ID prefix. e.g. "paradox", "hrsmart" */

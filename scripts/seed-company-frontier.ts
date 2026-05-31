@@ -174,7 +174,7 @@ function buildGitHubHeaders() {
   const token = process.env.GITHUB_FRONTIER_TOKEN?.trim();
   return {
     Accept: "application/vnd.github+json",
-    "User-Agent": "autoapplication/1.0 frontier-seed",
+    "User-Agent": "applyoverflow/1.0 frontier-seed",
     "X-GitHub-Api-Version": process.env.GITHUB_FRONTIER_API_VERSION?.trim() || "2022-11-28",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
@@ -185,7 +185,7 @@ function buildSecHeaders() {
     Accept: "application/json",
     "User-Agent":
       process.env.SEC_FRONTIER_USER_AGENT?.trim() ||
-      "autoapplication/1.0 frontier-seed",
+      "applyoverflow/1.0 frontier-seed",
   };
 }
 
@@ -198,7 +198,7 @@ function buildCompaniesHouseHeaders() {
   return {
     Accept: "application/json",
     Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`,
-    "User-Agent": "autoapplication/1.0 frontier-seed",
+    "User-Agent": "applyoverflow/1.0 frontier-seed",
   };
 }
 

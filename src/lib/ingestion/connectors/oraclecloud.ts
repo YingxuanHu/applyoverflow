@@ -42,7 +42,7 @@ const ORACLE_CLOUD_DEFAULT_RATE_DELAY_MS = 500;
 const ORACLE_CLOUD_DEFAULT_LIMIT_PER_PAGE = 50;
 const ORACLE_CLOUD_DEFAULT_MAX_PAGES = 20;
 const ORACLE_CLOUD_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-oraclecloud/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-oraclecloud/1.0)";
 
 type OracleCloudJob = {
   Id?: string;

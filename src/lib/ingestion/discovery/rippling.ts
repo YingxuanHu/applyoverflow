@@ -476,7 +476,7 @@ async function fetchPage(url: string, accept: string) {
   const response = await fetch(url, {
     headers: {
       Accept: accept,
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-bot/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-bot/1.0)",
     },
     redirect: "follow",
   });

@@ -38,7 +38,7 @@ import type {
 
 const HIRINGCAFE_URL = "https://hiring.cafe/";
 const HIRINGCAFE_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-hiringcafe/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-hiringcafe/1.0)";
 // HiringCafe's SSR includes ~145 jobs per render. We try multiple page +
 // filter variants per cycle and dedupe by sourceId to grow the catch
 // without re-fetching the same slice. The duplicate-detection short-circuit

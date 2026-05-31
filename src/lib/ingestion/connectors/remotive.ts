@@ -85,7 +85,7 @@ async function fetchRemotiveJobs({
   const response = await fetch(REMOTIVE_API_URL, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-remotive/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-remotive/1.0)",
     },
     signal,
   });

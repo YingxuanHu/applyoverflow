@@ -73,7 +73,7 @@ async function fetchRemoteOkJobs(
     headers: {
       Accept: "application/json",
       "User-Agent":
-        "Mozilla/5.0 (compatible; autoapplication-remoteok/1.0)",
+        "Mozilla/5.0 (compatible; applyoverflow-remoteok/1.0)",
     },
   });
 

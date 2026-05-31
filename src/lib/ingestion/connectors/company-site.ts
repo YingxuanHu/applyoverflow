@@ -314,7 +314,7 @@ async function fetchHtml(url: string, signal?: AbortSignal): Promise<HtmlFetchRe
       signal: controller.signal,
       headers: {
         Accept: "text/html,application/xhtml+xml,application/json",
-        "User-Agent": "Mozilla/5.0 (compatible; autoapplication-company-site/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-company-site/1.0)",
       },
     });
 

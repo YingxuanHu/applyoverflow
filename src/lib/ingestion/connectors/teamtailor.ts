@@ -17,7 +17,7 @@ import type {
 const DETAIL_BATCH_SIZE = 6;
 const TEAMTAILOR_HEADERS = {
   Accept: "text/html,application/xhtml+xml",
-  "User-Agent": "Mozilla/5.0 (compatible; autoapplication-teamtailor/1.0)",
+  "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-teamtailor/1.0)",
 } satisfies Record<string, string>;
 
 type TeamtailorConnectorOptions = {

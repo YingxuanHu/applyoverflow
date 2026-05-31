@@ -34,7 +34,7 @@ import type {
 const JSEARCH_API_HOST = "jsearch.p.rapidapi.com";
 const JSEARCH_API_URL = `https://${JSEARCH_API_HOST}/search`;
 const JSEARCH_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-jsearch/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-jsearch/1.0)";
 
 // Free tier: 200 requests/month → ~6/day. Default = 1 request per
 // scheduled run. Schedule the connector daily and we use ~30/month.

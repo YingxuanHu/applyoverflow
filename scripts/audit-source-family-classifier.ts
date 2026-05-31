@@ -93,9 +93,14 @@ function buildNormalizedJob(record: {
   industry: NormalizedJobInput["industry"];
   roleFamily: string;
   normalizedEmploymentType: string | null;
+  normalizedEmploymentTypeConfidence?: number | null;
   normalizedCareerStage: string | null;
+  normalizedCareerStageConfidence?: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustryConfidence?: number | null;
   normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence?: number | null;
+  classificationStatus?: string | null;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;
@@ -123,9 +128,16 @@ function buildNormalizedJob(record: {
     industry: record.industry,
     roleFamily: record.roleFamily,
     normalizedEmploymentType: coerceNormalizedEmploymentType(record.normalizedEmploymentType),
+    normalizedEmploymentTypeConfidence: record.normalizedEmploymentTypeConfidence ?? 0.2,
     normalizedCareerStage: coerceNormalizedCareerStage(record.normalizedCareerStage),
+    normalizedCareerStageConfidence: record.normalizedCareerStageConfidence ?? 0.2,
     normalizedIndustry: coerceNormalizedIndustry(record.normalizedIndustry),
+    normalizedIndustryConfidence: record.normalizedIndustryConfidence ?? 0.2,
     normalizedRoleCategory: coerceNormalizedRoleCategory(record.normalizedRoleCategory),
+    normalizedRoleCategoryConfidence: record.normalizedRoleCategoryConfidence ?? 0.2,
+    classificationStatus:
+      (record.classificationStatus as NormalizedJobInput["classificationStatus"] | null) ??
+      "UNKNOWN",
     applyUrl: record.applyUrl,
     applyUrlKey: record.applyUrlKey,
     postedAt: record.postedAt,
