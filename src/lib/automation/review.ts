@@ -2,6 +2,7 @@ import {
   isSensitiveFieldLabel,
   matchLabelToConcept,
 } from "@/lib/automation/field-map";
+import { getAutoApplyReadinessCopy } from "@/lib/automation/user-status";
 import type {
   ATSFillerResult,
   AutoApplyReviewField,
@@ -150,7 +151,7 @@ function makeReviewSummary(input: {
   );
   return {
     status: input.status,
-    ...getReadinessCopy(input.status, missingRequiredFields.length),
+    ...getAutoApplyReadinessCopy(input.status, missingRequiredFields.length),
     canSubmit:
       input.status === "AUTO_APPLY_READY" ||
       input.status === "NEEDS_USER_REVIEW",
@@ -162,46 +163,6 @@ function makeReviewSummary(input: {
     notes: input.notes,
     durationMs: input.durationMs,
   };
-}
-
-function getReadinessCopy(status: AutoApplyReadinessStatus, missingCount: number) {
-  switch (status) {
-    case "AUTO_APPLY_READY":
-      return {
-        statusLabel: "Ready to submit",
-        statusDescription:
-          "Everything required has a value. Review the answers before submitting.",
-      };
-    case "NEEDS_USER_REVIEW":
-      return {
-        statusLabel: "Ready to submit",
-        statusDescription:
-          "The form can be completed, but custom or sensitive answers should be reviewed before submitting.",
-      };
-    case "NEEDS_EXTRA_ANSWERS":
-      return {
-        statusLabel: "Needs your input",
-        statusDescription: `${missingCount} required field${missingCount === 1 ? "" : "s"} need an answer before this can be submitted.`,
-      };
-    case "PARTIAL_AUTOFILL_ONLY":
-      return {
-        statusLabel: "Needs your input",
-        statusDescription:
-          "We can fill part of this application, but you need to complete the remaining fields.",
-      };
-    case "NOT_AUTO_APPLICABLE":
-      return {
-        statusLabel: "Cannot auto-apply",
-        statusDescription:
-          "This job needs to be completed on the employer site.",
-      };
-    case "BLOCKED_OR_UNSUPPORTED":
-      return {
-        statusLabel: "Cannot auto-apply",
-        statusDescription:
-          "The employer form could not be verified safely from the app.",
-      };
-  }
 }
 
 function inferFieldSource(

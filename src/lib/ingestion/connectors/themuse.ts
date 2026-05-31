@@ -210,7 +210,7 @@ async function fetchMuseJobs(
           headers: {
             Accept: "application/json",
             "User-Agent":
-              "Mozilla/5.0 (compatible; autoapplication-themuse/1.0)",
+              "Mozilla/5.0 (compatible; applyoverflow-themuse/1.0)",
           },
         });
 

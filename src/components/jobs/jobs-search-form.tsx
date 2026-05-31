@@ -12,24 +12,22 @@ type HiddenField = {
   value: string;
 };
 
+type VisibleJobSearchScope = Exclude<JobSearchScope, "all">;
 type SearchValues = Record<JobSearchScope, string>;
 
-const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: JobSearchScope }> = [
-  { label: "All", value: "all" },
+const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleJobSearchScope }> = [
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
   { label: "Location", value: "location" },
 ];
 
-const SEARCH_PARAM_BY_SCOPE: Record<JobSearchScope, string> = {
-  all: "search",
+const SEARCH_PARAM_BY_SCOPE: Record<VisibleJobSearchScope, string> = {
   title: "titleSearch",
   company: "companySearch",
   location: "locationSearch",
 };
 
-const PLACEHOLDER_BY_SCOPE: Record<JobSearchScope, string> = {
-  all: "Search jobs, companies, or keywords",
+const PLACEHOLDER_BY_SCOPE: Record<VisibleJobSearchScope, string> = {
   title: "Search job titles",
   company: "Search companies",
   location: "Search locations",
@@ -60,7 +58,8 @@ export function JobsSearchForm({
   initialScope: JobSearchScope;
   initialValues: SearchValues;
 }) {
-  const [scope, setScope] = useState<JobSearchScope>(initialScope);
+  const initialVisibleScope = initialScope === "all" ? "title" : initialScope;
+  const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
   const [values, setValues] = useState<SearchValues>({
     ...initialValues,
     location: "",
@@ -78,7 +77,7 @@ export function JobsSearchForm({
       ))}
       <input name="searchScope" type="hidden" value={scope} />
       {SEARCH_SCOPE_OPTIONS.filter(
-        (option) => scope !== "all" && option.value !== "all" && option.value !== scope
+        (option) => option.value !== scope
       ).map((option) => {
         const value =
           option.value === "location"
@@ -98,15 +97,16 @@ export function JobsSearchForm({
         <input name="locationSearch" type="hidden" value={pendingLocationSearch} />
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-input/80 bg-background/70 transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 sm:flex-row">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
         <label className="sr-only" htmlFor="jobs-search-scope">
           Search within
         </label>
-        <div className="relative border-b border-border/60 sm:w-40 sm:border-b-0 sm:border-r">
+        <div className="relative border-b border-border/60 sm:w-32 sm:border-b-0 sm:border-r">
           <select
-            className="h-10 w-full appearance-none bg-transparent py-2 pl-3 pr-8 text-sm font-medium text-foreground outline-none"
+            className="h-10 w-full appearance-none bg-transparent pl-4 pr-8 text-left text-sm font-medium leading-10 text-foreground outline-none"
             id="jobs-search-scope"
-            onChange={(event) => setScope(event.target.value as JobSearchScope)}
+            onChange={(event) => setScope(event.target.value as VisibleJobSearchScope)}
+            style={{ textAlignLast: "left" }}
             value={scope}
           >
             {SEARCH_SCOPE_OPTIONS.map((option) => (
@@ -135,7 +135,7 @@ export function JobsSearchForm({
         </div>
       </div>
 
-      <Button className="h-10 w-full px-4 sm:w-auto" size="sm" type="submit">
+      <Button className="h-10 w-full px-5 sm:w-auto" type="submit">
         Search
       </Button>
     </form>

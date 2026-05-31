@@ -13,6 +13,10 @@ import "dotenv/config";
 
 import process from "node:process";
 import { prisma } from "@/lib/db";
+import {
+  getStartOfTodayInTimeZone,
+  normalizeUserTimeZone,
+} from "@/lib/time-zone";
 import type { Prisma } from "@/generated/prisma/client";
 
 const SINGLETON_ID = "singleton";
@@ -24,8 +28,8 @@ const VISIBLE_STATUSES = ["LIVE", "AGING", "STALE"] as const;
 async function main() {
   const startedAt = Date.now();
   const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
+  const timeZone = normalizeUserTimeZone(process.env.JOB_FEED_SUMMARY_TIME_ZONE);
+  const startOfToday = getStartOfTodayInTimeZone(timeZone, now);
 
   const visibleWhere: Prisma.JobCanonicalWhereInput = {
     AND: [
@@ -81,7 +85,7 @@ async function main() {
 
   const elapsedMs = Date.now() - startedAt;
   console.log(
-    `[refresh-job-feed-summary] live=${liveJobCount} added=${addedTodayCount} expired=${expiredTodayCount} removed=${removedTodayCount} elapsed=${elapsedMs}ms`
+    `[refresh-job-feed-summary] timezone=${timeZone} live=${liveJobCount} added=${addedTodayCount} expired=${expiredTodayCount} removed=${removedTodayCount} elapsed=${elapsedMs}ms`
   );
 }
 

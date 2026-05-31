@@ -167,7 +167,7 @@ async function main() {
   const user = await prisma.userProfile.create({
     data: {
       id: DEMO_USER_ID,
-      email: "demo@autoapplication.dev",
+      email: "demo@applyoverflow.com",
       name: "Alex Chen",
       linkedinUrl: "https://linkedin.com/in/alexchen",
       githubUrl: "https://github.com/alexchen",

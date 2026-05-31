@@ -21,13 +21,8 @@ export default async function ForgotPasswordPage({
 
   return (
     <AuthShell
-      contextTitle="Recover account access without losing your workspace."
-      contextDescription="Reset access to your feed, tracker, documents, reminders, and profile settings from one place."
-      highlights={[
-        "Your tracked applications and deadlines stay attached to your account.",
-        "Uploaded resumes and cover letters remain available after sign-in.",
-        "Use the same email address tied to your existing workspace.",
-      ]}
+      contextTitle="Recover access without starting over."
+      contextDescription="Reset your password and return to the same job feed, application tracker, documents, reminders, and profile data."
     >
       <ForgotPasswordForm defaultEmail={params.email ?? ""} />
     </AuthShell>

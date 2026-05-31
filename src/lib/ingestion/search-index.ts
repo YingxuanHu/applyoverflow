@@ -7,6 +7,7 @@ import {
   computeTrustScore,
 } from "@/lib/ingestion/quality";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
+import { isClearlyNonJobPosting } from "@/lib/job-integrity";
 
 const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
 const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
@@ -15,6 +16,9 @@ const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
 export type JobFeedIndexRepairMode = "missing" | "stale" | "all";
 
 function shouldExcludeFromFeedIndex(input: {
+  title: string;
+  description: string;
+  shortSummary: string;
   location: string;
   region: "US" | "CA" | null;
   workMode: string;
@@ -29,6 +33,16 @@ function shouldExcludeFromFeedIndex(input: {
   now: Date;
 }) {
   if (input.status !== "LIVE") {
+    return true;
+  }
+
+  if (
+    isClearlyNonJobPosting({
+      title: input.title,
+      description: input.description || input.shortSummary,
+      applyUrl: input.applyUrl,
+    })
+  ) {
     return true;
   }
 
@@ -98,6 +112,9 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
     deadline: canonical.deadline,
   });
   const indexStatus = shouldExcludeFromFeedIndex({
+    title: canonical.title,
+    description: canonical.description,
+    shortSummary: canonical.shortSummary,
     location: canonical.location,
     region: canonical.region,
     workMode: canonical.workMode,
@@ -150,9 +167,14 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       industry: canonical.industry,
       roleFamily: canonical.roleFamily,
       normalizedEmploymentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+      normalizedEmploymentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
       normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+      normalizedCareerStageConfidence: canonical.normalizedCareerStageConfidence,
       normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedIndustryConfidence: canonical.normalizedIndustryConfidence,
       normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+      normalizedRoleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
+      classificationStatus: canonical.classificationStatus ?? "UNKNOWN",
       salaryMin: canonical.salaryMin,
       salaryMax: canonical.salaryMax,
       salaryCurrency: canonical.salaryCurrency,
@@ -178,9 +200,14 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
         sourceQualityKind: primarySource?.sourceQualityKind ?? null,
         normalizedMetadata: {
           employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+          employmentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
           careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+          careerStageConfidence: canonical.normalizedCareerStageConfidence,
           industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          industryConfidence: canonical.normalizedIndustryConfidence,
           roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+          roleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
+          classificationStatus: canonical.classificationStatus ?? "UNKNOWN",
         },
       },
       indexedAt: new Date(),
@@ -198,9 +225,14 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       industry: canonical.industry,
       roleFamily: canonical.roleFamily,
       normalizedEmploymentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+      normalizedEmploymentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
       normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+      normalizedCareerStageConfidence: canonical.normalizedCareerStageConfidence,
       normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedIndustryConfidence: canonical.normalizedIndustryConfidence,
       normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+      normalizedRoleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
+      classificationStatus: canonical.classificationStatus ?? "UNKNOWN",
       salaryMin: canonical.salaryMin,
       salaryMax: canonical.salaryMax,
       salaryCurrency: canonical.salaryCurrency,
@@ -226,9 +258,14 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
         sourceQualityKind: primarySource?.sourceQualityKind ?? null,
         normalizedMetadata: {
           employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
+          employmentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
           careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
+          careerStageConfidence: canonical.normalizedCareerStageConfidence,
           industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          industryConfidence: canonical.normalizedIndustryConfidence,
           roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+          roleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
+          classificationStatus: canonical.classificationStatus ?? "UNKNOWN",
         },
       },
       indexedAt: new Date(),

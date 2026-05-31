@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 
-import { withPrismaConnectionRetry } from "@/lib/db";
+import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
 
@@ -27,6 +27,17 @@ async function getSessionUser(): Promise<SessionUser | null> {
     );
 
     if (!session?.user) {
+      return null;
+    }
+
+    const user = await withPrismaConnectionRetry(() =>
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { status: true },
+      })
+    );
+
+    if (user?.status !== "ACTIVE") {
       return null;
     }
 

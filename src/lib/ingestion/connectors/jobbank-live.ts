@@ -33,7 +33,7 @@ import type {
 const JOBBANK_BASE = "https://www.jobbank.gc.ca";
 const JOBBANK_SEARCH_PATH = "/jobsearch/jobsearch";
 const JOBBANK_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-jobbank-live/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-jobbank-live/1.0)";
 const JOBBANK_DEFAULT_PAGE_DELAY_MS = 800;
 const JOBBANK_DEFAULT_MAX_QUERIES_PER_RUN = 6;
 

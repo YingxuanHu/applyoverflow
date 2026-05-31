@@ -52,13 +52,13 @@ export async function JobDescriptionSection({
   const shouldShowDescription = descriptionUsable && descriptionBlocks.length > 0;
 
   return (
-    <div className="border-t border-border py-4">
+    <section className="surface-panel p-5 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
       </div>
 
       {shouldShowDescription ? (
-        <div className="mt-3 space-y-2.5 text-[13px] leading-6 text-foreground/82">
+        <div className="mt-3 space-y-2.5 text-[13px] leading-5 text-foreground/82">
           {descriptionBlocks.map((block, index) => {
             if (block.kind === "header") {
               return (
@@ -78,7 +78,7 @@ export async function JobDescriptionSection({
                   className="ml-5 list-disc space-y-1.5 marker:text-muted-foreground/60"
                 >
                   {block.items.map((item, itemIndex) => (
-                    <li key={itemIndex} className="leading-6">
+                    <li key={itemIndex} className="leading-5">
                       {item}
                     </li>
                   ))}
@@ -87,7 +87,7 @@ export async function JobDescriptionSection({
             }
 
             return (
-              <p key={index} className="leading-6 text-foreground/80">
+              <p key={index} className="leading-5 text-foreground/80">
                 {block.text}
               </p>
             );
@@ -108,6 +108,6 @@ export async function JobDescriptionSection({
           </a>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }

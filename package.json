@@ -1,5 +1,5 @@
 {
-  "name": "autoapplication",
+  "name": "applyoverflow",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -37,6 +37,7 @@
     "enterprise:corpus": "tsx -r dotenv/config scripts/discover-company-corpus.ts",
     "enterprise:corpus:batches": "tsx -r dotenv/config scripts/run-company-corpus-batches.ts",
     "company:import-csv": "tsx -r dotenv/config scripts/import-company-seed-csv.ts",
+    "company:bulk-import-sites": "tsx -r dotenv/config scripts/bulk-import-company-site-sources.ts",
     "source:sync-ats-tenants": "tsx -r dotenv/config scripts/sync-productive-ats-tenants.ts",
     "source:expand-ats-frontier": "tsx -r dotenv/config scripts/expand-ats-frontier.ts",
     "source:analyze-families": "tsx -r dotenv/config scripts/analyze-source-families.ts",
@@ -51,9 +52,13 @@
     "jobs:retire-non-job": "tsx -r dotenv/config scripts/retire-non-job-canonical.ts",
     "jobs:retire-weak-aggregator": "tsx -r dotenv/config scripts/retire-weak-aggregator-canonical.ts",
     "jobs:split-overmerged": "tsx -r dotenv/config scripts/split-overmerged-canonical-jobs.ts",
+    "jobs:diagnose-filters": "tsx -r dotenv/config scripts/diagnose-job-filter-metadata.ts",
+    "jobs:audit-role-filters": "tsx -r dotenv/config scripts/audit-job-role-filter-contract.ts",
     "jobs:backfill-metadata": "tsx -r dotenv/config scripts/backfill-job-metadata.ts",
     "jobs:backfill-feed-index": "tsx -r dotenv/config scripts/backfill-job-feed-index.ts",
+    "jobs:repair-feed-visibility": "tsx -r dotenv/config scripts/repair-job-feed-visibility.ts",
     "jobs:refresh-feed-summary": "tsx -r dotenv/config scripts/refresh-job-feed-summary.ts",
+    "jobs:apply-performance-indexes": "tsx -r dotenv/config scripts/apply-query-performance-indexes.ts",
     "jobs:backfill-region": "tsx -r dotenv/config scripts/backfill-canonical-region.ts",
     "workday:scout": "tsx -r dotenv/config scripts/scout-workday.ts",
     "workday:analyze": "tsx -r dotenv/config scripts/analyze-workday-sources.ts",

@@ -104,7 +104,7 @@ export async function POST(
         answers = Object.fromEntries(entries);
       }
     } catch {
-      return errorResponse("Auto-apply requires a JSON body with intent.", 400);
+      return errorResponse("Apply assistant requires a JSON body with intent.", 400);
     }
 
     if (!resumeVariantId) {
@@ -134,14 +134,14 @@ export async function POST(
     const atsFiller = resolveATSFiller(job.applyUrl);
     if (job.status !== "LIVE" || !atsFiller) {
       return errorResponse(
-        "This job is not eligible for auto-apply. Open the original posting and apply manually.",
+        "This application cannot be completed in the app yet. Open the employer posting and apply manually.",
         409
       );
     }
 
     if (job.eligibility?.submissionCategory === "MANUAL_ONLY") {
       return errorResponse(
-        "This job is marked manual-only. Use the original posting or tracked apply flow.",
+        "This application is manual apply. Use the employer posting or tracked apply flow.",
         409
       );
     }

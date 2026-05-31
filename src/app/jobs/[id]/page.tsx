@@ -1,12 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Bot, ExternalLink } from "lucide-react";
 import { AIWorkspace } from "@/components/jobs/ai-workspace";
-import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
-import { ManualApplyMenu } from "@/components/jobs/manual-apply-menu";
+import { JobDetailActionGroup } from "@/components/jobs/job-detail-action-group";
 import { JobMetaRow } from "@/components/jobs/job-meta-row";
-import { Button } from "@/components/ui/button";
 import {
   APPLICATION_REVIEW_STATE_META,
   formatDeadlineValue,
@@ -15,8 +12,6 @@ import {
   formatSalary,
   getDeadlineUrgency,
   getExpiringSoonMeta,
-  getSubmissionMeta,
-  shouldShowSubmissionMeta,
 } from "@/lib/job-display";
 import { cn } from "@/lib/utils";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
@@ -53,19 +48,16 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
 
   const { atsSupported, job, reviewState, submissions } = detailData;
   const latestSubmission = submissions[0] ?? null;
-  const submissionMeta = getSubmissionMeta(job);
   const reviewStateMeta = APPLICATION_REVIEW_STATE_META[reviewState];
   const deadlineUrgency = getDeadlineUrgency(job.deadline);
   const expiringSoon = getExpiringSoonMeta(job.deadline);
   const deadlineValue = formatDeadlineValue(job.deadline);
-  const canStartApplyFlow =
-    reviewState !== "NOT_ELIGIBLE" &&
-    job.status !== "EXPIRED" &&
-    job.status !== "REMOVED";
-  const showSubmissionMeta = shouldShowSubmissionMeta(job);
+  const applyModeLabel =
+    reviewState === "MANUAL_ONLY" || reviewState === "NOT_ELIGIBLE" || !atsSupported
+      ? "Employer site"
+      : reviewStateMeta.label;
   const manualApplyHref =
     job.primaryExternalLink?.href ?? job.sourcePostingLink?.href ?? job.applyUrl;
-  const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
   const displaySalary = resolveJobSalaryRange({
     salaryMin: job.salaryMin,
     salaryMax: job.salaryMax,
@@ -73,27 +65,34 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     description: job.description,
     regionHint: job.region,
   });
+  const trackedApplication = await prisma.trackedApplication.findUnique({
+    where: {
+      userId_canonicalJobId: {
+        userId: sessionUser.id,
+        canonicalJobId: job.id,
+      },
+    },
+    select: { status: true },
+  });
+  const hasAppliedStatus =
+    !!trackedApplication &&
+    trackedApplication.status !== "WISHLIST" &&
+    trackedApplication.status !== "PREPARING";
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+    <div className="app-page space-y-5">
       {/* Breadcrumb */}
-      <div className="mb-3">
+      <div>
         <Link href="/jobs" className="text-sm text-muted-foreground hover:text-foreground">
           ← Jobs
         </Link>
       </div>
 
       {/* Header — stacks on mobile, row on sm+ */}
-      <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="surface-panel flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="text-lg font-semibold leading-snug tracking-tight sm:text-xl">{job.title}</h1>
-            {showSubmissionMeta ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-emerald-700">
-                <Bot className="h-3 w-3" aria-hidden="true" />
-                {submissionMeta.label}
-              </span>
-            ) : null}
+            <h1 className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">{job.title}</h1>
             {expiringSoon ? (
               <span
                 className={cn(
@@ -120,43 +119,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           />
         </div>
 
-        {postingHref || canStartApplyFlow ? (
-          <div className="flex shrink-0 items-center gap-2">
-            {postingHref ? (
-              <a
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-                href={postingHref}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Posting
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            ) : null}
-            {canStartApplyFlow ? (
-              <>
-                <JobCardActions
-                  align="end"
-                  compact
-                  initialSaved={job.isSaved}
-                  jobId={job.id}
-                />
-                {reviewState === "MANUAL_ONLY" || !atsSupported ? (
-                  <ManualApplyMenu
-                    align="end"
-                    applyHref={manualApplyHref}
-                    buttonSize="sm"
-                    jobId={job.id}
-                  />
-                ) : (
-                  <Button size="sm" render={<Link href={`/jobs/${job.id}/auto-apply`} />}>
-                    Auto apply
-                  </Button>
-                )}
-              </>
-            ) : null}
-          </div>
-        ) : null}
+        <JobDetailActionGroup
+          applyHref={manualApplyHref}
+          initialApplied={hasAppliedStatus}
+          initialSaved={job.isSaved && !hasAppliedStatus}
+          jobId={job.id}
+        />
       </div>
 
       {/* Lifecycle notice — shown for aging and degraded lifecycle states */}
@@ -164,7 +132,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       job.status === "STALE" ||
       job.status === "EXPIRED" ||
       job.status === "REMOVED" ? (
-        <div className="border-t border-border py-3">
+        <div className="rounded-[14px] border border-border/70 bg-card p-4">
           <p
             className={`text-sm ${
               job.status === "EXPIRED" || job.status === "REMOVED"
@@ -186,7 +154,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       ) : null}
 
       {/* Key fields */}
-      <div className="grid grid-cols-2 gap-x-8 gap-y-3 border-t border-border py-3 sm:grid-cols-4">
+      <div className="surface-panel grid grid-cols-2 gap-x-8 gap-y-4 p-5 sm:grid-cols-4">
         <Field
           label="Salary"
           value={
@@ -215,11 +183,11 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
             {deadlineValue ?? "None listed"}
           </p>
         </div>
-        <Field label="Automation" value={reviewStateMeta.label} />
+        <Field label="Apply method" value={applyModeLabel} />
       </div>
 
       {latestSubmission ? (
-        <div className="flex items-center justify-end border-t border-border py-3">
+        <div className="flex items-center justify-end rounded-[14px] border border-border/70 bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground">
             {formatDisplayLabel(latestSubmission.status)}
             {latestSubmission.submittedAt
@@ -235,7 +203,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           to match the Description heading. Cover letter rendering is hidden
           here (showCoverLetter=false); the workspace page still uses it. */}
       {process.env.OPENAI_API_KEY ? (
-        <div className="border-t border-border py-4">
+        <div className="surface-panel p-5 sm:p-6">
           <p className="text-sm font-medium text-muted-foreground">
             Fit analysis
           </p>

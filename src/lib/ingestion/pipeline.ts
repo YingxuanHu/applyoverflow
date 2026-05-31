@@ -1401,9 +1401,14 @@ const canonicalMatchSelect = {
   applyUrlKey: true,
   roleFamily: true,
   normalizedEmploymentType: true,
+  normalizedEmploymentTypeConfidence: true,
   normalizedCareerStage: true,
+  normalizedCareerStageConfidence: true,
   normalizedIndustry: true,
+  normalizedIndustryConfidence: true,
   normalizedRoleCategory: true,
+  normalizedRoleCategoryConfidence: true,
+  classificationStatus: true,
   workMode: true,
 } as const;
 
@@ -1481,9 +1486,14 @@ export async function upsertCanonicalJob({
       industry: true,
       roleFamily: true,
       normalizedEmploymentType: true,
+      normalizedEmploymentTypeConfidence: true,
       normalizedCareerStage: true,
+      normalizedCareerStageConfidence: true,
       normalizedIndustry: true,
+      normalizedIndustryConfidence: true,
       normalizedRoleCategory: true,
+      normalizedRoleCategoryConfidence: true,
+      classificationStatus: true,
       applyUrl: true,
       applyUrlKey: true,
       postedAt: true,
@@ -1524,6 +1534,63 @@ export async function upsertCanonicalJob({
   const currentHasSalary =
     currentCanonical.salaryMin != null || currentCanonical.salaryMax != null;
   const useIncomingSalary = (preferIncomingSource && incomingHasSalary) || !currentHasSalary;
+  const normalizedEmploymentType = chooseCanonicalStringValue({
+    currentValue: currentCanonical.normalizedEmploymentType ?? "UNKNOWN",
+    nextValue: normalizedJob.normalizedEmploymentType,
+    preferNext: preferIncomingSource,
+    unknownValues: ["UNKNOWN"],
+  });
+  const normalizedCareerStage = chooseCanonicalStringValue({
+    currentValue: currentCanonical.normalizedCareerStage ?? "UNKNOWN",
+    nextValue: normalizedJob.normalizedCareerStage,
+    preferNext: preferIncomingSource,
+    unknownValues: ["UNKNOWN"],
+  });
+  const normalizedIndustry = chooseCanonicalStringValue({
+    currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+    nextValue: normalizedJob.normalizedIndustry,
+    preferNext: preferIncomingSource,
+    unknownValues: ["OTHER_UNKNOWN"],
+  });
+  const normalizedRoleCategory = chooseCanonicalStringValue({
+    currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+    nextValue: normalizedJob.normalizedRoleCategory,
+    preferNext: preferIncomingSource,
+    unknownValues: ["OTHER_UNKNOWN"],
+  });
+  const normalizedEmploymentTypeConfidence = chooseCanonicalMetadataConfidence({
+    currentValue: currentCanonical.normalizedEmploymentType ?? "UNKNOWN",
+    nextValue: normalizedJob.normalizedEmploymentType,
+    chosenValue: normalizedEmploymentType,
+    currentConfidence: currentCanonical.normalizedEmploymentTypeConfidence,
+    nextConfidence: normalizedJob.normalizedEmploymentTypeConfidence,
+  });
+  const normalizedCareerStageConfidence = chooseCanonicalMetadataConfidence({
+    currentValue: currentCanonical.normalizedCareerStage ?? "UNKNOWN",
+    nextValue: normalizedJob.normalizedCareerStage,
+    chosenValue: normalizedCareerStage,
+    currentConfidence: currentCanonical.normalizedCareerStageConfidence,
+    nextConfidence: normalizedJob.normalizedCareerStageConfidence,
+  });
+  const normalizedIndustryConfidence = chooseCanonicalMetadataConfidence({
+    currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+    nextValue: normalizedJob.normalizedIndustry,
+    chosenValue: normalizedIndustry,
+    currentConfidence: currentCanonical.normalizedIndustryConfidence,
+    nextConfidence: normalizedJob.normalizedIndustryConfidence,
+  });
+  const normalizedRoleCategoryConfidence = chooseCanonicalMetadataConfidence({
+    currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
+    nextValue: normalizedJob.normalizedRoleCategory,
+    chosenValue: normalizedRoleCategory,
+    currentConfidence: currentCanonical.normalizedRoleCategoryConfidence,
+    nextConfidence: normalizedJob.normalizedRoleCategoryConfidence,
+  });
+  const usingIncomingMetadata =
+    normalizedEmploymentType === normalizedJob.normalizedEmploymentType &&
+    normalizedCareerStage === normalizedJob.normalizedCareerStage &&
+    normalizedIndustry === normalizedJob.normalizedIndustry &&
+    normalizedRoleCategory === normalizedJob.normalizedRoleCategory;
 
   const canonicalJob = await prisma.jobCanonical.update({
     where: { id: currentCanonical.id },
@@ -1623,30 +1690,17 @@ export async function upsertCanonicalJob({
         preferNext: preferIncomingSource,
         unknownValues: ["Unknown"],
       }),
-      normalizedEmploymentType: chooseCanonicalStringValue({
-        currentValue: currentCanonical.normalizedEmploymentType ?? "UNKNOWN",
-        nextValue: normalizedJob.normalizedEmploymentType,
-        preferNext: preferIncomingSource,
-        unknownValues: ["UNKNOWN"],
-      }),
-      normalizedCareerStage: chooseCanonicalStringValue({
-        currentValue: currentCanonical.normalizedCareerStage ?? "UNKNOWN",
-        nextValue: normalizedJob.normalizedCareerStage,
-        preferNext: preferIncomingSource,
-        unknownValues: ["UNKNOWN"],
-      }),
-      normalizedIndustry: chooseCanonicalStringValue({
-        currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
-        nextValue: normalizedJob.normalizedIndustry,
-        preferNext: preferIncomingSource,
-        unknownValues: ["OTHER_UNKNOWN"],
-      }),
-      normalizedRoleCategory: chooseCanonicalStringValue({
-        currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
-        nextValue: normalizedJob.normalizedRoleCategory,
-        preferNext: preferIncomingSource,
-        unknownValues: ["OTHER_UNKNOWN"],
-      }),
+      normalizedEmploymentType,
+      normalizedEmploymentTypeConfidence,
+      normalizedCareerStage,
+      normalizedCareerStageConfidence,
+      normalizedIndustry,
+      normalizedIndustryConfidence,
+      normalizedRoleCategory,
+      normalizedRoleCategoryConfidence,
+      classificationStatus: usingIncomingMetadata
+        ? normalizedJob.classificationStatus
+        : (currentCanonical.classificationStatus ?? normalizedJob.classificationStatus),
       applyUrl: chooseCanonicalUrl({
         currentValue: currentCanonical.applyUrl,
         nextValue: normalizedJob.applyUrl,
@@ -2454,7 +2508,7 @@ async function checkApplyUrlAvailability(
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; autoapplication-lifecycle-check/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-lifecycle-check/1.0)",
       },
     });
 
@@ -2695,6 +2749,34 @@ function chooseCanonicalEnumValue<T extends string | null>({
   if (nextKnown) return nextValue;
   if (preferNext && nextValue != null) return nextValue;
   return currentValue ?? nextValue;
+}
+
+function chooseCanonicalMetadataConfidence({
+  currentValue,
+  nextValue,
+  chosenValue,
+  currentConfidence,
+  nextConfidence,
+}: {
+  currentValue: string;
+  nextValue: string;
+  chosenValue: string;
+  currentConfidence: number | null;
+  nextConfidence: number;
+}) {
+  if (chosenValue === nextValue && chosenValue !== currentValue) {
+    return nextConfidence;
+  }
+
+  if (chosenValue === currentValue && chosenValue !== nextValue) {
+    return currentConfidence ?? null;
+  }
+
+  if (chosenValue === nextValue && chosenValue === currentValue) {
+    return Math.max(currentConfidence ?? 0, nextConfidence);
+  }
+
+  return currentConfidence ?? nextConfidence;
 }
 
 function chooseCanonicalDescription({

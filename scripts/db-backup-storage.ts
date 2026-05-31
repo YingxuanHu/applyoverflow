@@ -196,7 +196,7 @@ async function uploadBackup(input: {
       ContentLength: fileStat.size,
       ContentType: "application/octet-stream",
       Metadata: {
-        createdBy: "autoapplication-db-backup",
+        createdBy: "applyoverflow-db-backup",
       },
     })
   );
@@ -273,7 +273,7 @@ async function main() {
   const dbName = sanitizeSegment(getDatabaseName(databaseUrl));
   const backupDir =
     process.env.DB_BACKUP_LOCAL_DIR?.trim() ||
-    path.join(os.tmpdir(), "autoapplication-db-backups", dbName);
+    path.join(os.tmpdir(), "applyoverflow-db-backups", dbName);
   await mkdir(backupDir, { recursive: true });
 
   const label = sanitizeSegment(args.label);

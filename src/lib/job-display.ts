@@ -3,15 +3,15 @@ import type { ApplicationReviewState, JobCardData } from "@/types";
 
 export const SUBMISSION_CATEGORY_META = {
   AUTO_SUBMIT_READY: {
-    label: "Auto-apply candidate",
+    label: "Internal: ready candidate",
     badgeVariant: "default" as const,
   },
   AUTO_FILL_REVIEW: {
-    label: "Review required",
+    label: "Internal: review candidate",
     badgeVariant: "outline" as const,
   },
   MANUAL_ONLY: {
-    label: "Manual only",
+    label: "Manual Apply",
     badgeVariant: "outline" as const,
   },
 };
@@ -24,17 +24,17 @@ export const APPLICATION_REVIEW_STATE_META: Record<
   }
 > = {
   READY_FOR_REVIEW: {
-    label: "Review before submit",
+    label: "Check first",
     description:
-      "The job can enter the supported auto-fill flow, but fields must be reviewed before any submission.",
+      "This job needs a form check before the app can say whether it supports Auto Apply.",
   },
   MANUAL_ONLY: {
-    label: "Manual only",
+    label: "Manual Apply",
     description:
-      "The system can prepare materials and track the attempt, but the submission itself should stay manual.",
+      "The application should be completed on the employer site.",
   },
   NOT_ELIGIBLE: {
-    label: "Not yet eligible",
+    label: "Manual Apply",
     description:
       "The job is not currently suitable for the tracked application flow due to status or missing eligibility data.",
   },
@@ -46,11 +46,13 @@ export function getSubmissionMeta(job: Pick<JobCardData, "eligibility">) {
   ];
 }
 
-export function shouldShowSubmissionMeta(job: Pick<JobCardData, "eligibility">) {
-  return (
-    job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" ||
-    job.eligibility?.submissionCategory === "AUTO_FILL_REVIEW"
-  );
+export function shouldShowSubmissionMeta(_job: Pick<JobCardData, "eligibility">) {
+  void _job;
+  // SubmissionCategory is an internal ingestion hint, not a verified user-facing
+  // Auto Apply status. Showing it before a live form preflight created a trust
+  // bug: a job could look auto-applicable and later be downgraded after CAPTCHA,
+  // login, or unsupported-field detection. Keep it out of normal job surfaces.
+  return false;
 }
 
 export function getEligibilityReasonDescription(
@@ -58,7 +60,7 @@ export function getEligibilityReasonDescription(
 ) {
   if (!eligibility) return "Eligibility has not been evaluated yet.";
   if (eligibility.submissionCategory === "AUTO_FILL_REVIEW") {
-    return "This role can be assisted by auto-fill, but should be reviewed before submission.";
+    return "This role needs a live form check before Auto Apply can be promised.";
   }
   return eligibility.reasonDescription;
 }

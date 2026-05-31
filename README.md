@@ -1,4 +1,4 @@
-## AutoApplication
+## ApplyOverflow
 
 North America-focused job search and application engine for white-collar roles across tech, finance, and general knowledge-worker functions.
 

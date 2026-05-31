@@ -24,7 +24,7 @@ export function JobsFeedList({
 
   if (jobs.length === 0) {
     return (
-      <div className="py-12 text-center">
+      <div className="empty-state">
         <p className="text-sm font-medium text-foreground">No more jobs on this page</p>
         <Link
           className="mt-2 inline-block text-sm text-muted-foreground underline-offset-4 hover:underline"
@@ -37,9 +37,9 @@ export function JobsFeedList({
   }
 
   return (
-    <ul className="divide-y divide-border/60">
+    <ul className="object-list">
       {jobs.map((job) => (
-        <li className="py-4 first:pt-0 last:pb-0" key={job.id}>
+        <li className="object-row" key={job.id}>
           <JobSummaryCard
             footerActions={
               <JobCardActions

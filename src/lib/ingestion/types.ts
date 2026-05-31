@@ -15,6 +15,7 @@ import type {
   NormalizedEmploymentType,
   NormalizedIndustry,
   NormalizedRoleCategory,
+  JobClassificationStatus,
 } from "@/lib/job-metadata";
 
 export type ConnectorFreshnessMode = "FULL_SNAPSHOT" | "INCREMENTAL";
@@ -92,12 +93,17 @@ export type NormalizedJobInput = {
   roleFamily: string;
   /** Standardized user-facing employment taxonomy used by filters. */
   normalizedEmploymentType: NormalizedEmploymentType;
+  normalizedEmploymentTypeConfidence: number;
   /** Standardized user-facing career-stage taxonomy used by filters. */
   normalizedCareerStage: NormalizedCareerStage;
+  normalizedCareerStageConfidence: number;
   /** Standardized top-level industry taxonomy used by filters. */
   normalizedIndustry: NormalizedIndustry;
+  normalizedIndustryConfidence: number;
   /** Standardized job-family taxonomy used by filters. */
   normalizedRoleCategory: NormalizedRoleCategory;
+  normalizedRoleCategoryConfidence: number;
+  classificationStatus: JobClassificationStatus;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;

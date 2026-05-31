@@ -75,7 +75,7 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
   }
 
   // Eligibility gate. Supported structured ATS jobs can enter the review-first
-  // auto-apply flow; manual-only jobs stay on the standard job page.
+      // apply-assistant flow; manual-only jobs stay on the standard job page.
   const isAutoEligible =
     Boolean(job.eligibility) &&
     job.eligibility?.submissionCategory !== "MANUAL_ONLY" &&
@@ -140,7 +140,7 @@ export default async function AutoApplyPage({ params }: AutoApplyPageProps) {
 
       {/* Job context strip */}
       <div className="mb-5 rounded-xl border border-border/70 bg-background/45 p-4">
-        <p className="text-xs text-muted-foreground">Auto-apply</p>
+        <p className="text-xs text-muted-foreground">Apply assistant</p>
         <h1 className="mt-0.5 text-lg font-semibold tracking-tight">
           {job.title}
         </h1>

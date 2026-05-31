@@ -131,6 +131,17 @@ Fill in:
 - SMTP values, if used
 - source API keys and ATS tokens from the old environment
 
+For the current production domain, use:
+
+```bash
+APP_DOMAIN="applyoverflow.com, www.applyoverflow.com"
+APP_NAME="ApplyOverflow"
+APP_URL="https://applyoverflow.com"
+BETTER_AUTH_URL="https://applyoverflow.com"
+NEXT_PUBLIC_BETTER_AUTH_URL="https://applyoverflow.com"
+AUTH_ALLOW_INSECURE_COOKIES="false"
+```
+
 If the source backup came from the current DigitalOcean database named
 `defaultdb` and the new database is named `autoapplication`, set:
 

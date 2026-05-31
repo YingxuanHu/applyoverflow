@@ -385,7 +385,7 @@ async function fetchHtmlPage(pageUrl: string) {
   const response = await fetch(pageUrl, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-careers/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-careers/1.0)",
     },
     redirect: "follow",
     signal: AbortSignal.timeout(CAREER_PAGE_FETCH_TIMEOUT_MS),

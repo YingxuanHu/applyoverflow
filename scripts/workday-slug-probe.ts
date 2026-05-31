@@ -82,7 +82,7 @@ async function probeWorkday(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (compatible; autoapplication/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; applyoverflow/1.0)",
           },
           body: JSON.stringify({ appliedFacets: {}, limit: 1, offset: 0, searchText: "" }),
           signal: ctl.signal,

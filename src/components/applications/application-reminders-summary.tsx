@@ -107,7 +107,7 @@ function ReminderSummaryItem({
           await updateAction(formData);
           setEditing(false);
         }}
-        className="rounded-lg border border-border/70 bg-background/70 p-2.5"
+        className="rounded-[12px] border border-border/70 bg-card p-2.5"
       >
         <input name="applicationId" type="hidden" value={applicationId} />
         <input name="eventId" type="hidden" value={reminder.id} />
@@ -215,7 +215,7 @@ function ApplicationReminderGroupRow({
 
   return (
     <article className="py-1.5 first:pt-0 last:pb-0">
-      <div className="grid min-w-0 gap-3 rounded-lg px-2 py-2 transition hover:bg-muted/25 md:grid-cols-[minmax(12rem,0.75fr)_minmax(0,1fr)_auto] md:items-center">
+      <div className="grid min-w-0 gap-3 rounded-[12px] px-2 py-2 transition hover:bg-muted/45 md:grid-cols-[minmax(12rem,0.75fr)_minmax(0,1fr)_auto] md:items-center">
         <div className="min-w-0">
           <Link
             className="block truncate text-sm font-medium text-foreground transition hover:underline"
@@ -243,7 +243,7 @@ function ApplicationReminderGroupRow({
 
         <div className="flex shrink-0 items-center justify-between gap-2 md:justify-end">
           {additionalCount > 0 ? (
-            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+            <span className="rounded-full border border-border/70 bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
               +{additionalCount}
             </span>
           ) : null}
@@ -266,7 +266,7 @@ function ApplicationReminderGroupRow({
       </div>
 
       {expanded ? (
-        <div className="mt-1.5 rounded-lg border border-border/60 bg-background/45 px-2 py-1.5">
+        <div className="mt-1.5 rounded-[12px] border border-border/60 bg-card px-2 py-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2 px-1.5 py-1">
             <p className="text-xs font-medium text-muted-foreground">
               {group.reminders.length} reminder{group.reminders.length === 1 ? "" : "s"}
@@ -305,10 +305,11 @@ export function ApplicationRemindersSummary({
   }
 
   return (
-    <section className="surface-panel p-3 sm:p-4">
+    <section className="surface-panel p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">Reminders</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Upcoming follow-ups from your tracker.</p>
         </div>
       </div>
 

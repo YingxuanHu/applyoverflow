@@ -13,8 +13,12 @@ const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 const smtpFrom = process.env.SMTP_FROM;
 
+export function isEmailDeliveryConfigured() {
+  return Boolean(smtpHost && smtpUser && smtpPass && smtpFrom && !Number.isNaN(smtpPort));
+}
+
 function getTransporter() {
-  if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom || Number.isNaN(smtpPort)) {
+  if (!isEmailDeliveryConfigured()) {
     return null;
   }
 

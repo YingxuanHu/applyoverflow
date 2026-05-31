@@ -148,7 +148,7 @@ async function fetchFeed(url: string, signal?: AbortSignal): Promise<WwrItem[]> 
     headers: {
       Accept: "application/rss+xml, application/xml, text/xml, */*",
       "User-Agent":
-        "Mozilla/5.0 (compatible; autoapplication-wwr/1.0; +https://autoapplication.example)",
+        "Mozilla/5.0 (compatible; applyoverflow-wwr/1.0; +https://applyoverflow.com)",
     },
   });
 

@@ -13,7 +13,13 @@ import {
   useNotifications,
 } from "@/components/ui/notification-provider";
 
-export function DeleteAccountCard({ email }: { email: string }) {
+export function DeleteAccountCard({
+  email,
+  hasPassword = true,
+}: {
+  email: string;
+  hasPassword?: boolean;
+}) {
   const router = useRouter();
   const { notify } = useNotifications();
   const [password, setPassword] = useState("");
@@ -22,12 +28,16 @@ export function DeleteAccountCard({ email }: { email: string }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const ready = password.length >= 8 && confirmation === "DELETE";
+  const ready = (!hasPassword || password.length >= 8) && confirmation === "DELETE";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!ready) {
-      setError('Enter your current password and type "DELETE" to confirm.');
+      setError(
+        hasPassword
+          ? 'Enter your current password and type "DELETE" to confirm.'
+          : 'Type "DELETE" to confirm.'
+      );
       return;
     }
 
@@ -39,7 +49,7 @@ export function DeleteAccountCard({ email }: { email: string }) {
     setError(null);
 
     const result = await authClient.deleteUser({
-      password,
+      ...(hasPassword ? { password } : {}),
       callbackURL: "/",
     });
 
@@ -75,16 +85,22 @@ export function DeleteAccountCard({ email }: { email: string }) {
       <CardContent>
         <form onSubmit={onSubmit} className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Current password
-              </span>
-              <Input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+            {hasPassword ? (
+              <label className="grid gap-1.5 text-sm">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Current password
+                </span>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+            ) : (
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                You are signed in with a connected provider. A fresh session is required to delete this account.
+              </div>
+            )}
 
             <label className="grid gap-1.5 text-sm">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

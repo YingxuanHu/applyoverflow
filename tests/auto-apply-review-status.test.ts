@@ -52,7 +52,7 @@ test("required custom Ashby questions block auto-submit until explicitly answere
   });
 
   assert.equal(review.status, "NEEDS_EXTRA_ANSWERS");
-  assert.equal(review.statusLabel, "Needs Extra Answers");
+  assert.equal(review.statusLabel, "Needs Info");
   assert.equal(review.canSubmit, false);
   assert.equal(review.missingRequiredFields.length, 1);
   assert.equal(review.missingRequiredFields[0]?.fieldType, "select");
@@ -97,7 +97,7 @@ test("optional sensitive demographic questions are visible but skippable after r
   });
 
   assert.equal(review.status, "NEEDS_USER_REVIEW");
-  assert.equal(review.statusLabel, "Needs Review");
+  assert.equal(review.statusLabel, "Auto Apply");
   assert.equal(review.canSubmit, true);
   assert.equal(review.missingRequiredFields.length, 0);
   assert.equal(review.fields[1]?.sensitive, true);
@@ -119,7 +119,7 @@ test("blocked or failed preflight never allows submission", () => {
   });
 
   assert.equal(review.status, "BLOCKED_OR_UNSUPPORTED");
-  assert.equal(review.statusLabel, "Blocked");
+  assert.equal(review.statusLabel, "Manual Apply");
   assert.equal(review.canSubmit, false);
 });
 

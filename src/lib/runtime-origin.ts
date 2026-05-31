@@ -16,13 +16,29 @@ function resolveRequestOrigin(headers?: HeaderSource | null) {
     return `${protocol}://${host}`;
   }
 
-  return process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  return (
+    process.env.BETTER_AUTH_URL ??
+    process.env.APP_URL ??
+    process.env.HETZNER_APP_URL ??
+    "http://localhost:3000"
+  );
 }
 
 export function buildRuntimeTrustedOrigins(headers?: HeaderSource | null) {
   const origins = new Set<string>();
 
-  origins.add(process.env.BETTER_AUTH_URL ?? "http://localhost:3000");
+  for (const value of [
+    process.env.BETTER_AUTH_URL,
+    process.env.APP_URL,
+    process.env.HETZNER_APP_URL,
+    process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
+  ]) {
+    if (value) {
+      origins.add(value);
+    }
+  }
+
+  origins.add("http://localhost:3000");
   origins.add("http://localhost:3000");
   origins.add("http://127.0.0.1:3000");
   origins.add("http://localhost:3001");

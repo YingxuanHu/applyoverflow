@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ExternalLink } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export function ManualApplyMenu({
   buttonVariant = "default",
   buttonSize = "sm",
 }: ManualApplyMenuProps) {
+  const router = useRouter();
   const { notify } = useNotifications();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +41,7 @@ export function ManualApplyMenu({
           tone: "success",
         });
         setOpen(false);
+        router.refresh();
       })
       .catch(() => {
         notify({
@@ -125,7 +128,7 @@ export function ManualApplyMenu({
             type="button"
             variant="ghost"
           >
-            Add to applications
+            {saving ? "Adding..." : "Add to applications"}
           </Button>
         </div>
       ) : null}

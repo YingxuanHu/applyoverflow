@@ -439,7 +439,7 @@ async function checkUrlHealth(input: {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; autoapplication-health-check/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-health-check/1.0)",
       },
     });
     const responseTimeMs = Date.now() - startedAt;

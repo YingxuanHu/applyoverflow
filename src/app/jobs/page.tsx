@@ -1,17 +1,19 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   ArrowUpDown,
   Check,
   ChevronDown,
-  ChevronRight,
   SlidersHorizontal,
   X,
 } from "lucide-react";
 
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
+import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
+import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,15 +43,14 @@ import {
   type JobSearchScope,
   type JobSortBy,
 } from "@/lib/queries/jobs";
+import {
+  normalizeUserTimeZone,
+  USER_TIME_ZONE_COOKIE,
+} from "@/lib/time-zone";
 
 type JobsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
-
-const CATEGORY_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: "Auto-apply", value: "AUTO_SUBMIT_READY" },
-  { label: "Manual", value: "MANUAL_ONLY" },
-];
 
 const WORK_MODE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "Remote", value: "REMOTE" },
@@ -102,12 +103,15 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       select: { salaryCurrency: true },
     }),
   ]);
+  const userTimeZone = normalizeUserTimeZone(
+    (await cookies()).get(USER_TIME_ZONE_COOKIE)?.value
+  );
   const defaultSalaryCurrency =
     normalizeSalaryCurrency(profileSettings?.salaryCurrency) ?? "USD";
   const filters = parseJobFilters(resolvedSearchParams, defaultSalaryCurrency);
 
   const [jobsResult, ingestionStatus] = await Promise.all([
-    getJobs(filters, { viewerProfileId }),
+    getJobs(filters, { viewerProfileId, userTimeZone }),
     getIngestionStatus(),
   ]);
   const renderReferenceNow = new Date().toISOString();
@@ -129,10 +133,20 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const activeFilterCount = countActiveFilters(filters);
   const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
-  const headlineCount = hasScopedResults
-    ? jobsResult.total ?? jobsResult.data.length
-    : jobsResult.summary.liveJobCount;
-  const activeFilterChips = buildActiveFilterChips(filters, resolvedSearchParams);
+  const visibleResultFloor = Math.max(
+    jobsResult.data.length,
+    (jobsResult.page - 1) * jobsResult.pageSize + jobsResult.data.length
+  );
+  const headlineCountLabel =
+    hasScopedResults &&
+    jobsResult.hasNextPage &&
+    (jobsResult.total === null || jobsResult.total <= visibleResultFloor)
+      ? `${visibleResultFloor.toLocaleString()}+`
+      : (hasScopedResults
+          ? (jobsResult.total ?? jobsResult.data.length)
+          : jobsResult.summary.liveJobCount
+        ).toLocaleString();
+  const activeFilterGroups = buildActiveFilterGroups(filters, resolvedSearchParams);
   const currentSortLabel = getSortLabel(filters.sortBy);
   const currentPage = jobsResult.page;
   const totalPages =
@@ -143,6 +157,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   return (
     <div className="app-page space-y-6">
+      <UserTimeZoneCookie
+        cookieName={USER_TIME_ZONE_COOKIE}
+        currentTimeZone={userTimeZone}
+      />
       <SearchParamMemory basePath="/jobs" storageKey="autoapplication.jobs.filters" />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
@@ -155,10 +173,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </div>
       </header>
 
-      <section className="surface-panel p-4 sm:p-5">
+      <section className="surface-panel p-5 sm:p-6">
         <div>
           <p className="text-[2rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
-            {headlineCount.toLocaleString()} {hasScopedResults ? "matching jobs" : "live jobs"}
+            {headlineCountLabel} {hasScopedResults ? "matching jobs" : "live jobs"}
           </p>
           {ingestionStatus.lastUpdatedAt ? (
             <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
@@ -204,18 +222,18 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <details className="group relative" name="jobs-toolbar-dropdown">
-                    <summary className="inline-flex h-10 list-none items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-4 text-sm font-medium text-foreground transition hover:bg-muted/70 [&::-webkit-details-marker]:hidden">
+                    <summary className="inline-flex h-10 list-none items-center gap-2 rounded-[14px] border border-border/70 bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted [&::-webkit-details-marker]:hidden">
                       <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
                       Filters
                       {activeFilterCount > 0 ? (
-                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-foreground px-1.5 text-[11px] font-medium text-background">
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-medium text-primary-foreground">
                           {activeFilterCount}
                         </span>
                       ) : null}
                       <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
                     </summary>
 
-                    <div className="absolute right-0 top-[calc(100%+0.6rem)] z-30 w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] origin-top-right overflow-hidden rounded-xl border border-border/70 bg-background/96 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+                    <div className="absolute right-0 top-[calc(100%+0.6rem)] z-30 w-[min(36rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] origin-top-right overflow-hidden rounded-[18px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.16)] backdrop-blur">
                       <form method="get">
                         {buildFilterPanelHiddenFields(filters).map((field) => (
                           <input
@@ -231,7 +249,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             <div>
                               <p className="text-sm font-medium text-foreground">Refine jobs</p>
                               <p className="mt-0.5 text-xs text-muted-foreground">
-                                Add filters here. Search chips stay editable below the toolbar.
+                                Jobs must match all active filter sections. Multiple options in one section mean "or."
                               </p>
                             </div>
                             {activeFilterCount > 0 ? (
@@ -249,19 +267,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             value="soon"
                           />
 
-                          <FilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              submissionCategory: undefined,
-                            })}
-                            emptyLabel="All apply types"
-                            name="submissionCategory"
-                            options={CATEGORY_OPTIONS}
-                            selected={filters.submissionCategory}
-                            title="Apply type"
-                          />
-
-                          <FilterDropdownField
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               careerStage: undefined,
@@ -269,28 +275,40 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
-                            emptyLabel="All stages"
+                            emptyLabel="All levels"
                             name="careerStage"
                             options={NORMALIZED_CAREER_STAGE_OPTIONS}
                             selected={filters.careerStage}
-                            title="Career stage"
+                            title="Experience level"
                           />
 
-                          <FilterDropdownField
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
+                              jobFunction: undefined,
                               roleCategory: undefined,
                             })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
-                            emptyLabel="Any role category"
-                            name="roleCategory"
+                            emptyLabel="Any job function"
+                            name="jobFunction"
                             options={NORMALIZED_ROLE_CATEGORY_OPTIONS}
                             selected={filters.roleCategory}
-                            title="Role category"
+                            title="Job function"
                           />
 
-                          <FilterDropdownField
+                          <TextFilterField
+                            clearHref={buildJobsHref(resolvedSearchParams, {
+                              page: undefined,
+                              locationSearch: undefined,
+                            })}
+                            defaultValue={filters.locationSearch}
+                            name="locationSearch"
+                            placeholder="City, country, or region"
+                            title="Location"
+                          />
+
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               industry: undefined,
@@ -304,7 +322,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             title="Industry"
                           />
 
-                          <FilterDropdownField
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               workMode: undefined,
@@ -317,7 +335,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             title="Work mode"
                           />
 
-                          <FilterDropdownField
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               employmentType: undefined,
@@ -330,7 +348,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             title="Employment type"
                           />
 
-                          <FilterDropdownField
+                          <JobsFilterDropdownField
                             clearHref={buildJobsHref(resolvedSearchParams, {
                               page: undefined,
                               posted: undefined,
@@ -344,13 +362,14 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <SalaryRangeField
+                            includeUnknownSalary={Boolean(filters.includeUnknownSalary)}
                             salaryCurrency={filters.salaryCurrency ?? "USD"}
                             salaryMax={filters.salaryMax}
                             salaryMin={filters.salaryMin}
                           />
                         </div>
 
-                        <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/15 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                        <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/45 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                           <div>
                             <p className="text-xs font-medium text-foreground">Apply filters</p>
                             <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -366,14 +385,14 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                   </details>
 
                   <details className="group relative self-start lg:self-auto" name="jobs-toolbar-dropdown">
-                    <summary className="inline-flex h-10 list-none items-center gap-2 rounded-xl border border-border/70 bg-background/70 px-4 text-sm font-medium text-foreground transition hover:bg-muted/70 [&::-webkit-details-marker]:hidden">
+                    <summary className="inline-flex h-10 list-none items-center gap-2 rounded-[14px] border border-border/70 bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted [&::-webkit-details-marker]:hidden">
                       <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                       Sort
                       <span className="text-muted-foreground">{currentSortLabel}</span>
                       <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
                     </summary>
 
-                    <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-56 rounded-2xl border border-border/70 bg-background/96 p-2 shadow-[0_24px_60px_rgba(15,23,42,0.14)] backdrop-blur">
+                    <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-56 rounded-[16px] border border-border/70 bg-popover p-2 shadow-[0_18px_44px_rgba(0,0,0,0.16)] backdrop-blur">
                       <div className="space-y-1">
                         {SORT_OPTIONS.map((option) => {
                           const active =
@@ -384,7 +403,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             <Link
                               className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm transition ${
                                 active
-                                  ? "bg-foreground text-background"
+                                  ? "bg-primary text-primary-foreground"
                                   : "text-foreground hover:bg-muted/70"
                               }`}
                               href={buildJobsHref(resolvedSearchParams, {
@@ -405,21 +424,27 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                 </div>
               </div>
 
-              {activeFilterChips.length > 0 ? (
+              {activeFilterGroups.length > 0 ? (
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {activeFilterChips.map((chip) => (
-                      <Link
-                        aria-label={`Remove ${chip.label}`}
-                        className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/65 pl-3 pr-1.5 text-xs text-muted-foreground transition hover:border-border hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                        href={chip.href}
-                        key={chip.key}
+                    {activeFilterGroups.map((group) => (
+                      <div
+                        className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-border/70 bg-card py-1 pl-3 pr-1.5 text-xs text-muted-foreground"
+                        key={group.key}
                       >
-                        <span className="min-w-0 truncate">{chip.label}</span>
-                        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/80 text-foreground">
-                          <X className="h-3.5 w-3.5" />
-                        </span>
-                      </Link>
+                        <span className="font-semibold text-foreground">{group.label}:</span>
+                        {group.items.map((item) => (
+                          <Link
+                            aria-label={`Remove ${group.label}: ${item.label}`}
+                            className="inline-flex h-6 max-w-full items-center gap-1 rounded-full px-1.5 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                            href={item.href}
+                            key={item.key}
+                          >
+                            <span className="min-w-0 truncate">{item.label}</span>
+                            <X className="h-3 w-3 shrink-0" />
+                          </Link>
+                        ))}
+                      </div>
                     ))}
                   </div>
                   <Button
@@ -438,9 +463,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </div>
       </section>
 
-      <section className="surface-panel p-3 sm:p-4 lg:p-5">
+      <section>
         {jobCards.length === 0 ? (
-          <div className="py-16 text-center">
+          <div className="empty-state">
             <p className="text-sm font-medium text-foreground">
               {hasScopedResults ? "No jobs match these filters" : "No jobs available right now"}
             </p>
@@ -533,18 +558,20 @@ function parseJobFilters(
 ): JobFilterParams {
   const pageValue = getSearchParam(searchParams, "page");
   const parsedPage = pageValue ? Number.parseInt(pageValue, 10) : undefined;
-  const rawSubmissionCategory = getMultiSearchParam(searchParams, "submissionCategory");
   const selectedSearchScope = normalizeSearchScopeParam(getSearchParam(searchParams, "searchScope"));
   const rawSearch = normalizeTextParam(getSearchParam(searchParams, "search"));
   const rawCareerStage =
     getMultiSearchParam(searchParams, "careerStage") ||
     getMultiSearchParam(searchParams, "experienceLevel");
+  const rawJobFunction =
+    getMultiSearchParam(searchParams, "jobFunction") ||
+    getMultiSearchParam(searchParams, "roleCategory");
   let search = rawSearch;
   let titleSearch = normalizeTextParam(getSearchParam(searchParams, "titleSearch"));
   let companySearch = normalizeTextParam(getSearchParam(searchParams, "companySearch"));
   let locationSearch = normalizeTextListParam(getMultiSearchParam(searchParams, "locationSearch"));
 
-  if (rawSearch && selectedSearchScope === "title") {
+  if (rawSearch && (!selectedSearchScope || selectedSearchScope === "title")) {
     titleSearch = titleSearch ?? rawSearch;
     search = undefined;
   } else if (rawSearch && selectedSearchScope === "company") {
@@ -581,20 +608,22 @@ function parseJobFilters(
     workMode: getMultiSearchParam(searchParams, "workMode"),
     employmentType: normalizeEmploymentTypeFilterValue(getMultiSearchParam(searchParams, "employmentType")),
     industry: normalizeIndustryFilterValue(getMultiSearchParam(searchParams, "industry")),
-    roleCategory: normalizeRoleCategoryFilterValue(getMultiSearchParam(searchParams, "roleCategory")),
+    roleCategory: normalizeRoleCategoryFilterValue(rawJobFunction),
     roleFamily: normalizeTextParam(getMultiSearchParam(searchParams, "roleFamily")),
     salaryMin,
     salaryMax,
     salaryCurrency:
       normalizeSalaryCurrency(getSearchParam(searchParams, "salaryCurrency")) ??
       defaultSalaryCurrency,
+    includeUnknownSalary: normalizeBooleanParam(getSearchParam(searchParams, "includeUnknownSalary")),
     careerStage: normalizeCareerStageFilterValue(rawCareerStage),
     expiry: getSearchParam(searchParams, "expiry"),
     posted: getSearchParam(searchParams, "posted"),
-    submissionCategory: normalizeSubmissionCategoryFilter(rawSubmissionCategory),
+    submissionCategory: undefined,
     status: getSearchParam(searchParams, "status"),
     sortBy: normalizeSortByParam(getSearchParam(searchParams, "sortBy")),
     page: parsedPage && parsedPage > 0 ? parsedPage : undefined,
+    debugFilters: getSearchParam(searchParams, "debugFilters") === "1",
   };
 }
 
@@ -636,18 +665,14 @@ function getMultiSearchParam(
   return value;
 }
 
-function normalizeSubmissionCategoryFilter(value?: string) {
-  const categories = splitFilterValues(value).map((entry) =>
-    entry === "AUTO_FILL_REVIEW" ? "MANUAL_ONLY" : entry
-  );
-  const unique = [...new Set(categories)];
-  return unique.length > 0 ? unique.join(",") : undefined;
-}
-
 function getPositiveNumber(value?: string) {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
+}
+
+function normalizeBooleanParam(value?: string) {
+  return value === "1" || value === "true" || value === "on";
 }
 
 const SEARCH_PARAM_KEYS = ["search", "titleSearch", "companySearch", "locationSearch"] as const;
@@ -704,6 +729,7 @@ function buildJobsHref(
 
   if (!params.get("salaryMin") && !params.get("salaryMax")) {
     params.delete("salaryCurrency");
+    params.delete("includeUnknownSalary");
   }
 
   if (!hasSearchParams(params)) {
@@ -723,6 +749,23 @@ function normalizeMetadataParamsForHref(
 ) {
   if (Object.prototype.hasOwnProperty.call(overrides, "careerStage") && !overrides.careerStage) {
     params.delete("experienceLevel");
+  }
+
+  if (
+    (Object.prototype.hasOwnProperty.call(overrides, "jobFunction") && !overrides.jobFunction) ||
+    (Object.prototype.hasOwnProperty.call(overrides, "roleCategory") && !overrides.roleCategory)
+  ) {
+    params.delete("jobFunction");
+    params.delete("roleCategory");
+  }
+
+  const legacyRoleCategory = params.get("roleCategory");
+  const jobFunction = params.get("jobFunction") ?? legacyRoleCategory;
+  if (jobFunction) {
+    const normalized = normalizeRoleCategoryFilterValue(jobFunction);
+    if (normalized) params.set("jobFunction", normalized);
+    else params.delete("jobFunction");
+    params.delete("roleCategory");
   }
 
   const legacyCareerStage = params.get("experienceLevel");
@@ -801,7 +844,6 @@ function countActiveFilters(filters: JobFilterParams) {
     "roleCategory",
     "salaryMin",
     "salaryMax",
-    "submissionCategory",
     "roleFamily",
     "careerStage",
     "experienceLevel",
@@ -811,9 +853,12 @@ function countActiveFilters(filters: JobFilterParams) {
   ];
 
   return keys.filter((key) => {
+    if (key === "salaryMin" || key === "salaryMax") {
+      return false;
+    }
     const value = filters[key];
     return value !== undefined && value !== "";
-  }).length;
+  }).length + (filters.salaryMin || filters.salaryMax ? 1 : 0);
 }
 
 function hasActiveSearch(filters: JobFilterParams) {
@@ -844,11 +889,9 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
 
   add("status", filters.status);
   add("sortBy", filters.sortBy);
-  add("submissionCategory", filters.submissionCategory);
   add("location", filters.location);
   add("source", filters.source);
-  add("roleFamily", filters.roleFamily);
-  add("roleCategory", filters.roleCategory);
+  add("jobFunction", filters.roleCategory);
   add("careerStage", filters.careerStage);
   add("workMode", filters.workMode);
   add("employmentType", filters.employmentType);
@@ -858,6 +901,7 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
   add("salaryMax", filters.salaryMax);
   if (filters.salaryMin || filters.salaryMax) {
     add("salaryCurrency", filters.salaryCurrency);
+    if (filters.includeUnknownSalary) add("includeUnknownSalary", "1");
   }
   add("expiry", filters.expiry);
   add("posted", filters.posted);
@@ -877,7 +921,6 @@ function buildFilterPanelHiddenFields(filters: JobFilterParams) {
   add("search", filters.search);
   add("titleSearch", filters.titleSearch);
   add("companySearch", filters.companySearch);
-  add("locationSearch", filters.locationSearch);
   if (hasActiveSearch(filters)) add("searchScope", filters.searchScope);
 
   // Preserve legacy/admin params if someone arrived with a shared URL, but
@@ -911,15 +954,15 @@ function FilterToggleField({
 
   return (
     <label
-      className={`flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+      className={`flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-[12px] border px-3 py-2.5 text-sm font-medium transition ${
         checked
-          ? "border-border bg-muted/45 text-foreground"
-          : "border-border/60 bg-muted/15 text-foreground hover:bg-muted/35"
+          ? "border-primary/40 bg-accent text-foreground"
+          : "border-border/60 bg-card text-foreground hover:bg-muted"
       }`}
     >
       <span>Expiring soon</span>
       <input
-        className="size-4 shrink-0 rounded border-border/70 bg-background/80 accent-foreground"
+        className="size-4 shrink-0 rounded border-border/70 bg-card"
         defaultChecked={checked}
         name={name}
         type="checkbox"
@@ -930,20 +973,22 @@ function FilterToggleField({
 }
 
 function SalaryRangeField({
+  includeUnknownSalary,
   salaryCurrency,
   salaryMax,
   salaryMin,
 }: {
+  includeUnknownSalary: boolean;
   salaryCurrency: NonNullable<JobFilterParams["salaryCurrency"]>;
   salaryMax: number | undefined;
   salaryMin: number | undefined;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/15 p-2.5 sm:col-span-2">
+    <div className="rounded-[12px] border border-border/60 bg-card p-3 sm:col-span-2">
       <FilterFieldLabel>Salary range</FilterFieldLabel>
       <div className="grid gap-2 sm:grid-cols-[1fr_1fr_8rem]">
         <Input
-          className="h-8 rounded-md px-2 text-xs"
+          className="h-9 rounded-[10px] px-2.5 text-xs"
           defaultValue={salaryMin ? String(salaryMin) : ""}
           inputMode="numeric"
           min={0}
@@ -952,7 +997,7 @@ function SalaryRangeField({
           type="number"
         />
         <Input
-          className="h-8 rounded-md px-2 text-xs"
+          className="h-9 rounded-[10px] px-2.5 text-xs"
           defaultValue={salaryMax ? String(salaryMax) : ""}
           inputMode="numeric"
           min={0}
@@ -961,7 +1006,7 @@ function SalaryRangeField({
           type="number"
         />
         <select
-          className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+          className="h-9 rounded-[10px] border border-input bg-card px-2.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/25"
           defaultValue={salaryCurrency}
           name="salaryCurrency"
         >
@@ -972,98 +1017,53 @@ function SalaryRangeField({
           ))}
         </select>
       </div>
+      <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+        <input
+          className="size-3.5 shrink-0 rounded border-border/70 bg-card"
+          defaultChecked={includeUnknownSalary}
+          name="includeUnknownSalary"
+          type="checkbox"
+          value="1"
+        />
+        Include jobs with missing salary
+      </label>
     </div>
   );
 }
 
-function FilterDropdownField({
-  className,
+function TextFilterField({
   clearHref,
-  columnsClassName,
-  emptyLabel,
+  defaultValue,
   name,
-  options,
-  selected,
+  placeholder,
   title,
 }: {
-  className?: string;
   clearHref: string;
-  columnsClassName?: string;
-  emptyLabel: string;
+  defaultValue: string | undefined;
   name: string;
-  options: Array<{ label: string; value: string }>;
-  selected: string | undefined;
+  placeholder: string;
   title: string;
 }) {
-  const selectedLabels = collectSelectedLabels(selected, options);
-  const summary = getFilterSummaryText(selectedLabels, emptyLabel);
-
   return (
-    <details className={`group rounded-lg border border-border/60 bg-muted/15 transition open:border-border/80 open:bg-muted/25 ${className ?? ""}`}>
-      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
-        <div className="min-w-0">
-          <p className="text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">{title}</p>
-          <p className="mt-0.5 truncate text-xs text-foreground">{summary}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {selectedLabels.length > 0 ? (
-            <span className="inline-flex min-w-5 items-center justify-center rounded-full border border-border/70 bg-background/80 px-1.5 text-[11px] font-medium text-foreground">
-              {selectedLabels.length}
-            </span>
-          ) : null}
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90" />
-        </div>
-      </summary>
-
-      <div className="border-t border-border/60 px-2 py-2">
-        {selectedLabels.length > 0 ? (
-          <div className="mb-2 flex justify-end">
-            <Link
-              className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-              href={clearHref}
-            >
-              Clear filter
-            </Link>
-          </div>
+    <div className="rounded-[12px] border border-border/60 bg-card p-3 sm:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <FilterFieldLabel>{title}</FilterFieldLabel>
+        {defaultValue ? (
+          <Link
+            className="mb-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            href={clearHref}
+          >
+            Clear filter
+          </Link>
         ) : null}
-        <div className={`grid gap-1 ${columnsClassName ?? ""}`}>
-          {options.map((option) => (
-            <FilterDropdownOption
-              checked={hasFilterValue(selected, option.value)}
-              key={option.label}
-              label={option.label}
-              name={name}
-              value={option.value}
-            />
-          ))}
-        </div>
       </div>
-    </details>
-  );
-}
-
-function FilterDropdownOption({
-  checked,
-  label,
-  name,
-  value,
-}: {
-  checked: boolean;
-  label: string;
-  name: string;
-  value: string;
-}) {
-  return (
-    <label className="flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground transition hover:bg-background/65">
-      <input
-        className="size-3.5 shrink-0 rounded border-border/70 bg-background/80 accent-foreground"
-        defaultChecked={checked}
+      <Input
+        className="h-9 rounded-[10px] px-2.5 text-xs"
+        defaultValue={defaultValue ?? ""}
         name={name}
-        type="checkbox"
-        value={value}
+        placeholder={placeholder}
       />
-      <span className="min-w-0 truncate">{label}</span>
-    </label>
+    </div>
   );
 }
 
@@ -1085,88 +1085,136 @@ function normalizeSortByParam(value?: string) {
   return sortBy === "relevance" ? undefined : sortBy;
 }
 
-type ActiveFilterChip = {
+type ActiveFilterGroup = {
   key: string;
   label: string;
-  href: string;
+  items: Array<{
+    key: string;
+    label: string;
+    href: string;
+  }>;
 };
 
-function buildActiveFilterChips(
+function buildActiveFilterGroups(
   filters: JobFilterParams,
   currentParams: Record<string, string | string[] | undefined>
 ) {
-  const chips: ActiveFilterChip[] = [];
-  const add = (key: string, label: string, href: string) => {
-    chips.push({ key, label, href });
+  const groups: ActiveFilterGroup[] = [];
+  const addGroup = (
+    key: string,
+    label: string,
+    items: ActiveFilterGroup["items"]
+  ) => {
+    if (items.length > 0) groups.push({ key, label, items });
   };
   const removeParamHref = (param: string) =>
     buildJobsHref(currentParams, { page: undefined, [param]: undefined });
 
   if (filters.search) {
-    add(
+    addGroup(
       "search",
-      `Search: ${filters.search}`,
-      buildJobsHref(currentParams, {
-        page: undefined,
-        search: undefined,
-        searchScope: undefined,
-      })
+      "Search",
+      [
+        {
+          key: "search",
+          label: filters.search,
+          href: buildJobsHref(currentParams, {
+            page: undefined,
+            search: undefined,
+            searchScope: undefined,
+          }),
+        },
+      ]
     );
   }
   if (filters.titleSearch) {
-    add(
+    addGroup(
       "titleSearch",
-      `Title search: ${filters.titleSearch}`,
-      buildScopedSearchRemoveHref(currentParams, "titleSearch", "title")
+      "Title search",
+      [
+        {
+          key: "titleSearch",
+          label: filters.titleSearch,
+          href: buildScopedSearchRemoveHref(currentParams, "titleSearch", "title"),
+        },
+      ]
     );
   }
   if (filters.companySearch) {
-    add(
+    addGroup(
       "companySearch",
-      `Company search: ${filters.companySearch}`,
-      buildScopedSearchRemoveHref(currentParams, "companySearch", "company")
+      "Company search",
+      [
+        {
+          key: "companySearch",
+          label: filters.companySearch,
+          href: buildScopedSearchRemoveHref(currentParams, "companySearch", "company"),
+        },
+      ]
     );
   }
   if (filters.locationSearch) {
-    for (const location of splitFilterValues(filters.locationSearch)) {
-      add(
-        `locationSearch:${location.toLowerCase()}`,
-        `Location: ${location}`,
-        buildLocationSearchRemoveHref(currentParams, location)
-      );
-    }
+    addGroup(
+      "locationSearch",
+      "Location",
+      splitFilterValues(filters.locationSearch).map((location) => ({
+        key: `locationSearch:${location.toLowerCase()}`,
+        label: location,
+        href: buildLocationSearchRemoveHref(currentParams, location),
+      }))
+    );
   }
 
-  addSelectedOptionChips(chips, currentParams, "submissionCategory", filters.submissionCategory, CATEGORY_OPTIONS, "Apply type");
-  if (filters.location) add("location", `Location filter: ${filters.location}`, removeParamHref("location"));
-  if (filters.roleFamily) add("roleFamily", `Legacy role/category: ${filters.roleFamily}`, removeParamHref("roleFamily"));
-  if (filters.source) add("source", `Source: ${filters.source}`, removeParamHref("source"));
-  addSelectedOptionChips(chips, currentParams, "careerStage", filters.careerStage, NORMALIZED_CAREER_STAGE_OPTIONS, "Career");
-  addSelectedOptionChips(chips, currentParams, "roleCategory", filters.roleCategory, NORMALIZED_ROLE_CATEGORY_OPTIONS, "Role");
-  addSelectedOptionChips(chips, currentParams, "workMode", filters.workMode, WORK_MODE_OPTIONS, "Work");
-  addSelectedOptionChips(chips, currentParams, "employmentType", filters.employmentType, NORMALIZED_EMPLOYMENT_TYPE_OPTIONS, "Type");
-  addRawValueChips(chips, currentParams, "region", filters.region, "Region");
-  addSelectedOptionChips(chips, currentParams, "industry", filters.industry, NORMALIZED_INDUSTRY_OPTIONS, "Industry");
-  addSelectedOptionChips(chips, currentParams, "posted", filters.posted, POSTED_OPTIONS, "Posted");
-  addSelectedOptionChips(chips, currentParams, "expiry", filters.expiry, EXPIRY_OPTIONS, "Deadline");
-  addSelectedOptionChips(chips, currentParams, "status", filters.status, STATUS_OPTIONS, "Status");
+  if (filters.location) {
+    addGroup("location", "Location filter", [
+      { key: "location", label: filters.location, href: removeParamHref("location") },
+    ]);
+  }
+  if (filters.roleFamily) {
+    addGroup("roleFamily", "Legacy role", [
+      { key: "roleFamily", label: filters.roleFamily, href: removeParamHref("roleFamily") },
+    ]);
+  }
+  if (filters.source) {
+    addGroup("source", "Source", [
+      { key: "source", label: filters.source, href: removeParamHref("source") },
+    ]);
+  }
+  addSelectedOptionGroup(groups, currentParams, "careerStage", filters.careerStage, NORMALIZED_CAREER_STAGE_OPTIONS, "Experience");
+  addSelectedOptionGroup(groups, currentParams, "jobFunction", filters.roleCategory, NORMALIZED_ROLE_CATEGORY_OPTIONS, "Job Function");
+  addSelectedOptionGroup(groups, currentParams, "workMode", filters.workMode, WORK_MODE_OPTIONS, "Work mode");
+  addSelectedOptionGroup(groups, currentParams, "employmentType", filters.employmentType, NORMALIZED_EMPLOYMENT_TYPE_OPTIONS, "Employment type");
+  addRawValueGroup(groups, currentParams, "region", filters.region, "Region");
+  addSelectedOptionGroup(groups, currentParams, "industry", filters.industry, NORMALIZED_INDUSTRY_OPTIONS, "Industry");
+  addSelectedOptionGroup(groups, currentParams, "posted", filters.posted, POSTED_OPTIONS, "Date posted");
+  addSelectedOptionGroup(groups, currentParams, "expiry", filters.expiry, EXPIRY_OPTIONS, "Deadline");
+  addSelectedOptionGroup(groups, currentParams, "status", filters.status, STATUS_OPTIONS, "Status");
 
+  const salaryItems: ActiveFilterGroup["items"] = [];
   if (filters.salaryMin) {
-    add(
-      "salaryMin",
-      `Min salary: ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMin).toLocaleString()}`,
-      removeParamHref("salaryMin")
-    );
+    salaryItems.push({
+      key: "salaryMin",
+      label: `Min ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMin).toLocaleString()}`,
+      href: removeParamHref("salaryMin"),
+    });
   }
   if (filters.salaryMax) {
-    add(
-      "salaryMax",
-      `Max salary: ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMax).toLocaleString()}`,
-      removeParamHref("salaryMax")
-    );
+    salaryItems.push({
+      key: "salaryMax",
+      label: `Max ${filters.salaryCurrency ?? "USD"} ${Number(filters.salaryMax).toLocaleString()}`,
+      href: removeParamHref("salaryMax"),
+    });
   }
+  if (filters.includeUnknownSalary && (filters.salaryMin || filters.salaryMax)) {
+    salaryItems.push({
+      key: "includeUnknownSalary",
+      label: "Include missing",
+      href: removeParamHref("includeUnknownSalary"),
+    });
+  }
+  addGroup("salary", "Salary", salaryItems);
 
-  return chips;
+  return groups;
 }
 
 function buildLocationSearchRemoveHref(
@@ -1211,24 +1259,25 @@ function buildScopedSearchRemoveHref(
   return buildJobsHref(currentParams, overrides);
 }
 
-function addSelectedOptionChips(
-  chips: ActiveFilterChip[],
+function addSelectedOptionGroup(
+  groups: ActiveFilterGroup[],
   currentParams: Record<string, string | string[] | undefined>,
   param: string,
   current: string | undefined,
   options: Array<{ label: string; value: string }>,
-  prefix: string
+  label: string
 ) {
   const remaining = new Set(splitFilterValues(current));
+  const items: ActiveFilterGroup["items"] = [];
 
   for (const option of options) {
     const optionValues = splitFilterValues(option.value);
     if (optionValues.length === 0 || !optionValues.every((value) => remaining.has(value))) {
       continue;
     }
-    chips.push({
+    items.push({
       key: `${param}:${option.value}`,
-      label: `${prefix}: ${option.label}`,
+      label: option.label,
       href: buildRemoveFilterValueHref(currentParams, param, option.value),
     });
     for (const value of optionValues) {
@@ -1237,27 +1286,33 @@ function addSelectedOptionChips(
   }
 
   for (const value of remaining) {
-    chips.push({
+    items.push({
       key: `${param}:${value}`,
-      label: `${prefix}: ${value}`,
+      label: value,
       href: buildRemoveFilterValueHref(currentParams, param, value),
     });
   }
+
+  if (items.length > 0) {
+    groups.push({ key: param, label, items });
+  }
 }
 
-function addRawValueChips(
-  chips: ActiveFilterChip[],
+function addRawValueGroup(
+  groups: ActiveFilterGroup[],
   currentParams: Record<string, string | string[] | undefined>,
   param: string,
   current: string | undefined,
-  prefix: string
+  label: string
 ) {
-  for (const value of splitFilterValues(current)) {
-    chips.push({
+  const items = splitFilterValues(current).map((value) => ({
       key: `${param}:${value}`,
-      label: `${prefix}: ${value}`,
+      label: value,
       href: buildRemoveFilterValueHref(currentParams, param, value),
-    });
+  }));
+
+  if (items.length > 0) {
+    groups.push({ key: param, label, items });
   }
 }
 
@@ -1267,40 +1322,27 @@ function buildRemoveFilterValueHref(
   value: string
 ) {
   const removeValues = new Set(splitFilterValues(value).map((entry) => entry.toLowerCase()));
-  const nextValue = splitFilterValues(getMultiSearchParam(currentParams, param))
+  const sourceParam = param === "jobFunction" ? "jobFunction" : param;
+  const rawValue =
+    param === "jobFunction"
+      ? getMultiSearchParam(currentParams, "jobFunction") ||
+        getMultiSearchParam(currentParams, "roleCategory")
+      : getMultiSearchParam(currentParams, sourceParam);
+  const currentValue =
+    param === "jobFunction" ? normalizeRoleCategoryFilterValue(rawValue) : rawValue;
+  const nextValue = splitFilterValues(currentValue)
     .filter((entry) => !removeValues.has(entry.toLowerCase()))
     .join(",");
 
-  return buildJobsHref(currentParams, {
+  const overrides: Record<string, string | undefined> = {
     page: undefined,
-    [param]: nextValue || undefined,
-  });
-}
-
-function collectSelectedLabels(
-  current: string | undefined,
-  options: Array<{ label: string; value: string }>
-) {
-  const remaining = new Set(splitFilterValues(current));
-  const labels: string[] = [];
-
-  for (const option of options) {
-    const optionValues = splitFilterValues(option.value);
-    if (optionValues.length > 0 && optionValues.every((value) => remaining.has(value))) {
-      labels.push(option.label);
-      for (const value of optionValues) {
-        remaining.delete(value);
-      }
-    }
+    [sourceParam]: nextValue || undefined,
+  };
+  if (param === "jobFunction") {
+    overrides.roleCategory = undefined;
   }
 
-  return labels.concat([...remaining]);
-}
-
-function getFilterSummaryText(selectedLabels: string[], emptyLabel: string) {
-  if (selectedLabels.length === 0) return emptyLabel;
-  if (selectedLabels.length <= 2) return selectedLabels.join(", ");
-  return `${selectedLabels[0]}, ${selectedLabels[1]} +${selectedLabels.length - 2}`;
+  return buildJobsHref(currentParams, overrides);
 }
 
 function splitFilterValues(value?: string) {

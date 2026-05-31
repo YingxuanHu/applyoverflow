@@ -1156,7 +1156,7 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     signal,
     headers: {
       Accept: "application/json",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-official-company/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-official-company/1.0)",
     },
   });
   if (!response.ok) {
@@ -1170,7 +1170,7 @@ async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
     signal,
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-official-company/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-official-company/1.0)",
     },
   });
   if (!response.ok) {

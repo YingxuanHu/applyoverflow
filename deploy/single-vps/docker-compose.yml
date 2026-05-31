@@ -5,6 +5,7 @@ services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
     restart: unless-stopped
+    shm_size: ${POSTGRES_SHM_SIZE:-1gb}
     env_file: *prod-env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-autoapplication}
@@ -53,6 +54,7 @@ services:
       NODE_ENV: production
       DATABASE_PROCESS_ROLE: daemon
       DISABLE_INGEST_DAEMON: "0"
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
     depends_on:
       postgres:
         condition: service_healthy

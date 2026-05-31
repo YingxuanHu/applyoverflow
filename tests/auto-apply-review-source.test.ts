@@ -6,9 +6,10 @@ function readRepoFile(path: string) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-test("auto-apply review flow exposes readiness statuses and mapped field sources", () => {
+test("auto-apply review flow exposes simple user statuses and editable field sources", () => {
   const typesSource = readRepoFile("src/lib/automation/types.ts");
   const reviewSource = readRepoFile("src/lib/automation/review.ts");
+  const statusSource = readRepoFile("src/lib/automation/user-status.ts");
   const workspaceSource = readRepoFile("src/components/jobs/auto-apply-workspace.tsx");
 
   assert.match(typesSource, /AUTO_APPLY_READY/);
@@ -24,16 +25,42 @@ test("auto-apply review flow exposes readiness statuses and mapped field sources
   assert.match(reviewSource, /missingRequiredFields/);
   assert.match(reviewSource, /canSubmit/);
   assert.match(reviewSource, /isSensitiveFieldLabel/);
-  assert.match(reviewSource, /Needs Extra Answers/);
-  assert.match(reviewSource, /Needs Review/);
+  assert.match(reviewSource, /getAutoApplyReadinessCopy/);
+  assert.match(statusSource, /resolveAutoApplyUserStatus/);
+  assert.match(statusSource, /Needs Info/);
+  assert.match(statusSource, /Auto Apply/);
+  assert.match(statusSource, /Manual Apply/);
+  assert.match(reviewSource, /editable: true/);
 
-  assert.match(workspaceSource, /Detect form/);
-  assert.match(workspaceSource, /Review-first auto apply/);
+  assert.match(workspaceSource, /Prepare application/);
+  assert.match(workspaceSource, /Application fields/);
   assert.match(workspaceSource, /Confirm and submit/);
-  assert.match(workspaceSource, /I reviewed the detected fields/);
-  assert.match(workspaceSource, /Required answers/);
-  assert.match(workspaceSource, /re-check the form/);
+  assert.match(workspaceSource, /I reviewed the selected resume/);
+  assert.match(workspaceSource, /resolveAutoApplyUserStatus/);
+  assert.match(workspaceSource, /Developer details/);
+  assert.match(workspaceSource, /debug/);
+  assert.match(workspaceSource, /searchParams\.get\("debug"\) !== "1"/);
+  assert.match(workspaceSource, /Generate draft answer/);
+  assert.doesNotMatch(workspaceSource, /Cannot auto-apply/);
+  assert.doesNotMatch(workspaceSource, /Ready to submit/);
   assert.doesNotMatch(workspaceSource, /NEEDS_EXTRA_ANSWERS[\s\S]*missingAnswersComplete/);
+});
+
+test("internal eligibility candidates are not exposed as verified Auto Apply", () => {
+  const displaySource = readRepoFile("src/lib/job-display.ts");
+  const detailPageSource = readRepoFile("src/app/jobs/[id]/page.tsx");
+  const jobsPageSource = readRepoFile("src/app/jobs/page.tsx");
+
+  assert.doesNotMatch(displaySource, /Auto-apply candidate/);
+  assert.doesNotMatch(displaySource, /Auto Apply candidate/);
+  assert.match(displaySource, /SubmissionCategory is an internal ingestion hint/);
+  assert.match(displaySource, /return false/);
+
+  assert.doesNotMatch(detailPageSource, />\s*Auto apply\s*</);
+  assert.match(detailPageSource, /Check Auto Apply/);
+
+  assert.doesNotMatch(jobsPageSource, /label: "Auto-apply"/);
+  assert.doesNotMatch(jobsPageSource, /title="Apply type"/);
 });
 
 test("dry-run fillers inspect actual fields without filling or submitting", () => {
@@ -59,7 +86,8 @@ test("dry-run fillers inspect actual fields without filling or submitting", () =
   assert.match(detectionSource, /getSelectOptions/);
   assert.match(detectionSource, /getChoiceOptions/);
   assert.match(detectionSource, /requiresExplicitUserAnswer/);
-  assert.match(fieldMapSource, /how_did_you_hear: null/);
+  assert.match(fieldMapSource, /savedAnswerForConcept/);
+  assert.match(fieldMapSource, /how_did_you_hear/);
 });
 
 test("Ashby submission path reuses dry-run field detection before it can submit", () => {
@@ -70,10 +98,21 @@ test("Ashby submission path reuses dry-run field detection before it can submit"
   assert.match(ashbySource, /const detectedForReview = await detectMappedFieldsForReview/);
   assert.match(ashbySource, /mergeUnfillableFields\(unfillableFields, detectedForReview\.unfillable\)/);
   assert.match(ashbySource, /fillAshbyDetectedChoiceFields/);
+  assert.match(routeSource, /confirmSubmission/);
   assert.match(ashbySource, /required_field_unknown/);
 
   assert.match(routeSource, /preparedPackage\.savedAnswers/);
   assert.match(applicationQueriesSource, /jsonValueToStringRecord\(latestPackage\?\.savedAnswers/);
+});
+
+test("Lever submission fills reviewed choice answers detected during preflight", () => {
+  const leverSource = readRepoFile("src/lib/automation/fillers/lever.ts");
+
+  assert.match(leverSource, /fillLeverDetectedChoiceFields/);
+  assert.match(leverSource, /fieldType !== "select"/);
+  assert.match(leverSource, /fieldType !== "radio"/);
+  assert.match(leverSource, /fieldType !== "checkbox"/);
+  assert.match(leverSource, /optionMatches/);
 });
 
 test("supported fillers preserve detected fields even when a blocker stops submission", () => {

@@ -12,16 +12,29 @@ import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
 import { inferGeoScope } from "@/lib/geo-scope";
 import {
+  getStartOfTodayInTimeZone,
+  normalizeUserTimeZone,
+} from "@/lib/time-zone";
+import {
   normalizeEducations,
   normalizeExperiences,
   normalizeSkills,
 } from "@/lib/profile";
 import {
+  CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD,
+  EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD,
+  INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
+  ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
+  expandNormalizedRoleCategoryFilterValue,
   normalizeCareerStageFilterValue,
   normalizeEmploymentTypeFilterValue,
   normalizeIndustryFilterValue,
-  normalizeRoleCategoryFilterValue,
 } from "@/lib/job-metadata";
+import {
+  assertJobFilterContract,
+  getActiveRoleCategoryFilters,
+  type FilterContractJob,
+} from "@/lib/job-filter-contract";
 import {
   convertSalaryAmount,
   convertSalaryRange,
@@ -55,6 +68,11 @@ const JOB_STATUS_FILTER_VALUES = new Set([
   "REMOVED",
   "STALE",
 ]);
+const FILTERABLE_CLASSIFICATION_STATUSES = [
+  "CONFIDENT",
+  "PARTIAL",
+  "NEEDS_REVIEW",
+] as const;
 const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
 const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
 const UNKNOWN_COMPANY_VISIBILITY_BLOCKLIST = [
@@ -85,6 +103,9 @@ const GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS = [
 const JOB_FEED_SUMMARY_TTL_MS = 300_000;
 const JOB_FEED_QUERY_TTL_MS = 60_000;
 const HOT_FEED_QUERY_TTL_MS = 300_000;
+const JOB_COUNT_TIMEOUT_MS = 1_200;
+const JOB_FEED_INDEX_COUNT_TIMEOUT_MS = 5_000;
+const FEED_INDEX_SEARCH_MATCH_ID_LIMIT = 10_000;
 const TIMED_CACHE_MAX_ENTRIES = 128;
 const DIVERSIFICATION_OVERSCAN = 80;
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
@@ -139,6 +160,56 @@ const JOB_CARD_INCLUDE = (viewerProfileId: string | null) =>
     },
   }) satisfies PrismaTypes.JobCanonicalInclude;
 
+const JOB_FEED_CARD_SELECT = (viewerProfileId: string | null) =>
+  ({
+    id: true,
+    title: true,
+    company: true,
+    location: true,
+    region: true,
+    workMode: true,
+    industry: true,
+    status: true,
+    roleFamily: true,
+    normalizedRoleCategory: true,
+    normalizedRoleCategoryConfidence: true,
+    normalizedIndustry: true,
+    normalizedIndustryConfidence: true,
+    classificationStatus: true,
+    experienceLevel: true,
+    salaryMin: true,
+    salaryMax: true,
+    salaryCurrency: true,
+    shortSummary: true,
+    applyUrl: true,
+    postedAt: true,
+    deadline: true,
+    eligibility: {
+      select: {
+        submissionCategory: true,
+        reasonCode: true,
+        reasonDescription: true,
+      },
+    },
+    sourceMappings: {
+      where: { removedAt: null },
+      orderBy: [{ isPrimary: "desc" }, { sourceQualityRank: "desc" }, { lastSeenAt: "desc" }],
+      take: 5,
+      select: {
+        sourceName: true,
+        sourceUrl: true,
+        isPrimary: true,
+      },
+    },
+    savedJobs: {
+      where: {
+        userId: viewerProfileId ?? NO_VIEWER_PROFILE_ID,
+        status: "ACTIVE",
+      },
+      select: { id: true },
+    },
+  }) satisfies PrismaTypes.JobCanonicalSelect;
+
 function isClearlyVisibleJobPosting(input: {
   title: string;
   description?: string | null;
@@ -152,29 +223,35 @@ function isClearlyVisibleJobPosting(input: {
   });
 }
 
-function withSanitizedJobPresentation<
-  T extends {
-    title: string;
-    company: string;
-    description: string;
-    location: string;
-    applyUrl: string | null;
-    shortSummary?: string | null;
-    eligibility?: {
-      submissionCategory: string;
-      reasonCode: string;
-      reasonDescription: string;
-    } | null;
-  },
->(job: T): T {
+type SanitizedJobPresentationInput = {
+  title: string;
+  company: string;
+  description: string;
+  location: string;
+  applyUrl: string | null;
+  shortSummary?: string | null;
+  eligibility?: {
+    submissionCategory: string;
+    reasonCode: string;
+    reasonDescription: string;
+  } | null;
+};
+
+function withSanitizedJobPresentation<T extends SanitizedJobPresentationInput>(
+  job: T,
+  options: { sanitizeDescription?: boolean } = {}
+): T {
   const title = sanitizeJobTitle(job.title);
   const company = sanitizeCompanyName(job.company, {
     urls: [job.applyUrl],
   });
-  const description = sanitizeJobDescriptionText(job.description, {
-    title,
-    location: job.location,
-  });
+  const description =
+    options.sanitizeDescription === false
+      ? job.description
+      : sanitizeJobDescriptionText(job.description, {
+          title,
+          location: job.location,
+        });
   const shortSummary = job.shortSummary
     ? sanitizeJobDescriptionText(job.shortSummary, {
         title,
@@ -201,6 +278,20 @@ function withSanitizedJobPresentation<
     shortSummary,
     eligibility,
   };
+}
+
+function withSanitizedJobFeedPresentation<
+  T extends Omit<SanitizedJobPresentationInput, "description"> & {
+    description?: string;
+  },
+>(job: T): T & { description: string } {
+  return withSanitizedJobPresentation(
+    {
+      ...job,
+      description: "",
+    },
+    { sanitizeDescription: false }
+  );
 }
 
 function buildAvailabilityVisibilityWhere(minScore: number): PrismaTypes.JobCanonicalWhereInput {
@@ -275,7 +366,7 @@ function buildDefaultJobBoardVisibilityWhere(
   };
 }
 
-function toTsQuery(raw: string): string {
+function toTsQuery(raw: string, operator: "&" | "|" = "&"): string {
   const tokens = raw
     .slice(0, MAX_SEARCH_LENGTH)
     .trim()
@@ -284,7 +375,92 @@ function toTsQuery(raw: string): string {
     .filter((t) => t.length > 0)
     .slice(0, MAX_SEARCH_TOKENS);
   if (tokens.length === 0) return "";
-  return tokens.map((t) => `${t}:*`).join(" & ");
+  return tokens.map((t) => `${t}:*`).join(` ${operator} `);
+}
+
+function buildLooseSearchTerms(raw: string | undefined) {
+  const phrase = raw?.slice(0, MAX_SEARCH_LENGTH).replace(/\s+/g, " ").trim();
+  if (!phrase) return [];
+
+  const seen = new Set<string>();
+  const terms: string[] = [];
+
+  for (const term of [
+    phrase,
+    ...phrase
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .slice(0, MAX_SEARCH_TOKENS),
+  ]) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+  }
+
+  return terms;
+}
+
+function buildLooseSearchTokens(raw: string | undefined) {
+  const phrase = raw?.slice(0, MAX_SEARCH_LENGTH).replace(/\s+/g, " ").trim();
+  if (!phrase) return [];
+
+  const seen = new Set<string>();
+  const terms: string[] = [];
+
+  for (const term of phrase
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, MAX_SEARCH_TOKENS)) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+  }
+
+  return terms;
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[%_\\]/g, "\\$&");
+}
+
+function buildSearchTermVariants(term: string) {
+  const variants: string[] = [term];
+  const seen = new Set([term.toLowerCase()]);
+
+  for (const match of term.matchAll(/([a-zA-Z0-9])\1{2,}/g)) {
+    if (match.index == null) continue;
+
+    const repeated = match[0];
+    const corrected = `${term.slice(0, match.index)}${match[1].repeat(
+      repeated.length - 1
+    )}${term.slice(match.index + repeated.length)}`;
+    const key = corrected.toLowerCase();
+
+    if (corrected.length > 1 && !seen.has(key)) {
+      seen.add(key);
+      variants.push(corrected);
+    }
+  }
+
+  return variants;
+}
+
+function buildLooseSearchTermGroups(raw: string | undefined) {
+  return buildLooseSearchTerms(raw).map(buildSearchTermVariants);
+}
+
+function buildLooseSearchTokenGroups(raw: string | undefined) {
+  return buildLooseSearchTokens(raw).map(buildSearchTermVariants);
+}
+
+function buildSearchLikePatternGroups(raw: string | undefined) {
+  return buildLooseSearchTokenGroups(raw).map((variants) =>
+    variants.map((variant) => `%${escapeLikePattern(variant)}%`)
+  );
 }
 
 function splitFilterValues(value?: string) {
@@ -343,13 +519,125 @@ function appendAndCondition(
   where.AND = [...existingAnd, condition];
 }
 
+function appendFeedIndexAndCondition(
+  where: Prisma.JobFeedIndexWhereInput,
+  condition: Prisma.JobFeedIndexWhereInput
+) {
+  const existingAnd = where.AND
+    ? Array.isArray(where.AND)
+      ? where.AND
+      : [where.AND]
+    : [];
+  where.AND = [...existingAnd, condition];
+}
+
+function withoutUnknownFilterValues(values: string[], unknownValue: string) {
+  return values.filter((value) => value !== unknownValue);
+}
+
+function shouldDebugJobFilters(filters: JobFilterParams) {
+  return filters.debugFilters || process.env.JOB_FILTER_DEBUG === "1";
+}
+
+function logJobFilterDebug(
+  filters: JobFilterParams,
+  jobs: FilterContractJob[],
+  source: string
+) {
+  if (!shouldDebugJobFilters(filters)) return;
+
+  console.info(
+    "[jobs-filter-debug]",
+    JSON.stringify(
+      {
+        source,
+        activeFilters: {
+          roleCategory: getActiveRoleCategoryFilters(filters),
+          industry: splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
+          search: filters.search ?? null,
+          titleSearch: filters.titleSearch ?? null,
+          companySearch: filters.companySearch ?? null,
+          locationSearch: filters.locationSearch ?? null,
+        },
+        rows: jobs.slice(0, 25).map((job) => ({
+          id: job.id,
+          title: job.title,
+          company: job.company,
+          roleFamily: job.roleFamily,
+          normalizedRoleCategory: job.normalizedRoleCategory ?? null,
+          normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence ?? null,
+          normalizedIndustry: job.normalizedIndustry ?? null,
+          normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
+          classificationStatus: job.classificationStatus ?? null,
+          matchedBy: "base_visible_jobs_and_structured_filters_then_search",
+          metadataSource: source,
+        })),
+      },
+      null,
+      2
+    )
+  );
+}
+
+function finalizeJobsResult<T extends { data: FilterContractJob[] }>(
+  filters: JobFilterParams,
+  result: T,
+  source: string
+): T {
+  assertJobFilterContract(filters, result.data, source);
+  logJobFilterDebug(filters, result.data, source);
+  return result;
+}
+
 function shouldUseJobFeedIndex(filters: JobFilterParams, viewerProfileId: string | null) {
+  void viewerProfileId;
   return (
-    process.env.USE_JOB_FEED_INDEX === "1" &&
-    !viewerProfileId &&
-    !hasSearchFilters(filters) &&
+    process.env.USE_JOB_FEED_INDEX !== "0" &&
     !filters.source
   );
+}
+
+async function getPassedJobIdSet(
+  viewerProfileId: string | null,
+  canonicalJobIds?: string[]
+) {
+  if (!viewerProfileId) return new Set<string>();
+  if (canonicalJobIds && canonicalJobIds.length === 0) return new Set<string>();
+
+  const passedRows = await prisma.userBehaviorSignal.findMany({
+    where: {
+      userId: viewerProfileId,
+      action: "PASS",
+      ...(canonicalJobIds ? { canonicalJobId: { in: canonicalJobIds } } : {}),
+    },
+    select: { canonicalJobId: true },
+  });
+
+  return new Set(passedRows.map((row) => row.canonicalJobId));
+}
+
+async function countJobFeedIndexMatches(
+  where: Prisma.JobFeedIndexWhereInput,
+  viewerProfileId: string | null
+) {
+  const baseTotal = await prisma.jobFeedIndex.count({ where });
+  const passedJobIds = await getPassedJobIdSet(viewerProfileId);
+  if (passedJobIds.size === 0) return baseTotal;
+
+  const passedTotal = await prisma.jobFeedIndex.count({
+    where: {
+      AND: [
+        where,
+        {
+          canonicalJobId: {
+            in: [...passedJobIds],
+          },
+        },
+      ],
+    },
+  });
+
+  return Math.max(0, baseTotal - passedTotal);
 }
 
 async function getJobsFromFeedIndex(input: {
@@ -383,14 +671,74 @@ async function getJobsFromFeedIndex(input: {
     };
   }
 
-  if (viewerProfileId) {
-    canonicalRelationWhere.behaviorSignals = {
-      none: {
-        userId: viewerProfileId,
-        action: "PASS",
-      },
-    };
+  const searchScope = filters.searchScope ?? "all";
+  let searchPrefilterIds: string[] | null = null;
+  const hasStructuredFeedFilters = Boolean(
+    filters.location ||
+      filters.region ||
+      filters.workMode ||
+      filters.employmentType ||
+      filters.industry ||
+      filters.roleCategory ||
+      filters.roleFamily ||
+      filters.salaryMin ||
+      filters.salaryMax ||
+      filters.careerStage ||
+      filters.experienceLevel ||
+      filters.expiry ||
+      filters.posted ||
+      filters.submissionCategory
+  );
+  const canUseDirectSearchPrefilter =
+    Boolean(filters.search) &&
+    !hasStructuredFeedFilters &&
+    !filters.titleSearch &&
+    !filters.companySearch &&
+    !filters.locationSearch &&
+    !filters.status &&
+    !useSqlDemoVisibilityFilter &&
+    (!filters.sortBy || filters.sortBy === "relevance");
+  if (filters.search && (!filters.status || normalizeJobStatusFilter(filters.status) === "LIVE")) {
+    const searchPrefilterLimit = hasStructuredFeedFilters
+      ? FEED_INDEX_SEARCH_MATCH_ID_LIMIT
+      : Math.min(
+          FEED_INDEX_SEARCH_MATCH_ID_LIMIT,
+          Math.max(PAGE_SIZE * ((filters.page ?? 1) + 2), 500)
+        );
+    searchPrefilterIds = await searchJobFeedIndexIds(
+      filters.search,
+      searchScope,
+      searchPrefilterLimit
+    );
   }
+  if (searchPrefilterIds !== null) {
+    if (searchPrefilterIds.length === 0) {
+      return {
+        data: [],
+        total: 0,
+        hasNextPage: false,
+        page,
+        pageSize: PAGE_SIZE,
+        summary: await summaryPromise,
+      } satisfies JobsResult;
+    }
+    where.canonicalJobId = { in: searchPrefilterIds };
+  } else {
+    appendFeedIndexTextSearchWhere(
+      where,
+      searchScope === "title"
+        ? "title"
+        : searchScope === "company"
+          ? "company"
+          : searchScope === "location"
+            ? "location"
+            : "searchText",
+      filters.search
+    );
+  }
+  appendFeedIndexTextSearchWhere(where, "title", filters.titleSearch);
+  appendFeedIndexTextSearchWhere(where, "company", filters.companySearch);
+  appendFeedIndexLocationSearchWhere(where, filters.locationSearch);
 
   if (filters.region) {
     where.region = { in: filters.region.split(",") as ("US" | "CA")[] };
@@ -403,14 +751,40 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.industry) {
-    const industries = splitFilterValues(normalizeIndustryFilterValue(filters.industry));
-    where.normalizedIndustry = industries.length > 0 ? { in: industries } : { in: [] };
+    const industries = withoutUnknownFilterValues(
+      splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
+      "OTHER_UNKNOWN"
+    );
+    appendFeedIndexAndCondition(where, {
+      normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+      normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
+    });
   }
 
   if (filters.roleCategory) {
-    const roleCategories = splitFilterValues(normalizeRoleCategoryFilterValue(filters.roleCategory));
-    where.normalizedRoleCategory =
-      roleCategories.length > 0 ? { in: roleCategories } : { in: [] };
+    const selectedRoleCategories = splitFilterValues(
+      expandNormalizedRoleCategoryFilterValue(filters.roleCategory)
+    );
+    const roleCategories = withoutUnknownFilterValues(selectedRoleCategories, "OTHER_UNKNOWN");
+    const roleConditions: Prisma.JobFeedIndexWhereInput[] = [];
+    if (roleCategories.length > 0) {
+      roleConditions.push({
+        normalizedRoleCategory: { in: roleCategories },
+        normalizedRoleCategoryConfidence: { gte: ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD },
+        classificationStatus: { in: [...FILTERABLE_CLASSIFICATION_STATUSES] },
+      });
+    }
+    if (selectedRoleCategories.includes("OTHER_UNKNOWN")) {
+      roleConditions.push({ normalizedRoleCategory: "OTHER_UNKNOWN" });
+    }
+    appendFeedIndexAndCondition(
+      where,
+      roleConditions.length === 0
+        ? { normalizedRoleCategory: { in: [] } }
+        : roleConditions.length === 1
+          ? roleConditions[0]
+          : { OR: roleConditions }
+    );
   }
 
   if (filters.roleFamily) {
@@ -427,9 +801,14 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.employmentType) {
-    const employmentTypes = splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType));
-    where.normalizedEmploymentType =
-      employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] };
+    const employmentTypes = withoutUnknownFilterValues(
+      splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+      "UNKNOWN"
+    );
+    appendFeedIndexAndCondition(where, {
+      normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
+      normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
+    });
   }
 
   const postedAfter = getPostedAfterDate(filters.posted);
@@ -437,12 +816,13 @@ async function getJobsFromFeedIndex(input: {
     where.postedAt = { gte: postedAfter };
   }
 
-  const salaryRangeWhere = buildSalaryRangeIndexWhere(
-    filters.salaryMin,
-    filters.salaryMax,
-    filters.salaryCurrency ?? "USD",
-    salaryExchangeRates
-  );
+    const salaryRangeWhere = buildSalaryRangeIndexWhere(
+      filters.salaryMin,
+      filters.salaryMax,
+      filters.salaryCurrency ?? "USD",
+      salaryExchangeRates,
+      Boolean(filters.includeUnknownSalary)
+    );
   if (salaryRangeWhere) {
     const existingAnd = where.AND
       ? Array.isArray(where.AND)
@@ -465,7 +845,11 @@ async function getJobsFromFeedIndex(input: {
     const stages = splitFilterValues(
       normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
     );
-    where.normalizedCareerStage = stages.length > 0 ? { in: stages } : { in: [] };
+    const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
+    appendFeedIndexAndCondition(where, {
+      normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+      normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
+    });
   }
 
   if (filters.submissionCategory) {
@@ -503,11 +887,6 @@ async function getJobsFromFeedIndex(input: {
       in: [...DEFAULT_VISIBLE_JOB_STATUSES],
     };
   }
-  appendAndCondition(
-    canonicalRelationWhere,
-    buildDefaultJobBoardVisibilityWhere(new Date(), DEFAULT_MIN_AVAILABILITY_SCORE)
-  );
-
   if (Object.keys(canonicalRelationWhere).length > 0) {
     where.canonicalJob = {
       is: canonicalRelationWhere,
@@ -533,20 +912,37 @@ async function getJobsFromFeedIndex(input: {
     orderBy = [{ company: "asc" }, { postedAt: "desc" }];
   }
 
-  const indexedRows = await prisma.jobFeedIndex.findMany({
-    where,
-    select: { canonicalJobId: true },
-    orderBy,
-    skip,
-    take: PAGE_SIZE * 3,
-  });
+  const totalPromise = includeExactTotal
+    ? withCountTimeout(
+        () => countJobFeedIndexMatches(where, viewerProfileId),
+        JOB_FEED_INDEX_COUNT_TIMEOUT_MS
+      )
+    : Promise.resolve(null);
 
-  const canonicalJobIds = indexedRows.map((row) => row.canonicalJobId);
+  const indexedRows =
+    canUseDirectSearchPrefilter && searchPrefilterIds !== null
+      ? searchPrefilterIds
+          .slice(skip, skip + PAGE_SIZE + 1)
+          .map((canonicalJobId) => ({ canonicalJobId }))
+      : await prisma.jobFeedIndex.findMany({
+          where,
+          select: { canonicalJobId: true },
+          orderBy,
+          skip,
+          take: PAGE_SIZE + 1,
+        });
+
+  let canonicalJobIds = indexedRows.map((row) => row.canonicalJobId);
+  if (viewerProfileId && canonicalJobIds.length > 0) {
+    const passedJobIds = await getPassedJobIdSet(viewerProfileId, canonicalJobIds);
+    canonicalJobIds = canonicalJobIds.filter((id) => !passedJobIds.has(id));
+  }
 
   if (canonicalJobIds.length === 0) {
+    const total = includeExactTotal ? await totalPromise : null;
     return {
       data: [],
-      total: includeExactTotal ? 0 : null,
+      total: total ?? (includeExactTotal ? 0 : null),
       hasNextPage: false,
       page,
       pageSize: PAGE_SIZE,
@@ -556,21 +952,17 @@ async function getJobsFromFeedIndex(input: {
 
   const jobs = await prisma.jobCanonical.findMany({
     where: { id: { in: canonicalJobIds } },
-    include: JOB_CARD_INCLUDE(viewerProfileId),
+    select: JOB_FEED_CARD_SELECT(viewerProfileId),
   });
   const order = new Map(canonicalJobIds.map((id, index) => [id, index]));
-  const visibleJobs = jobs
-    .filter((job) =>
-      isClearlyVisibleJobPosting({
-        title: job.title,
-        description: job.description,
-        applyUrl: job.applyUrl,
-      })
-    )
-    .sort((left, right) => (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+  const visibleJobs = jobs.sort(
+    (left, right) =>
+      (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+  );
   const data = visibleJobs.slice(0, PAGE_SIZE).map((job) => {
     const { savedJobs, ...rest } = job;
-    return withSanitizedJobPresentation({
+    return withSanitizedJobFeedPresentation({
       ...rest,
       isSaved: savedJobs.length > 0,
     });
@@ -587,14 +979,7 @@ async function getJobsFromFeedIndex(input: {
     } satisfies JobsResult;
   }
 
-  // Race the count against a 5s timeout. A precise total is "nice to have"
-  // for the page header — not worth blocking the render for 14-60+ seconds
-  // when the DB is competing with ingestion workers. The UI already handles
-  // `total: null` gracefully (shows "Many jobs" instead of an exact number).
-  const total = await withCountTimeout(
-    () => prisma.jobFeedIndex.count({ where }),
-    5_000
-  );
+  const total = await totalPromise;
 
   return {
     data,
@@ -611,8 +996,9 @@ async function getJobsFromFeedIndex(input: {
  *
  * Strategy:
  *  1. Try tsvector full-text search first (fast, uses GIN index).
- *  2. If no results or query is very short (≤2 chars), fall back to
- *     trigram similarity on title, company, role family, and location.
+ *  2. If no results are found, fall back to loose substring matching on
+ *     title, company, role family, and location, including conservative
+ *     repeated-character typo variants ("engineeer" -> "engineer").
  *
  * Returns up to `limit` matching job IDs, ordered by relevance.
  */
@@ -624,9 +1010,9 @@ async function searchJobIds(
   const tsQuery = toTsQuery(query);
   if (!tsQuery) return null;
 
-  const escapedLikeQuery = query.replace(/[%_\\]/g, "\\$&");
+  const escapedLikeQuery = escapeLikePattern(query);
   const companyLikePattern = `%${escapedLikeQuery}%`;
-  const likePattern = `%${escapedLikeQuery}%`;
+  const likePatternGroups = buildSearchLikePatternGroups(query);
 
   if (scope !== "all") {
     const column = SEARCH_SCOPE_COLUMNS[scope];
@@ -644,24 +1030,38 @@ async function searchJobIds(
       tsQuery,
       limit,
       query,
-      likePattern
+      companyLikePattern
     );
 
     if (scopedFtsResults.length > 0) {
       return scopedFtsResults.map((r) => r.id);
     }
 
+    if (likePatternGroups.length === 0) return [];
+
+    const scopedParams: string[] = [];
+    const scopedWhere = likePatternGroups
+      .map((patterns) => {
+        const groupWhere = patterns.map((pattern) => {
+          scopedParams.push(pattern);
+          return `"${column}" ILIKE $${scopedParams.length}`;
+        });
+        return `(${groupWhere.join(" OR ")})`;
+      })
+      .join(" AND ");
+    const exactQueryParam = scopedParams.length + 1;
+    const limitParam = scopedParams.length + 2;
     const scopedLikeResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
       `SELECT id FROM "JobCanonical"
-       WHERE "${column}" ILIKE $1
+       WHERE ${scopedWhere}
        ORDER BY
          CASE
-           WHEN lower("${column}") = lower($2) THEN 0
+           WHEN lower("${column}") = lower($${exactQueryParam}) THEN 0
            WHEN "${column}" ILIKE $1 THEN 1
            ELSE 2
          END
-       LIMIT $3`,
-      likePattern,
+       LIMIT $${limitParam}`,
+      ...scopedParams,
       query,
       limit
     );
@@ -703,17 +1103,32 @@ async function searchJobIds(
     return ftsResults.map((r) => r.id);
   }
 
-  // Fallback: trigram similarity for short queries or terms not in the
-  // English dictionary (acronyms, company names, etc.)
+  // Fallback for acronyms, company names, misspellings, and terms not in the
+  // English dictionary.
+  if (likePatternGroups.length === 0) return [];
+
+  const allSearchParams: string[] = [];
+  const allSearchWhere = likePatternGroups
+    .map((patterns) => {
+      const groupWhere = patterns.map((pattern) => {
+        allSearchParams.push(pattern);
+        const param = `$${allSearchParams.length}`;
+        return `(title ILIKE ${param}
+          OR company ILIKE ${param}
+          OR "roleFamily" ILIKE ${param}
+          OR location ILIKE ${param})`;
+      });
+      return `(${groupWhere.join(" OR ")})`;
+    })
+    .join("\n        AND ");
+  const exactQueryParam = allSearchParams.length + 1;
+  const limitParam = allSearchParams.length + 2;
   const trigramResults = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM "JobCanonical"
-     WHERE title ILIKE $1
-        OR company ILIKE $1
-        OR "roleFamily" ILIKE $1
-        OR location ILIKE $1
+     WHERE ${allSearchWhere}
      ORDER BY
        CASE
-         WHEN lower(company) = lower($2) THEN 0
+         WHEN lower(company) = lower($${exactQueryParam}) THEN 0
          WHEN company ILIKE $1 THEN 1
          ELSE 2
        END,
@@ -727,8 +1142,8 @@ async function searchJobIds(
          ) THEN 0
          ELSE 1
        END
-     LIMIT $3`,
-    likePattern,
+     LIMIT $${limitParam}`,
+    ...allSearchParams,
     query,
     limit
   );
@@ -747,28 +1162,32 @@ function hasSearchFilters(filters: JobFilterParams) {
   );
 }
 
+type ScopedTextSearchMode = "any-term" | "all-terms";
+
 function buildScopedTextSearchWhere(
   field: ScopedJobSearchScope,
-  query: string | undefined
+  query: string | undefined,
+  mode: ScopedTextSearchMode = "all-terms"
 ): PrismaTypes.JobCanonicalWhereInput | null {
-  const tokens = query
-    ?.slice(0, MAX_SEARCH_LENGTH)
-    .trim()
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .slice(0, MAX_SEARCH_TOKENS);
+  const termGroups =
+    mode === "all-terms"
+      ? buildLooseSearchTokenGroups(query)
+      : buildLooseSearchTermGroups(query);
+  if (termGroups.length === 0) return null;
 
-  if (!tokens?.length) return null;
+  const clauses = termGroups.map((terms) => {
+    const variantClauses = terms.map((term) => ({
+      [field]: {
+        contains: term,
+        mode: "insensitive" as const,
+      },
+    })) as PrismaTypes.JobCanonicalWhereInput[];
 
-  const clauses = tokens.map((token) => ({
-    [field]: {
-      contains: token,
-      mode: "insensitive" as const,
-    },
-  })) as PrismaTypes.JobCanonicalWhereInput[];
+    return variantClauses.length === 1 ? variantClauses[0] : { OR: variantClauses };
+  }) as PrismaTypes.JobCanonicalWhereInput[];
 
-  return clauses.length === 1 ? clauses[0] : { AND: clauses };
+  if (clauses.length === 1) return clauses[0];
+  return mode === "all-terms" ? { AND: clauses } : { OR: clauses };
 }
 
 function appendScopedTextSearchWhere(
@@ -780,6 +1199,209 @@ function appendScopedTextSearchWhere(
   if (condition) appendAndCondition(where, condition);
 }
 
+type FeedIndexSearchField = ScopedJobSearchScope | "searchText";
+
+const FEED_INDEX_SEARCH_SQL_COLUMNS: Record<FeedIndexSearchField, string> = {
+  title: `"title"`,
+  company: `"company"`,
+  location: `"location"`,
+  searchText: `"searchText"`,
+};
+
+function buildFeedIndexTextSearchWhere(
+  field: FeedIndexSearchField,
+  query: string | undefined,
+  mode: ScopedTextSearchMode = "all-terms"
+): PrismaTypes.JobFeedIndexWhereInput | null {
+  const termGroups =
+    mode === "all-terms"
+      ? buildLooseSearchTokenGroups(query)
+      : buildLooseSearchTermGroups(query);
+  if (termGroups.length === 0) return null;
+
+  const clauses = termGroups.map((terms) => {
+    const variantClauses = terms.map((term) => ({
+      [field]: {
+        contains: term,
+        mode: "insensitive" as const,
+      },
+    })) as PrismaTypes.JobFeedIndexWhereInput[];
+
+    return variantClauses.length === 1 ? variantClauses[0] : { OR: variantClauses };
+  }) as PrismaTypes.JobFeedIndexWhereInput[];
+
+  if (clauses.length === 1) return clauses[0];
+  return mode === "all-terms" ? { AND: clauses } : { OR: clauses };
+}
+
+function appendFeedIndexTextSearchWhere(
+  where: Prisma.JobFeedIndexWhereInput,
+  field: FeedIndexSearchField,
+  query: string | undefined
+) {
+  const condition = buildFeedIndexTextSearchWhere(field, query);
+  if (condition) appendFeedIndexAndCondition(where, condition);
+}
+
+async function searchJobFeedIndexIds(
+  query: string,
+  scope: JobSearchScope = "all",
+  limit: number = FEED_INDEX_SEARCH_MATCH_ID_LIMIT
+): Promise<string[] | null> {
+  const tsQuery = toTsQuery(query);
+  if (!tsQuery) return null;
+
+  const field: FeedIndexSearchField =
+    scope === "title"
+      ? "title"
+      : scope === "company"
+        ? "company"
+        : scope === "location"
+          ? "location"
+          : "searchText";
+  const column = FEED_INDEX_SEARCH_SQL_COLUMNS[field];
+  const exactMatchColumn =
+    field === "searchText" ? FEED_INDEX_SEARCH_SQL_COLUMNS.company : column;
+  const partialMatchPattern = `%${escapeLikePattern(query)}%`;
+  const likePatternGroups = buildSearchLikePatternGroups(query);
+
+  if (field === "searchText" || field === "company") {
+    const exactCompanyIds = await searchJobFeedIndexExactCompanyIds(query, limit);
+    if (exactCompanyIds.length > 0) return exactCompanyIds;
+  }
+
+  if (field === "searchText") {
+    return searchJobFeedIndexLikeIds({
+      query,
+      likePatternGroups,
+      searchableColumns: [
+        FEED_INDEX_SEARCH_SQL_COLUMNS.company,
+        FEED_INDEX_SEARCH_SQL_COLUMNS.title,
+        FEED_INDEX_SEARCH_SQL_COLUMNS.location,
+        `"roleFamily"`,
+      ],
+      exactMatchColumn,
+      partialMatchPattern,
+      limit,
+    });
+  }
+
+  const ftsRows = await prisma.$queryRawUnsafe<Array<{ canonicalJobId: string }>>(
+    `SELECT "canonicalJobId"
+     FROM "JobFeedIndex"
+     WHERE
+       status = 'LIVE'
+       AND to_tsvector('english', coalesce(${column}, '')) @@ to_tsquery('english', $1)
+     ORDER BY
+       CASE
+         WHEN lower(${exactMatchColumn}) = lower($3) THEN 0
+         WHEN ${exactMatchColumn} ILIKE $4 ESCAPE '\\' THEN 1
+         ELSE 2
+       END,
+       ts_rank_cd(to_tsvector('english', coalesce(${column}, '')), to_tsquery('english', $1)) DESC,
+       "rankingScore" DESC,
+       "postedAt" DESC
+     LIMIT $2`,
+    tsQuery,
+    limit,
+    query,
+    partialMatchPattern
+  );
+
+  if (ftsRows.length > 0) {
+    return ftsRows.map((row) => row.canonicalJobId);
+  }
+
+  return searchJobFeedIndexLikeIds({
+    query,
+    likePatternGroups,
+    searchableColumns: [column],
+    exactMatchColumn,
+    partialMatchPattern,
+    limit,
+  });
+}
+
+async function searchJobFeedIndexLikeIds(input: {
+  query: string;
+  likePatternGroups: string[][];
+  searchableColumns: string[];
+  exactMatchColumn: string;
+  partialMatchPattern: string;
+  limit: number;
+}) {
+  const {
+    query,
+    likePatternGroups,
+    searchableColumns,
+    exactMatchColumn,
+    partialMatchPattern,
+    limit,
+  } = input;
+  if (likePatternGroups.length === 0) return [];
+
+  const params: string[] = [];
+  const fallbackWhere = likePatternGroups
+    .map((patterns) => {
+      const patternClauses = patterns.map((pattern) => {
+        params.push(pattern);
+        const placeholder = `$${params.length}`;
+        return `(${searchableColumns
+          .map((searchColumn) => `${searchColumn} ILIKE ${placeholder} ESCAPE '\\'`)
+          .join(" OR ")})`;
+      });
+      return `(${patternClauses.join(" OR ")})`;
+    })
+    .join(" AND ");
+  const exactQueryParam = params.length + 1;
+  const partialQueryParam = params.length + 2;
+  const limitParam = params.length + 3;
+
+  const fallbackRows = await prisma.$queryRawUnsafe<Array<{ canonicalJobId: string }>>(
+    `SELECT "canonicalJobId"
+     FROM "JobFeedIndex"
+     WHERE
+       status = 'LIVE'
+       AND ${fallbackWhere}
+     ORDER BY
+       CASE
+         WHEN lower(${exactMatchColumn}) = lower($${exactQueryParam}) THEN 0
+         WHEN ${exactMatchColumn} ILIKE $${partialQueryParam} ESCAPE '\\' THEN 1
+         ELSE 2
+       END,
+       "rankingScore" DESC,
+       "postedAt" DESC
+     LIMIT $${limitParam}`,
+    ...params,
+    query,
+    partialMatchPattern,
+    limit
+  );
+
+  return fallbackRows.map((row) => row.canonicalJobId);
+}
+
+async function searchJobFeedIndexExactCompanyIds(query: string, limit: number) {
+  const normalized = query.slice(0, MAX_SEARCH_LENGTH).replace(/\s+/g, " ").trim();
+  if (!normalized || buildLooseSearchTokens(normalized).length > 4) return [];
+
+  const rows = await prisma.$queryRawUnsafe<Array<{ canonicalJobId: string }>>(
+    `SELECT "canonicalJobId"
+     FROM "JobFeedIndex"
+     WHERE
+       status = 'LIVE'
+       AND lower(company) = lower($1)
+     ORDER BY
+       "rankingScore" DESC,
+       "postedAt" DESC
+     LIMIT $2`,
+    normalized,
+    limit
+  );
+
+  return rows.map((row) => row.canonicalJobId);
+}
+
 function buildLocationSearchWhere(
   query: string | undefined
 ): PrismaTypes.JobCanonicalWhereInput | null {
@@ -787,7 +1409,7 @@ function buildLocationSearchWhere(
   if (locations.length === 0) return null;
 
   const clauses = locations.flatMap((location) => {
-    const textCondition = buildScopedTextSearchWhere("location", location);
+    const textCondition = buildScopedTextSearchWhere("location", location, "all-terms");
     if (!textCondition) return [];
 
     const region = inferProfileRegion(location);
@@ -818,6 +1440,46 @@ function appendLocationSearchWhere(
 ) {
   const condition = buildLocationSearchWhere(query);
   if (condition) appendAndCondition(where, condition);
+}
+
+function buildFeedIndexLocationSearchWhere(
+  query: string | undefined
+): PrismaTypes.JobFeedIndexWhereInput | null {
+  const locations = splitFilterValues(query);
+  if (locations.length === 0) return null;
+
+  const clauses = locations.flatMap((location) => {
+    const textCondition = buildFeedIndexTextSearchWhere("location", location, "all-terms");
+    if (!textCondition) return [];
+
+    const region = inferProfileRegion(location);
+    if (!region) return [textCondition];
+
+    return [
+      textCondition,
+      {
+        AND: [
+          { region },
+          {
+            workMode: {
+              in: ["REMOTE", "FLEXIBLE"],
+            },
+          },
+        ],
+      } satisfies PrismaTypes.JobFeedIndexWhereInput,
+    ];
+  });
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { OR: clauses };
+}
+
+function appendFeedIndexLocationSearchWhere(
+  where: Prisma.JobFeedIndexWhereInput,
+  query: string | undefined
+) {
+  const condition = buildFeedIndexLocationSearchWhere(query);
+  if (condition) appendFeedIndexAndCondition(where, condition);
 }
 
 function buildNumericSalaryRangeWhere(
@@ -878,7 +1540,8 @@ function buildSalaryRangeWhere(
   salaryMin: number | undefined,
   salaryMax: number | undefined,
   comparisonCurrency: SalaryComparisonCurrency,
-  exchangeRates: SalaryExchangeRates
+  exchangeRates: SalaryExchangeRates,
+  includeUnknownSalary: boolean = false
 ): PrismaTypes.JobCanonicalWhereInput | null {
   if (!salaryMin && !salaryMax) return null;
 
@@ -911,14 +1574,26 @@ function buildSalaryRangeWhere(
   }
 
   if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { OR: clauses };
+  const salaryWhere = clauses.length === 1 ? clauses[0] : { OR: clauses };
+
+  if (!includeUnknownSalary) return salaryWhere;
+
+  return {
+    OR: [
+      salaryWhere,
+      {
+        AND: [{ salaryMin: null }, { salaryMax: null }],
+      },
+    ],
+  };
 }
 
 function buildSalaryRangeIndexWhere(
   salaryMin: number | undefined,
   salaryMax: number | undefined,
   comparisonCurrency: SalaryComparisonCurrency,
-  exchangeRates: SalaryExchangeRates
+  exchangeRates: SalaryExchangeRates,
+  includeUnknownSalary: boolean = false
 ): PrismaTypes.JobFeedIndexWhereInput | null {
   if (!salaryMin && !salaryMax) return null;
 
@@ -951,7 +1626,18 @@ function buildSalaryRangeIndexWhere(
   }
 
   if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { OR: clauses };
+  const salaryWhere = clauses.length === 1 ? clauses[0] : { OR: clauses };
+
+  if (!includeUnknownSalary) return salaryWhere;
+
+  return {
+    OR: [
+      salaryWhere,
+      {
+        AND: [{ salaryMin: null }, { salaryMax: null }],
+      },
+    ],
+  };
 }
 
 // ─── Ranking ──────────────────────────────────────────────────────────────────
@@ -2026,6 +2712,41 @@ async function getHiddenDemoOnlySummaryCounts(
   };
 }
 
+async function getDailyJobFeedSummaryCounts(
+  startOfToday: Date,
+  now: Date
+): Promise<Omit<JobFeedSummary, "liveJobCount">> {
+  const visibleWhere = buildDefaultJobBoardVisibilityWhere(now);
+  const [addedTodayCount, expiredTodayCount, removedTodayCount] = await Promise.all([
+    prisma.jobCanonical.count({
+      where: {
+        AND: [
+          visibleWhere,
+          { firstSeenAt: { gte: startOfToday } },
+        ],
+      },
+    }),
+    prisma.jobCanonical.count({
+      where: {
+        status: "EXPIRED",
+        expiredAt: { gte: startOfToday },
+      },
+    }),
+    prisma.jobCanonical.count({
+      where: {
+        status: "REMOVED",
+        removedAt: { gte: startOfToday },
+      },
+    }),
+  ]);
+
+  return {
+    addedTodayCount,
+    expiredTodayCount,
+    removedTodayCount,
+  };
+}
+
 
 function readTimedCache<T>(key: string): T | null {
   const entry = timedCacheStore.get(key);
@@ -2061,7 +2782,8 @@ function writeTimedCache<T>(key: string, value: T, ttlMs: number) {
 function buildJobsCacheKey(
   viewerProfileId: string | null,
   filters: JobFilterParams,
-  cacheEpoch: string | null = null
+  cacheEpoch: string | null = null,
+  summaryTimeZone: string = normalizeUserTimeZone()
 ) {
   return `jobs:${viewerProfileId ?? "anon"}:${JSON.stringify({
     search: filters.search ?? null,
@@ -2088,6 +2810,8 @@ function buildJobsCacheKey(
     status: filters.status ?? null,
     sortBy: filters.sortBy ?? null,
     page: filters.page ?? 1,
+    debugFilters: filters.debugFilters ? 1 : null,
+    summaryTimeZone,
     cacheEpoch,
   })}`;
 }
@@ -2133,51 +2857,32 @@ async function loadSalaryComparisonCurrency(
   return normalizeSalaryCurrency(profile?.salaryCurrency) ?? "USD";
 }
 
-async function getJobFeedSummary() {
-  const cached = readTimedCache<JobFeedSummary>("jobs:summary");
+async function getJobFeedSummary(timeZone: string) {
+  const normalizedTimeZone = normalizeUserTimeZone(timeZone);
+  const cacheKey = `jobs:summary:${normalizedTimeZone}`;
+  const cached = readTimedCache<JobFeedSummary>(cacheKey);
   if (cached) return cached;
+
+  const now = new Date();
+  const startOfToday = getStartOfTodayInTimeZone(normalizedTimeZone, now);
 
   // Fast path: read the pre-aggregated row written by the
   // refresh-job-feed-summary timer (every 5 min). Single PK lookup, sub-ms.
-  // The row is "fresh enough" for header stats — the underlying lifecycle
-  // sweep also runs on a 30-min cadence so a 5-min cache is well within
-  // accuracy budget. Fall back to live counts only if the row is missing
-  // (first boot before the timer has run).
+  // The header stats are operational context, not filter-contract data, so
+  // freshness beats exact per-request timezone recomputation here.
   try {
     const cachedRow = await prisma.jobFeedSummaryCache.findUnique({
       where: { id: "singleton" },
     });
     if (cachedRow) {
-      // We still subtract hidden-demo counts so demo-only filters don't
-      // inflate the header. This second query is small (filtered by
-      // sourceName), bounded, and acceptable here.
-      const now = new Date();
-      const startOfToday = new Date(now);
-      startOfToday.setHours(0, 0, 0, 0);
-      const hiddenDemoCounts = await getHiddenDemoOnlySummaryCounts(
-        startOfToday,
-        now
-      );
       const value: JobFeedSummary = {
-        liveJobCount: Math.max(
-          0,
-          cachedRow.liveJobCount - hiddenDemoCounts.liveJobCount
-        ),
-        addedTodayCount: Math.max(
-          0,
-          cachedRow.addedTodayCount - hiddenDemoCounts.addedTodayCount
-        ),
-        expiredTodayCount: Math.max(
-          0,
-          cachedRow.expiredTodayCount - hiddenDemoCounts.expiredTodayCount
-        ),
-        removedTodayCount: Math.max(
-          0,
-          cachedRow.removedTodayCount - hiddenDemoCounts.removedTodayCount
-        ),
+        liveJobCount: cachedRow.liveJobCount,
+        addedTodayCount: cachedRow.addedTodayCount,
+        expiredTodayCount: cachedRow.expiredTodayCount,
+        removedTodayCount: cachedRow.removedTodayCount,
       };
       return writeTimedCache(
-        "jobs:summary",
+        cacheKey,
         value,
         JOB_FEED_SUMMARY_TTL_MS
       );
@@ -2192,46 +2897,22 @@ async function getJobFeedSummary() {
 
   // Cold-path fallback: compute live. Slow (8 COUNTs) but only used when the
   // cache row doesn't exist yet (e.g., first deploy before the timer fired).
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
   const visibleWhere = buildDefaultJobBoardVisibilityWhere(now);
   const [
     liveJobCount,
-    addedTodayCount,
-    expiredTodayCount,
-    removedTodayCount,
+    dailyCounts,
     hiddenDemoCounts,
   ] = await Promise.all([
     prisma.jobCanonical.count({ where: visibleWhere }),
-    prisma.jobCanonical.count({
-      where: {
-        AND: [
-          visibleWhere,
-          { firstSeenAt: { gte: startOfToday } },
-        ],
-      },
-    }),
-    prisma.jobCanonical.count({
-      where: {
-        status: "EXPIRED",
-        expiredAt: { gte: startOfToday },
-      },
-    }),
-    prisma.jobCanonical.count({
-      where: {
-        status: "REMOVED",
-        removedAt: { gte: startOfToday },
-      },
-    }),
+    getDailyJobFeedSummaryCounts(startOfToday, now),
     getHiddenDemoOnlySummaryCounts(startOfToday, now),
   ]);
 
-  return writeTimedCache("jobs:summary", {
+  return writeTimedCache(cacheKey, {
     liveJobCount: Math.max(0, liveJobCount - hiddenDemoCounts.liveJobCount),
-    addedTodayCount: Math.max(0, addedTodayCount - hiddenDemoCounts.addedTodayCount),
-    expiredTodayCount: Math.max(0, expiredTodayCount - hiddenDemoCounts.expiredTodayCount),
-    removedTodayCount: Math.max(0, removedTodayCount - hiddenDemoCounts.removedTodayCount),
+    addedTodayCount: Math.max(0, dailyCounts.addedTodayCount - hiddenDemoCounts.addedTodayCount),
+    expiredTodayCount: Math.max(0, dailyCounts.expiredTodayCount - hiddenDemoCounts.expiredTodayCount),
+    removedTodayCount: Math.max(0, dailyCounts.removedTodayCount - hiddenDemoCounts.removedTodayCount),
   } satisfies JobFeedSummary, JOB_FEED_SUMMARY_TTL_MS);
 }
 
@@ -2254,7 +2935,7 @@ async function getJobsByRelevance(
   if (skip >= scoringWindowSize) {
     const jobs = await prisma.jobCanonical.findMany({
       where,
-      include: JOB_CARD_INCLUDE(viewerProfileId),
+      select: JOB_FEED_CARD_SELECT(viewerProfileId),
       orderBy: { postedAt: "desc" },
       skip,
       take: PAGE_SIZE * 3,
@@ -2262,14 +2943,14 @@ async function getJobsByRelevance(
     const visibleJobs = jobs.filter((job) =>
       isClearlyVisibleJobPosting({
         title: job.title,
-        description: job.description,
+        description: job.shortSummary,
         applyUrl: job.applyUrl,
       })
     );
     const slicedJobs = visibleJobs.slice(0, PAGE_SIZE);
     const data = slicedJobs.map((job) => {
       const { savedJobs, ...rest } = job;
-      return withSanitizedJobPresentation({
+      return withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
       });
@@ -2287,7 +2968,7 @@ async function getJobsByRelevance(
 
     const total = await withCountTimeout(
       () => prisma.jobCanonical.count({ where }),
-      5_000
+      JOB_COUNT_TIMEOUT_MS
     );
     const effectiveTotal = total ?? totalFallback;
     return {
@@ -2334,7 +3015,7 @@ async function getJobsByRelevance(
   });
 
   const totalPromise = includeExactTotal
-    ? withCountTimeout(() => prisma.jobCanonical.count({ where }), 5_000)
+    ? withCountTimeout(() => prisma.jobCanonical.count({ where }), JOB_COUNT_TIMEOUT_MS)
     : Promise.resolve(null);
 
   const [prefs, behavior, profile, scoringJobs, total] = await Promise.all([
@@ -2413,7 +3094,7 @@ async function getJobsByRelevance(
   // Fetch full data for this page only
   const jobs = await prisma.jobCanonical.findMany({
     where: { id: { in: pageIds } },
-    include: JOB_CARD_INCLUDE(viewerProfileId),
+    select: JOB_FEED_CARD_SELECT(viewerProfileId),
   });
 
   // Restore relevance order (Prisma doesn't preserve id-in ordering)
@@ -2424,7 +3105,7 @@ async function getJobsByRelevance(
     if (
       !isClearlyVisibleJobPosting({
         title: job.title,
-        description: job.description,
+        description: job.shortSummary,
         applyUrl: job.applyUrl,
       })
     ) {
@@ -2432,7 +3113,7 @@ async function getJobsByRelevance(
     }
     const { savedJobs, ...rest } = job;
     return [
-      withSanitizedJobPresentation({
+      withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
       }),
@@ -2459,6 +3140,7 @@ export type JobFilterParams = {
   salaryMin?: number;
   salaryMax?: number;
   salaryCurrency?: SalaryComparisonCurrency;
+  includeUnknownSalary?: boolean;
   experienceLevel?: string;
   careerStage?: string;
   expiry?: string;
@@ -2467,16 +3149,18 @@ export type JobFilterParams = {
   status?: string;
   sortBy?: JobSortBy;
   page?: number;
+  debugFilters?: boolean;
 };
 
 export async function getJobs(
   inputFilters: JobFilterParams,
-  options?: { viewerProfileId?: string | null }
+  options?: { viewerProfileId?: string | null; userTimeZone?: string | null }
 ) {
   const viewerProfileId =
     options && "viewerProfileId" in options
       ? (options.viewerProfileId ?? null)
       : await getOptionalCurrentProfileId();
+  const userTimeZone = normalizeUserTimeZone(options?.userTimeZone);
   const salaryCurrency = await loadSalaryComparisonCurrency(
     inputFilters.salaryCurrency,
     viewerProfileId
@@ -2495,7 +3179,8 @@ export async function getJobs(
   const cacheKey = buildJobsCacheKey(
     viewerProfileId,
     filters,
-    useHotFeedSnapshot ? (heartbeat?.lastUpdatedAt ?? "none") : null
+    useHotFeedSnapshot ? (heartbeat?.lastUpdatedAt ?? "none") : null,
+    userTimeZone
   );
   const cached = readTimedCache<JobsResult>(cacheKey);
   if (cached) return cached;
@@ -2506,8 +3191,8 @@ export async function getJobs(
     const page = filters.page ?? 1;
     const skip = (page - 1) * PAGE_SIZE;
     const hasAnySearch = hasSearchFilters(filters);
-    const summaryPromise = getJobFeedSummary();
-    const includeExactTotal = Boolean(
+    const summaryPromise = getJobFeedSummary(userTimeZone);
+    const wantsExactTotal = Boolean(
       hasAnySearch ||
       filters.location ||
       filters.source ||
@@ -2519,6 +3204,7 @@ export async function getJobs(
       filters.roleFamily ||
       filters.salaryMin ||
       filters.salaryMax ||
+      (filters.includeUnknownSalary && (filters.salaryMin || filters.salaryMax)) ||
       filters.careerStage ||
       filters.experienceLevel ||
       filters.expiry ||
@@ -2526,14 +3212,17 @@ export async function getJobs(
       filters.submissionCategory ||
       filters.status
     );
+    const useFeedIndexForRequest = shouldUseJobFeedIndex(filters, viewerProfileId);
+    const includeExactTotal = wantsExactTotal && !(useFeedIndexForRequest && filters.search);
     const isExplicitSort = Boolean(filters.sortBy && filters.sortBy !== "relevance");
     const defaultScoringWindowPages = Math.floor(DEFAULT_SCORING_WINDOW_SIZE / PAGE_SIZE);
     const useSqlDemoVisibilityFilter =
-      includeExactTotal || isExplicitSort || page > defaultScoringWindowPages;
-    const cacheResult = (result: JobsResult) =>
+      !useFeedIndexForRequest &&
+      (includeExactTotal || isExplicitSort || page > defaultScoringWindowPages);
+    const cacheResult = (result: JobsResult, source: string = "canonical") =>
       writeTimedCache(
         cacheKey,
-        result,
+        finalizeJobsResult(filters, result, source),
         useHotFeedSnapshot ? HOT_FEED_QUERY_TTL_MS : JOB_FEED_QUERY_TTL_MS
       );
 
@@ -2604,21 +3293,51 @@ export async function getJobs(
     }
 
     if (filters.employmentType) {
-      const employmentTypes = splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType));
+      const employmentTypes = withoutUnknownFilterValues(
+        splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+        "UNKNOWN"
+      );
       appendAndCondition(where, {
         normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
+        normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
 
     if (filters.industry) {
-      const industries = splitFilterValues(normalizeIndustryFilterValue(filters.industry));
-      where.normalizedIndustry = industries.length > 0 ? { in: industries } : { in: [] };
+      const industries = withoutUnknownFilterValues(
+        splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
+        "OTHER_UNKNOWN"
+      );
+      appendAndCondition(where, {
+        normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+        normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
+      });
     }
 
     if (filters.roleCategory) {
-      const roleCategories = splitFilterValues(normalizeRoleCategoryFilterValue(filters.roleCategory));
-      where.normalizedRoleCategory =
-        roleCategories.length > 0 ? { in: roleCategories } : { in: [] };
+      const selectedRoleCategories = splitFilterValues(
+        expandNormalizedRoleCategoryFilterValue(filters.roleCategory)
+      );
+      const roleCategories = withoutUnknownFilterValues(selectedRoleCategories, "OTHER_UNKNOWN");
+      const roleConditions: Prisma.JobCanonicalWhereInput[] = [];
+      if (roleCategories.length > 0) {
+        roleConditions.push({
+          normalizedRoleCategory: { in: roleCategories },
+          normalizedRoleCategoryConfidence: { gte: ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD },
+          classificationStatus: { in: [...FILTERABLE_CLASSIFICATION_STATUSES] },
+        });
+      }
+      if (selectedRoleCategories.includes("OTHER_UNKNOWN")) {
+        roleConditions.push({ normalizedRoleCategory: "OTHER_UNKNOWN" });
+      }
+      appendAndCondition(
+        where,
+        roleConditions.length === 0
+          ? { normalizedRoleCategory: { in: [] } }
+          : roleConditions.length === 1
+            ? roleConditions[0]
+            : { OR: roleConditions }
+      );
     }
 
     if (filters.roleFamily) {
@@ -2645,7 +3364,8 @@ export async function getJobs(
       filters.salaryMin,
       filters.salaryMax,
       filters.salaryCurrency ?? "USD",
-      salaryExchangeRates
+      salaryExchangeRates,
+      Boolean(filters.includeUnknownSalary)
     );
     if (salaryRangeWhere) {
       appendAndCondition(where, salaryRangeWhere);
@@ -2669,8 +3389,10 @@ export async function getJobs(
       const stages = splitFilterValues(
         normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
       );
+      const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
       appendAndCondition(where, {
-        normalizedCareerStage: stages.length > 0 ? { in: stages } : { in: [] },
+        normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+        normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
 
@@ -2726,7 +3448,7 @@ export async function getJobs(
     );
 
     if (!filters.sortBy || filters.sortBy === "relevance") {
-      if (shouldUseJobFeedIndex(filters, viewerProfileId)) {
+      if (useFeedIndexForRequest) {
         return cacheResult(
           await getJobsFromFeedIndex({
             filters,
@@ -2735,7 +3457,8 @@ export async function getJobs(
             summaryPromise,
             includeExactTotal,
             useSqlDemoVisibilityFilter,
-          })
+          }),
+          "feed-index"
         );
       }
       const [result, summary] = await Promise.all([
@@ -2749,10 +3472,10 @@ export async function getJobs(
         ),
         summaryPromise,
       ]);
-      return cacheResult({ ...result, summary });
+      return cacheResult({ ...result, summary }, "canonical-relevance");
     }
 
-    if (shouldUseJobFeedIndex(filters, viewerProfileId)) {
+    if (useFeedIndexForRequest) {
       return cacheResult(
         await getJobsFromFeedIndex({
           filters,
@@ -2761,7 +3484,8 @@ export async function getJobs(
           summaryPromise,
           includeExactTotal,
           useSqlDemoVisibilityFilter,
-        })
+        }),
+        "feed-index"
       );
     }
 
@@ -2781,7 +3505,7 @@ export async function getJobs(
 
     const jobs = await prisma.jobCanonical.findMany({
       where,
-      include: JOB_CARD_INCLUDE(viewerProfileId),
+      select: JOB_FEED_CARD_SELECT(viewerProfileId),
       orderBy,
       skip,
       take: PAGE_SIZE * 3,
@@ -2790,13 +3514,13 @@ export async function getJobs(
     const visibleJobs = jobs.filter((job) =>
       isClearlyVisibleJobPosting({
         title: job.title,
-        description: job.description,
+        description: job.shortSummary,
         applyUrl: job.applyUrl,
       })
     );
     const data = visibleJobs.slice(0, PAGE_SIZE).map((job) => {
       const { savedJobs, ...rest } = job;
-      return withSanitizedJobPresentation({
+      return withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
       });
@@ -2815,7 +3539,7 @@ export async function getJobs(
 
     const total = await withCountTimeout(
       () => prisma.jobCanonical.count({ where }),
-      5_000
+      JOB_COUNT_TIMEOUT_MS
     );
 
     const effectiveTotal = total ?? searchMatchTotalHint;

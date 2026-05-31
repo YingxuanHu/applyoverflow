@@ -105,7 +105,7 @@ async function fetchJobicyJobs(
         signal,
         headers: {
           Accept: "application/json",
-          "User-Agent": "Mozilla/5.0 (compatible; autoapplication-jobicy/1.0)",
+          "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-jobicy/1.0)",
         },
       });
 

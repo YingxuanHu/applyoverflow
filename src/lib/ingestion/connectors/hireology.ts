@@ -25,7 +25,7 @@ import type {
 } from "@/lib/ingestion/types";
 
 const HIREOLOGY_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-hireology/1.0)";
+  "Mozilla/5.0 (compatible; applyoverflow-hireology/1.0)";
 
 type HireologyOptions = {
   /** Hireology customer slug. e.g. "acme" → hireology.com/careers/acme */

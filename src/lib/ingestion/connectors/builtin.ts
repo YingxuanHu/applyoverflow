@@ -50,7 +50,7 @@ const BUILTIN_LISTING_URLS: Record<string, string> = {
 const BUILTIN_DEFAULT_MAX_PAGES = 8;
 const BUILTIN_DEFAULT_RATE_DELAY_MS = 600;
 const BUILTIN_USER_AGENT =
-  "Mozilla/5.0 (compatible; autoapplication-builtin/1.0; +https://autoapplication.example/bot)";
+  "Mozilla/5.0 (compatible; applyoverflow-builtin/1.0; +https://applyoverflow.com/bot)";
 
 // JSON-LD JobPosting per schema.org. Fields we actually consume.
 type JsonLdJobPosting = {

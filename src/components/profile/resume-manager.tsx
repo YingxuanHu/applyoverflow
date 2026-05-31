@@ -180,14 +180,14 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
   const error = primaryState.error ?? deleteState.error ?? renameState.error ?? syncError;
 
   return (
-    <div className="rounded-lg border border-border/70 bg-card/60 px-3 py-3">
+    <div className="rounded-[14px] border border-border/65 bg-card px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {renaming ? (
               <input
                 ref={renameInputRef}
-                className="h-8 min-w-0 rounded-lg border border-input/80 bg-background/70 px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-8 min-w-0 rounded-[10px] border border-input bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
                 onBlur={submitRename}
                 onChange={(event) => setRenameValue(event.target.value)}
                 onKeyDown={(event) => {
@@ -212,7 +212,7 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
               Download
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
                 <MoreHorizontal className="h-4 w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -336,14 +336,14 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
   const error = primaryState.error ?? deleteState.error ?? renameState.error;
 
   return (
-    <div className="rounded-lg border border-border/70 bg-card/60 px-3 py-3">
+    <div className="rounded-[14px] border border-border/65 bg-card px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {renaming ? (
               <input
                 ref={renameInputRef}
-                className="h-8 min-w-0 rounded-lg border border-input/80 bg-background/70 px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-8 min-w-0 rounded-[10px] border border-input bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
                 onBlur={submitRename}
                 onChange={(event) => setRenameValue(event.target.value)}
                 onKeyDown={(event) => {
@@ -368,7 +368,7 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
               Download
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
                 <MoreHorizontal className="h-4 w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -477,7 +477,7 @@ function AddResumeForm({
 
   return (
     <form
-      className="rounded-lg border border-border/70 bg-muted/20 p-3"
+      className="rounded-[14px] border border-border/65 bg-muted/35 p-3"
       onSubmit={handleSubmit}
       ref={formRef}
     >
@@ -564,7 +564,7 @@ function AddTemplateForm({
   }, [onDone, router, state.success]);
 
   return (
-    <form action={formAction} className="rounded-lg border border-border/70 bg-muted/20 p-3" ref={formRef}>
+    <form action={formAction} className="rounded-[14px] border border-border/65 bg-muted/35 p-3" ref={formRef}>
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground" htmlFor="template-title">
@@ -680,7 +680,7 @@ export function ResumeManager({
         ) : null}
 
         <button
-          className="mt-2 rounded-md px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+          className="mt-2 rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-accent"
           onClick={addResumeForm}
           type="button"
         >
@@ -692,7 +692,7 @@ export function ResumeManager({
           tailored resume from the workspace. Kept visually distinct via the
           dashed border + label so it can't be confused with uploads. */}
       {aiResumes.length > 0 ? (
-        <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
+        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Generated resumes
@@ -735,7 +735,7 @@ export function ResumeManager({
           </div>
         ) : (
           <button
-            className="mt-2 rounded-md px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+            className="mt-2 rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-accent"
             onClick={() => setShowAddTemplate(true)}
             type="button"
           >
@@ -759,15 +759,15 @@ function DocumentGroup({
   title: string;
 }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-background/45 p-3">
-      <div className="mb-2 flex items-start justify-between gap-3">
+    <section className="grouped-panel p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          <h3 className="text-sm font-semibold text-foreground">
             {title}
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
         </div>
-        <span className="text-xs text-muted-foreground">{count}</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>
       </div>
       {children}
     </section>

@@ -541,7 +541,7 @@ async function fetchCategoryPage({
       headers: {
         Accept: "application/json",
         "User-Agent":
-          "Mozilla/5.0 (compatible; autoapplication-adzuna/1.0)",
+          "Mozilla/5.0 (compatible; applyoverflow-adzuna/1.0)",
       },
     });
 

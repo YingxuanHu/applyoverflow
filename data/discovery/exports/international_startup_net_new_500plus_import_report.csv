@@ -1,0 +1,893 @@
+companyName,careersUrl,ats_vendor,priorityTier,regionPriority,notes,normalizedCompanyKey,normalizedCareersUrl,decision
+Airbnb,https://careers.airbnb.com,company-site,1,Global,Official careers page,airbnb,https://careers.airbnb.com,duplicate_existing_seed_csv
+AppsFlyer,https://www.appsflyer.com/careers/,company-site,1,Global,Official careers page,appsflyer,https://appsflyer.com/careers,add
+Armis,https://www.armis.com/careers/,company-site,1,Global,Official careers page,armis,https://armis.com/careers,add
+Axonius,https://www.axonius.com/careers/,company-site,1,Global,Official careers page,axonius,https://axonius.com/careers,add
+Cato Networks,https://www.catonetworks.com/careers/,company-site,1,Global,Official careers page,catonetworks,https://catonetworks.com/careers,duplicate_existing_production_source_url
+Elastic,https://www.elastic.co/careers,company-site,1,Global,Official careers page,elastic,https://elastic.co/careers,duplicate_existing_seed_csv
+Fireblocks,https://www.fireblocks.com/careers/,company-site,1,Global,Official careers page,fireblocks,https://fireblocks.com/careers,duplicate_existing_production_source_url
+Forter,https://www.forter.com/careers/,company-site,1,Global,Official careers page,forter,https://forter.com/careers,add
+GitLab,https://about.gitlab.com/jobs/,company-site,1,Global,Official careers page,gitlab,https://about.gitlab.com/jobs,duplicate_existing_seed_csv
+Lemonade,https://www.lemonade.com/careers,company-site,1,Global,Official careers page,lemonade,https://lemonade.com/careers,duplicate_existing_production_source_url
+Orca Security,https://orca.security/careers/,company-site,1,Global,Official careers page,orcasecurity,https://orca.security/careers,duplicate_existing_production_source_url
+Tipalti,https://tipalti.com/careers/,company-site,1,Global,Official careers page,tipalti,https://tipalti.com/careers,add
+VAST Data,https://www.vastdata.com/careers,company-site,1,Global,Official careers page,vastdata,https://vastdata.com/careers,add
+Via,https://ridewithvia.com/careers,company-site,1,Global,Official careers page,via,https://ridewithvia.com/careers,add
+Zipline,https://www.flyzipline.com/careers,company-site,1,Global,Official careers page,zipline,https://flyzipline.com/careers,duplicate_existing_seed_csv
+1Password,https://1password.com/careers,company-site,1,North America,Official careers page,1password,https://1password.com/careers,duplicate_existing_seed_csv
+Abnormal Security,https://abnormalsecurity.com/careers,company-site,1,North America,Official careers page,abnormalsecurity,https://abnormalsecurity.com/careers,duplicate_existing_seed_csv
+Amplitude,https://amplitude.com/careers,company-site,1,North America,Official careers page,amplitude,https://amplitude.com/careers,duplicate_existing_seed_csv
+Arctic Wolf,https://arcticwolf.com/careers/,company-site,1,North America,Official careers page,arcticwolf,https://arcticwolf.com/careers,add
+Attentive,https://www.attentive.com/careers,company-site,1,North America,Official careers page,attentive,https://attentive.com/careers,duplicate_existing_seed_csv
+BetterUp,https://www.betterup.com/careers,company-site,1,North America,Official careers page,betterup,https://betterup.com/careers,add
+Chainalysis,https://www.chainalysis.com/careers/,company-site,1,North America,Official careers page,chainalysis,https://chainalysis.com/careers,duplicate_existing_production_source_url
+Cognition,https://cognition.ai/careers,company-site,1,North America,Official careers page,cognition,https://cognition.ai/careers,add
+Commonwealth Fusion Systems,https://cfs.energy/careers,company-site,1,North America,Official careers page,commonwealthfusionsystems,https://cfs.energy/careers,add
+Discord,https://discord.com/careers,company-site,1,North America,Official careers page,discord,https://discord.com/careers,duplicate_existing_seed_csv
+DoorDash,https://careers.doordash.com/,company-site,1,North America,Official careers page,doordash,https://careers.doordash.com,duplicate_existing_seed_csv
+Eightfold AI,https://eightfold.ai/careers/,company-site,1,North America,Official careers page,eightfoldai,https://eightfold.ai/careers,add
+EquipmentShare,https://www.equipmentshare.com/careers,company-site,1,North America,Official careers page,equipmentshare,https://equipmentshare.com/careers,add
+Flock Safety,https://www.flocksafety.com/careers,company-site,1,North America,Official careers page,flocksafety,https://flocksafety.com/careers,add
+Form Energy,https://formenergy.com/careers,company-site,1,North America,Official careers page,formenergy,https://formenergy.com/careers,add
+Gemini,https://www.gemini.com/careers,company-site,1,North America,Official careers page,gemini,https://gemini.com/careers,add
+GoPuff,https://www.gopuff.com/careers,company-site,1,North America,Official careers page,gopuff,https://gopuff.com/careers,add
+Helion Energy,https://www.helionenergy.com/careers,company-site,1,North America,Official careers page,helionenergy,https://helionenergy.com/careers,add
+Hims & Hers,https://www.hims.com/careers,company-site,1,North America,Official careers page,himshers,https://hims.com/careers,add
+Illumio,https://www.illumio.com/careers,company-site,1,North America,Official careers page,illumio,https://illumio.com/careers,add
+Island,https://www.island.io/careers/,company-site,1,North America,Official careers page,island,https://island.io/careers,add
+Kraken,https://www.kraken.com/careers,company-site,1,North America,Official careers page,kraken,https://kraken.com/careers,add
+LaunchDarkly,https://launchdarkly.com/careers/,company-site,1,North America,Official careers page,launchdarkly,https://launchdarkly.com/careers,duplicate_existing_production_source_url
+Lucid Motors,https://www.lucidmotors.com/careers,company-site,1,North America,Official careers page,lucidmotors,https://lucidmotors.com/careers,duplicate_existing_seed_csv
+Netskope,https://www.netskope.com/company/careers,company-site,1,North America,Official careers page,netskope,https://netskope.com/company/careers,add
+OneTrust,https://www.onetrust.com/careers/,company-site,1,North America,Official careers page,onetrust,https://onetrust.com/careers,add
+OpenSea,https://opensea.io/careers,company-site,1,North America,Official careers page,opensea,https://opensea.io/careers,add
+Patreon,https://www.patreon.com/careers,company-site,1,North America,Official careers page,patreon,https://patreon.com/careers,add
+Pendo,https://www.pendo.io/careers/,company-site,1,North America,Official careers page,pendo,https://pendo.io/careers,duplicate_existing_production_source_url
+project44,https://www.project44.com/careers,company-site,1,North America,Official careers page,project44,https://project44.com/careers,add
+QuantumScape,https://www.quantumscape.com/careers,company-site,1,North America,Official careers page,quantumscape,https://quantumscape.com/careers,add
+Reddit,https://www.redditinc.com/careers,company-site,1,North America,Official careers page,reddit,https://redditinc.com/careers,duplicate_existing_seed_csv
+Redwood Materials,https://www.redwoodmaterials.com/careers,company-site,1,North America,Official careers page,redwoodmaterials,https://redwoodmaterials.com/careers,add
+Rivian,https://rivian.com/careers,company-site,1,North America,Official careers page,rivian,https://rivian.com/careers,duplicate_existing_seed_csv
+Sentry,https://sentry.io/careers/,company-site,1,North America,Official careers page,sentry,https://sentry.io/careers,duplicate_existing_seed_csv
+Sierra,https://sierra.ai/careers,company-site,1,North America,Official careers page,sierra,https://sierra.ai/careers,add
+Sila Nanotechnologies,https://www.silanano.com/careers,company-site,1,North America,Official careers page,silananotechnologies,https://silanano.com/careers,add
+Socure,https://www.socure.com/careers,company-site,1,North America,Official careers page,socure,https://socure.com/careers,duplicate_existing_production_source_url
+SpaceX,https://www.spacex.com/careers/,company-site,1,North America,Official careers page,spacex,https://spacex.com/careers,duplicate_existing_seed_csv
+StockX,https://stockx.com/careers/,company-site,1,North America,Official careers page,stockx,https://stockx.com/careers,add
+Waymo,https://waymo.com/joinus/,company-site,1,North America,Official careers page,waymo,https://waymo.com/joinus,duplicate_existing_seed_csv
+xAI,https://x.ai/careers,company-site,1,North America,Official careers page,xai,https://x.ai/careers,add
+Bending Spoons,https://bendingspoons.com/careers/,company-site,1,Europe,Official careers page,bendingspoons,https://bendingspoons.com/careers,add
+Climeworks,https://climeworks.com/careers,company-site,1,Europe,Official careers page,climeworks,https://climeworks.com/careers,add
+Collibra,https://www.collibra.com/careers/,company-site,1,Europe,Official careers page,collibra,https://collibra.com/careers,add
+Darktrace,https://www.darktrace.com/en/careers/,company-site,1,Europe,Official careers page,darktrace,https://darktrace.com/en/careers,add
+Nord Security,https://nordsecurity.com/careers,company-site,1,Europe,Official careers page,nordsecurity,https://nordsecurity.com/careers,add
+Octopus Energy,https://octopus.energy/careers,company-site,1,Europe,Official careers page,octopusenergy,https://octopus.energy/careers,add
+OutSystems,https://www.outsystems.com/careers/,company-site,1,Europe,Official careers page,outsystems,https://outsystems.com/careers,add
+Oxford Nanopore,https://nanoporetech.com/careers,company-site,1,Europe,Official careers page,oxfordnanopore,https://nanoporetech.com/careers,add
+Paddle,https://www.paddle.com/careers,company-site,1,Europe,Official careers page,paddle,https://paddle.com/careers,add
+Proton,https://proton.me/careers,company-site,1,Europe,Official careers page,proton,https://proton.me/careers,add
+Starling Bank,https://www.starlingbank.com/careers/,company-site,1,Europe,Official careers page,starlingbank,https://starlingbank.com/careers,add
+Supercell,https://supercell.com/en/careers/,company-site,1,Europe,Official careers page,supercell,https://supercell.com/en/careers,add
+Sword Health,https://swordhealth.com/careers,company-site,1,Europe,Official careers page,swordhealth,https://swordhealth.com/careers,add
+Talkdesk,https://www.talkdesk.com/careers/,company-site,1,Europe,Official careers page,talkdesk,https://talkdesk.com/careers,add
+Atlassian,https://www.atlassian.com/company/careers,company-site,1,Asia-Pacific,Official careers page,atlassian,https://atlassian.com/company/careers,duplicate_existing_seed_csv
+ByteDance,https://careers.bytedance.com/en/,company-site,1,Asia-Pacific,Official careers page,bytedance,https://careers.bytedance.com/en,add
+Coupang,https://www.coupang.jobs/,company-site,1,Asia-Pacific,Official careers page,coupang,https://coupang.jobs,add
+DJI,https://we.dji.com/jobs,company-site,1,Asia-Pacific,Official careers page,dji,https://we.dji.com/jobs,add
+Lazada,https://www.lazada.com/en/careers/,company-site,1,Asia-Pacific,Official careers page,lazada,https://lazada.com/en/careers,add
+Li Auto,https://www.lixiang.com/en/careers,company-site,1,Asia-Pacific,Official careers page,liauto,https://lixiang.com/en/careers,add
+Mercari,https://careers.mercari.com/,company-site,1,Asia-Pacific,Official careers page,mercari,https://careers.mercari.com,add
+NIO,https://www.nio.com/careers,company-site,1,Asia-Pacific,Official careers page,nio,https://nio.com/careers,add
+Nium,https://www.nium.com/careers,company-site,1,Asia-Pacific,Official careers page,nium,https://nium.com/careers,add
+Rocket Lab,https://www.rocketlabusa.com/careers/,company-site,1,Asia-Pacific,Official careers page,rocketlab,https://rocketlabusa.com/careers,add
+Sea Group,https://www.sea.com/careers,company-site,1,Asia-Pacific,Official careers page,seagroup,https://sea.com/careers,add
+SHEIN,https://careers.sheingroup.com/,company-site,1,Asia-Pacific,Official careers page,shein,https://careers.sheingroup.com,add
+Shopee,https://careers.shopee.sg/,company-site,1,Asia-Pacific,Official careers page,shopee,https://careers.shopee.sg,duplicate_existing_production_source_url
+Toss,https://toss.im/career,company-site,1,Asia-Pacific,Official careers page,toss,https://toss.im/career,add
+Xero,https://www.xero.com/about/careers/,company-site,1,Asia-Pacific,Official careers page,xero,https://xero.com/about/careers,duplicate_existing_production_source_url
+XPeng,https://www.xpeng.com/careers,company-site,1,Asia-Pacific,Official careers page,xpeng,https://xpeng.com/careers,add
+ACKO,https://www.acko.com/careers/,company-site,1,India,Official careers page,acko,https://acko.com/careers,duplicate_existing_production_source_url
+Cars24,https://www.cars24.com/careers/,company-site,1,India,Official careers page,cars24,https://cars24.com/careers,add
+Delhivery,https://www.delhivery.com/careers/,company-site,1,India,Official careers page,delhivery,https://delhivery.com/careers,duplicate_existing_production_source_url
+Flipkart,https://www.flipkartcareers.com/,company-site,1,India,Official careers page,flipkart,https://flipkartcareers.com,duplicate_existing_production_source_url
+Icertis,https://www.icertis.com/careers/,company-site,1,India,Official careers page,icertis,https://icertis.com/careers,add
+Infra.Market,https://infra.market/careers,company-site,1,India,Official careers page,inframarket,https://infra.market/careers,add
+Lenskart,https://www.lenskart.com/careers,company-site,1,India,Official careers page,lenskart,https://lenskart.com/careers,add
+Nykaa,https://www.nykaa.com/careers,company-site,1,India,Official careers page,nykaa,https://nykaa.com/careers,duplicate_existing_production_source_url
+OfBusiness,https://www.ofbusiness.com/careers,company-site,1,India,Official careers page,ofbusiness,https://ofbusiness.com/careers,add
+Ola,https://ola.co/careers,company-site,1,India,Official careers page,ola,https://ola.co/careers,add
+OYO,https://www.oyorooms.com/careers,company-site,1,India,Official careers page,oyo,https://oyorooms.com/careers,duplicate_existing_production_source_url
+Paytm,https://paytm.com/careers/,company-site,1,India,Official careers page,paytm,https://paytm.com/careers,add
+Urban Company,https://www.urbancompany.com/careers,company-site,1,India,Official careers page,urbancompany,https://urbancompany.com/careers,duplicate_existing_production_source_url
+Zetwerk,https://www.zetwerk.com/careers/,company-site,1,India,Official careers page,zetwerk,https://zetwerk.com/careers,duplicate_existing_production_source_url
+Zoho,https://www.zoho.com/careers/,company-site,1,India,Official careers page,zoho,https://zoho.com/careers,add
+Zomato,https://www.zomato.com/careers,company-site,1,India,Official careers page,zomato,https://zomato.com/careers,duplicate_existing_production_source_url
+Wellhub,https://www.wellhub.com/careers,company-site,1,Latin America,Official careers page,wellhub,https://wellhub.com/careers,add
+Moniepoint,https://moniepoint.com/careers,company-site,1,Africa,Official careers page,moniepoint,https://moniepoint.com/careers,add
+AfterShip,https://www.aftership.com/careers,company-site,2,Global,Official careers page,aftership,https://aftership.com/careers,add
+AI21 Labs,https://www.ai21.com/careers,company-site,2,Global,Official careers page,ai21labs,https://ai21.com/careers,add
+Aidoc,https://www.aidoc.com/careers/,company-site,2,Global,Official careers page,aidoc,https://aidoc.com/careers,add
+Aqua Security,https://www.aquasec.com/careers/,company-site,2,Global,Official careers page,aquasecurity,https://aquasec.com/careers,add
+Arbe,https://arbe.ai/careers,company-site,2,Global,Official careers page,arbe,https://arbe.ai/careers,add
+Augury,https://www.augury.com/careers,company-site,2,Global,Official careers page,augury,https://augury.com/careers,add
+BigID,https://bigid.com/careers/,company-site,2,Global,Official careers page,bigid,https://bigid.com/careers,add
+Blueground,https://www.theblueground.com/careers,company-site,2,Global,Official careers page,blueground,https://theblueground.com/careers,add
+Capchase,https://www.capchase.com/careers,company-site,2,Global,Official careers page,capchase,https://capchase.com/careers,add
+Cleo,https://web.meetcleo.com/careers,company-site,2,Global,Official careers page,cleo,https://web.meetcleo.com/careers,add
+Cloudbeds,https://www.cloudbeds.com/careers/,company-site,2,Global,Official careers page,cloudbeds,https://cloudbeds.com/careers,duplicate_existing_production_source_url
+Coralogix,https://coralogix.com/careers/,company-site,2,Global,Official careers page,coralogix,https://coralogix.com/careers,add
+Customer.io,https://customer.io/careers,company-site,2,Global,Official careers page,customerio,https://customer.io/careers,add
+Cybereason,https://www.cybereason.com/careers,company-site,2,Global,Official careers page,cybereason,https://cybereason.com/careers,add
+Dashlane,https://www.dashlane.com/careers,company-site,2,Global,Official careers page,dashlane,https://dashlane.com/careers,add
+Firebolt,https://www.firebolt.io/careers,company-site,2,Global,Official careers page,firebolt,https://firebolt.io/careers,add
+Gorgias,https://www.gorgias.com/careers,company-site,2,Global,Official careers page,gorgias,https://gorgias.com/careers,add
+Guesty,https://www.guesty.com/careers/,company-site,2,Global,Official careers page,guesty,https://guesty.com/careers,add
+Hailo,https://hailo.ai/careers,company-site,2,Global,Official careers page,hailo,https://hailo.ai/careers,add
+Innoviz,https://innoviz.tech/careers,company-site,2,Global,Official careers page,innoviz,https://innoviz.tech/careers,add
+Insilico Medicine,https://insilico.com/careers,company-site,2,Global,Official careers page,insilicomedicine,https://insilico.com/careers,add
+Lightricks,https://www.lightricks.com/careers,company-site,2,Global,Official careers page,lightricks,https://lightricks.com/careers,add
+Lime,https://www.li.me/careers,company-site,2,Global,Official careers page,lime,https://li.me/careers,add
+Loadsmart,https://loadsmart.com/careers,company-site,2,Global,Official careers page,loadsmart,https://loadsmart.com/careers,duplicate_existing_production_source_url
+Matillion,https://www.matillion.com/careers,company-site,2,Global,Official careers page,matillion,https://matillion.com/careers,add
+Moloco,https://www.moloco.com/careers,company-site,2,Global,Official careers page,moloco,https://moloco.com/careers,add
+Nozomi Networks,https://www.nozominetworks.com/careers/,company-site,2,Global,Official careers page,nozominetworks,https://nozominetworks.com/careers,add
+Own,https://www.ownbackup.com/careers,company-site,2,Global,Official careers page,own,https://ownbackup.com/careers,add
+Pagaya,https://www.pagaya.com/careers,company-site,2,Global,Official careers page,pagaya,https://pagaya.com/careers,add
+Productboard,https://www.productboard.com/careers,company-site,2,Global,Official careers page,productboard,https://productboard.com/careers,add
+Riskified,https://www.riskified.com/careers/,company-site,2,Global,Official careers page,riskified,https://riskified.com/careers,add
+Sendbird,https://sendbird.com/careers,company-site,2,Global,Official careers page,sendbird,https://sendbird.com/careers,duplicate_existing_production_source_url
+Silverfort,https://www.silverfort.com/careers/,company-site,2,Global,Official careers page,silverfort,https://silverfort.com/careers,add
+Stability AI,https://stability.ai/careers,company-site,2,Global,Official careers page,stabilityai,https://stability.ai/careers,duplicate_existing_seed_csv
+Starburst,https://www.starburst.io/careers/,company-site,2,Global,Official careers page,starburst,https://starburst.io/careers,add
+Tala,https://tala.co/careers,company-site,2,Global,Official careers page,tala,https://tala.co/careers,add
+Torq,https://torq.io/careers,company-site,2,Global,Official careers page,torq,https://torq.io/careers,add
+Transmit Security,https://transmitsecurity.com/careers/,company-site,2,Global,Official careers page,transmitsecurity,https://transmitsecurity.com/careers,add
+Trax Retail,https://traxretail.com/careers,company-site,2,Global,Official careers page,traxretail,https://traxretail.com/careers,duplicate_existing_production_source_url
+Weka,https://www.weka.io/careers,company-site,2,Global,Official careers page,weka,https://weka.io/careers,add
+Yotpo,https://www.yotpo.com/careers/,company-site,2,Global,Official careers page,yotpo,https://yotpo.com/careers,add
+Acorns,https://www.acorns.com/careers/,company-site,2,North America,Official careers page,acorns,https://acorns.com/careers,add
+Aha!,https://www.aha.io/careers,company-site,2,North America,Official careers page,aha,https://aha.io/careers,add
+Alation,https://www.alation.com/careers/,company-site,2,North America,Official careers page,alation,https://alation.com/careers,add
+Alma,https://helloalma.com/careers,company-site,2,North America,Official careers page,alma,https://helloalma.com/careers,add
+Ambience Healthcare,https://www.ambiencehealthcare.com/careers,company-site,2,North America,Official careers page,ambiencehealthcare,https://ambiencehealthcare.com/careers,duplicate_existing_seed_csv
+Anaplan,https://www.anaplan.com/careers,company-site,2,North America,Official careers page,anaplan,https://anaplan.com/careers,duplicate_existing_production_source_url
+Anchorage Digital,https://www.anchorage.com/careers,company-site,2,North America,Official careers page,anchoragedigital,https://anchorage.com/careers,add
+Anyscale,https://www.anyscale.com/careers,company-site,2,North America,Official careers page,anyscale,https://anyscale.com/careers,duplicate_existing_seed_csv
+Arcadia,https://www.arcadia.com/careers,company-site,2,North America,Official careers page,arcadia,https://arcadia.com/careers,add
+Ashby,https://www.ashbyhq.com/careers,company-site,2,North America,Official careers page,ashby,https://ashbyhq.com/careers,add
+Ashby,https://jobs.ashbyhq.com/ashby/,ashby,2,North America,Direct Ashby board,ashby,https://jobs.ashbyhq.com/ashby,duplicate_existing_production_source_url
+Astranis,https://www.astranis.com/careers,company-site,2,North America,Official careers page,astranis,https://astranis.com/careers,add
+Astronomer,https://www.astronomer.io/careers/,company-site,2,North America,Official careers page,astronomer,https://astronomer.io/careers,add
+Aurora Innovation,https://aurora.tech/careers,company-site,2,North America,Official careers page,aurorainnovation,https://aurora.tech/careers,duplicate_existing_seed_csv
+Aurora Solar,https://aurorasolar.com/careers,company-site,2,North America,Official careers page,aurorasolar,https://aurorasolar.com/careers,add
+Axiom Space,https://www.axiomspace.com/careers,company-site,2,North America,Official careers page,axiomspace,https://axiomspace.com/careers,add
+Baseten,https://www.baseten.co/careers,company-site,2,North America,Official careers page,baseten,https://baseten.co/careers,duplicate_existing_seed_csv
+BenchSci,https://www.benchsci.com/careers,company-site,2,North America,Official careers page,benchsci,https://benchsci.com/careers,duplicate_existing_seed_csv
+Better.com,https://better.com/careers,company-site,2,North America,Official careers page,bettercom,https://better.com/careers,duplicate_existing_production_source_url
+Betterment,https://www.betterment.com/careers,company-site,2,North America,Official careers page,betterment,https://betterment.com/careers,duplicate_existing_seed_csv
+Bitwarden,https://bitwarden.com/careers/,company-site,2,North America,Official careers page,bitwarden,https://bitwarden.com/careers,add
+Bluevine,https://www.bluevine.com/careers,company-site,2,North America,Official careers page,bluevine,https://bluevine.com/careers,add
+Boom Supersonic,https://boomsupersonic.com/careers,company-site,2,North America,Official careers page,boomsupersonic,https://boomsupersonic.com/careers,add
+Calm,https://www.calm.com/careers,company-site,2,North America,Official careers page,calm,https://calm.com/careers,add
+Census,https://www.getcensus.com/careers,company-site,2,North America,Official careers page,census,https://getcensus.com/careers,duplicate_existing_seed_csv
+CircleCI,https://circleci.com/careers/,company-site,2,North America,Official careers page,circleci,https://circleci.com/careers,duplicate_existing_production_source_url
+ClassDojo,https://www.classdojo.com/careers,company-site,2,North America,Official careers page,classdojo,https://classdojo.com/careers,add
+Clay,https://www.clay.com/careers,company-site,2,North America,Official careers page,clay,https://clay.com/careers,add
+Coda,https://coda.io/careers,company-site,2,North America,Official careers page,coda,https://coda.io/careers,add
+Collective Health,https://collectivehealth.com/careers/,company-site,2,North America,Official careers page,collectivehealth,https://collectivehealth.com/careers,add
+Color Health,https://www.color.com/careers,company-site,2,North America,Official careers page,colorhealth,https://color.com/careers,add
+Current,https://current.com/careers,company-site,2,North America,Official careers page,current,https://current.com/careers,add
+Dagster,https://dagster.io/careers,company-site,2,North America,Official careers page,dagster,https://dagster.io/careers,add
+Decagon,https://decagon.ai/careers,company-site,2,North America,Official careers page,decagon,https://decagon.ai/careers,add
+Degreed,https://degreed.com/careers,company-site,2,North America,Official careers page,degreed,https://degreed.com/careers,add
+Dragos,https://www.dragos.com/careers/,company-site,2,North America,Official careers page,dragos,https://dragos.com/careers,add
+Drata,https://drata.com/careers,company-site,2,North America,Official careers page,drata,https://drata.com/careers,duplicate_existing_seed_csv
+Dremio,https://www.dremio.com/careers/,company-site,2,North America,Official careers page,dremio,https://dremio.com/careers,add
+EarnIn,https://www.earnin.com/careers,company-site,2,North America,Official careers page,earnin,https://earnin.com/careers,add
+EasyPost,https://www.easypost.com/careers,company-site,2,North America,Official careers page,easypost,https://easypost.com/careers,add
+Eikon Therapeutics,https://www.eikontx.com/careers,company-site,2,North America,Official careers page,eikontherapeutics,https://eikontx.com/careers,add
+Ethos Life,https://www.ethos.com/careers,company-site,2,North America,Official careers page,ethoslife,https://ethos.com/careers,add
+Expensify,https://www.expensify.com/careers,company-site,2,North America,Official careers page,expensify,https://expensify.com/careers,add
+Fervo Energy,https://fervoenergy.com/careers,company-site,2,North America,Official careers page,fervoenergy,https://fervoenergy.com/careers,add
+Figure,https://www.figure.com/careers,company-site,2,North America,Official careers page,figure,https://figure.com/careers,add
+Firefly Aerospace,https://fireflyspace.com/careers,company-site,2,North America,Official careers page,fireflyaerospace,https://fireflyspace.com/careers,add
+Flatiron Health,https://flatiron.com/careers/,company-site,2,North America,Official careers page,flatironhealth,https://flatiron.com/careers,duplicate_existing_seed_csv
+Flexe,https://www.flexe.com/careers,company-site,2,North America,Official careers page,flexe,https://flexe.com/careers,add
+FloQast,https://floqast.com/careers,company-site,2,North America,Official careers page,floqast,https://floqast.com/careers,add
+Fountain,https://www.fountain.com/careers,company-site,2,North America,Official careers page,fountain,https://fountain.com/careers,add
+FourKites,https://www.fourkites.com/careers,company-site,2,North America,Official careers page,fourkites,https://fourkites.com/careers,add
+FullStory,https://www.fullstory.com/careers/,company-site,2,North America,Official careers page,fullstory,https://fullstory.com/careers,duplicate_existing_production_source_url
+Fundbox,https://fundbox.com/careers,company-site,2,North America,Official careers page,fundbox,https://fundbox.com/careers,add
+Garner Health,https://www.getgarner.com/careers,company-site,2,North America,Official careers page,garnerhealth,https://getgarner.com/careers,add
+Gem,https://www.gem.com/careers,company-site,2,North America,Official careers page,gem,https://gem.com/careers,add
+General Fusion,https://generalfusion.com/careers/,company-site,2,North America,Official careers page,generalfusion,https://generalfusion.com/careers,add
+Generate Biomedicines,https://generatebiomedicines.com/careers,company-site,2,North America,Official careers page,generatebiomedicines,https://generatebiomedicines.com/careers,duplicate_existing_production_source_url
+Ginkgo Bioworks,https://www.ginkgobioworks.com/careers/,company-site,2,North America,Official careers page,ginkgobioworks,https://ginkgobioworks.com/careers,add
+GitKraken,https://www.gitkraken.com/careers,company-site,2,North America,Official careers page,gitkraken,https://gitkraken.com/careers,add
+GOAT,https://www.goat.com/careers,company-site,2,North America,Official careers page,goat,https://goat.com/careers,add
+Greenhouse,https://www.greenhouse.com/careers,company-site,2,North America,Official careers page,greenhouse,https://greenhouse.com/careers,add
+Guideline,https://www.guideline.com/careers,company-site,2,North America,Official careers page,guideline,https://guideline.com/careers,add
+Guild,https://www.guild.com/careers/,company-site,2,North America,Official careers page,guild,https://guild.com/careers,add
+Handshake,https://joinhandshake.com/careers,company-site,2,North America,Official careers page,handshake,https://joinhandshake.com/careers,add
+Headspace,https://www.headspace.com/careers,company-site,2,North America,Official careers page,headspace,https://headspace.com/careers,add
+HeartFlow,https://www.heartflow.com/careers/,company-site,2,North America,Official careers page,heartflow,https://heartflow.com/careers,add
+Hex,https://hex.tech/careers,company-site,2,North America,Official careers page,hex,https://hex.tech/careers,duplicate_existing_seed_csv
+HeyGen,https://www.heygen.com/careers,company-site,2,North America,Official careers page,heygen,https://heygen.com/careers,add
+Hightouch,https://hightouch.com/careers,company-site,2,North America,Official careers page,hightouch,https://hightouch.com/careers,duplicate_existing_seed_csv
+Hippo,https://www.hippo.com/careers/,company-site,2,North America,Official careers page,hippo,https://hippo.com/careers,add
+Hippocratic AI,https://www.hippocraticai.com/careers,company-site,2,North America,Official careers page,hippocraticai,https://hippocraticai.com/careers,duplicate_existing_seed_csv
+HireVue,https://www.hirevue.com/careers,company-site,2,North America,Official careers page,hirevue,https://hirevue.com/careers,add
+Honeycomb.io,https://www.honeycomb.io/careers/,company-site,2,North America,Official careers page,honeycombio,https://honeycomb.io/careers,add
+Ideogram,https://ideogram.ai/careers,company-site,2,North America,Official careers page,ideogram,https://ideogram.ai/careers,duplicate_existing_seed_csv
+InfluxData,https://www.influxdata.com/careers/,company-site,2,North America,Official careers page,influxdata,https://influxdata.com/careers,add
+Inworld AI,https://www.inworld.ai/careers,company-site,2,North America,Official careers page,inworldai,https://inworld.ai/careers,add
+Ironclad,https://ironcladapp.com/careers,company-site,2,North America,Official careers page,ironclad,https://ironcladapp.com/careers,duplicate_existing_production_source_url
+Iterable,https://iterable.com/careers,company-site,2,North America,Official careers page,iterable,https://iterable.com/careers,duplicate_existing_seed_csv
+K Health,https://www.khealth.com/careers,company-site,2,North America,Official careers page,khealth,https://khealth.com/careers,add
+Kajabi,https://kajabi.com/careers,company-site,2,North America,Official careers page,kajabi,https://kajabi.com/careers,add
+Kandji,https://www.kandji.io/careers,company-site,2,North America,Official careers page,kandji,https://kandji.io/careers,add
+Keeper Security,https://www.keepersecurity.com/jobs.html,company-site,2,North America,Official careers page,keepersecurity,https://keepersecurity.com/jobs.html,add
+Komodo Health,https://www.komodohealth.com/careers,company-site,2,North America,Official careers page,komodohealth,https://komodohealth.com/careers,add
+Lacework,https://www.lacework.com/careers,company-site,2,North America,Official careers page,lacework,https://lacework.com/careers,duplicate_existing_seed_csv
+League,https://league.com/careers/,company-site,2,North America,Official careers page,league,https://league.com/careers,duplicate_existing_seed_csv
+Lever,https://jobs.lever.co/lever,lever,2,North America,Direct lever board,lever,https://jobs.lever.co/lever,add
+Liquid AI,https://www.liquid.ai/careers,company-site,2,North America,Official careers page,liquidai,https://liquid.ai/careers,add
+Lithic,https://lithic.com/careers,company-site,2,North America,Official careers page,lithic,https://lithic.com/careers,add
+LlamaIndex,https://www.llamaindex.ai/careers,company-site,2,North America,Official careers page,llamaindex,https://llamaindex.ai/careers,duplicate_existing_seed_csv
+LogRocket,https://logrocket.com/careers/,company-site,2,North America,Official careers page,logrocket,https://logrocket.com/careers,duplicate_existing_production_source_url
+Luma AI,https://lumalabs.ai/careers,company-site,2,North America,Official careers page,lumaai,https://lumalabs.ai/careers,add
+Magic,https://magic.dev/careers,company-site,2,North America,Official careers page,magic,https://magic.dev/careers,add
+Mammoth Biosciences,https://mammoth.bio/careers,company-site,2,North America,Official careers page,mammothbiosciences,https://mammoth.bio/careers,add
+MasterClass,https://www.masterclass.com/careers,company-site,2,North America,Official careers page,masterclass,https://masterclass.com/careers,add
+Material Security,https://material.security/careers,company-site,2,North America,Official careers page,materialsecurity,https://material.security/careers,duplicate_existing_production_source_url
+Melio,https://www.meliopayments.com/careers,company-site,2,North America,Official careers page,melio,https://meliopayments.com/careers,add
+Midjourney,https://www.midjourney.com/careers,company-site,2,North America,Official careers page,midjourney,https://midjourney.com/careers,duplicate_existing_seed_csv
+Misfits Market,https://www.misfitsmarket.com/careers,company-site,2,North America,Official careers page,misfitsmarket,https://misfitsmarket.com/careers,add
+Mixpanel,https://mixpanel.com/jobs/,company-site,2,North America,Official careers page,mixpanel,https://mixpanel.com/jobs,duplicate_existing_production_source_url
+Modern Treasury,https://www.moderntreasury.com/careers,company-site,2,North America,Official careers page,moderntreasury,https://moderntreasury.com/careers,duplicate_existing_seed_csv
+MoneyLion,https://www.moneylion.com/careers/,company-site,2,North America,Official careers page,moneylion,https://moneylion.com/careers,add
+Motional,https://motional.com/careers,company-site,2,North America,Official careers page,motional,https://motional.com/careers,add
+Next Insurance,https://www.nextinsurance.com/careers/,company-site,2,North America,Official careers page,nextinsurance,https://nextinsurance.com/careers,add
+Noom,https://www.noom.com/careers,company-site,2,North America,Official careers page,noom,https://noom.com/careers,add
+Nuro,https://www.nuro.ai/careers,company-site,2,North America,Official careers page,nuro,https://nuro.ai/careers,duplicate_existing_seed_csv
+Omada Health,https://www.omadahealth.com/careers,company-site,2,North America,Official careers page,omadahealth,https://omadahealth.com/careers,add
+Oscar Health,https://www.hioscar.com/careers,company-site,2,North America,Official careers page,oscarhealth,https://hioscar.com/careers,duplicate_existing_seed_csv
+Outschool,https://outschool.com/careers,company-site,2,North America,Official careers page,outschool,https://outschool.com/careers,add
+Paige,https://paige.ai/careers,company-site,2,North America,Official careers page,paige,https://paige.ai/careers,add
+Palmetto,https://palmetto.com/careers,company-site,2,North America,Official careers page,palmetto,https://palmetto.com/careers,add
+Panther Labs,https://panther.com/careers,company-site,2,North America,Official careers page,pantherlabs,https://panther.com/careers,add
+Paradox,https://www.paradox.ai/careers,company-site,2,North America,Official careers page,paradox,https://paradox.ai/careers,add
+Patch,https://www.patch.io/careers,company-site,2,North America,Official careers page,patch,https://patch.io/careers,add
+PathAI,https://www.pathai.com/careers,company-site,2,North America,Official careers page,pathai,https://pathai.com/careers,add
+Persefoni,https://www.persefoni.com/careers,company-site,2,North America,Official careers page,persefoni,https://persefoni.com/careers,add
+Persona,https://withpersona.com/careers,company-site,2,North America,Official careers page,persona,https://withpersona.com/careers,duplicate_existing_seed_csv
+Phenom,https://www.phenom.com/careers,company-site,2,North America,Official careers page,phenom,https://phenom.com/careers,add
+Pika,https://pika.art/careers,company-site,2,North America,Official careers page,pika,https://pika.art/careers,duplicate_existing_seed_csv
+Pilot,https://pilot.com/careers,company-site,2,North America,Official careers page,pilot,https://pilot.com/careers,add
+Pipe,https://pipe.com/careers,company-site,2,North America,Official careers page,pipe,https://pipe.com/careers,duplicate_existing_production_source_url
+Planet,https://www.planet.com/company/careers/,company-site,2,North America,Official careers page,planet,https://planet.com/company/careers,add
+Planful,https://planful.com/careers/,company-site,2,North America,Official careers page,planful,https://planful.com/careers,add
+Policygenius,https://www.policygenius.com/careers,company-site,2,North America,Official careers page,policygenius,https://policygenius.com/careers,add
+Poshmark,https://poshmark.com/careers,company-site,2,North America,Official careers page,poshmark,https://poshmark.com/careers,add
+Public.com,https://public.com/careers,company-site,2,North America,Official careers page,publiccom,https://public.com/careers,add
+Relativity Space,https://www.relativityspace.com/careers,company-site,2,North America,Official careers page,relativityspace,https://relativityspace.com/careers,add
+Relay,https://relayfi.com/careers,company-site,2,North America,Official careers page,relay,https://relayfi.com/careers,duplicate_existing_seed_csv
+Replicate,https://replicate.com/careers,company-site,2,North America,Official careers page,replicate,https://replicate.com/careers,duplicate_existing_seed_csv
+Ro,https://ro.co/careers,company-site,2,North America,Official careers page,ro,https://ro.co/careers,duplicate_existing_seed_csv
+Rocket Money,https://www.rocketmoney.com/careers,company-site,2,North America,Official careers page,rocketmoney,https://rocketmoney.com/careers,add
+Root Insurance,https://www.joinroot.com/careers/,company-site,2,North America,Official careers page,rootinsurance,https://joinroot.com/careers,add
+Route,https://route.com/careers,company-site,2,North America,Official careers page,route,https://route.com/careers,add
+RudderStack,https://www.rudderstack.com/careers/,company-site,2,North America,Official careers page,rudderstack,https://rudderstack.com/careers,add
+RunPod,https://www.runpod.io/careers,company-site,2,North America,Official careers page,runpod,https://runpod.io/careers,add
+Sardine,https://www.sardine.ai/careers,company-site,2,North America,Official careers page,sardine,https://sardine.ai/careers,duplicate_existing_seed_csv
+Secureframe,https://secureframe.com/careers,company-site,2,North America,Official careers page,secureframe,https://secureframe.com/careers,add
+SeekOut,https://www.seekout.com/careers,company-site,2,North America,Official careers page,seekout,https://seekout.com/careers,add
+SES AI,https://ses.ai/careers,company-site,2,North America,Official careers page,sesai,https://ses.ai/careers,add
+ShipBob,https://www.shipbob.com/careers/,company-site,2,North America,Official careers page,shipbob,https://shipbob.com/careers,add
+ShipMonk,https://www.shipmonk.com/careers,company-site,2,North America,Official careers page,shipmonk,https://shipmonk.com/careers,add
+Shippo,https://goshippo.com/careers,company-site,2,North America,Official careers page,shippo,https://goshippo.com/careers,add
+Sift,https://sift.com/careers,company-site,2,North America,Official careers page,sift,https://sift.com/careers,add
+Signifyd,https://www.signifyd.com/careers/,company-site,2,North America,Official careers page,signifyd,https://signifyd.com/careers,add
+SingleStore,https://www.singlestore.com/careers/,company-site,2,North America,Official careers page,singlestore,https://singlestore.com/careers,add
+Solid Power,https://www.solidpowerbattery.com/careers,company-site,2,North America,Official careers page,solidpower,https://solidpowerbattery.com/careers,add
+Sonder,https://www.sonder.com/careers,company-site,2,North America,Official careers page,sonder,https://sonder.com/careers,duplicate_existing_production_source_url
+SPAN,https://www.span.io/careers,company-site,2,North America,Official careers page,span,https://span.io/careers,add
+Statsig,https://www.statsig.com/careers,company-site,2,North America,Official careers page,statsig,https://statsig.com/careers,add
+Stord,https://www.stord.com/careers,company-site,2,North America,Official careers page,stord,https://stord.com/careers,add
+Stytch,https://stytch.com/careers,company-site,2,North America,Official careers page,stytch,https://stytch.com/careers,add
+Sumo Logic,https://www.sumologic.com/careers/,company-site,2,North America,Official careers page,sumologic,https://sumologic.com/careers,add
+Superhuman,https://superhuman.com/careers,company-site,2,North America,Official careers page,superhuman,https://superhuman.com/careers,add
+Synthego,https://www.synthego.com/careers,company-site,2,North America,Official careers page,synthego,https://synthego.com/careers,add
+Sysdig,https://sysdig.com/careers/,company-site,2,North America,Official careers page,sysdig,https://sysdig.com/careers,add
+TAE Technologies,https://tae.com/careers,company-site,2,North America,Official careers page,taetechnologies,https://tae.com/careers,add
+Talkspace,https://www.talkspace.com/careers,company-site,2,North America,Official careers page,talkspace,https://talkspace.com/careers,add
+Teleport,https://goteleport.com/careers/,company-site,2,North America,Official careers page,teleport,https://goteleport.com/careers,add
+Thrive Market,https://thrivemarket.com/careers,company-site,2,North America,Official careers page,thrivemarket,https://thrivemarket.com/careers,add
+Timescale,https://www.timescale.com/careers/,company-site,2,North America,Official careers page,timescale,https://timescale.com/careers,duplicate_existing_seed_csv
+Transcarent,https://transcarent.com/careers,company-site,2,North America,Official careers page,transcarent,https://transcarent.com/careers,add
+Turo,https://turo.com/us/en/jobs,company-site,2,North America,Official careers page,turo,https://turo.com/us/en/jobs,add
+Unit,https://www.unit.co/careers,company-site,2,North America,Official careers page,unit,https://unit.co/careers,duplicate_existing_seed_csv
+Upgrade,https://www.upgrade.com/careers/,company-site,2,North America,Official careers page,upgrade,https://upgrade.com/careers,add
+Uplight,https://uplight.com/careers,company-site,2,North America,Official careers page,uplight,https://uplight.com/careers,add
+Varo Bank,https://www.varomoney.com/careers/,company-site,2,North America,Official careers page,varobank,https://varomoney.com/careers,add
+Vast,https://www.vastspace.com/careers,company-site,2,North America,Official careers page,vast,https://vastspace.com/careers,duplicate_existing_production_source_url
+Veho,https://shipveho.com/careers,company-site,2,North America,Official careers page,veho,https://shipveho.com/careers,add
+Virta Health,https://www.virtahealth.com/careers,company-site,2,North America,Official careers page,virtahealth,https://virtahealth.com/careers,add
+Viz.ai,https://www.viz.ai/careers,company-site,2,North America,Official careers page,vizai,https://viz.ai/careers,add
+Wealthfront,https://www.wealthfront.com/careers,company-site,2,North America,Official careers page,wealthfront,https://wealthfront.com/careers,add
+Yugabyte,https://www.yugabyte.com/careers,company-site,2,North America,Official careers page,yugabyte,https://yugabyte.com/careers,duplicate_existing_production_source_url
+Zap Energy,https://www.zapenergy.com/careers,company-site,2,North America,Official careers page,zapenergy,https://zapenergy.com/careers,add
+Zilliz,https://zilliz.com/careers,company-site,2,North America,Official careers page,zilliz,https://zilliz.com/careers,duplicate_existing_production_source_url
+Zoox,https://zoox.com/careers,company-site,2,North America,Official careers page,zoox,https://zoox.com/careers,duplicate_existing_seed_csv
+Acast,https://www.acast.com/careers,company-site,2,Europe,Official careers page,acast,https://acast.com/careers,add
+Aircall,https://aircall.io/careers,company-site,2,Europe,Official careers page,aircall,https://aircall.io/careers,add
+Aiven,https://aiven.io/careers,company-site,2,Europe,Official careers page,aiven,https://aiven.io/careers,add
+Aleph Alpha,https://www.aleph-alpha.com/careers,company-site,2,Europe,Official careers page,alephalpha,https://aleph-alpha.com/careers,add
+Ankorstore,https://www.ankorstore.com/careers,company-site,2,Europe,Official careers page,ankorstore,https://ankorstore.com/careers,add
+Atom Bank,https://www.atombank.co.uk/careers/,company-site,2,Europe,Official careers page,atombank,https://atombank.co.uk/careers,add
+Beamery,https://beamery.com/careers,company-site,2,Europe,Official careers page,beamery,https://beamery.com/careers,add
+BenevolentAI,https://www.benevolent.com/careers,company-site,2,Europe,Official careers page,benevolentai,https://benevolent.com/careers,add
+Billie,https://www.billie.io/careers,company-site,2,Europe,Official careers page,billie,https://billie.io/careers,add
+Bird,https://bird.com/careers,company-site,2,Europe,Official careers page,bird,https://bird.com/careers,add
+Black Forest Labs,https://blackforestlabs.ai/careers,company-site,2,Europe,Official careers page,blackforestlabs,https://blackforestlabs.ai/careers,add
+Builder.ai,https://www.builder.ai/careers,company-site,2,Europe,Official careers page,builderai,https://builder.ai/careers,add
+Bynder,https://www.bynder.com/en/careers/,company-site,2,Europe,Official careers page,bynder,https://bynder.com/en/careers,add
+Cera,https://ceracare.co.uk/careers,company-site,2,Europe,Official careers page,cera,https://ceracare.co.uk/careers,add
+Choco,https://choco.com/careers,company-site,2,Europe,Official careers page,choco,https://choco.com/careers,add
+Clarity AI,https://clarity.ai/careers,company-site,2,Europe,Official careers page,clarityai,https://clarity.ai/careers,add
+ClearBank,https://clear.bank/careers,company-site,2,Europe,Official careers page,clearbank,https://clear.bank/careers,add
+CMR Surgical,https://cmrsurgical.com/careers,company-site,2,Europe,Official careers page,cmrsurgical,https://cmrsurgical.com/careers,add
+CoachHub,https://www.coachhub.com/careers,company-site,2,Europe,Official careers page,coachhub,https://coachhub.com/careers,add
+Copado,https://www.copado.com/careers,company-site,2,Europe,Official careers page,copado,https://copado.com/careers,add
+Curve,https://www.curve.com/en-gb/careers/,company-site,2,Europe,Official careers page,curve,https://curve.com/en-gb/careers,add
+Deliverect,https://www.deliverect.com/careers,company-site,2,Europe,Official careers page,deliverect,https://deliverect.com/careers,add
+Depop,https://careers.depop.com/,company-site,2,Europe,Official careers page,depop,https://careers.depop.com,add
+Einride,https://www.einride.tech/careers,company-site,2,Europe,Official careers page,einride,https://einride.tech/careers,add
+Enpal,https://www.enpal.de/careers,company-site,2,Europe,Official careers page,enpal,https://enpal.de/careers,add
+Epidemic Sound,https://www.epidemicsound.com/careers,company-site,2,Europe,Official careers page,epidemicsound,https://epidemicsound.com/careers,add
+Exscientia,https://www.exscientia.ai/careers,company-site,2,Europe,Official careers page,exscientia,https://exscientia.ai/careers,add
+Faculty,https://faculty.ai/careers,company-site,2,Europe,Official careers page,faculty,https://faculty.ai/careers,add
+Featurespace,https://www.featurespace.com/careers,company-site,2,Europe,Official careers page,featurespace,https://featurespace.com/careers,add
+Feedzai,https://feedzai.com/careers/,company-site,2,Europe,Official careers page,feedzai,https://feedzai.com/careers,add
+Form3,https://www.form3.tech/careers,company-site,2,Europe,Official careers page,form3,https://form3.tech/careers,duplicate_existing_production_source_url
+Forto,https://forto.com/careers,company-site,2,Europe,Official careers page,forto,https://forto.com/careers,add
+Framer,https://www.framer.com/careers,company-site,2,Europe,Official careers page,framer,https://framer.com/careers,duplicate_existing_seed_csv
+Gelato,https://www.gelato.com/careers,company-site,2,Europe,Official careers page,gelato,https://gelato.com/careers,add
+GoHenry,https://www.gohenry.com/uk/careers,company-site,2,Europe,Official careers page,gohenry,https://gohenry.com/uk/careers,add
+HomeToGo,https://www.hometogo.com/careers/,company-site,2,Europe,Official careers page,hometogo,https://hometogo.com/careers,add
+Huma,https://www.huma.com/careers,company-site,2,Europe,Official careers page,huma,https://huma.com/careers,add
+ICEYE,https://www.iceye.com/careers,company-site,2,Europe,Official careers page,iceye,https://iceye.com/careers,add
+IQM Quantum,https://www.meetiqm.com/careers,company-site,2,Europe,Official careers page,iqmquantum,https://meetiqm.com/careers,add
+Kahoot,https://kahoot.com/careers,company-site,2,Europe,Official careers page,kahoot,https://kahoot.com/careers,add
+Kry,https://www.kry.care/careers,company-site,2,Europe,Official careers page,kry,https://kry.care/careers,add
+Lendable,https://lendable.co.uk/careers,company-site,2,Europe,Official careers page,lendable,https://lendable.co.uk/careers,add
+Lovable,https://lovable.dev/careers,company-site,2,Europe,Official careers page,lovable,https://lovable.dev/careers,add
+Malt,https://www.malt.com/careers,company-site,2,Europe,Official careers page,malt,https://malt.com/careers,add
+ManoMano,https://www.manomano.com/careers,company-site,2,Europe,Official careers page,manomano,https://manomano.com/careers,add
+ManyPets,https://manypets.com/uk/careers/,company-site,2,Europe,Official careers page,manypets,https://manypets.com/uk/careers,add
+Marshmallow,https://www.marshmallow.com/careers,company-site,2,Europe,Official careers page,marshmallow,https://marshmallow.com/careers,add
+Mews,https://www.mews.com/en/careers,company-site,2,Europe,Official careers page,mews,https://mews.com/en/careers,add
+Modulr,https://www.modulrfinance.com/careers,company-site,2,Europe,Official careers page,modulr,https://modulrfinance.com/careers,add
+Moss,https://www.getmoss.com/careers,company-site,2,Europe,Official careers page,moss,https://getmoss.com/careers,add
+Motorway,https://motorway.co.uk/careers,company-site,2,Europe,Official careers page,motorway,https://motorway.co.uk/careers,add
+Multiverse,https://www.multiverse.io/en-GB/careers,company-site,2,Europe,Official careers page,multiverse,https://multiverse.io/en-GB/careers,add
+Nabla,https://www.nabla.com/careers,company-site,2,Europe,Official careers page,nabla,https://nabla.com/careers,duplicate_existing_seed_csv
+Nexthink,https://www.nexthink.com/careers/,company-site,2,Europe,Official careers page,nexthink,https://nexthink.com/careers,duplicate_existing_production_source_url
+OakNorth,https://www.oaknorth.co.uk/careers/,company-site,2,Europe,Official careers page,oaknorth,https://oaknorth.co.uk/careers,add
+Oda,https://oda.com/careers,company-site,2,Europe,Official careers page,oda,https://oda.com/careers,add
+Odoo,https://www.odoo.com/jobs,company-site,2,Europe,Official careers page,odoo,https://odoo.com/jobs,duplicate_existing_production_source_url
+Omio,https://www.omio.com/corporate/jobs/,company-site,2,Europe,Official careers page,omio,https://omio.com/corporate/jobs,add
+Onfido,https://onfido.com/careers,company-site,2,Europe,Official careers page,onfido,https://onfido.com/careers,add
+OVO Energy,https://careers.ovo.com/,company-site,2,Europe,Official careers page,ovoenergy,https://careers.ovo.com,add
+PayFit,https://payfit.com/careers/,company-site,2,Europe,Official careers page,payfit,https://payfit.com/careers,add
+Picnic,https://picnic.app/careers,company-site,2,Europe,Official careers page,picnic,https://picnic.app/careers,add
+Pipedrive,https://www.pipedrive.com/en/jobs,company-site,2,Europe,Official careers page,pipedrive,https://pipedrive.com/en/jobs,add
+Poolside,https://poolside.ai/careers,company-site,2,Europe,Official careers page,poolside,https://poolside.ai/careers,add
+PPRO,https://www.ppro.com/careers/,company-site,2,Europe,Official careers page,ppro,https://ppro.com/careers,duplicate_existing_production_source_url
+Prima,https://www.prima.it/careers,company-site,2,Europe,Official careers page,prima,https://prima.it/careers,add
+Primer,https://primer.io/careers,company-site,2,Europe,Official careers page,primer,https://primer.io/careers,add
+Quantexa,https://www.quantexa.com/careers/,company-site,2,Europe,Official careers page,quantexa,https://quantexa.com/careers,add
+Recruitee,https://recruitee.com/careers/,company-site,2,Europe,Official careers page,recruitee,https://recruitee.com/careers,add
+RELEX Solutions,https://www.relexsolutions.com/careers/,company-site,2,Europe,Official careers page,relexsolutions,https://relexsolutions.com/careers,add
+Sana Labs,https://sanalabs.com/careers,company-site,2,Europe,Official careers page,sanalabs,https://sanalabs.com/careers,add
+Satispay,https://www.satispay.com/careers/,company-site,2,Europe,Official careers page,satispay,https://satispay.com/careers,add
+Scalable Capital,https://www.scalable.capital/careers,company-site,2,Europe,Official careers page,scalablecapital,https://scalable.capital/careers,add
+Scalapay,https://www.scalapay.com/en/careers,company-site,2,Europe,Official careers page,scalapay,https://scalapay.com/en/careers,add
+Scandit,https://www.scandit.com/careers/,company-site,2,Europe,Official careers page,scandit,https://scandit.com/careers,add
+Sendcloud,https://www.sendcloud.com/careers/,company-site,2,Europe,Official careers page,sendcloud,https://sendcloud.com/careers,add
+Sennder,https://www.sennder.com/careers/,company-site,2,Europe,Official careers page,sennder,https://sennder.com/careers,add
+Shift Technology,https://www.shift-technology.com/careers,company-site,2,Europe,Official careers page,shifttechnology,https://shift-technology.com/careers,add
+Showpad,https://www.showpad.com/careers,company-site,2,Europe,Official careers page,showpad,https://showpad.com/careers,add
+Skeleton Technologies,https://www.skeletontech.com/careers,company-site,2,Europe,Official careers page,skeletontechnologies,https://skeletontech.com/careers,add
+Smartly.io,https://www.smartly.io/careers,company-site,2,Europe,Official careers page,smartlyio,https://smartly.io/careers,add
+SonarSource,https://www.sonarsource.com/careers/,company-site,2,Europe,Official careers page,sonarsource,https://sonarsource.com/careers,add
+SOPHiA GENETICS,https://www.sophiagenetics.com/careers/,company-site,2,Europe,Official careers page,sophiagenetics,https://sophiagenetics.com/careers,add
+Starship Technologies,https://www.starship.xyz/careers,company-site,2,Europe,Official careers page,starshiptechnologies,https://starship.xyz/careers,duplicate_existing_production_source_url
+Stegra,https://stegra.com/careers,company-site,2,Europe,Official careers page,stegra,https://stegra.com/careers,add
+Supermetrics,https://supermetrics.com/careers,company-site,2,Europe,Official careers page,supermetrics,https://supermetrics.com/careers,add
+Sweep,https://www.sweep.net/careers,company-site,2,Europe,Official careers page,sweep,https://sweep.net/careers,add
+Swile,https://www.swile.co/careers,company-site,2,Europe,Official careers page,swile,https://swile.co/careers,add
+Sylvera,https://www.sylvera.com/careers,company-site,2,Europe,Official careers page,sylvera,https://sylvera.com/careers,add
+Teamtailor,https://www.teamtailor.com/en/careers/,company-site,2,Europe,Official careers page,teamtailor,https://teamtailor.com/en/careers,add
+Thought Machine,https://www.thoughtmachine.net/careers,company-site,2,Europe,Official careers page,thoughtmachine,https://thoughtmachine.net/careers,add
+Tractable,https://tractable.ai/careers,company-site,2,Europe,Official careers page,tractable,https://tractable.ai/careers,add
+Unbabel,https://unbabel.com/careers,company-site,2,Europe,Official careers page,unbabel,https://unbabel.com/careers,add
+Varjo,https://varjo.com/careers,company-site,2,Europe,Official careers page,varjo,https://varjo.com/careers,add
+Veriff,https://www.veriff.com/careers,company-site,2,Europe,Official careers page,veriff,https://veriff.com/careers,duplicate_existing_production_source_url
+Voi,https://www.voi.com/careers,company-site,2,Europe,Official careers page,voi,https://voi.com/careers,add
+Voodoo,https://www.voodoo.io/careers,company-site,2,Europe,Official careers page,voodoo,https://voodoo.io/careers,add
+Wagestream,https://www.wagestream.com/careers,company-site,2,Europe,Official careers page,wagestream,https://wagestream.com/careers,add
+Wallbox,https://wallbox.com/en_us/careers,company-site,2,Europe,Official careers page,wallbox,https://wallbox.com/en_us/careers,add
+Weaviate,https://weaviate.io/careers,company-site,2,Europe,Official careers page,weaviate,https://weaviate.io/careers,add
+Wefox,https://www.wefox.com/en-de/careers,company-site,2,Europe,Official careers page,wefox,https://wefox.com/en-de/careers,add
+WeTransfer,https://wetransfer.com/careers,company-site,2,Europe,Official careers page,wetransfer,https://wetransfer.com/careers,add
+Workable,https://apply.workable.com/careers/,workable,2,Europe,Direct workable board,workable,https://apply.workable.com/careers,duplicate_existing_production_source_url
+Zego,https://www.zego.com/careers,company-site,2,Europe,Official careers page,zego,https://zego.com/careers,add
+Zilch,https://www.zilch.com/careers,company-site,2,Europe,Official careers page,zilch,https://zilch.com/careers,add
+Zopa,https://www.zopa.com/careers,company-site,2,Europe,Official careers page,zopa,https://zopa.com/careers,add
+01.AI,https://www.01.ai/careers,company-site,2,Asia-Pacific,Official careers page,01ai,https://01.ai/careers,add
+Advance Intelligence Group,https://www.advance.ai/careers,company-site,2,Asia-Pacific,Official careers page,advanceintelligencegroup,https://advance.ai/careers,add
+Ajaib,https://ajaib.co.id/career,company-site,2,Asia-Pacific,Official careers page,ajaib,https://ajaib.co.id/career,add
+Blibli,https://careers.blibli.com/,company-site,2,Asia-Pacific,Official careers page,blibli,https://careers.blibli.com,add
+Bukalapak,https://careers.bukalapak.com/,company-site,2,Asia-Pacific,Official careers page,bukalapak,https://careers.bukalapak.com,add
+Carousell,https://careers.carousell.com/,company-site,2,Asia-Pacific,Official careers page,carousell,https://careers.carousell.com,add
+DANA,https://www.dana.id/career,company-site,2,Asia-Pacific,Official careers page,dana,https://dana.id/career,add
+Dovetail,https://dovetail.com/careers,company-site,2,Asia-Pacific,Official careers page,dovetail,https://dovetail.com/careers,add
+Envato,https://www.envato.com/careers/,company-site,2,Asia-Pacific,Official careers page,envato,https://envato.com/careers,duplicate_existing_production_source_url
+Eucalyptus,https://www.eucalyptus.vc/careers,company-site,2,Asia-Pacific,Official careers page,eucalyptus,https://eucalyptus.vc/careers,add
+FinAccel,https://www.finaccel.co/careers,company-site,2,Asia-Pacific,Official careers page,finaccel,https://finaccel.co/careers,add
+freee,https://corp.freee.co.jp/en/careers/,company-site,2,Asia-Pacific,Official careers page,freee,https://corp.freee.co.jp/en/careers,add
+Go1,https://www.go1.com/careers,company-site,2,Asia-Pacific,Official careers page,go1,https://go1.com/careers,add
+Headout,https://www.headout.com/careers,company-site,2,Asia-Pacific,Official careers page,headout,https://headout.com/careers,duplicate_existing_production_source_url
+Horizon Robotics,https://en.horizon.cc/careers,company-site,2,Asia-Pacific,Official careers page,horizonrobotics,https://en.horizon.cc/careers,add
+J&T Express,https://www.jtexpress.com/careers,company-site,2,Asia-Pacific,Official careers page,jtexpress,https://jtexpress.com/careers,add
+Judo Bank,https://www.judo.bank/careers,company-site,2,Asia-Pacific,Official careers page,judobank,https://judo.bank/careers,add
+Kakao Mobility,https://www.kakaomobility.com/careers,company-site,2,Asia-Pacific,Official careers page,kakaomobility,https://kakaomobility.com/careers,add
+Karrot,https://www.daangn.com/careers,company-site,2,Asia-Pacific,Official careers page,karrot,https://daangn.com/careers,add
+Klook,https://www.klook.com/careers/,company-site,2,Asia-Pacific,Official careers page,klook,https://klook.com/careers,add
+Kredivo,https://www.kredivo.com/careers,company-site,2,Asia-Pacific,Official careers page,kredivo,https://kredivo.com/careers,add
+Lalamove,https://www.lalamove.com/en/careers,company-site,2,Asia-Pacific,Official careers page,lalamove,https://lalamove.com/en/careers,add
+Lunit,https://www.lunit.io/en/careers,company-site,2,Asia-Pacific,Official careers page,lunit,https://lunit.io/en/careers,add
+Market Kurly,https://www.kurly.com/careers,company-site,2,Asia-Pacific,Official careers page,marketkurly,https://kurly.com/careers,add
+Maya,https://www.maya.ph/careers,company-site,2,Asia-Pacific,Official careers page,maya,https://maya.ph/careers,add
+Momenta,https://www.momenta.ai/careers,company-site,2,Asia-Pacific,Official careers page,momenta,https://momenta.ai/careers,add
+Money Forward,https://corp.moneyforward.com/en/careers/,company-site,2,Asia-Pacific,Official careers page,moneyforward,https://corp.moneyforward.com/en/careers,add
+Moonshot AI,https://www.moonshot.cn/careers,company-site,2,Asia-Pacific,Official careers page,moonshotai,https://moonshot.cn/careers,add
+Mynt,https://www.mynt.xyz/careers,company-site,2,Asia-Pacific,Official careers page,mynt,https://mynt.xyz/careers,add
+OVO,https://www.ovo.id/career,company-site,2,Asia-Pacific,Official careers page,ovo,https://ovo.id/career,add
+PatSnap,https://www.patsnap.com/careers,company-site,2,Asia-Pacific,Official careers page,patsnap,https://patsnap.com/careers,add
+PayPay,https://www.paypay.ne.jp/en/career/,company-site,2,Asia-Pacific,Official careers page,paypay,https://paypay.ne.jp/en/career,add
+Pony.ai,https://pony.ai/jobs,company-site,2,Asia-Pacific,Official careers page,ponyai,https://pony.ai/jobs,add
+Preferred Networks,https://www.preferred.jp/en/careers/,company-site,2,Asia-Pacific,Official careers page,preferrednetworks,https://preferred.jp/en/careers,add
+PropertyGuru,https://www.propertyguru.com/careers,company-site,2,Asia-Pacific,Official careers page,propertyguru,https://propertyguru.com/careers,add
+Ruangguru,https://www.ruangguru.com/careers,company-site,2,Asia-Pacific,Official careers page,ruangguru,https://ruangguru.com/careers,add
+Sakana AI,https://sakana.ai/careers,company-site,2,Asia-Pacific,Official careers page,sakanaai,https://sakana.ai/careers,add
+SenseTime,https://www.sensetime.com/en/career,company-site,2,Asia-Pacific,Official careers page,sensetime,https://sensetime.com/en/career,add
+SmartHR,https://smarthr.co.jp/recruit/,company-site,2,Asia-Pacific,Official careers page,smarthr,https://smarthr.co.jp/recruit,add
+SmartNews,https://about.smartnews.com/en/careers/,company-site,2,Asia-Pacific,Official careers page,smartnews,https://about.smartnews.com/en/careers,add
+Tiket.com,https://www.tiket.com/careers,company-site,2,Asia-Pacific,Official careers page,tiketcom,https://tiket.com/careers,add
+Tyro,https://www.tyro.com/careers/,company-site,2,Asia-Pacific,Official careers page,tyro,https://tyro.com/careers,add
+WeRide,https://www.weride.ai/careers,company-site,2,Asia-Pacific,Official careers page,weride,https://weride.ai/careers,add
+Woowa Brothers,https://woowahan.com/jobs,company-site,2,Asia-Pacific,Official careers page,woowabrothers,https://woowahan.com/jobs,add
+Yanolja,https://www.yanolja.com/careers,company-site,2,Asia-Pacific,Official careers page,yanolja,https://yanolja.com/careers,add
+ZALORA,https://www.zalora.com/careers,company-site,2,Asia-Pacific,Official careers page,zalora,https://zalora.com/careers,add
+Zhipu AI,https://www.zhipuai.cn/joinus,company-site,2,Asia-Pacific,Official careers page,zhipuai,https://zhipuai.cn/joinus,add
+Zip Co,https://zip.co/careers,company-site,2,Asia-Pacific,Official careers page,zipco,https://zip.co/careers,duplicate_existing_production_source_url
+Amagi,https://www.amagi.com/careers/,company-site,2,India,Official careers page,amagi,https://amagi.com/careers,add
+BigBasket,https://www.bigbasket.com/careers,company-site,2,India,Official careers page,bigbasket,https://bigbasket.com/careers,duplicate_existing_production_source_url
+BillDesk,https://www.billdesk.com/careers,company-site,2,India,Official careers page,billdesk,https://billdesk.com/careers,add
+BlackBuck,https://www.blackbuck.com/careers/,company-site,2,India,Official careers page,blackbuck,https://blackbuck.com/careers,duplicate_existing_production_source_url
+Blinkit,https://blinkit.com/careers,company-site,2,India,Official careers page,blinkit,https://blinkit.com/careers,add
+CarDekho,https://www.cardekho.com/careers,company-site,2,India,Official careers page,cardekho,https://cardekho.com/careers,duplicate_existing_production_source_url
+Cashfree Payments,https://www.cashfree.com/careers,company-site,2,India,Official careers page,cashfreepayments,https://cashfree.com/careers,duplicate_existing_production_source_url
+CleverTap,https://clevertap.com/careers/,company-site,2,India,Official careers page,clevertap,https://clevertap.com/careers,duplicate_existing_production_source_url
+CoinDCX,https://coindcx.com/careers,company-site,2,India,Official careers page,coindcx,https://coindcx.com/careers,add
+CoinSwitch,https://coinswitch.co/careers,company-site,2,India,Official careers page,coinswitch,https://coinswitch.co/careers,add
+Country Delight,https://www.countrydelight.in/careers,company-site,2,India,Official careers page,countrydelight,https://countrydelight.in/careers,add
+cult.fit,https://www.cult.fit/careers,company-site,2,India,Official careers page,cultfit,https://cult.fit/careers,add
+DeHaat,https://agrevolution.in/careers,company-site,2,India,Official careers page,dehaat,https://agrevolution.in/careers,add
+Druva,https://www.druva.com/careers,company-site,2,India,Official careers page,druva,https://druva.com/careers,add
+ElasticRun,https://www.elastic.run/careers,company-site,2,India,Official careers page,elasticrun,https://elastic.run/careers,add
+Eruditus,https://www.eruditus.com/careers/,company-site,2,India,Official careers page,eruditus,https://eruditus.com/careers,add
+Fi Money,https://fi.money/careers,company-site,2,India,Official careers page,fimoney,https://fi.money/careers,add
+FirstCry,https://corporate.firstcry.com/careers/,company-site,2,India,Official careers page,firstcry,https://corporate.firstcry.com/careers,add
+GlobalBees,https://globalbees.com/careers,company-site,2,India,Official careers page,globalbees,https://globalbees.com/careers,add
+Go Digit,https://www.godigit.com/careers,company-site,2,India,Official careers page,godigit,https://godigit.com/careers,duplicate_existing_production_source_url
+Innovaccer,https://innovaccer.com/careers,company-site,2,India,Official careers page,innovaccer,https://innovaccer.com/careers,add
+Jupiter,https://jupiter.money/careers,company-site,2,India,Official careers page,jupiter,https://jupiter.money/careers,add
+Khatabook,https://khatabook.com/careers,company-site,2,India,Official careers page,khatabook,https://khatabook.com/careers,duplicate_existing_production_source_url
+LeadSquared,https://www.leadsquared.com/careers/,company-site,2,India,Official careers page,leadsquared,https://leadsquared.com/careers,add
+Licious,https://www.licious.in/careers,company-site,2,India,Official careers page,licious,https://licious.in/careers,duplicate_existing_production_source_url
+Livspace,https://www.livspace.com/careers,company-site,2,India,Official careers page,livspace,https://livspace.com/careers,add
+MediBuddy,https://www.medibuddy.in/careers,company-site,2,India,Official careers page,medibuddy,https://medibuddy.in/careers,add
+Mensa Brands,https://mensabrands.com/careers,company-site,2,India,Official careers page,mensabrands,https://mensabrands.com/careers,add
+MobiKwik,https://www.mobikwik.com/careers,company-site,2,India,Official careers page,mobikwik,https://mobikwik.com/careers,add
+MoEngage,https://www.moengage.com/careers/,company-site,2,India,Official careers page,moengage,https://moengage.com/careers,add
+Moglix,https://www.moglix.com/careers,company-site,2,India,Official careers page,moglix,https://moglix.com/careers,add
+Myntra,https://www.myntra.com/careers,company-site,2,India,Official careers page,myntra,https://myntra.com/careers,add
+Navi,https://navi.com/careers,company-site,2,India,Official careers page,navi,https://navi.com/careers,add
+Ninjacart,https://www.ninjacart.com/careers,company-site,2,India,Official careers page,ninjacart,https://ninjacart.com/careers,add
+NoBroker,https://www.nobroker.in/careers,company-site,2,India,Official careers page,nobroker,https://nobroker.in/careers,add
+OneCard,https://www.getonecard.app/careers,company-site,2,India,Official careers page,onecard,https://getonecard.app/careers,add
+Open Financial Technologies,https://open.money/careers,company-site,2,India,Official careers page,openfinancialtechnologies,https://open.money/careers,add
+PharmEasy,https://pharmeasy.in/careers,company-site,2,India,Official careers page,pharmeasy,https://pharmeasy.in/careers,duplicate_existing_production_source_url
+Physics Wallah,https://www.pw.live/careers,company-site,2,India,Official careers page,physicswallah,https://pw.live/careers,add
+Porter,https://porter.in/careers,company-site,2,India,Official careers page,porter,https://porter.in/careers,add
+Pristyn Care,https://www.pristyncare.com/careers,company-site,2,India,Official careers page,pristyncare,https://pristyncare.com/careers,add
+Rebel Foods,https://www.rebelfoods.com/careers,company-site,2,India,Official careers page,rebelfoods,https://rebelfoods.com/careers,add
+Shadowfax,https://shadowfax.in/careers,company-site,2,India,Official careers page,shadowfax,https://shadowfax.in/careers,add
+Shiprocket,https://www.shiprocket.in/careers/,company-site,2,India,Official careers page,shiprocket,https://shiprocket.in/careers,add
+Simplilearn,https://www.simplilearn.com/careers,company-site,2,India,Official careers page,simplilearn,https://simplilearn.com/careers,duplicate_existing_production_source_url
+Slice,https://www.sliceit.com/careers,company-site,2,India,Official careers page,slice,https://sliceit.com/careers,add
+Spinny,https://www.spinny.com/careers,company-site,2,India,Official careers page,spinny,https://spinny.com/careers,add
+Tata 1mg,https://www.1mg.com/careers,company-site,2,India,Official careers page,tata1mg,https://1mg.com/careers,add
+Udaan,https://udaan.com/careers,company-site,2,India,Official careers page,udaan,https://udaan.com/careers,add
+Unacademy,https://unacademy.com/careers,company-site,2,India,Official careers page,unacademy,https://unacademy.com/careers,duplicate_existing_production_source_url
+upGrad,https://www.upgrad.com/about/careers/,company-site,2,India,Official careers page,upgrad,https://upgrad.com/about/careers,add
+Whatfix,https://whatfix.com/careers/,company-site,2,India,Official careers page,whatfix,https://whatfix.com/careers,duplicate_existing_production_source_url
+Xpressbees,https://www.xpressbees.com/careers,company-site,2,India,Official careers page,xpressbees,https://xpressbees.com/careers,add
+Zerodha,https://zerodha.com/careers/,company-site,2,India,Official careers page,zerodha,https://zerodha.com/careers,add
+Addi,https://addi.com/careers,company-site,2,Latin America,Official careers page,addi,https://addi.com/careers,add
+Belvo,https://belvo.com/careers,company-site,2,Latin America,Official careers page,belvo,https://belvo.com/careers,add
+Bitso,https://bitso.com/careers,company-site,2,Latin America,Official careers page,bitso,https://bitso.com/careers,add
+CloudWalk,https://www.cloudwalk.io/careers,company-site,2,Latin America,Official careers page,cloudwalk,https://cloudwalk.io/careers,add
+Dock,https://dock.tech/en/careers,company-site,2,Latin America,Official careers page,dock,https://dock.tech/en/careers,add
+EBANX,https://www.ebanx.com/en/careers,company-site,2,Latin America,Official careers page,ebanx,https://ebanx.com/en/careers,add
+Habi,https://habi.co/careers,company-site,2,Latin America,Official careers page,habi,https://habi.co/careers,add
+Hotmart,https://hotmart.com/en/careers,company-site,2,Latin America,Official careers page,hotmart,https://hotmart.com/en/careers,add
+Konfío,https://konfio.mx/careers,company-site,2,Latin America,Official careers page,konfo,https://konfio.mx/careers,add
+Loft,https://www.loft.com.br/carreiras,company-site,2,Latin America,Official careers page,loft,https://loft.com.br/carreiras,add
+MadeiraMadeira,https://www.madeiramadeira.com.br/carreiras,company-site,2,Latin America,Official careers page,madeiramadeira,https://madeiramadeira.com.br/carreiras,add
+NotCo,https://www.notco.com/careers,company-site,2,Latin America,Official careers page,notco,https://notco.com/careers,duplicate_existing_seed_csv
+Nuvemshop,https://www.nuvemshop.com.br/trabalhe-conosco,company-site,2,Latin America,Official careers page,nuvemshop,https://nuvemshop.com.br/trabalhe-conosco,add
+Pismo,https://pismo.io/careers,company-site,2,Latin America,Official careers page,pismo,https://pismo.io/careers,add
+Platzi,https://platzi.com/careers,company-site,2,Latin America,Official careers page,platzi,https://platzi.com/careers,add
+QuintoAndar,https://www.quintoandar.com.br/carreiras,company-site,2,Latin America,Official careers page,quintoandar,https://quintoandar.com.br/carreiras,add
+VTEX,https://vtex.com/us-en/careers/,company-site,2,Latin America,Official careers page,vtex,https://vtex.com/us-en/careers,add
+Wildlife Studios,https://wildlifestudios.com/careers,company-site,2,Latin America,Official careers page,wildlifestudios,https://wildlifestudios.com/careers,add
+Foodics,https://www.foodics.com/careers,company-site,2,Middle East,Official careers page,foodics,https://foodics.com/careers,add
+Paymob,https://paymob.com/careers,company-site,2,Middle East,Official careers page,paymob,https://paymob.com/careers,add
+Unifonic,https://www.unifonic.com/careers,company-site,2,Middle East,Official careers page,unifonic,https://unifonic.com/careers,add
+Vezeeta,https://www.vezeeta.com/careers,company-site,2,Middle East,Official careers page,vezeeta,https://vezeeta.com/careers,add
+d.light,https://www.dlight.com/careers/,company-site,2,Africa,Official careers page,dlight,https://dlight.com/careers,add
+InstaDeep,https://www.instadeep.com/careers,company-site,2,Africa,Official careers page,instadeep,https://instadeep.com/careers,add
+Interswitch,https://www.interswitchgroup.com/careers,company-site,2,Africa,Official careers page,interswitch,https://interswitchgroup.com/careers,add
+Jumia,https://group.jumia.com/careers/,company-site,2,Africa,Official careers page,jumia,https://group.jumia.com/careers,add
+Kuda,https://kuda.com/careers,company-site,2,Africa,Official careers page,kuda,https://kuda.com/careers,add
+Moove,https://www.moove.io/careers,company-site,2,Africa,Official careers page,moove,https://moove.io/careers,add
+Onafriq,https://www.onafriq.com/careers,company-site,2,Africa,Official careers page,onafriq,https://onafriq.com/careers,add
+OPay,https://www.opayweb.com/careers,company-site,2,Africa,Official careers page,opay,https://opayweb.com/careers,add
+Sun King,https://sunking.com/careers,company-site,2,Africa,Official careers page,sunking,https://sunking.com/careers,add
+TymeBank,https://www.tymebank.co.za/careers,company-site,2,Africa,Official careers page,tymebank,https://tymebank.co.za/careers,add
+Yoco,https://www.yoco.com/careers,company-site,2,Africa,Official careers page,yoco,https://yoco.com/careers,add
+Aporia,https://www.aporia.com/careers,company-site,3,Global,Official careers page,aporia,https://aporia.com/careers,add
+Craft.io,https://craft.io/careers/,company-site,3,Global,Official careers page,craftio,https://craft.io/careers,add
+D-ID,https://www.d-id.com/careers,company-site,3,Global,Official careers page,did,https://d-id.com/careers,add
+Deepdub,https://deepdub.ai/careers,company-site,3,Global,Official careers page,deepdub,https://deepdub.ai/careers,add
+Descope,https://www.descope.com/careers,company-site,3,Global,Official careers page,descope,https://descope.com/careers,add
+Easyship,https://www.easyship.com/careers,company-site,3,Global,Official careers page,easyship,https://easyship.com/careers,add
+Forage,https://www.theforage.com/careers,company-site,3,Global,Official careers page,forage,https://theforage.com/careers,add
+Healthy.io,https://healthy.io/careers,company-site,3,Global,Official careers page,healthyio,https://healthy.io/careers,add
+Hostaway,https://www.hostaway.com/careers/,company-site,3,Global,Official careers page,hostaway,https://hostaway.com/careers,add
+Mesh Payments,https://www.meshpayments.com/careers,company-site,3,Global,Official careers page,meshpayments,https://meshpayments.com/careers,add
+Nanox,https://www.nanox.vision/careers,company-site,3,Global,Official careers page,nanox,https://nanox.vision/careers,add
+Nexar,https://www.getnexar.com/careers,company-site,3,Global,Official careers page,nexar,https://getnexar.com/careers,add
+Salt Security,https://salt.security/careers,company-site,3,Global,Official careers page,saltsecurity,https://salt.security/careers,add
+Sprinto,https://sprinto.com/careers,company-site,3,Global,Official careers page,sprinto,https://sprinto.com/careers,add
+TytoCare,https://www.tytocare.com/careers,company-site,3,Global,Official careers page,tytocare,https://tytocare.com/careers,add
+Albert,https://albert.com/careers,company-site,3,North America,Official careers page,albert,https://albert.com/careers,add
+Allara Health,https://www.allarahealth.com/careers,company-site,3,North America,Official careers page,allarahealth,https://allarahealth.com/careers,add
+Arc Technologies,https://www.arc.tech/careers,company-site,3,North America,Official careers page,arctechnologies,https://arc.tech/careers,add
+Atomwise,https://www.atomwise.com/careers,company-site,3,North America,Official careers page,atomwise,https://atomwise.com/careers,add
+AvantStay,https://avantstay.com/careers/,company-site,3,North America,Official careers page,avantstay,https://avantstay.com/careers,duplicate_existing_production_source_url
+AxleHire,https://www.axlehire.com/careers,company-site,3,North America,Official careers page,axlehire,https://axlehire.com/careers,add
+Beyond Identity,https://www.beyondidentity.com/company/careers,company-site,3,North America,Official careers page,beyondidentity,https://beyondidentity.com/company/careers,add
+BlocPower,https://www.blocpower.io/careers,company-site,3,North America,Official careers page,blocpower,https://blocpower.io/careers,add
+Branch Insurance,https://www.ourbranch.com/careers,company-site,3,North America,Official careers page,branchinsurance,https://ourbranch.com/careers,add
+Brigit,https://www.hellobrigit.com/careers,company-site,3,North America,Official careers page,brigit,https://hellobrigit.com/careers,add
+ButcherBox,https://www.butcherbox.com/careers,company-site,3,North America,Official careers page,butcherbox,https://butcherbox.com/careers,add
+Capella Space,https://www.capellaspace.com/careers,company-site,3,North America,Official careers page,capellaspace,https://capellaspace.com/careers,add
+Carbon Robotics,https://carbonrobotics.com/careers,company-site,3,North America,Official careers page,carbonrobotics,https://carbonrobotics.com/careers,add
+CarbonCure,https://www.carboncure.com/careers/,company-site,3,North America,Official careers page,carboncure,https://carboncure.com/careers,add
+Carrum Health,https://www.carrumhealth.com/careers,company-site,3,North America,Official careers page,carrumhealth,https://carrumhealth.com/careers,add
+Cerebral,https://cerebral.com/careers,company-site,3,North America,Official careers page,cerebral,https://cerebral.com/careers,add
+Chroma,https://www.trychroma.com/careers,company-site,3,North America,Official careers page,chroma,https://trychroma.com/careers,add
+ChurnZero,https://churnzero.com/careers,company-site,3,North America,Official careers page,churnzero,https://churnzero.com/careers,add
+CleanCapital,https://www.cleancapital.com/careers,company-site,3,North America,Official careers page,cleancapital,https://cleancapital.com/careers,add
+Clearcover,https://clearcover.com/careers,company-site,3,North America,Official careers page,clearcover,https://clearcover.com/careers,add
+Cloverly,https://www.cloverly.com/careers,company-site,3,North America,Official careers page,cloverly,https://cloverly.com/careers,add
+Daily Harvest,https://www.daily-harvest.com/careers,company-site,3,North America,Official careers page,dailyharvest,https://daily-harvest.com/careers,add
+Dandelion Energy,https://dandelionenergy.com/careers,company-site,3,North America,Official careers page,dandelionenergy,https://dandelionenergy.com/careers,add
+data.world,https://data.world/careers/,company-site,3,North America,Official careers page,dataworld,https://data.world/careers,add
+Datafold,https://www.datafold.com/careers,company-site,3,North America,Official careers page,datafold,https://datafold.com/careers,add
+Emerald Cloud Lab,https://www.emeraldcloudlab.com/careers,company-site,3,North America,Official careers page,emeraldcloudlab,https://emeraldcloudlab.com/careers,add
+EnergyHub,https://www.energyhub.com/careers,company-site,3,North America,Official careers page,energyhub,https://energyhub.com/careers,add
+Eppo,https://www.geteppo.com/careers,company-site,3,North America,Official careers page,eppo,https://geteppo.com/careers,add
+Equip Health,https://equip.health/careers,company-site,3,North America,Official careers page,equiphealth,https://equip.health/careers,add
+Findem,https://www.findem.ai/careers,company-site,3,North America,Official careers page,findem,https://findem.ai/careers,add
+Fleet,https://fleetdm.com/careers,company-site,3,North America,Official careers page,fleet,https://fleetdm.com/careers,add
+Galileo Health,https://galileohealth.com/careers,company-site,3,North America,Official careers page,galileohealth,https://galileohealth.com/careers,add
+Gatik,https://gatik.ai/careers,company-site,3,North America,Official careers page,gatik,https://gatik.ai/careers,add
+Genspark,https://www.genspark.ai/careers,company-site,3,North America,Official careers page,genspark,https://genspark.ai/careers,add
+Getaround,https://www.getaround.com/careers,company-site,3,North America,Official careers page,getaround,https://getaround.com/careers,duplicate_existing_production_source_url
+Grailed,https://www.grailed.com/about/careers,company-site,3,North America,Official careers page,grailed,https://grailed.com/about/careers,add
+Great Expectations,https://greatexpectations.io/careers,company-site,3,North America,Official careers page,greatexpectations,https://greatexpectations.io/careers,add
+Height,https://height.app/careers,company-site,3,North America,Official careers page,height,https://height.app/careers,add
+Hume AI,https://www.hume.ai/careers,company-site,3,North America,Official careers page,humeai,https://hume.ai/careers,add
+Hungryroot,https://www.hungryroot.com/careers,company-site,3,North America,Official careers page,hungryroot,https://hungryroot.com/careers,add
+Kodiak Robotics,https://kodiak.ai/careers,company-site,3,North America,Official careers page,kodiakrobotics,https://kodiak.ai/careers,add
+Kolide,https://www.kolide.com/careers,company-site,3,North America,Official careers page,kolide,https://kolide.com/careers,add
+LevelTen Energy,https://www.leveltenenergy.com/careers,company-site,3,North America,Official careers page,leveltenenergy,https://leveltenenergy.com/careers,add
+LimaCharlie,https://limacharlie.io/careers,company-site,3,North America,Official careers page,limacharlie,https://limacharlie.io/careers,add
+Lunar Energy,https://www.lunarenergy.com/careers,company-site,3,North America,Official careers page,lunarenergy,https://lunarenergy.com/careers,add
+M1 Finance,https://m1.com/careers,company-site,3,North America,Official careers page,m1finance,https://m1.com/careers,add
+May Mobility,https://maymobility.com/careers,company-site,3,North America,Official careers page,maymobility,https://maymobility.com/careers,duplicate_existing_production_source_url
+Meltano,https://meltano.com/careers,company-site,3,North America,Official careers page,meltano,https://meltano.com/careers,add
+Middesk,https://www.middesk.com/careers,company-site,3,North America,Official careers page,middesk,https://middesk.com/careers,add
+Midi Health,https://www.joinmidi.com/careers,company-site,3,North America,Official careers page,midihealth,https://joinmidi.com/careers,add
+NCX,https://ncx.com/careers,company-site,3,North America,Official careers page,ncx,https://ncx.com/careers,add
+Nomi Health,https://nomihealth.com/careers,company-site,3,North America,Official careers page,nomihealth,https://nomihealth.com/careers,add
+NorthOne,https://www.northone.com/careers,company-site,3,North America,Official careers page,northone,https://northone.com/careers,add
+Notable,https://jobs.ashbyhq.com/notable,ashby,3,North America,Direct Ashby board,notable,https://jobs.ashbyhq.com/notable,duplicate_existing_production_source_url
+Novo,https://www.novo.co/careers,company-site,3,North America,Official careers page,novo,https://novo.co/careers,add
+OhmConnect,https://www.ohmconnect.com/careers,company-site,3,North America,Official careers page,ohmconnect,https://ohmconnect.com/careers,add
+Outdoorsy,https://www.outdoorsy.com/careers,company-site,3,North America,Official careers page,outdoorsy,https://outdoorsy.com/careers,add
+Parsley Health,https://www.parsleyhealth.com/careers,company-site,3,North America,Official careers page,parsleyhealth,https://parsleyhealth.com/careers,add
+Peek,https://www.peek.com/careers,company-site,3,North America,Official careers page,peek,https://peek.com/careers,add
+Plenty,https://www.plenty.ag/careers,company-site,3,North America,Official careers page,plenty,https://plenty.ag/careers,add
+Prefect,https://www.prefect.io/careers,company-site,3,North America,Official careers page,prefect,https://prefect.io/careers,add
+Pylon,https://www.usepylon.com/careers,company-site,3,North America,Official careers page,pylon,https://usepylon.com/careers,add
+Raptor Maps,https://raptormaps.com/careers,company-site,3,North America,Official careers page,raptormaps,https://raptormaps.com/careers,add
+Reka AI,https://www.reka.ai/careers,company-site,3,North America,Official careers page,rekaai,https://reka.ai/careers,add
+Roadie,https://www.roadie.com/careers,company-site,3,North America,Official careers page,roadie,https://roadie.com/careers,add
+Sealed,https://sealed.com/careers,company-site,3,North America,Official careers page,sealed,https://sealed.com/careers,add
+SentiLink,https://www.sentilink.com/careers,company-site,3,North America,Official careers page,sentilink,https://sentilink.com/careers,add
+Shortcut,https://shortcut.com/careers,company-site,3,North America,Official careers page,shortcut,https://shortcut.com/careers,add
+Sidecar Health,https://sidecarhealth.com/careers,company-site,3,North America,Official careers page,sidecarhealth,https://sidecarhealth.com/careers,add
+SonderMind,https://www.sondermind.com/careers,company-site,3,North America,Official careers page,sondermind,https://sondermind.com/careers,add
+Stoke Space,https://www.stokespace.com/careers,company-site,3,North America,Official careers page,stokespace,https://stokespace.com/careers,add
+StrongDM,https://www.strongdm.com/careers,company-site,3,North America,Official careers page,strongdm,https://strongdm.com/careers,add
+Sublime Security,https://sublime.security/careers,company-site,3,North America,Official careers page,sublimesecurity,https://sublime.security/careers,add
+Teachable,https://teachable.com/careers,company-site,3,North America,Official careers page,teachable,https://teachable.com/careers,add
+Teampay,https://www.teampay.co/careers,company-site,3,North America,Official careers page,teampay,https://teampay.co/careers,add
+Thinkific,https://www.thinkific.com/careers/,company-site,3,North America,Official careers page,thinkific,https://thinkific.com/careers,add
+Thoropass,https://www.thoropass.com/careers,company-site,3,North America,Official careers page,thoropass,https://thoropass.com/careers,add
+Tia,https://asktia.com/careers,company-site,3,North America,Official careers page,tia,https://asktia.com/careers,add
+Titan,https://www.titan.com/careers,company-site,3,North America,Official careers page,titan,https://titan.com/careers,add
+Totango,https://www.totango.com/careers,company-site,3,North America,Official careers page,totango,https://totango.com/careers,add
+Transfix,https://transfix.io/careers,company-site,3,North America,Official careers page,transfix,https://transfix.io/careers,add
+Twingate,https://www.twingate.com/careers,company-site,3,North America,Official careers page,twingate,https://twingate.com/careers,add
+Type One Energy,https://typeoneenergy.com/careers,company-site,3,North America,Official careers page,typeoneenergy,https://typeoneenergy.com/careers,add
+Valimail,https://www.valimail.com/careers/,company-site,3,North America,Official careers page,valimail,https://valimail.com/careers,add
+Verge Genomics,https://www.vergegenomics.com/careers,company-site,3,North America,Official careers page,vergegenomics,https://vergegenomics.com/careers,add
+Vitally,https://www.vitally.io/careers,company-site,3,North America,Official careers page,vitally,https://vitally.io/careers,add
+Wellthy,https://wellthy.com/careers,company-site,3,North America,Official careers page,wellthy,https://wellthy.com/careers,add
+accuRx,https://www.accurx.com/careers,company-site,3,Europe,Official careers page,accurx,https://accurx.com/careers,add
+Akur8,https://akur8.com/careers,company-site,3,Europe,Official careers page,akur8,https://akur8.com/careers,add
+ANYbotics,https://www.anybotics.com/careers,company-site,3,Europe,Official careers page,anybotics,https://anybotics.com/careers,add
+Anyfin,https://www.anyfin.com/careers/,company-site,3,Europe,Official careers page,anyfin,https://anyfin.com/careers,add
+Aqemia,https://www.aqemia.com/careers,company-site,3,Europe,Official careers page,aqemia,https://aqemia.com/careers,add
+Banked,https://banked.com/careers,company-site,3,Europe,Official careers page,banked,https://banked.com/careers,add
+Beekeeper,https://www.beekeeper.io/careers/,company-site,3,Europe,Official careers page,beekeeper,https://beekeeper.io/careers,add
+Blacklane,https://www.blacklane.com/en/career/,company-site,3,Europe,Official careers page,blacklane,https://blacklane.com/en/career,add
+Bob W,https://www.bobw.co/careers,company-site,3,Europe,Official careers page,bobw,https://bobw.co/careers,add
+Candis,https://www.candis.io/en/careers,company-site,3,Europe,Official careers page,candis,https://candis.io/en/careers,add
+CarbonChain,https://www.carbonchain.com/careers,company-site,3,Europe,Official careers page,carbonchain,https://carbonchain.com/careers,add
+Casavo,https://casavo.com/careers/,company-site,3,Europe,Official careers page,casavo,https://casavo.com/careers,add
+CausaLens,https://causalens.com/careers,company-site,3,Europe,Official careers page,causalens,https://causalens.com/careers,add
+Chip,https://www.getchip.uk/careers,company-site,3,Europe,Official careers page,chip,https://getchip.uk/careers,add
+Civitatis,https://www.civitatis.com/en/careers/,company-site,3,Europe,Official careers page,civitatis,https://civitatis.com/en/careers,add
+Climate X,https://www.climate-x.com/careers,company-site,3,Europe,Official careers page,climatex,https://climate-x.com/careers,add
+Codat,https://www.codat.io/careers,company-site,3,Europe,Official careers page,codat,https://codat.io/careers,add
+Coverflex,https://www.coverflex.com/careers,company-site,3,Europe,Official careers page,coverflex,https://coverflex.com/careers,add
+Cowboy,https://cowboy.com/careers,company-site,3,Europe,Official careers page,cowboy,https://cowboy.com/careers,add
+D-Orbit,https://www.dorbit.space/careers,company-site,3,Europe,Official careers page,dorbit,https://dorbit.space/careers,add
+Detectify,https://detectify.com/careers,company-site,3,Europe,Official careers page,detectify,https://detectify.com/careers,add
+Doccla,https://www.doccla.com/careers,company-site,3,Europe,Official careers page,doccla,https://doccla.com/careers,add
+Dott,https://ridedott.com/careers,company-site,3,Europe,Official careers page,dott,https://ridedott.com/careers,add
+Dust,https://dust.tt/careers,company-site,3,Europe,Official careers page,dust,https://dust.tt/careers,add
+Estrid,https://estrid.com/careers,company-site,3,Europe,Official careers page,estrid,https://estrid.com/careers,add
+Exoticca,https://www.exoticca.com/us/careers,company-site,3,Europe,Official careers page,exoticca,https://exoticca.com/us/careers,add
+Finom,https://finom.co/careers,company-site,3,Europe,Official careers page,finom,https://finom.co/careers,add
+First Light Fusion,https://firstlightfusion.com/careers/,company-site,3,Europe,Official careers page,firstlightfusion,https://firstlightfusion.com/careers,add
+Fishbrain,https://fishbrain.com/careers,company-site,3,Europe,Official careers page,fishbrain,https://fishbrain.com/careers,add
+Flink,https://www.goflink.com/en/careers/,company-site,3,Europe,Official careers page,flink,https://goflink.com/en/careers,add
+Florence,https://www.florence.co.uk/careers,company-site,3,Europe,Official careers page,florence,https://florence.co.uk/careers,add
+Frontify,https://www.frontify.com/en/careers/,company-site,3,Europe,Official careers page,frontify,https://frontify.com/en/careers,add
+Funnel,https://funnel.io/careers,company-site,3,Europe,Official careers page,funnel,https://funnel.io/careers,add
+Happeo,https://www.happeo.com/careers,company-site,3,Europe,Official careers page,happeo,https://happeo.com/careers,add
+Healx,https://www.healx.io/careers,company-site,3,Europe,Official careers page,healx,https://healx.io/careers,add
+Holded,https://www.holded.com/careers,company-site,3,Europe,Official careers page,holded,https://holded.com/careers,add
+Holidu,https://www.holidu.com/careers,company-site,3,Europe,Official careers page,holidu,https://holidu.com/careers,add
+HousingAnywhere,https://housinganywhere.com/careers,company-site,3,Europe,Official careers page,housinganywhere,https://housinganywhere.com/careers,add
+Humaans,https://humaans.io/careers,company-site,3,Europe,Official careers page,humaans,https://humaans.io/careers,add
+Kayrros,https://www.kayrros.com/careers,company-site,3,Europe,Official careers page,kayrros,https://kayrros.com/careers,add
+Langfuse,https://langfuse.com/careers,company-site,3,Europe,Official careers page,langfuse,https://langfuse.com/careers,duplicate_existing_production_source_url
+lemlist,https://www.lemlist.com/careers,company-site,3,Europe,Official careers page,lemlist,https://lemlist.com/careers,add
+Lodgify,https://www.lodgify.com/careers/,company-site,3,Europe,Official careers page,lodgify,https://lodgify.com/careers,add
+Mentimeter,https://www.mentimeter.com/careers,company-site,3,Europe,Official careers page,mentimeter,https://mentimeter.com/careers,add
+MindMaze,https://www.mindmaze.com/careers/,company-site,3,Europe,Official careers page,mindmaze,https://mindmaze.com/careers,add
+Monese,https://monese.com/careers,company-site,3,Europe,Official careers page,monese,https://monese.com/careers,add
+Moneybox,https://www.moneyboxapp.com/careers,company-site,3,Europe,Official careers page,moneybox,https://moneyboxapp.com/careers,add
+Moonfare,https://www.moonfare.com/careers,company-site,3,Europe,Official careers page,moonfare,https://moonfare.com/careers,add
+Mundimoto,https://mundimoto.com/careers,company-site,3,Europe,Official careers page,mundimoto,https://mundimoto.com/careers,add
+Normative,https://normative.io/careers,company-site,3,Europe,Official careers page,normative,https://normative.io/careers,add
+Ornikar,https://www.ornikar.com/careers,company-site,3,Europe,Official careers page,ornikar,https://ornikar.com/careers,add
+Otovo,https://www.otovo.com/careers,company-site,3,Europe,Official careers page,otovo,https://otovo.com/careers,add
+Otrium,https://www.otrium.com/careers,company-site,3,Europe,Official careers page,otrium,https://otrium.com/careers,add
+Paack,https://paack.co/careers,company-site,3,Europe,Official careers page,paack,https://paack.co/careers,add
+Peppy,https://peppy.health/careers,company-site,3,Europe,Official careers page,peppy,https://peppy.health/careers,add
+Pinpoint,https://www.pinpointhq.com/careers,company-site,3,Europe,Official careers page,pinpoint,https://pinpointhq.com/careers,add
+Plain,https://www.plain.com/careers,company-site,3,Europe,Official careers page,plain,https://plain.com/careers,add
+Plan A,https://plana.earth/careers/,company-site,3,Europe,Official careers page,plana,https://plana.earth/careers,add
+Planhat,https://www.planhat.com/careers,company-site,3,Europe,Official careers page,planhat,https://planhat.com/careers,add
+Planted Foods,https://plantedfoods.com/careers,company-site,3,Europe,Official careers page,plantedfoods,https://plantedfoods.com/careers,add
+Pliant,https://www.getpliant.com/careers,company-site,3,Europe,Official careers page,pliant,https://getpliant.com/careers,add
+Podimo,https://podimo.com/careers,company-site,3,Europe,Official careers page,podimo,https://podimo.com/careers,add
+Qdrant,https://qdrant.tech/careers,company-site,3,Europe,Official careers page,qdrant,https://qdrant.tech/careers,add
+Quell Therapeutics,https://www.quell-tx.com/careers,company-site,3,Europe,Official careers page,quelltherapeutics,https://quell-tx.com/careers,add
+Razor Group,https://www.razor-group.com/careers,company-site,3,Europe,Official careers page,razorgroup,https://razor-group.com/careers,add
+Red Points,https://www.redpoints.com/careers,company-site,3,Europe,Official careers page,redpoints,https://redpoints.com/careers,add
+SellerX,https://sellerx.com/careers,company-site,3,Europe,Official careers page,sellerx,https://sellerx.com/careers,add
+Spotahome,https://www.spotahome.com/careers,company-site,3,Europe,Official careers page,spotahome,https://spotahome.com/careers,add
+Talent Garden,https://talentgarden.com/careers/,company-site,3,Europe,Official careers page,talentgarden,https://talentgarden.com/careers,add
+Teamleader,https://www.teamleader.com/careers/,company-site,3,Europe,Official careers page,teamleader,https://teamleader.com/careers,add
+Tibber,https://tibber.com/careers,company-site,3,Europe,Official careers page,tibber,https://tibber.com/careers,add
+Tiqets,https://www.tiqets.com/en/careers/,company-site,3,Europe,Official careers page,tiqets,https://tiqets.com/en/careers,add
+Uncapped,https://www.weareuncapped.com/careers,company-site,3,Europe,Official careers page,uncapped,https://weareuncapped.com/careers,duplicate_existing_production_source_url
+Unmind,https://unmind.com/careers,company-site,3,Europe,Official careers page,unmind,https://unmind.com/careers,add
+Urban Sports Club,https://urbansportsclub.com/en/careers,company-site,3,Europe,Official careers page,urbansportsclub,https://urbansportsclub.com/en/careers,add
+Ynsect,https://www.ynsect.com/careers,company-site,3,Europe,Official careers page,ynsect,https://ynsect.com/careers,add
+Yonder,https://www.yonder.com/careers,company-site,3,Europe,Official careers page,yonder,https://yonder.com/careers,add
+YuLife,https://yulife.com/careers,company-site,3,Europe,Official careers page,yulife,https://yulife.com/careers,add
+99.co,https://www.99.co/careers,company-site,3,Asia-Pacific,Official careers page,99co,https://99.co/careers,add
+Aruna,https://aruna.id/careers,company-site,3,Asia-Pacific,Official careers page,aruna,https://aruna.id/careers,add
+AskNicely,https://www.asknicely.com/careers,company-site,3,Asia-Pacific,Official careers page,asknicely,https://asknicely.com/careers,add
+Astroscale,https://astroscale.com/careers/,company-site,3,Asia-Pacific,Official careers page,astroscale,https://astroscale.com/careers,add
+Athena Home Loans,https://www.athena.com.au/careers,company-site,3,Asia-Pacific,Official careers page,athenahomeloans,https://athena.com.au/careers,add
+Auror,https://www.auror.co/careers,company-site,3,Asia-Pacific,Official careers page,auror,https://auror.co/careers,add
+AutoX,https://www.autox.ai/careers,company-site,3,Asia-Pacific,Official careers page,autox,https://autox.ai/careers,add
+Bibit,https://bibit.id/career,company-site,3,Asia-Pacific,Official careers page,bibit,https://bibit.id/career,add
+BillEase,https://billease.ph/careers,company-site,3,Asia-Pacific,Official careers page,billease,https://billease.ph/careers,add
+Biofourmis,https://biofourmis.com/careers,company-site,3,Asia-Pacific,Official careers page,biofourmis,https://biofourmis.com/careers,add
+Brighte,https://brighte.com.au/careers,company-site,3,Asia-Pacific,Official careers page,brighte,https://brighte.com.au/careers,add
+BukuKas,https://www.bukukas.co.id/careers,company-site,3,Asia-Pacific,Official careers page,bukukas,https://bukukas.co.id/careers,add
+BukuWarung,https://www.bukuwarung.com/careers,company-site,3,Asia-Pacific,Official careers page,bukuwarung,https://bukuwarung.com/careers,add
+CADDi,https://caddi.com/careers/,company-site,3,Asia-Pacific,Official careers page,caddi,https://caddi.com/careers,add
+Coins.ph,https://coins.ph/careers,company-site,3,Asia-Pacific,Official careers page,coinsph,https://coins.ph/careers,add
+Deliveree,https://www.deliveree.com/careers,company-site,3,Asia-Pacific,Official careers page,deliveree,https://deliveree.com/careers,add
+Doctor Anywhere,https://doctoranywhere.com/careers,company-site,3,Asia-Pacific,Official careers page,doctoranywhere,https://doctoranywhere.com/careers,add
+Edamama,https://www.edamama.ph/careers,company-site,3,Asia-Pacific,Official careers page,edamama,https://edamama.ph/careers,add
+eFishery,https://efishery.com/careers,company-site,3,Asia-Pacific,Official careers page,efishery,https://efishery.com/careers,add
+Endowus,https://endowus.com/careers,company-site,3,Asia-Pacific,Official careers page,endowus,https://endowus.com/careers,add
+Flash Express,https://www.flashexpress.com/careers,company-site,3,Asia-Pacific,Official careers page,flashexpress,https://flashexpress.com/careers,add
+Fleet Space Technologies,https://fleetspace.com/careers,company-site,3,Asia-Pacific,Official careers page,fleetspacetechnologies,https://fleetspace.com/careers,add
+Funding Societies,https://fundingsocieties.com/careers,company-site,3,Asia-Pacific,Official careers page,fundingsocieties,https://fundingsocieties.com/careers,add
+Gilmour Space,https://www.gspace.com/careers,company-site,3,Asia-Pacific,Official careers page,gilmourspace,https://gspace.com/careers,add
+GITAI,https://gitai.tech/careers/,company-site,3,Asia-Pacific,Official careers page,gitai,https://gitai.tech/careers,add
+GrowSari,https://growsari.com/careers,company-site,3,Asia-Pacific,Official careers page,growsari,https://growsari.com/careers,add
+Halter,https://halterhq.com/careers,company-site,3,Asia-Pacific,Official careers page,halter,https://halterhq.com/careers,add
+Harrison.ai,https://harrison.ai/careers,company-site,3,Asia-Pacific,Official careers page,harrisonai,https://harrison.ai/careers,add
+Heidi Health,https://www.heidihealth.com/careers,company-site,3,Asia-Pacific,Official careers page,heidihealth,https://heidihealth.com/careers,add
+Hnry,https://hnry.co.nz/careers,company-site,3,Asia-Pacific,Official careers page,hnry,https://hnry.co.nz/careers,add
+Holmusk,https://www.holmusk.com/careers,company-site,3,Asia-Pacific,Official careers page,holmusk,https://holmusk.com/careers,add
+Homage,https://www.homage.sg/careers,company-site,3,Asia-Pacific,Official careers page,homage,https://homage.sg/careers,add
+ispace,https://ispace-inc.com/careers,company-site,3,Asia-Pacific,Official careers page,ispace,https://ispace-inc.com/careers,add
+Joyous,https://www.joyoushq.com/careers,company-site,3,Asia-Pacific,Official careers page,joyous,https://joyoushq.com/careers,add
+Kami,https://www.kamiapp.com/careers,company-site,3,Asia-Pacific,Official careers page,kami,https://kamiapp.com/careers,add
+KKday,https://www.kkday.com/en/careers,company-site,3,Asia-Pacific,Official careers page,kkday,https://kkday.com/en/careers,add
+Kumu,https://www.kumu.ph/careers,company-site,3,Asia-Pacific,Official careers page,kumu,https://kumu.ph/careers,add
+LayerX,https://layerx.co.jp/careers,company-site,3,Asia-Pacific,Official careers page,layerx,https://layerx.co.jp/careers,add
+Lyka,https://lyka.com.au/careers,company-site,3,Asia-Pacific,Official careers page,lyka,https://lyka.com.au/careers,add
+Mr Yum,https://www.mryum.com/careers,company-site,3,Asia-Pacific,Official careers page,mryum,https://mryum.com/careers,add
+Mutinex,https://mutinex.co/careers,company-site,3,Asia-Pacific,Official careers page,mutinex,https://mutinex.co/careers,add
+mx51,https://mx51.io/careers,company-site,3,Asia-Pacific,Official careers page,mx51,https://mx51.io/careers,add
+Neara,https://neara.com/careers,company-site,3,Asia-Pacific,Official careers page,neara,https://neara.com/careers,add
+PayMongo,https://www.paymongo.com/careers,company-site,3,Asia-Pacific,Official careers page,paymongo,https://paymongo.com/careers,add
+Pluang,https://pluang.com/careers,company-site,3,Asia-Pacific,Official careers page,pluang,https://pluang.com/careers,add
+Pomelo Fashion,https://www.pomelofashion.com/careers,company-site,3,Asia-Pacific,Official careers page,pomelofashion,https://pomelofashion.com/careers,add
+Qwilr,https://qwilr.com/careers,company-site,3,Asia-Pacific,Official careers page,qwilr,https://qwilr.com/careers,add
+RedDoorz,https://www.reddoorz.com/careers,company-site,3,Asia-Pacific,Official careers page,reddoorz,https://reddoorz.com/careers,add
+Riiid,https://riiid.com/careers,company-site,3,Asia-Pacific,Official careers page,riiid,https://riiid.com/careers,add
+Sayurbox,https://www.sayurbox.com/careers,company-site,3,Asia-Pacific,Official careers page,sayurbox,https://sayurbox.com/careers,add
+Sendle,https://www.sendle.com/careers,company-site,3,Asia-Pacific,Official careers page,sendle,https://sendle.com/careers,add
+Sharesies,https://www.sharesies.nz/careers,company-site,3,Asia-Pacific,Official careers page,sharesies,https://sharesies.nz/careers,add
+SIRCLO,https://www.sirclo.com/careers,company-site,3,Asia-Pacific,Official careers page,sirclo,https://sirclo.com/careers,add
+Skedulo,https://www.skedulo.com/careers/,company-site,3,Asia-Pacific,Official careers page,skedulo,https://skedulo.com/careers,duplicate_existing_production_source_url
+SOCAR,https://www.socar.kr/career,company-site,3,Asia-Pacific,Official careers page,socar,https://socar.kr/career,add
+Sociolla,https://www.sociolla.com/careers,company-site,3,Asia-Pacific,Official careers page,sociolla,https://sociolla.com/careers,add
+Spenmo,https://spenmo.com/careers,company-site,3,Asia-Pacific,Official careers page,spenmo,https://spenmo.com/careers,add
+Spiber,https://spiber.inc/en/careers/,company-site,3,Asia-Pacific,Official careers page,spiber,https://spiber.inc/en/careers,add
+Stockbit,https://stockbit.com/career,company-site,3,Asia-Pacific,Official careers page,stockbit,https://stockbit.com/career,add
+Syfe,https://www.syfe.com/careers,company-site,3,Asia-Pacific,Official careers page,syfe,https://syfe.com/careers,add
+Synspective,https://synspective.com/careers/,company-site,3,Asia-Pacific,Official careers page,synspective,https://synspective.com/careers,add
+The Parentinc,https://www.theparentinc.com/careers,company-site,3,Asia-Pacific,Official careers page,theparentinc,https://theparentinc.com/careers,add
+Timee,https://corp.timee.co.jp/careers/,company-site,3,Asia-Pacific,Official careers page,timee,https://corp.timee.co.jp/careers,add
+Trusting Social,https://trustingsocial.com/careers,company-site,3,Asia-Pacific,Official careers page,trustingsocial,https://trustingsocial.com/careers,add
+Ubie,https://ubie.life/careers,company-site,3,Asia-Pacific,Official careers page,ubie,https://ubie.life/careers,add
+Una Brands,https://una-brands.com/careers,company-site,3,Asia-Pacific,Official careers page,unabrands,https://una-brands.com/careers,add
+Up Bank,https://up.com.au/careers,company-site,3,Asia-Pacific,Official careers page,upbank,https://up.com.au/careers,add
+Validus,https://validus.sg/careers,company-site,3,Asia-Pacific,Official careers page,validus,https://validus.sg/careers,add
+YouTrip,https://www.you.co/en-SG/careers/,company-site,3,Asia-Pacific,Official careers page,youtrip,https://you.co/en-SG/careers,add
+CropIn,https://www.cropin.com/careers,company-site,3,India,Official careers page,cropin,https://cropin.com/careers,add
+Curefoods,https://curefoods.in/careers,company-site,3,India,Official careers page,curefoods,https://curefoods.in/careers,add
+Dunzo,https://www.dunzo.com/careers,company-site,3,India,Official careers page,dunzo,https://dunzo.com/careers,duplicate_existing_production_source_url
+HealthifyMe,https://www.healthifyme.com/careers,company-site,3,India,Official careers page,healthifyme,https://healthifyme.com/careers,duplicate_existing_production_source_url
+KreditBee,https://www.kreditbee.in/careers,company-site,3,India,Official careers page,kreditbee,https://kreditbee.in/careers,add
+Lendingkart,https://www.lendingkart.com/careers,company-site,3,India,Official careers page,lendingkart,https://lendingkart.com/careers,add
+OkCredit,https://okcredit.in/careers,company-site,3,India,Official careers page,okcredit,https://okcredit.in/careers,add
+Vedantu,https://www.vedantu.com/careers,company-site,3,India,Official careers page,vedantu,https://vedantu.com/careers,duplicate_existing_production_source_url
+Wakefit,https://www.wakefit.co/careers,company-site,3,India,Official careers page,wakefit,https://wakefit.co/careers,add
+WebEngage,https://webengage.com/careers/,company-site,3,India,Official careers page,webengage,https://webengage.com/careers,add
+Albo,https://www.albo.mx/careers,company-site,3,Latin America,Official careers page,albo,https://albo.mx/careers,add
+Celcoin,https://www.celcoin.com.br/carreiras,company-site,3,Latin America,Official careers page,celcoin,https://celcoin.com.br/carreiras,add
+Conekta,https://www.conekta.com/careers,company-site,3,Latin America,Official careers page,conekta,https://conekta.com/careers,add
+Cora,https://www.cora.com.br/carreiras,company-site,3,Latin America,Official careers page,cora,https://cora.com.br/carreiras,add
+Fintoc,https://fintoc.com/careers,company-site,3,Latin America,Official careers page,fintoc,https://fintoc.com/careers,add
+Fondeadora,https://fondeadora.com/careers,company-site,3,Latin America,Official careers page,fondeadora,https://fondeadora.com/careers,add
+Frubana,https://frubana.com/careers,company-site,3,Latin America,Official careers page,frubana,https://frubana.com/careers,add
+Jüsto,https://justo.mx/careers,company-site,3,Latin America,Official careers page,jsto,https://justo.mx/careers,add
+La Haus,https://www.lahaus.com/careers,company-site,3,Latin America,Official careers page,lahaus,https://lahaus.com/careers,add
+Merama,https://merama.io/careers,company-site,3,Latin America,Official careers page,merama,https://merama.io/careers,add
+Minu,https://www.minu.mx/careers,company-site,3,Latin America,Official careers page,minu,https://minu.mx/careers,add
+Nelo,https://www.nelo.mx/careers,company-site,3,Latin America,Official careers page,nelo,https://nelo.mx/careers,add
+Nowports,https://nowports.com/careers,company-site,3,Latin America,Official careers page,nowports,https://nowports.com/careers,add
+Pagsmile,https://www.pagsmile.com/careers,company-site,3,Latin America,Official careers page,pagsmile,https://pagsmile.com/careers,add
+Pier,https://www.pier.digital/carreiras,company-site,3,Latin America,Official careers page,pier,https://pier.digital/carreiras,add
+Pomelo,https://www.pomelo.la/careers,company-site,3,Latin America,Official careers page,pomelo,https://pomelo.la/careers,add
+R2,https://r2.co/careers,company-site,3,Latin America,Official careers page,r2,https://r2.co/careers,add
+Simetrik,https://www.simetrik.com/careers,company-site,3,Latin America,Official careers page,simetrik,https://simetrik.com/careers,add
+Tenpo,https://tenpo.cl/careers,company-site,3,Latin America,Official careers page,tenpo,https://tenpo.cl/careers,add
+TUL,https://tul.co/careers,company-site,3,Latin America,Official careers page,tul,https://tul.co/careers,add
+UBITS,https://ubits.com/careers,company-site,3,Latin America,Official careers page,ubits,https://ubits.com/careers,add
+Zubale,https://www.zubale.com/careers,company-site,3,Latin America,Official careers page,zubale,https://zubale.com/careers,add
+Altibbi,https://altibbi.com/careers,company-site,3,Middle East,Official careers page,altibbi,https://altibbi.com/careers,add
+Bayzat,https://www.bayzat.com/careers,company-site,3,Middle East,Official careers page,bayzat,https://bayzat.com/careers,add
+Breadfast,https://www.breadfast.com/careers,company-site,3,Middle East,Official careers page,breadfast,https://breadfast.com/careers,add
+Chefaa,https://chefaa.com/careers,company-site,3,Middle East,Official careers page,chefaa,https://chefaa.com/careers,add
+Eyewa,https://www.eyewa.com/careers,company-site,3,Middle East,Official careers page,eyewa,https://eyewa.com/careers,add
+FlexxPay,https://www.flexxpay.com/careers,company-site,3,Middle East,Official careers page,flexxpay,https://flexxpay.com/careers,add
+Huspy,https://huspy.com/careers,company-site,3,Middle East,Official careers page,huspy,https://huspy.com/careers,add
+Khazna,https://khazna.app/careers,company-site,3,Middle East,Official careers page,khazna,https://khazna.app/careers,add
+Lean Technologies,https://leantech.me/careers,company-site,3,Middle East,Official careers page,leantechnologies,https://leantech.me/careers,add
+Lucidya,https://lucidya.com/careers,company-site,3,Middle East,Official careers page,lucidya,https://lucidya.com/careers,add
+Morni,https://morni.com/careers,company-site,3,Middle East,Official careers page,morni,https://morni.com/careers,add
+Mozn,https://mozn.sa/careers,company-site,3,Middle East,Official careers page,mozn,https://mozn.sa/careers,add
+Mrsool,https://mrsool.co/careers,company-site,3,Middle East,Official careers page,mrsool,https://mrsool.co/careers,add
+Mumzworld,https://www.mumzworld.com/careers,company-site,3,Middle East,Official careers page,mumzworld,https://mumzworld.com/careers,add
+Nana,https://nana.sa/careers,company-site,3,Middle East,Official careers page,nana,https://nana.sa/careers,add
+Okadoc,https://www.okadoc.com/careers,company-site,3,Middle East,Official careers page,okadoc,https://okadoc.com/careers,add
+Pure Harvest Smart Farms,https://pureharvest.com/careers,company-site,3,Middle East,Official careers page,pureharvestsmartfarms,https://pureharvest.com/careers,add
+Quiqup,https://www.quiqup.com/careers,company-site,3,Middle East,Official careers page,quiqup,https://quiqup.com/careers,add
+Salla,https://salla.com/careers,company-site,3,Middle East,Official careers page,salla,https://salla.com/careers,add
+Sarwa,https://www.sarwa.co/careers,company-site,3,Middle East,Official careers page,sarwa,https://sarwa.co/careers,add
+Stake,https://stake.properties/careers,company-site,3,Middle East,Official careers page,stake,https://stake.properties/careers,add
+Tarabut,https://tarabut.com/careers,company-site,3,Middle East,Official careers page,tarabut,https://tarabut.com/careers,add
+TruKKer,https://trukker.com/careers,company-site,3,Middle East,Official careers page,trukker,https://trukker.com/careers,add
+Zid,https://zid.sa/careers,company-site,3,Middle East,Official careers page,zid,https://zid.sa/careers,add
+Ziina,https://www.ziina.com/careers,company-site,3,Middle East,Official careers page,ziina,https://ziina.com/careers,add
+Apollo Agriculture,https://www.apolloagriculture.com/careers,company-site,3,Africa,Official careers page,apolloagriculture,https://apolloagriculture.com/careers,add
+Autochek,https://autochek.africa/careers,company-site,3,Africa,Official careers page,autochek,https://autochek.africa/careers,add
+Bboxx,https://www.bboxx.com/careers,company-site,3,Africa,Official careers page,bboxx,https://bboxx.com/careers,add
+Carbon,https://ng.getcarbon.co/careers,company-site,3,Africa,Official careers page,carbon,https://ng.getcarbon.co/careers,add
+Carry1st,https://www.carry1st.com/careers,company-site,3,Africa,Official careers page,carry1st,https://carry1st.com/careers,add
+Chari,https://chari.com/careers,company-site,3,Africa,Official careers page,chari,https://chari.com/careers,add
+Cowrywise,https://cowrywise.com/careers,company-site,3,Africa,Official careers page,cowrywise,https://cowrywise.com/careers,add
+FairMoney,https://fairmoney.io/careers,company-site,3,Africa,Official careers page,fairmoney,https://fairmoney.io/careers,add
+JUMO,https://www.jumo.world/careers,company-site,3,Africa,Official careers page,jumo,https://jumo.world/careers,add
+Kippa,https://www.kippa.africa/careers,company-site,3,Africa,Official careers page,kippa,https://kippa.africa/careers,add
+Kobo360,https://www.kobo360.com/careers,company-site,3,Africa,Official careers page,kobo360,https://kobo360.com/careers,add
+KOKO Networks,https://kokonetworks.com/careers,company-site,3,Africa,Official careers page,kokonetworks,https://kokonetworks.com/careers,add
+Lori Systems,https://www.lorisystems.com/careers,company-site,3,Africa,Official careers page,lorisystems,https://lorisystems.com/careers,add
+Mukuru,https://www.mukuru.com/careers,company-site,3,Africa,Official careers page,mukuru,https://mukuru.com/careers,add
+Nala,https://www.nala.com/careers,company-site,3,Africa,Official careers page,nala,https://nala.com/careers,add
+Ozow,https://ozow.com/careers,company-site,3,Africa,Official careers page,ozow,https://ozow.com/careers,add
+Paga,https://paga.com/careers,company-site,3,Africa,Official careers page,paga,https://paga.com/careers,add
+PiggyVest,https://www.piggyvest.com/careers,company-site,3,Africa,Official careers page,piggyvest,https://piggyvest.com/careers,add
+Pula,https://www.pula.io/careers,company-site,3,Africa,Official careers page,pula,https://pula.io/careers,add
+SweepSouth,https://sweepsouth.com/careers,company-site,3,Africa,Official careers page,sweepsouth,https://sweepsouth.com/careers,add
+TradeDepot,https://www.tradedepot.co/careers,company-site,3,Africa,Official careers page,tradedepot,https://tradedepot.co/careers,add
+Twiga Foods,https://twiga.com/careers,company-site,3,Africa,Official careers page,twigafoods,https://twiga.com/careers,add
+Wasoko,https://wasoko.com/careers,company-site,3,Africa,Official careers page,wasoko,https://wasoko.com/careers,add
+Zindi,https://zindi.africa/careers,company-site,3,Africa,Official careers page,zindi,https://zindi.africa/careers,add
+ZOLA Electric,https://zolaelectric.com/careers,company-site,3,Africa,Official careers page,zolaelectric,https://zolaelectric.com/careers,add

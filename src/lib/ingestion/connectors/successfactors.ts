@@ -483,7 +483,7 @@ async function fetchText(url: string, signal?: AbortSignal) {
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-successfactors/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-successfactors/1.0)",
     },
     signal: buildTimeoutSignal(signal, 45_000),
   });

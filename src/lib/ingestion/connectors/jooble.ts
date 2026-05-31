@@ -1569,7 +1569,7 @@ async function fetchJoobleSearchPage(input: {
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-jooble/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-jooble/1.0)",
     },
     body: JSON.stringify({
       keywords: input.keyword,
