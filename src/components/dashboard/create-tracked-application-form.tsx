@@ -1,13 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
-import { createTrackedApplicationAction } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useActionToast } from "@/components/ui/use-action-toast";
+import { useNotifications } from "@/components/ui/notification-provider";
 
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
@@ -19,28 +18,66 @@ function SubmitButton({ pending }: { pending: boolean }) {
 
 export function CreateTrackedApplicationForm() {
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
-  const [state, action, pending] = useActionState(createTrackedApplicationAction, {
-    error: null,
-    success: null,
-    createdApplicationId: null,
-  });
-  useActionToast(state, {
-    successTitle: "Application added",
-    errorTitle: "Could not add application",
-  });
+  const { notify } = useNotifications();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!state.success || !state.createdApplicationId) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) {
       return;
     }
 
-    formRef.current?.reset();
-    router.refresh();
-  }, [router, state.createdApplicationId, state.success]);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setPending(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: formData.get("company"),
+          roleTitle: formData.get("roleTitle"),
+          roleUrl: formData.get("roleUrl"),
+          status: formData.get("status"),
+          deadline: formData.get("deadline"),
+          reminder: formData.get("reminder"),
+        }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        error?: string;
+        success?: string;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Could not add application.");
+      }
+
+      form.reset();
+      notify({
+        title: "Application added",
+        message: data?.success ?? "Tracked application added.",
+        tone: "success",
+      });
+      router.refresh();
+    } catch (submitError) {
+      const message =
+        submitError instanceof Error ? submitError.message : "Could not add application.";
+      setError(message);
+      notify({
+        title: "Could not add application",
+        message,
+        tone: "error",
+      });
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <form action={action} className="grid gap-3" ref={formRef}>
+    <form className="grid gap-3" onSubmit={handleSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -107,7 +144,7 @@ export function CreateTrackedApplicationForm() {
         </label>
       </div>
 
-      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">

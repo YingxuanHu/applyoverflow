@@ -141,14 +141,14 @@ export async function getApplicationReviewData(
 
   if (
     !atsFiller &&
-    detailJob.eligibility?.submissionCategory === "AUTO_SUBMIT_READY"
+    detailJob.eligibility?.submissionCategory !== "MANUAL_ONLY"
   ) {
     detailJob.eligibility = {
       ...detailJob.eligibility,
       submissionCategory: "MANUAL_ONLY",
       reasonCode: "unsupported_submit_filler",
       reasonDescription:
-        "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
+        "This application portal is not supported by a working in-app apply flow yet. Manual application required.",
     };
   }
 
@@ -201,7 +201,7 @@ export async function prepareApplicationReview(jobId: string) {
     submittedAt: null,
     notes: isManualApplicationCategory(job.eligibility?.submissionCategory)
       ? "Prepared for manual application in the apply flow."
-      : "Prepared for auto-apply in the apply flow.",
+      : "Prepared for the apply assistant review flow.",
   });
 
   return {
@@ -367,7 +367,7 @@ export async function submitApplicationReview(jobId: string) {
     notes:
       submissionMethod === "manual"
         ? "Marked submitted manually from the apply review flow."
-        : "Marked submitted from the auto-apply flow.",
+        : "Marked submitted from the apply assistant flow.",
   });
 
   await Promise.all([
@@ -709,6 +709,11 @@ function serializeApplicationHistoryItem(job: {
   industry: JobDetailData["industry"];
   status: JobDetailData["status"];
   roleFamily: string;
+  normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence: number | null;
+  normalizedIndustry: string | null;
+  normalizedIndustryConfidence: number | null;
+  classificationStatus: string | null;
   applyUrl: string;
   postedAt: Date;
   eligibility: JobCardEligibility;
@@ -761,6 +766,11 @@ function serializeApplicationHistoryItem(job: {
       industry: job.industry,
       status: job.status,
       roleFamily: job.roleFamily,
+      normalizedRoleCategory: job.normalizedRoleCategory,
+      normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence,
+      normalizedIndustry: job.normalizedIndustry,
+      normalizedIndustryConfidence: job.normalizedIndustryConfidence,
+      classificationStatus: job.classificationStatus,
       applyUrl: job.applyUrl,
       postedAt: job.postedAt.toISOString(),
       eligibility: job.eligibility,
@@ -856,7 +866,7 @@ function buildPackagePreview(
     coverLetterMode:
       isManualApplicationCategory(job.eligibility?.submissionCategory)
         ? "No auto-generated cover letter. Manual tailoring is expected."
-        : "No custom cover letter yet. This auto-apply flow is resume-first.",
+        : "No custom cover letter yet. This apply assistant flow is resume-first.",
   };
 }
 

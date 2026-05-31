@@ -5,6 +5,7 @@ import {
   Download,
   ExternalLink,
   KeyRound,
+  Link2,
   Mail,
   Palette,
   ShieldAlert,
@@ -13,11 +14,14 @@ import {
   Wand2,
 } from "lucide-react";
 
+import { AccountSecurityPanel } from "@/components/auth/account-security-panel";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { Avatar } from "@/components/layout/avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DeleteAccountCard } from "@/components/profile/delete-account-card";
+import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { getAccountSecurityData } from "@/lib/queries/auth-security";
 import { getTrackerSettingsData } from "@/lib/queries/tracker";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +48,10 @@ export default async function SettingsPage() {
     redirect("/sign-in");
   }
 
-  const { user, profile } = await getTrackerSettingsData();
+  const [{ user, profile }, security] = await Promise.all([
+    getTrackerSettingsData(),
+    getAccountSecurityData(),
+  ]);
   if (!user) {
     redirect("/sign-in");
   }
@@ -64,7 +71,7 @@ export default async function SettingsPage() {
       </div>
 
       {/* Identity summary */}
-      <section className="surface-panel flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <section className="surface-panel flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div className="flex items-center gap-4">
           <Avatar
             email={user.email}
@@ -99,7 +106,7 @@ export default async function SettingsPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/70"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             href="/profile"
           >
             <UserIcon className="h-3.5 w-3.5" />
@@ -107,7 +114,7 @@ export default async function SettingsPage() {
           </Link>
           {!user.emailVerified ? (
             <Link
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-medium text-amber-500 transition-colors hover:bg-amber-500/20"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-medium text-amber-500 transition-colors hover:bg-amber-500/20"
               href="/verify-email-required"
             >
               <Mail className="h-3.5 w-3.5" />
@@ -118,7 +125,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Account */}
-      <section className="surface-panel scroll-mt-24 p-5" id="account">
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="account">
         <header className="flex items-center gap-2">
           <UserIcon className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Account</h2>
@@ -129,8 +136,26 @@ export default async function SettingsPage() {
         <AccountForm defaultName={user.name} email={user.email} />
       </section>
 
+      {/* Security */}
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="security">
+        <header className="flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Security</h2>
+        </header>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage sign-in methods, email changes, passwords, and active sessions.
+        </p>
+        <AccountSecurityPanel
+          accounts={security.accounts}
+          currentSessionId={security.currentSessionId}
+          email={user.email}
+          googleEnabled={isGoogleAuthEnabled()}
+          sessions={security.sessions}
+        />
+      </section>
+
       {/* Automation */}
-      <section className="surface-panel scroll-mt-24 p-5" id="automation">
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="automation">
         <header className="flex items-center gap-2">
           <Wand2 className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -145,7 +170,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Notifications */}
-      <section className="surface-panel scroll-mt-24 p-5" id="notifications">
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="notifications">
         <header className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -160,12 +185,12 @@ export default async function SettingsPage() {
       </section>
 
       {/* Appearance */}
-      <section className="surface-panel scroll-mt-24 p-5" id="appearance">
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="appearance">
         <header className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
         </header>
-        <div className="mt-4 flex flex-col gap-4 rounded-lg border border-border/60 bg-background/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-4 rounded-[14px] border border-border/60 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">Theme</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -177,7 +202,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Privacy & Data */}
-      <section className="surface-panel scroll-mt-24 p-5" id="data">
+      <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="data">
         <header className="flex items-center gap-2">
           <Download className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -185,7 +210,7 @@ export default async function SettingsPage() {
           </h2>
         </header>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
+          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
             <p className="text-sm font-medium text-foreground">
               Export your data
             </p>
@@ -194,14 +219,14 @@ export default async function SettingsPage() {
               notifications, saved jobs, and application history.
             </p>
             <a
-              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/70"
+              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
               href="/api/settings/export"
             >
               <Download className="h-3 w-3" />
               Download export
             </a>
           </div>
-          <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
+          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
             <p className="text-sm font-medium text-foreground">
               Resumes &amp; documents
             </p>
@@ -210,7 +235,7 @@ export default async function SettingsPage() {
               tailoring applications.
             </p>
             <Link
-              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/70"
+              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
               href="/documents/compare"
             >
               <ExternalLink className="h-3 w-3" />
@@ -221,13 +246,13 @@ export default async function SettingsPage() {
       </section>
 
       {/* Session */}
-      <section className="surface-panel p-5">
+      <section className="surface-panel p-5 sm:p-6">
         <header className="flex items-center gap-2">
-          <KeyRound className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">Session</h2>
+          <Link2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Current device</h2>
         </header>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign out of this device. Sessions on other devices are unaffected.
+          Sign out of this browser. Other active sessions are managed in Security.
         </p>
         <div className="mt-4">
           <SignOutButton />
@@ -242,7 +267,10 @@ export default async function SettingsPage() {
             Danger zone
           </h2>
         </header>
-        <DeleteAccountCard email={user.email} />
+        <DeleteAccountCard
+          email={user.email}
+          hasPassword={security.accounts.some((account) => account.hasPassword)}
+        />
       </section>
     </div>
   );

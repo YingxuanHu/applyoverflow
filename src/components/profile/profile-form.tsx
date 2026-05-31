@@ -64,9 +64,9 @@ function SaveButton({ dirty, saved, pending, onClick }: SaveButtonProps) {
   // wiring server actions to <form action={fn}>. Going through a plain
   // onClick is the most reliable path.
   const baseClass =
-    "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-40";
+    "inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-[12px] px-4 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-40";
   const variantClass = dirty
-    ? "bg-foreground text-background hover:bg-foreground/90"
+    ? "bg-primary text-primary-foreground hover:bg-primary/90"
     : "bg-secondary/85 text-secondary-foreground hover:bg-secondary";
 
   return (
@@ -163,7 +163,7 @@ function ProfileSection({
   const isOpen = activeSection === id;
 
   return (
-    <section className="border-t border-border/70 py-4 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/60 py-4 first:border-t-0 first:pt-0">
       <div className="flex items-start justify-between gap-4">
         <button
           className="min-w-0 flex-1 text-left"
@@ -171,16 +171,16 @@ function ProfileSection({
           type="button"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            <h3 className="text-sm font-semibold text-foreground">
               {title}
             </h3>
             {badge ? (
-              <span className="text-xs text-muted-foreground">{badge}</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{badge}</span>
             ) : null}
           </div>
         </button>
         <button
-          className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
           onClick={() => setActiveSection(isOpen ? null : id)}
           type="button"
         >
@@ -195,7 +195,7 @@ function ProfileSection({
 
 function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
   return (
-    <label className="text-xs font-medium text-muted-foreground" htmlFor={htmlFor}>
+    <label className="control-label normal-case tracking-normal" htmlFor={htmlFor}>
       {children}
     </label>
   );
@@ -508,7 +508,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         )}
         id="contact"
         setActiveSection={setActiveSection}
-        title="Contact and application fields"
+        title="Application profile"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -604,10 +604,10 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {skills.map((skill, index) => (
             <div
-              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[14px] border border-border/65 bg-card px-3 py-2"
               key={`skill-${index}`}
             >
-              <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 {index + 1}
               </span>
               <div className="min-w-0">
@@ -642,7 +642,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </div>
         <div className="mt-3 flex justify-end">
           <button
-            className="text-sm font-semibold text-foreground underline underline-offset-2"
+            className="rounded-full px-2.5 py-1 text-sm font-semibold text-primary transition hover:bg-accent"
             onClick={() => setSkills((current) => [...current, makeEmptySkill()])}
             type="button"
           >
@@ -660,7 +660,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
       >
         <div className="grid gap-3">
           {experiences.map((entry, index) => (
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-3" key={`experience-${index}`}>
+            <div className="rounded-[14px] border border-border/65 bg-card p-3" key={`experience-${index}`}>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-foreground">Experience {index + 1}</p>
                 {experiences.length > 1 ? (
@@ -735,7 +735,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </div>
         <div className="mt-3 flex justify-end">
           <button
-            className="text-sm font-semibold text-foreground underline underline-offset-2"
+            className="rounded-full px-2.5 py-1 text-sm font-semibold text-primary transition hover:bg-accent"
             onClick={() => setExperiences((current) => [...current, makeEmptyExperience()])}
             type="button"
           >
@@ -753,7 +753,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
       >
         <div className="grid gap-3">
           {educations.map((entry, index) => (
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-3" key={`education-${index}`}>
+            <div className="rounded-[14px] border border-border/65 bg-card p-3" key={`education-${index}`}>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-foreground">Education {index + 1}</p>
                 {educations.length > 1 ? (
@@ -826,7 +826,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </div>
         <div className="mt-3 flex justify-end">
           <button
-            className="text-sm font-semibold text-foreground underline underline-offset-2"
+            className="rounded-full px-2.5 py-1 text-sm font-semibold text-primary transition hover:bg-accent"
             onClick={() => setEducations((current) => [...current, makeEmptyEducation()])}
             type="button"
           >
@@ -844,7 +844,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
       >
         <div className="grid gap-3">
           {projects.map((entry, index) => (
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-3" key={`project-${index}`}>
+            <div className="rounded-[14px] border border-border/65 bg-card p-3" key={`project-${index}`}>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-foreground">Project {index + 1}</p>
                 {projects.length > 1 ? (
@@ -917,7 +917,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </div>
         <div className="mt-3 flex justify-end">
           <button
-            className="text-sm font-semibold text-foreground underline underline-offset-2"
+            className="rounded-full px-2.5 py-1 text-sm font-semibold text-primary transition hover:bg-accent"
             onClick={() => setProjects((current) => [...current, makeEmptyProject()])}
             type="button"
           >

@@ -516,7 +516,7 @@ function AttachDocumentControl({
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={label}
-          className="flex min-h-14 w-56 max-w-full min-w-0 items-center justify-between gap-3 rounded-lg border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex min-h-14 w-56 max-w-full min-w-0 items-center justify-between gap-3 rounded-[14px] border border-border/70 bg-card px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
         >
           <span className="flex min-w-0 items-center gap-2">
             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -582,7 +582,7 @@ function AttachDocumentControl({
             await uploadAction(formData);
             setShowUpload(false);
           }}
-          className="grid gap-2 rounded-lg border border-border/70 bg-background/80 p-3"
+          className="grid gap-2 rounded-[14px] border border-border/70 bg-card p-3"
         >
           <input name="applicationId" type="hidden" value={applicationId} />
           <input name="slot" type="hidden" value={slot} />
@@ -654,7 +654,7 @@ function StatusSelector({
     <form action={formAction} className="flex items-center gap-2">
       <input name="applicationId" type="hidden" value={applicationId} />
       <select
-        className="h-9 min-w-[140px] rounded-lg border border-border/70 bg-background px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+        className="h-10 min-w-[140px] rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25"
         defaultValue={currentStatus}
         key={currentStatus}
         name="status"
@@ -868,13 +868,13 @@ function JobDescriptionField({
   }
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/50 p-4">
+    <div className="surface-panel p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>Job description</h3>
         <div className="flex items-center gap-1">
           {!editing && !showPaste && hasRoleUrl ? (
             <button
-              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handleImportFromLink}
               type="button"
             >
@@ -883,7 +883,7 @@ function JobDescriptionField({
           ) : null}
           {!editing && !showPaste ? (
             <button
-              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handlePasteClick}
               type="button"
             >
@@ -892,7 +892,7 @@ function JobDescriptionField({
           ) : null}
           {!editing && !showPaste ? (
             <button
-              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={() => setEditing(true)}
               type="button"
             >
@@ -1070,7 +1070,7 @@ function ReminderRow({
           await updateAction(formData);
           setEditing(false);
         }}
-        className="rounded-xl border border-border/70 bg-background/70 p-3"
+        className="rounded-[14px] border border-border/70 bg-card p-3"
       >
         <input name="applicationId" type="hidden" value={applicationId} />
         <input name="eventId" type="hidden" value={reminder.id} />
@@ -1118,9 +1118,9 @@ function ReminderRow({
     // than its grid column. The grid columns use minmax(0, …) but if any
     // ancestor flex/grid item lacks min-width:0, child content can still
     // force the layout wide. Belt-and-suspenders.
-    <div className="min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/60 p-3">
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-border/70 bg-card p-3">
       <div className="flex min-w-0 items-start gap-3">
-        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/35 text-muted-foreground">
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-border/70 bg-muted/35 text-muted-foreground">
           <Bell className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -1196,7 +1196,7 @@ function RemindersSection({
     // `min-w-0 overflow-hidden` on the outer Reminders section so a single
     // reminder with an ultra-long pasted URL cannot stretch the whole
     // section beyond its grid column.
-    <section className="min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/50 p-4">
+    <section className="surface-panel min-w-0 overflow-hidden p-5">
       <div className="flex items-center justify-between gap-3">
         <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>Reminders</h3>
         {!adding ? (
@@ -1220,7 +1220,7 @@ function RemindersSection({
             setNoteDraft("");
             setTimeDraft("");
           }}
-          className="mt-3 grid gap-2 rounded-xl border border-border/70 bg-background/70 p-3"
+          className="mt-3 grid gap-2 rounded-[14px] border border-border/70 bg-card p-3"
         >
           <input name="applicationId" type="hidden" value={applicationId} />
           <input name="type" type="hidden" value="REMINDER" />
@@ -1264,7 +1264,7 @@ function RemindersSection({
 
       <div className="mt-3 grid gap-2">
         {sortedReminders.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+          <p className="rounded-[14px] border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
             No reminders yet.
           </p>
         ) : (
@@ -1303,7 +1303,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
   }
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background">
+    <div className="rounded-[14px] border border-border/70 bg-card">
       <div className="flex items-start justify-between gap-3 px-3 py-2.5">
         <button
           className="min-w-0 flex-1 text-left"
@@ -1577,7 +1577,7 @@ function WorkspaceAISection({
             }))}
         />
       ) : (
-        <div className="rounded-xl border border-dashed border-border bg-background/50 p-4">
+        <div className="rounded-[16px] border border-dashed border-border bg-card p-4">
           <p className={WORKSPACE_FIELD_TITLE_CLASS}>Fit analysis</p>
           <p className="mt-2 text-sm text-muted-foreground">AI features are not configured.</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1586,7 +1586,7 @@ function WorkspaceAISection({
           </p>
         </div>
       )}
-      <div className="rounded-md border border-border/60">
+      <div className="rounded-[16px] border border-border/60 bg-card">
         <div className="flex w-full items-center justify-between px-3 py-2.5 text-left">
           <span className={`flex items-center gap-2 ${WORKSPACE_FIELD_TITLE_CLASS}`}>
             <span className="shrink-0 text-muted-foreground">
@@ -1642,8 +1642,8 @@ export function ApplicationWorkspaceClient({
   const timelineEvents = application.events.filter((event) => event.type !== "REMINDER");
 
   return (
-    <div className="grid gap-6">
-      <section className="space-y-3 border-b border-border/60 pb-5">
+    <div className="grid gap-5">
+      <section className="surface-panel p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1 space-y-2">
             <ApplicationHeaderEditor
@@ -1703,12 +1703,12 @@ export function ApplicationWorkspaceClient({
         </div>
       </section>
 
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         {/* Main column — flat sections, ordered: job description → AI
             workspace (Fit analysis + Resume tailoring) → small Notes. The
             previous Documents section is gone; attach dropdowns live in the
             title-box footer above. */}
-        <div className="grid content-start gap-6 self-start">
+        <div className="grid content-start gap-5 self-start">
           <JobDescriptionField
             applicationId={application.id}
             hasRoleUrl={Boolean(application.roleUrl)}
@@ -1729,7 +1729,7 @@ export function ApplicationWorkspaceClient({
           <RemindersSection applicationId={application.id} reminders={reminders} />
         </div>
 
-        <div className="grid content-start gap-6 self-start">
+        <div className="grid content-start gap-5 self-start">
           <section className="surface-panel p-0">
             <JobAssistant
               aiConfigured={aiConfigured}
@@ -1744,7 +1744,7 @@ export function ApplicationWorkspaceClient({
             />
           </section>
 
-          <section className="surface-panel p-5">
+          <section className="surface-panel p-5 sm:p-6">
             <h2 className="text-base font-semibold text-foreground">Timeline</h2>
 
             <div className="mt-3 grid gap-3">

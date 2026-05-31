@@ -43,29 +43,116 @@ export function buildFieldValueMap(
         ? `${profile.salaryMin}+ ${profile.salaryCurrency ?? "USD"}`
         : null;
 
+  const savedAnswers = pkg.savedAnswers ?? {};
+  const savedFullName = savedAnswerForConcept(savedAnswers, "full_name");
+  const fallbackFullName = `${profile.firstName} ${profile.lastName}`.trim();
+  const fullName = savedFullName ?? fallbackFullName;
+  const splitSavedName = savedFullName ? splitFullName(savedFullName) : null;
+
   return {
-    first_name: profile.firstName,
-    last_name: profile.lastName,
-    preferred_name: profile.preferredName,
-    full_name: `${profile.firstName} ${profile.lastName}`,
-    email: profile.email,
-    phone: profile.phone,
-    linkedin_url: profile.linkedinUrl,
-    github_url: profile.githubUrl,
-    portfolio_url: profile.portfolioUrl,
-    website_url: profile.portfolioUrl ?? profile.githubUrl,
+    first_name:
+      savedAnswerForConcept(savedAnswers, "first_name") ??
+      splitSavedName?.firstName ??
+      profile.firstName,
+    last_name:
+      savedAnswerForConcept(savedAnswers, "last_name") ??
+      splitSavedName?.lastName ??
+      profile.lastName,
+    preferred_name: savedAnswerForConcept(savedAnswers, "preferred_name") ?? profile.preferredName,
+    full_name: fullName,
+    email: savedAnswerForConcept(savedAnswers, "email") ?? profile.email,
+    phone: savedAnswerForConcept(savedAnswers, "phone") ?? profile.phone,
+    linkedin_url: savedAnswerForConcept(savedAnswers, "linkedin_url") ?? profile.linkedinUrl,
+    github_url: savedAnswerForConcept(savedAnswers, "github_url") ?? profile.githubUrl,
+    portfolio_url:
+      savedAnswerForConcept(savedAnswers, "portfolio_url") ?? profile.portfolioUrl,
+    website_url:
+      savedAnswerForConcept(savedAnswers, "website_url") ??
+      savedAnswerForConcept(savedAnswers, "portfolio_url") ??
+      profile.portfolioUrl ??
+      profile.githubUrl,
     resume_file: resume.filePath,
-    cover_letter: pkg.coverLetterContent,
-    work_authorization: profile.workAuthorization,
-    sponsorship_needs: null,
-    salary_expectation: salaryText,
-    availability: null,
-    location: profile.location,
+    cover_letter: savedAnswerForConcept(savedAnswers, "cover_letter") ?? pkg.coverLetterContent,
+    work_authorization:
+      savedAnswerForConcept(savedAnswers, "work_authorization") ?? profile.workAuthorization,
+    sponsorship_needs: savedAnswerForConcept(savedAnswers, "sponsorship_needs"),
+    salary_expectation: savedAnswerForConcept(savedAnswers, "salary_expectation") ?? salaryText,
+    availability: savedAnswerForConcept(savedAnswers, "availability"),
+    location: savedAnswerForConcept(savedAnswers, "location") ?? profile.location,
     education: profile.educationText,
     experience: profile.experienceText,
     skills: profile.skillsText,
-    how_did_you_hear: null,
+    how_did_you_hear: savedAnswerForConcept(savedAnswers, "how_did_you_hear"),
   };
+}
+
+const SAVED_ANSWER_LABELS: Record<FieldConcept, string[]> = {
+  first_name: ["first name", "given name"],
+  last_name: ["last name", "surname", "family name"],
+  preferred_name: ["preferred name", "go by"],
+  full_name: ["full name", "legal name", "name"],
+  email: ["email", "email address", "e mail"],
+  phone: ["phone", "phone number", "mobile", "cell", "telephone"],
+  linkedin_url: ["linkedin", "linkedin url", "linkedin profile"],
+  github_url: ["github", "github url", "github profile"],
+  portfolio_url: ["portfolio", "portfolio url", "portfolio website"],
+  website_url: ["website", "personal website", "other website", "web page", "url"],
+  resume_file: ["resume", "cv"],
+  cover_letter: ["cover letter"],
+  work_authorization: ["work authorization", "legally authorized", "valid work authorization"],
+  sponsorship_needs: ["sponsorship", "visa sponsorship", "immigration sponsorship"],
+  salary_expectation: ["salary", "compensation", "desired compensation", "pay expectation"],
+  availability: ["availability", "start date", "earliest start date", "notice period"],
+  location: ["current location", "location", "city"],
+  education: ["education", "school", "university", "degree"],
+  experience: ["experience", "employment history", "work history"],
+  skills: ["skills", "technologies"],
+  how_did_you_hear: [
+    "how did you hear",
+    "how did you hear about us",
+    "referral source",
+    "where did you find",
+    "where did you learn",
+  ],
+};
+
+function savedAnswerForConcept(
+  savedAnswers: Record<string, string>,
+  concept: FieldConcept
+) {
+  const aliases = SAVED_ANSWER_LABELS[concept].map(normalizeLabel);
+  const entries = Object.entries(savedAnswers)
+    .map(([key, value]) => ({
+      key: normalizeLabel(key),
+      value: value.trim(),
+    }))
+    .filter((entry) => entry.value.length > 0);
+
+  const exact = entries.find((entry) => aliases.includes(entry.key));
+  if (exact) return exact.value;
+
+  const anchored = entries.find((entry) =>
+    aliases.some((alias) => isAnchoredLabelMatch(entry.key, alias))
+  );
+  return anchored?.value ?? null;
+}
+
+function isAnchoredLabelMatch(key: string, alias: string) {
+  if (alias.length < 5) return false;
+  return key.startsWith(`${alias} `) || key.endsWith(` ${alias}`);
+}
+
+function splitFullName(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+function normalizeLabel(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 // ─── Label-to-concept heuristic matching ─────────────────────────────────────

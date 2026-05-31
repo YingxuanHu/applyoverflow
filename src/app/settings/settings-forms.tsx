@@ -20,6 +20,10 @@ import {
   savePreferencesSettings,
 } from "./actions";
 
+const SETTINGS_LABEL_CLASS = "control-label normal-case tracking-normal";
+const SETTINGS_INPUT_CLASS =
+  "mt-1 h-10 w-full rounded-[12px] border border-input bg-card px-3.5 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25";
+
 // ─── Shared feedback hook ──────────────────────────────────────────
 
 function useSettingsFeedback(
@@ -54,7 +58,7 @@ function SaveButton({ label = "Save" }: { label?: string }) {
   const { pending } = useFormStatus();
   return (
     <button
-      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-4 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+      className="inline-flex h-10 items-center gap-1.5 rounded-[12px] bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
       disabled={pending}
       type="submit"
     >
@@ -89,14 +93,11 @@ export function AccountForm({
     <form action={formAction} className="mt-4 grid gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="settings-name"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="settings-name">
             Display name
           </label>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaultName}
             id="settings-name"
             maxLength={100}
@@ -107,17 +108,17 @@ export function AccountForm({
           />
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className={SETTINGS_LABEL_CLASS}>
             Email
           </p>
-          <div className="mt-1 flex h-9 items-center justify-between rounded-lg border border-border/60 bg-background/40 px-3 text-sm text-foreground">
+          <div className="mt-1 flex h-10 items-center justify-between rounded-[12px] border border-border/60 bg-muted/45 px-3.5 text-sm text-foreground">
             <span className="truncate">{email}</span>
             <Link
               className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-              href="/forgot-password"
+              href="#security"
             >
               <KeyRound className="h-3 w-3" />
-              Change password
+              Security
             </Link>
           </div>
         </div>
@@ -173,14 +174,11 @@ export function PreferencesForm({
     <form action={formAction} className="mt-4 grid gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-work-mode"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-work-mode">
             Preferred work mode
           </label>
           <select
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.preferredWorkMode}
             id="pref-work-mode"
             name="preferredWorkMode"
@@ -193,14 +191,11 @@ export function PreferencesForm({
           </select>
         </div>
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-experience"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-experience">
             Experience level
           </label>
           <select
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.experienceLevel}
             id="pref-experience"
             name="experienceLevel"
@@ -216,14 +211,11 @@ export function PreferencesForm({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-salary-min"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-salary-min">
             Target salary min
           </label>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.salaryMin}
             id="pref-salary-min"
             inputMode="numeric"
@@ -234,14 +226,11 @@ export function PreferencesForm({
           />
         </div>
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-salary-max"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-salary-max">
             Target salary max
           </label>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.salaryMax}
             id="pref-salary-max"
             inputMode="numeric"
@@ -252,14 +241,11 @@ export function PreferencesForm({
           />
         </div>
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-currency"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-currency">
             Currency
           </label>
           <select
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaultSalaryCurrency}
             id="pref-currency"
             name="salaryCurrency"
@@ -275,14 +261,11 @@ export function PreferencesForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-location"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-location">
             Location
           </label>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.location}
             id="pref-location"
             maxLength={120}
@@ -292,14 +275,11 @@ export function PreferencesForm({
           />
         </div>
         <div>
-          <label
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            htmlFor="pref-work-auth"
-          >
+          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-work-auth">
             Work authorization
           </label>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-background/70 px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            className={SETTINGS_INPUT_CLASS}
             defaultValue={defaults.workAuthorization}
             id="pref-work-auth"
             maxLength={120}
@@ -367,10 +347,10 @@ export function AutomationForm({
           return (
             <label
               className={cn(
-                "relative flex cursor-pointer flex-col gap-1 rounded-lg border px-4 py-3 transition-colors",
+                "relative flex cursor-pointer flex-col gap-1 rounded-[14px] border px-4 py-3 transition-colors",
                 isActive
-                  ? "border-foreground bg-accent/40"
-                  : "border-border/70 bg-background/60 hover:bg-accent/30"
+                  ? "border-primary/45 bg-accent"
+                  : "border-border/70 bg-card hover:bg-muted"
               )}
               key={option.value}
             >
@@ -390,11 +370,11 @@ export function AutomationForm({
                   aria-hidden="true"
                   className={cn(
                     "inline-flex h-4 w-4 items-center justify-center rounded-full border",
-                    isActive ? "border-foreground" : "border-border"
+                    isActive ? "border-primary" : "border-border"
                   )}
                 >
                   {isActive ? (
-                    <span className="h-2 w-2 rounded-full bg-foreground" />
+                    <span className="h-2 w-2 rounded-full bg-primary" />
                   ) : null}
                 </span>
               </span>
@@ -427,7 +407,7 @@ export function NotificationsForm({
 
   return (
     <form action={formAction} className="mt-4 grid gap-3">
-      <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/60 px-4 py-3 text-sm text-foreground">
+      <label className="flex items-start gap-3 rounded-[14px] border border-border/60 bg-card px-4 py-3 text-sm text-foreground">
         <input
           className="mt-1 h-4 w-4 rounded border border-input"
           defaultChecked={defaultEnabled}

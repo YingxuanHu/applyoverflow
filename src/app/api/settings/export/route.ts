@@ -236,7 +236,7 @@ export async function GET() {
     const exportedAt = new Date();
     const payload = {
       exportedAt: exportedAt.toISOString(),
-      schema: "autoapplication-user-export-v1",
+      schema: "applyoverflow-user-export-v1",
       user,
       profile,
       tracker: {
@@ -255,7 +255,7 @@ export async function GET() {
 
     return new Response(JSON.stringify(payload, null, 2), {
       headers: {
-        "Content-Disposition": `attachment; filename="autoapplication-export-${safeDate}.json"`,
+        "Content-Disposition": `attachment; filename="applyoverflow-export-${safeDate}.json"`,
         "Content-Type": "application/json; charset=utf-8",
       },
     });

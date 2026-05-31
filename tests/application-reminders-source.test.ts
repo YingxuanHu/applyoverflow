@@ -38,6 +38,8 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(trackerSource, /locationSearch\?: string/);
   assert.match(trackerSource, /tagSearch\?: string/);
   assert.match(trackerSource, /reminderSearch\?: string/);
+  assert.match(trackerSource, /buildTrackedSearchTokens/);
+  assert.match(trackerSource, /tokenConditions\.length === 1 \? tokenConditions\[0\] : \{ AND: tokenConditions \}/);
   assert.match(trackerSource, /buildScopedTrackedSearchWhere/);
   assert.match(trackerSource, /events:\s*\{\s*some:\s*\{\s*type: "REMINDER"/);
   assert.match(trackerSource, /tags:\s*\{\s*some:/);
@@ -48,6 +50,7 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(searchFieldSource, /companySearch/);
   assert.match(searchFieldSource, /locationSearch/);
   assert.match(searchFieldSource, /tagSearch/);
+  assert.doesNotMatch(searchFieldSource, /\{ label: "All", value: "all" \}/);
   assert.doesNotMatch(searchFieldSource, /label: "Reminder"/);
   assert.doesNotMatch(searchFieldSource, /reminder: "reminderSearch"/);
   assert.match(pageSource, /ApplicationRemindersSummary/);

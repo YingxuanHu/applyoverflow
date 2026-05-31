@@ -54,6 +54,12 @@ function normalizeOptionalUrl(value: string | null | undefined) {
   return trimmed;
 }
 
+function queueReminderCheck(applicationId: string) {
+  void checkSingleTrackedApplicationReminder(applicationId).catch((error) => {
+    console.error("Tracked application reminder check failed:", error);
+  });
+}
+
 function normalizeTagNames(raw: string | string[]) {
   const tokens = Array.isArray(raw) ? raw : raw.split(",");
 
@@ -202,18 +208,27 @@ function appendTrackedAndCondition(
   where.AND = [...existing, condition];
 }
 
-function buildTrackedSearchWhere(
-  search: string,
-  userId: string,
-  scope: TrackerSearchScope = "all"
-): Prisma.TrackedApplicationWhereInput | null {
-  const query = search.trim().slice(0, 120);
-  if (!query) return null;
+function buildTrackedSearchTokens(search: string) {
+  const normalized = search.trim().replace(/\s+/g, " ").slice(0, 120);
+  if (!normalized) return [];
 
-  if (scope !== "all") {
-    return buildScopedTrackedSearchWhere(query, userId, scope);
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+
+  for (const token of normalized.split(/\s+/).filter(Boolean)) {
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tokens.push(token);
   }
 
+  return tokens;
+}
+
+function buildTrackedAllSearchTokenWhere(
+  query: string,
+  userId: string
+): Prisma.TrackedApplicationWhereInput {
   const normalizedQuery = query.toLowerCase();
   const matchedStatuses = TRACKED_SEARCH_STATUS_LABELS
     .filter(({ labels }) =>
@@ -263,6 +278,26 @@ function buildTrackedSearchWhere(
   }
 
   return { OR: clauses };
+}
+
+function buildTrackedSearchWhere(
+  search: string,
+  userId: string,
+  scope: TrackerSearchScope = "all"
+): Prisma.TrackedApplicationWhereInput | null {
+  const query = search.trim().slice(0, 120);
+  if (!query) return null;
+
+  if (scope !== "all") {
+    return buildScopedTrackedSearchWhere(query, userId, scope);
+  }
+
+  const tokenConditions = buildTrackedSearchTokens(query).map((token) =>
+    buildTrackedAllSearchTokenWhere(token, userId)
+  );
+
+  if (tokenConditions.length === 0) return null;
+  return tokenConditions.length === 1 ? tokenConditions[0] : { AND: tokenConditions };
 }
 
 function buildScopedTrackedSearchWhere(
@@ -810,7 +845,7 @@ export async function createTrackedApplication(input: {
     });
   }
 
-  await checkSingleTrackedApplicationReminder(created.id);
+  queueReminderCheck(created.id);
   return created;
 }
 
@@ -931,7 +966,7 @@ export async function upsertTrackedApplicationFromJob(input: {
     documentId: resumeDocumentId,
   });
 
-  await checkSingleTrackedApplicationReminder(tracked.id);
+  queueReminderCheck(tracked.id);
   return {
     applicationId: tracked.id,
     created: !existing,
@@ -1057,7 +1092,7 @@ export async function updateTrackedApplicationStatus(input: {
     }),
   ]);
 
-  await checkSingleTrackedApplicationReminder(input.applicationId);
+  queueReminderCheck(input.applicationId);
   return { changed: true };
 }
 
@@ -1728,7 +1763,7 @@ export async function syncTrackedApplicationFromSubmission(canonicalJobId: strin
     documentId: resumeDocumentId,
   });
 
-  await checkSingleTrackedApplicationReminder(tracked.id);
+  queueReminderCheck(tracked.id);
   return tracked;
 }
 

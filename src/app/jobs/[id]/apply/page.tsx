@@ -120,7 +120,7 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
           {atsSupported ? (
             <>
               <Sep />
-              <span className="text-blue-600 dark:text-blue-400">{atsName} auto-fill</span>
+              <span className="text-blue-600 dark:text-blue-400">{atsName} form check</span>
             </>
           ) : null}
         </p>

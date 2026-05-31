@@ -14,14 +14,12 @@ import { Button } from "@/components/ui/button";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import {
   getTrackedDashboardData,
-  type TrackerDeadlineFilter,
   type TrackerSearchScope,
   type TrackerSortFilter,
 } from "@/lib/queries/tracker";
 
 type ApplicationsSearchParams = {
   status?: string;
-  deadline?: string;
   sort?: string;
   tags?: string;
   search?: string;
@@ -45,18 +43,6 @@ function parseStatusFilter(rawValue?: string) {
     value === "OFFER" ||
     value === "REJECTED" ||
     value === "WITHDRAWN"
-  ) {
-    return value;
-  }
-  return "ALL";
-}
-
-function parseDeadlineFilter(rawValue?: string): TrackerDeadlineFilter {
-  const value = String(rawValue ?? "ALL").toUpperCase();
-  if (
-    value === "UPCOMING" ||
-    value === "OVERDUE" ||
-    value === "NO_DEADLINE"
   ) {
     return value;
   }
@@ -116,7 +102,12 @@ function buildApplicationsHref(
 ) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(currentParams)) {
-    if (key === "reset" || value === undefined || value === "") continue;
+    if (
+      key === "reset" ||
+      key === "deadline" ||
+      value === undefined ||
+      value === ""
+    ) continue;
     if (key === "searchScope" && parseSearchScope(value) === "all") continue;
     params.set(key, value);
   }
@@ -222,7 +213,6 @@ export default async function ApplicationsPage({
 
   const params = await searchParams;
   const status = parseStatusFilter(params.status);
-  const deadline = parseDeadlineFilter(params.deadline);
   const sort = parseSortFilter(params.sort);
   const selectedSearchScope = parseSearchScope(params.searchScope);
   const rawSearch = normalizeTextParam(params.search);
@@ -233,7 +223,7 @@ export default async function ApplicationsPage({
   let tagSearch = normalizeTextParam(params.tagSearch);
   let reminderSearch = normalizeTextParam(params.reminderSearch);
 
-  if (rawSearch && selectedSearchScope === "title") {
+  if (rawSearch && (selectedSearchScope === "all" || selectedSearchScope === "title")) {
     titleSearch = titleSearch ?? rawSearch;
     search = undefined;
   } else if (rawSearch && selectedSearchScope === "company") {
@@ -258,7 +248,6 @@ export default async function ApplicationsPage({
 
   const data = await getTrackedDashboardData({
     status: status as Parameters<typeof getTrackedDashboardData>[0]["status"],
-    deadline,
     sort,
     tags: selectedTags,
     search,
@@ -274,7 +263,6 @@ export default async function ApplicationsPage({
   ).length;
   const hasActiveFilters =
     status !== "ALL" ||
-    deadline !== "ALL" ||
     sort !== "UPDATED_DESC" ||
     Boolean(search) ||
     Boolean(titleSearch) ||
@@ -343,7 +331,7 @@ export default async function ApplicationsPage({
 
       <ApplicationRemindersSummary groups={reminderGroups} />
 
-      <section className="surface-panel p-4 sm:p-5">
+      <section className="surface-panel p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-foreground">Your applications</h2>
@@ -355,7 +343,7 @@ export default async function ApplicationsPage({
 
         <form
           method="GET"
-          className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-lg border border-border/60 bg-background/60 p-4 lg:grid-cols-2 xl:grid-cols-[minmax(28rem,1fr)_8.5rem_8.5rem_10.5rem]"
+          className="toolbar-panel mt-4 grid min-w-0 items-end gap-4 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem_auto] xl:grid-cols-[minmax(24rem,1fr)_9rem_12.5rem_auto]"
         >
           <ApplicationsSearchField
             initialScope={selectedSearchScope}
@@ -363,13 +351,13 @@ export default async function ApplicationsPage({
           />
 
           <label className="grid gap-1.5 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="control-label">
               Status
             </span>
             <select
               name="status"
               defaultValue={status}
-              className="h-9 rounded-lg border border-input/80 bg-background/70 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="h-10 rounded-[14px] border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
             >
               <option value="ALL">All statuses</option>
               <option value="WISHLIST">Wishlist</option>
@@ -384,29 +372,13 @@ export default async function ApplicationsPage({
           </label>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Deadline
-            </span>
-            <select
-              name="deadline"
-              defaultValue={deadline}
-              className="h-9 rounded-lg border border-input/80 bg-background/70 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <option value="ALL">All deadlines</option>
-              <option value="UPCOMING">Upcoming</option>
-              <option value="OVERDUE">Overdue</option>
-              <option value="NO_DEADLINE">No deadline</option>
-            </select>
-          </label>
-
-          <label className="grid gap-1.5 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="control-label">
               Sort
             </span>
             <select
               name="sort"
               defaultValue={sort}
-              className="h-9 rounded-lg border border-input/80 bg-background/70 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="h-10 rounded-[14px] border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
             >
               <option value="UPDATED_DESC">Updated (newest)</option>
               <option value="UPDATED_ASC">Updated (oldest)</option>
@@ -417,24 +389,20 @@ export default async function ApplicationsPage({
             </select>
           </label>
 
-          <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-3 lg:col-span-2 xl:col-span-4">
+          <div className="flex items-end justify-end gap-3 lg:pl-1">
             {selectedTags.length > 0 ? (
               <input type="hidden" name="tags" value={selectedTags.join(",")} />
             ) : null}
-            <button
-              type="submit"
-              className="h-9 rounded-lg bg-foreground px-4 text-sm font-medium text-background transition hover:bg-foreground/90"
-            >
+            <Button className="h-10 min-w-24 px-5" type="submit">
               Apply
-            </button>
+            </Button>
             {hasActiveFilters ? (
               <Button
-                className="h-9"
+                className="h-10 min-w-20 px-4"
                 render={<Link href="/applications?reset=1" />}
-                size="sm"
                 variant="outline"
               >
-                Reset
+                Clear
               </Button>
             ) : null}
           </div>
@@ -444,12 +412,15 @@ export default async function ApplicationsPage({
           <div className="mt-3 flex flex-wrap gap-2">
             {activeSearchChips.map((chip) => (
               <Link
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                aria-label={`Remove ${chip.label}`}
+                className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-card pl-3 pr-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 href={chip.href}
                 key={chip.key}
               >
-                {chip.label}
-                <X className="h-3 w-3" />
+                <span className="min-w-0 truncate">{chip.label}</span>
+                <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </span>
               </Link>
             ))}
           </div>
@@ -467,8 +438,8 @@ export default async function ApplicationsPage({
                   })}
                   className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                     active
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border/70 bg-background/60 text-muted-foreground hover:text-foreground"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   {tag.name}
@@ -480,7 +451,7 @@ export default async function ApplicationsPage({
 
         <div className="mt-4">
           {data.applications.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center">
+            <div className="empty-state">
               <p className="text-sm font-medium text-foreground">
                 No applications in this view
               </p>
@@ -489,11 +460,11 @@ export default async function ApplicationsPage({
               </p>
             </div>
           ) : (
-            <ul className="mt-4 divide-y divide-border/60">
+            <ul className="object-list mt-4">
               {data.applications.map((application) => (
                 <li
                   key={application.id}
-                  className="py-4 first:pt-0 last:pb-0"
+                  className="object-row"
                   id={`application-${application.id}`}
                 >
                   <ApplicationListCard application={application} />

@@ -215,7 +215,7 @@ export default async function ProfilePage({
         </TabsList>
 
         <TabsContent value="documents" className="mt-4" id="documents">
-          <section className="surface-panel p-4 sm:p-5">
+          <section className="surface-panel p-5 sm:p-6">
             <header className="flex items-start gap-2">
               <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <div>
@@ -273,7 +273,7 @@ export default async function ProfilePage({
 
         <TabsContent value="details" className="mt-4" id="application-profile-tab">
           <div className="grid gap-4">
-            <section className="surface-panel scroll-mt-24 p-4 sm:p-5" id="job-preferences">
+            <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="job-preferences">
               <header className="flex items-center gap-2">
                 <Briefcase className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
@@ -299,7 +299,7 @@ export default async function ProfilePage({
                 }}
               />
             </section>
-            <section className="surface-panel p-4 sm:p-5" id="application-profile">
+            <section className="surface-panel p-5 sm:p-6" id="application-profile">
               <header className="flex items-start gap-2">
                 <User2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
@@ -345,9 +345,9 @@ function SummaryTile({
   progress?: number;
 }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-background/60 p-4">
+    <div className="rounded-[16px] border border-border/65 bg-card p-4 shadow-[0_1px_2px_rgba(0,0,0,0.025)]">
       <div className="flex items-center gap-2 text-muted-foreground">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-foreground">
+        <span className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-accent text-primary">
           {icon}
         </span>
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
@@ -356,7 +356,7 @@ function SummaryTile({
       {typeof progress === "number" ? (
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-foreground transition-all"
+            className="h-full rounded-full bg-primary transition-all"
             style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
           />
         </div>

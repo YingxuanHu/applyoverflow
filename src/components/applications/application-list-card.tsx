@@ -151,162 +151,176 @@ export function ApplicationListCard({ application }: { application: ApplicationL
   }
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        {editing ? (
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                Job title
-              </label>
-              <Input
-                autoFocus
-                className="h-9 text-base font-semibold"
-                onChange={(event) => setRoleTitleDraft(event.target.value)}
-                placeholder="Job title"
-                value={roleTitleDraft}
-              />
+    <>
+      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          {editing ? (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  Job title
+                </label>
+                <Input
+                  autoFocus
+                  className="h-9 text-base font-semibold"
+                  onChange={(event) => setRoleTitleDraft(event.target.value)}
+                  placeholder="Job title"
+                  value={roleTitleDraft}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  Company
+                </label>
+                <Input
+                  className="h-9 font-semibold"
+                  onChange={(event) => setCompanyDraft(event.target.value)}
+                  placeholder="Company name"
+                  value={companyDraft}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  Job link
+                </label>
+                <Input
+                  className="h-9"
+                  onChange={(event) => setRoleUrlDraft(event.target.value)}
+                  placeholder="https://..."
+                  type="url"
+                  value={roleUrlDraft}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  className="h-8 px-3 text-xs"
+                  disabled={isPending}
+                  onClick={handleSave}
+                  size="sm"
+                  type="button"
+                >
+                  {isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  className="h-8 px-3 text-xs"
+                  disabled={isPending}
+                  onClick={handleCancel}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                Company
-              </label>
-              <Input
-                className="h-9 font-semibold"
-                onChange={(event) => setCompanyDraft(event.target.value)}
-                placeholder="Company name"
-                value={companyDraft}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                Job link
-              </label>
-              <Input
-                className="h-9"
-                onChange={(event) => setRoleUrlDraft(event.target.value)}
-                placeholder="https://..."
-                type="url"
-                value={roleUrlDraft}
-              />
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                className="h-8 px-3 text-xs"
-                disabled={isPending}
-                onClick={handleSave}
-                size="sm"
-                type="button"
+          ) : (
+            <>
+              <div className="flex min-w-0 items-center gap-2">
+                <Link
+                  href={`/applications/${application.id}`}
+                  className="block text-ellipsis-1 text-base font-semibold text-foreground transition hover:underline"
+                  title={application.roleTitle}
+                >
+                  {application.roleTitle}
+                </Link>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${trackedStatusClass(application.status)}`}
+                >
+                  {TRACKED_STATUS_LABEL[application.status]}
+                </span>
+                {application.canonicalJob ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    Feed-linked
+                  </span>
+                ) : null}
+              </div>
+              <p
+                className="text-ellipsis-1 text-sm text-muted-foreground"
+                title={[
+                  application.company,
+                  application.canonicalJob?.location,
+                  application.canonicalJob?.workMode?.toLowerCase(),
+                ].filter(Boolean).join(" · ")}
               >
-                {isPending ? "Saving..." : "Save"}
-              </Button>
-              <Button
-                className="h-8 px-3 text-xs"
-                disabled={isPending}
-                onClick={handleCancel}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href={`/applications/${application.id}`}
-                className="inline-block max-w-full truncate text-base font-semibold text-foreground transition hover:underline"
-              >
-                {application.roleTitle}
-              </Link>
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${trackedStatusClass(application.status)}`}
-              >
-                {TRACKED_STATUS_LABEL[application.status]}
-              </span>
-              {application.canonicalJob ? (
-                <span className="text-xs text-muted-foreground">Feed-linked</span>
+                <span className="font-semibold text-foreground">
+                  {application.company}
+                </span>
+                {application.canonicalJob?.location
+                  ? ` · ${application.canonicalJob.location}`
+                  : ""}
+                {application.canonicalJob?.workMode
+                  ? ` · ${application.canonicalJob.workMode.toLowerCase()}`
+                  : ""}
+              </p>
+              <p className="mt-2 text-ellipsis-1 text-sm text-muted-foreground">
+                Deadline: {formatTrackerDate(application.deadline)}
+              </p>
+              {application.tags.length > 0 ? (
+                <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
+                  {application.tags.map(({ tag }) => (
+                    <span
+                      key={tag.id}
+                      className="max-w-48 truncate rounded-full border border-border/70 px-2.5 py-0.5 text-xs text-muted-foreground"
+                      title={tag.name}
+                    >
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
               ) : null}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{application.company}</span>
-              {application.canonicalJob?.location
-                ? ` · ${application.canonicalJob.location}`
-                : ""}
-              {application.canonicalJob?.workMode
-                ? ` · ${application.canonicalJob.workMode.toLowerCase()}`
-                : ""}
-            </p>
+            </>
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
+          <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
+            {application.canonicalJobId ? (
+              <Link
+                href={`/jobs/${application.canonicalJobId}`}
+                className="action-pill h-8 max-w-28 px-3"
+                title="Open job"
+              >
+                <span className="block truncate">Open job</span>
+              </Link>
+            ) : null}
             {application.roleUrl ? (
               <a
-                className="mt-0.5 inline-block text-xs text-foreground underline underline-offset-2 hover:text-muted-foreground"
+                className="action-pill h-8 max-w-28 px-3"
                 href={application.roleUrl}
                 rel="noreferrer"
                 target="_blank"
+                title="Posting"
               >
-                Posting
+                <span className="block truncate">Posting</span>
               </a>
             ) : null}
-            <p className="mt-2 text-sm text-muted-foreground">
-              Deadline: {formatTrackerDate(application.deadline)}
-            </p>
-            {application.tags.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {application.tags.map(({ tag }) => (
-                  <span
-                    key={tag.id}
-                    className="rounded-full border border-border/70 px-2.5 py-0.5 text-xs text-muted-foreground"
-                  >
-                    {tag.name}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      {/* Right column: a single "…" dropdown collects Edit / Add tag /
-          Delete into one menu, eliminating the alignment + font-size
-          mismatch between Edit and Delete and consolidating per-row
-          actions in one place. Open job stays as a direct link above when
-          the application is feed-linked. */}
-      <div className="flex shrink-0 flex-col items-end gap-2 text-right">
-        {application.canonicalJobId ? (
-          <Link
-            href={`/jobs/${application.canonicalJobId}`}
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Open job
-          </Link>
-        ) : null}
-        {!editing ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label="Application actions"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[140px]">
-              <DropdownMenuItem onClick={() => setEditing(true)}>
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>
-                Add tag
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setDeleteDialogOpen(true)}
-                variant="destructive"
+          </div>
+          {!editing ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label="Application actions"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
               >
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+                <MoreHorizontal className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[140px]">
+                <DropdownMenuItem onClick={() => setEditing(true)}>
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>
+                  Add tag
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setDeleteDialogOpen(true)}
+                  variant="destructive"
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
 
       {/* Add-tag dialog. Tiny modal with a single text input + Save. */}
@@ -350,6 +364,6 @@ export function ApplicationListCard({ application }: { application: ApplicationL
         pending={deletePending}
         title="Delete application?"
       />
-    </div>
+    </>
   );
 }

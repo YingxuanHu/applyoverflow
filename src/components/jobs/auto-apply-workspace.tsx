@@ -9,7 +9,7 @@ import {
   useTransition,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Bot,
@@ -29,6 +29,7 @@ import { updateAutoApplyContactAction } from "@/app/profile/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useNotifications } from "@/components/ui/notification-provider";
+import { resolveAutoApplyUserStatus } from "@/lib/automation/user-status";
 import { cn } from "@/lib/utils";
 import type {
   AutoApplyReviewField,
@@ -140,7 +141,7 @@ export function AutoApplyWorkspace({
     [fieldAnswers, review]
   );
   const userFacingStatus = review
-    ? getUserFacingStatus(review, unresolvedRequiredFields.length)
+    ? resolveAutoApplyUserStatus(review.status, unresolvedRequiredFields.length)
     : null;
   const needsRecheck =
     Boolean(review) &&
@@ -267,7 +268,7 @@ export function AutoApplyWorkspace({
         if (!response.ok) {
           throw new Error(
             (data && typeof data.error === "string" && data.error) ||
-              "Auto-apply could not continue safely."
+              "Apply assistant could not continue safely."
           );
         }
 
@@ -292,7 +293,7 @@ export function AutoApplyWorkspace({
       } catch (error) {
         setResult({
           kind: "error",
-          message: error instanceof Error ? error.message : "Auto-apply failed.",
+          message: error instanceof Error ? error.message : "Apply assistant failed.",
         });
       }
     });
@@ -305,22 +306,22 @@ export function AutoApplyWorkspace({
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground text-background">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-accent text-primary">
           <Bot className="h-5 w-5" />
         </div>
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            Review-first auto apply
+            Apply assistant
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            We inspect the employer form first, show every field we can fill, then submit only after your confirmation.
+            We prepare the form, ask for anything missing, and submit only after your confirmation.
           </p>
         </div>
       </div>
 
       <StepStrip review={review} result={result} />
 
-      <section className="rounded-xl border border-border/70 bg-background/60 p-4">
+      <section className="grouped-panel p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-foreground">
@@ -350,10 +351,10 @@ export function AutoApplyWorkspace({
                 <label
                   key={resume.id}
                   className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
+                    "flex cursor-pointer items-start gap-3 rounded-[14px] border p-3 transition-colors",
                     isSelected
-                      ? "border-foreground bg-muted/35"
-                      : "border-border/70 bg-background/40 hover:border-border"
+                      ? "border-primary/45 bg-accent"
+                      : "border-border/70 bg-card hover:bg-muted"
                   )}
                 >
                   <input
@@ -362,7 +363,7 @@ export function AutoApplyWorkspace({
                     value={resume.id}
                     checked={isSelected}
                     onChange={() => setSelectedResumeId(resume.id)}
-                    className="mt-1 h-4 w-4 accent-foreground"
+                    className="mt-1 h-4 w-4"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-2">
@@ -390,7 +391,7 @@ export function AutoApplyWorkspace({
             })}
           </div>
         ) : (
-          <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+          <div className="mt-3 rounded-[14px] border border-dashed border-border p-4 text-sm text-muted-foreground">
             No resumes on your profile yet.{" "}
             <Link href="/profile" className="underline underline-offset-2 hover:text-foreground">
               Upload one now
@@ -400,13 +401,13 @@ export function AutoApplyWorkspace({
         )}
       </section>
 
-      <section className="rounded-xl border border-border/70 bg-background/60 p-4">
+      <section className="grouped-panel p-4">
         <label className="flex cursor-pointer items-center gap-2">
           <input
             type="checkbox"
             checked={coverLetterEnabled}
             onChange={(event) => setCoverLetterEnabled(event.target.checked)}
-            className="h-4 w-4 accent-foreground"
+            className="h-4 w-4"
           />
           <span className="text-sm font-medium text-foreground">Include a cover letter</span>
           <span className="text-xs text-muted-foreground">optional</span>
@@ -417,12 +418,12 @@ export function AutoApplyWorkspace({
             onChange={(event) => setCoverLetterText(event.target.value)}
             placeholder={`Dear ${job.company} team,\n\nI'm excited to apply for the ${job.title} role because...`}
             rows={5}
-            className="mt-3 w-full resize-y rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+            className="mt-3 w-full resize-y rounded-[12px] border border-input bg-card p-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25"
           />
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-border/70 bg-background/60 p-4">
+      <section className="grouped-panel p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">Your saved details</p>
@@ -491,13 +492,13 @@ export function AutoApplyWorkspace({
       ) : null}
 
       {result.kind === "error" ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+        <div className="rounded-[14px] border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {result.message}
         </div>
       ) : null}
 
       {!job.atsSupported ? (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <div className="rounded-[14px] border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
           We do not yet have an automated filler for this application form. Open the original posting and submit on the employer site.
         </div>
       ) : null}
@@ -507,7 +508,7 @@ export function AutoApplyWorkspace({
           {job.atsName ? `${job.atsName} form` : "Supported form"} · no submission happens until you review and confirm.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          {userFacingStatus?.kind === "blocked" ? (
+          {userFacingStatus?.kind === "manual" ? (
             <Button
               size="sm"
               variant="outline"
@@ -530,7 +531,7 @@ export function AutoApplyWorkspace({
             )}
             {review ? (needsRecheck ? "Save answers and re-check" : "Check again") : "Prepare application"}
           </Button>
-          {review && userFacingStatus?.kind !== "blocked" ? (
+          {review && userFacingStatus?.kind !== "manual" ? (
             <Button
               size="sm"
               onClick={() => postAutoApply("submit")}
@@ -547,10 +548,10 @@ export function AutoApplyWorkspace({
         </div>
       </div>
 
-      {review && userFacingStatus?.kind !== "blocked" && review.canSubmit ? (
-        <label className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+      {review && userFacingStatus?.kind !== "manual" && review.canSubmit ? (
+        <label className="flex items-start gap-2 rounded-[14px] border border-border/70 bg-card p-3 text-sm text-foreground">
           <input
-            className="mt-1 h-4 w-4 accent-foreground"
+            className="mt-1 h-4 w-4"
             checked={confirmed}
             onChange={(event) => setConfirmed(event.target.checked)}
             type="checkbox"
@@ -571,14 +572,16 @@ function StepStrip({
   review: AutoApplyReviewSummary | null;
   result: ResultState;
 }) {
+  const missingRequiredCount =
+    review?.fields.filter((field) => field.required && !field.value).length ?? 0;
   const steps = [
-    { label: "Detect", active: !review || result.kind === "running" },
-    { label: "Review", active: Boolean(review) },
-    { label: "Confirm", active: Boolean(review) },
+    { label: "Prepare", active: !review || result.kind === "running" },
+    { label: "Complete", active: Boolean(review) && missingRequiredCount > 0 },
+    { label: "Review", active: Boolean(review) && missingRequiredCount === 0 },
     { label: "Submit", active: result.kind === "success" },
   ];
   return (
-    <div className="grid grid-cols-4 overflow-hidden rounded-xl border border-border/70 bg-background/60 text-xs">
+    <div className="grid grid-cols-4 overflow-hidden rounded-[14px] border border-border/70 bg-card text-xs">
       {steps.map((step, index) => (
         <div
           className={cn(
@@ -612,7 +615,10 @@ function ReviewPanel({
   selectedResume: AutoApplyResumeChoice | null;
   unresolvedRequiredFields: AutoApplyReviewField[];
 }) {
-  const status = getUserFacingStatus(review, unresolvedRequiredFields.length);
+  const status = resolveAutoApplyUserStatus(
+    review.status,
+    unresolvedRequiredFields.length
+  );
   const groups = groupReviewFields(review.fields);
   const editableFieldCount = review.fields.length;
   const answeredRequiredCount = review.fields.filter(
@@ -620,7 +626,7 @@ function ReviewPanel({
   ).length;
 
   return (
-    <section className={cn("rounded-xl border p-4", status.toneClass)}>
+    <section className={cn("min-w-0 rounded-[18px] border p-4", status.toneClass)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-base font-semibold text-foreground">{status.label}</p>
@@ -631,23 +637,36 @@ function ReviewPanel({
               : `${answeredRequiredCount} required field${answeredRequiredCount === 1 ? "" : "s"} ready for review.`}
           </p>
         </div>
-        <span className="inline-flex h-7 items-center rounded-full border border-border/70 bg-background/70 px-2.5 text-xs text-foreground">
+        <span className="inline-flex h-7 items-center rounded-full border border-border/70 bg-card px-2.5 text-xs text-foreground">
           {review.atsName ?? "Unknown ATS"}
         </span>
       </div>
 
-      {status.kind === "blocked" ? (
-        <div className="mt-4 rounded-lg border border-border/70 bg-background/70 p-3 text-sm text-muted-foreground">
-          {plainBlockerMessage(review)}
+      {status.kind === "manual" ? (
+        <div className="mt-4 rounded-[14px] border border-border/70 bg-card p-3 text-sm text-muted-foreground">
+          <p>{plainBlockerMessage(review)}</p>
+          <Button
+            className="mt-3"
+            size="sm"
+            variant="outline"
+            render={<a href={job.applyUrl} target="_blank" rel="noreferrer noopener" />}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open employer form
+          </Button>
         </div>
       ) : null}
 
-      <div className="mt-4 rounded-lg border border-border/70 bg-background/65 p-3">
+      <div className="mt-4 min-w-0 overflow-hidden rounded-[14px] border border-border/70 bg-card p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Application assistant</p>
+            <p className="text-sm font-medium text-foreground">
+              {status.kind === "manual" ? "Autofill assistance" : "Application fields"}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Complete missing answers and review the values that would be submitted.
+              {status.kind === "manual"
+                ? "Use these values as a checklist on the employer site. Nothing will be submitted from the app."
+                : "Complete missing answers and review the values that would be submitted."}
             </p>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -659,7 +678,7 @@ function ReviewPanel({
           <ReviewSummaryRow label="Job" value={`${job.title} at ${job.company}`} />
           <ReviewSummaryRow label="Resume" value={selectedResume?.label ?? "No resume selected"} />
           {review.fields.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
+            <div className="rounded-[14px] border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
               We could not read editable fields from this employer form. Open the employer form and apply manually.
             </div>
           ) : null}
@@ -704,7 +723,7 @@ function ReviewFieldGroup({
   if (group.fields.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-border/70 bg-background/70 p-3">
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-border/70 bg-card p-3">
       <div>
         <p className="text-sm font-medium text-foreground">{group.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
@@ -750,9 +769,9 @@ function EditableReviewField({
     field.source !== "Resume";
 
   return (
-    <label className="grid gap-1.5" htmlFor={controlId}>
+    <label className="grid min-w-0 gap-1.5" htmlFor={controlId}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-foreground">{field.label}</span>
+        <span className="min-w-0 break-words text-sm font-medium text-foreground">{field.label}</span>
         <FieldPill tone={field.required ? "required" : "neutral"}>
           {field.required ? "Required" : "Optional"}
         </FieldPill>
@@ -767,7 +786,7 @@ function EditableReviewField({
       {options.length > 0 ? (
         <select
           className={cn(
-            "h-9 rounded-lg border bg-background px-3 text-sm outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30",
+            "h-10 w-full min-w-0 rounded-[12px] border bg-card px-3 text-sm outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25",
             isMissingRequired ? "border-amber-500/70" : "border-border/70"
           )}
           id={controlId}
@@ -786,7 +805,7 @@ function EditableReviewField({
       ) : field.fieldType === "textarea" || isLongAnswerField(field) ? (
         <textarea
           className={cn(
-            "min-h-24 rounded-lg border bg-background px-3 py-2 text-sm outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/30",
+            "min-h-24 w-full min-w-0 rounded-[12px] border bg-card px-3 py-2 text-sm outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/25",
             isMissingRequired ? "border-amber-500/70" : "border-border/70"
           )}
           id={controlId}
@@ -815,7 +834,7 @@ function EditableReviewField({
         </p>
         {canDraft ? (
           <button
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-primary transition hover:bg-accent"
             onClick={(event) => {
               event.preventDefault();
               onAnswerChange(field.id, buildDraftStarter(field, job, profilePreview));
@@ -855,7 +874,7 @@ function FieldPill({
           ? "border-foreground/20 bg-foreground/[0.04] text-foreground"
           : tone === "warning"
             ? "border-amber-500/25 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300"
-            : "border-border/70 bg-background/70 text-muted-foreground"
+            : "border-border/70 bg-card text-muted-foreground"
       )}
     >
       {children}
@@ -864,8 +883,14 @@ function FieldPill({
 }
 
 function DebugDetails({ review }: { review: AutoApplyReviewSummary }) {
+  const searchParams = useSearchParams();
+
+  if (searchParams.get("debug") !== "1") {
+    return null;
+  }
+
   return (
-    <details className="mt-4 rounded-lg border border-border/70 bg-background/45 p-3">
+    <details className="mt-4 rounded-[14px] border border-border/70 bg-card p-3">
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
         Developer details
       </summary>
@@ -910,42 +935,6 @@ function getFieldAnswerValue(
   return (answers[field.id] ?? field.value ?? "").trim();
 }
 
-function getUserFacingStatus(
-  review: AutoApplyReviewSummary,
-  unresolvedRequiredCount: number
-) {
-  if (
-    review.status === "BLOCKED_OR_UNSUPPORTED" ||
-    review.status === "NOT_AUTO_APPLICABLE"
-  ) {
-    return {
-      kind: "blocked" as const,
-      label: "Cannot auto-apply",
-      description:
-        "We can show what we found, but this employer form cannot be safely submitted from the app.",
-      toneClass: "border-destructive/25 bg-destructive/[0.035]",
-    };
-  }
-
-  if (unresolvedRequiredCount > 0 || review.status === "NEEDS_EXTRA_ANSWERS") {
-    return {
-      kind: "needs-input" as const,
-      label: "Needs your input",
-      description:
-        "Answer the required questions below, then check the form again before submitting.",
-      toneClass: "border-amber-500/25 bg-amber-500/[0.04]",
-    };
-  }
-
-  return {
-    kind: "ready" as const,
-    label: "Ready to submit",
-    description:
-      "Everything required has a value. Review the answers below, then confirm when you are ready.",
-    toneClass: "border-emerald-500/25 bg-emerald-500/[0.04]",
-  };
-}
-
 function plainBlockerMessage(review: AutoApplyReviewSummary) {
   const firstBlocker = review.blockers[0];
   if (!firstBlocker) {
@@ -954,7 +943,7 @@ function plainBlockerMessage(review: AutoApplyReviewSummary) {
 
   switch (firstBlocker.type) {
     case "captcha":
-      return "The employer form includes CAPTCHA or bot protection. We cannot bypass it or submit this form automatically. Use the employer form directly, and use the answers below as a checklist.";
+      return "The employer form includes CAPTCHA or bot protection, so this application must be submitted on the employer site. Use the answers below as a checklist.";
     case "login_required":
       return "The employer form requires a login or manual step. Open the employer form and finish there.";
     case "position_closed":
@@ -1108,10 +1097,10 @@ function SuccessPanel({
   const headline = isSubmitted
     ? "Application submitted"
     : isBlocked
-      ? "Application paused"
+      ? "Could not submit from the app"
       : isFailed
-        ? "Auto apply failed"
-        : "Auto apply complete";
+        ? "Could not submit from the app"
+        : "Application check complete";
   const Icon = isSubmitted ? CheckCircle2 : XCircle;
   const iconColor = isSubmitted
     ? "text-emerald-600 bg-emerald-500/10"
@@ -1130,12 +1119,12 @@ function SuccessPanel({
           <p className="mt-0.5 text-sm text-muted-foreground">
             {isSubmitted
               ? `We submitted your application to ${job.company}.`
-              : "The automation stopped before a confirmed submission. Use the employer form to finish manually."}
+              : "The app stopped before submission. Open the employer form and finish manually."}
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border/70 bg-background/60 p-4">
+      <div className="rounded-[16px] border border-border/70 bg-card p-4">
         <dl className="grid gap-3 sm:grid-cols-3">
           <Metric label="Platform" value={result.atsName ?? "Unknown"} />
           <Metric label="Fields filled" value={String(result.filledFieldCount)} />
@@ -1143,11 +1132,11 @@ function SuccessPanel({
         </dl>
         {result.blockers.length > 0 ? (
           <div className="mt-3 border-t border-border/60 pt-3">
-            <p className="text-xs font-medium text-foreground">Items needing review</p>
+            <p className="text-xs font-medium text-foreground">What to do next</p>
             <ul className="mt-1.5 space-y-1">
               {result.blockers.map((blocker, index) => (
                 <li key={index} className="text-xs text-amber-700 dark:text-amber-400">
-                  [{blocker.type}] {blocker.detail}
+                  {plainResultBlockerMessage(blocker.type)}
                 </li>
               ))}
             </ul>
@@ -1178,6 +1167,29 @@ function SuccessPanel({
       </div>
     </div>
   );
+}
+
+function plainResultBlockerMessage(type: string) {
+  switch (type) {
+    case "captcha":
+      return "The employer form includes bot protection. Please finish on the employer site.";
+    case "login_required":
+      return "The employer form requires a login or manual step.";
+    case "position_closed":
+      return "The employer may have closed this posting.";
+    case "form_changed":
+      return "The employer form changed and needs manual review.";
+    case "file_upload_failed":
+      return "The resume upload could not be completed safely.";
+    case "required_field_unknown":
+      return "Some required answers still need to be completed or verified.";
+    case "timeout":
+      return "The employer form did not load reliably.";
+    case "unknown":
+      return "The employer form could not be completed safely from the app.";
+    default:
+      return "The employer form needs manual review.";
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

@@ -186,6 +186,7 @@ async function fillLeverForm(ctx: ATSFillerContext): Promise<ATSFillerResult> {
 
   // ─── Custom questions ──────────────────────────────────────────────
   await fillLeverCustomQuestions(page, values, ctx.applicationPackage.savedAnswers, filledFields, unfillableFields);
+  await fillLeverDetectedChoiceFields(page, detectedForReview.filled, filledFields);
 
   screenshots.push(await captureScreenshot(page, screenshotDir, "03_form_filled"));
 
@@ -309,6 +310,121 @@ async function fillLeverCustomQuestions(
       unfillableFields.push({ label: labelText.slice(0, 80), reason: "No matching answer", required: true });
     }
   }
+}
+
+async function fillLeverDetectedChoiceFields(
+  page: Page,
+  detectedFields: FilledField[],
+  filledFields: FilledField[]
+) {
+  for (const field of detectedFields) {
+    if (
+      field.fieldType !== "select" &&
+      field.fieldType !== "radio" &&
+      field.fieldType !== "checkbox"
+    ) {
+      continue;
+    }
+
+    if (field.fieldType === "select") {
+      const select = page.locator(field.selector).first();
+      if ((await select.count().catch(() => 0)) === 0) continue;
+      const selected = await select.selectOption({ label: field.value }).then(
+        () => true,
+        () => false
+      );
+      if (selected) {
+        filledFields.push({
+          label: field.label,
+          selector: field.selector,
+          value: field.value,
+          required: field.required,
+          fieldType: field.fieldType,
+          options: field.options,
+          sourcePlatform: field.sourcePlatform,
+          confidence: field.confidence,
+          sensitive: field.sensitive,
+          custom: field.custom,
+          reviewRequired: field.reviewRequired,
+        });
+      }
+      continue;
+    }
+
+    const inputs = page.locator(field.selector);
+    const count = Math.min(await inputs.count().catch(() => 0), 24);
+    for (let index = 0; index < count; index++) {
+      const input = inputs.nth(index);
+      const optionLabel = await getLeverOptionLabel(page, input);
+      if (!optionMatches(optionLabel, field.value)) continue;
+
+      const checked = await input.check({ force: true }).then(
+        () => true,
+        () => false
+      );
+      if (checked) {
+        filledFields.push({
+          label: field.label,
+          selector: `${field.selector}:option(${index})`,
+          value: field.value,
+          required: field.required,
+          fieldType: field.fieldType,
+          options: field.options,
+          sourcePlatform: field.sourcePlatform,
+          confidence: field.confidence,
+          sensitive: field.sensitive,
+          custom: field.custom,
+          reviewRequired: field.reviewRequired,
+        });
+      }
+      break;
+    }
+  }
+}
+
+async function getLeverOptionLabel(page: Page, input: ReturnType<Page["locator"]>) {
+  const id = await input.getAttribute("id").catch(() => null);
+  if (id) {
+    const labelText = await page
+      .locator(`label[for="${escapeAttributeValue(id)}"]`)
+      .first()
+      .innerText({ timeout: 500 })
+      .catch(() => "");
+    if (labelText.trim()) return labelText.trim();
+  }
+
+  const parentLabel = await input
+    .locator("xpath=ancestor::label[1]")
+    .innerText({ timeout: 500 })
+    .catch(() => "");
+  if (parentLabel.trim()) return parentLabel.trim();
+
+  const siblingText = await input
+    .locator("xpath=following-sibling::*[1]")
+    .innerText({ timeout: 500 })
+    .catch(() => "");
+  if (siblingText.trim()) return siblingText.trim();
+
+  return (await input.getAttribute("value").catch(() => null)) ?? "";
+}
+
+function optionMatches(label: string, value: string) {
+  const normalizedLabel = normalize(label);
+  const normalizedValue = normalize(value);
+  if (!normalizedLabel || !normalizedValue) return false;
+  return (
+    normalizedLabel === normalizedValue ||
+    normalizedLabel.includes(normalizedValue) ||
+    normalizedValue.includes(normalizedLabel)
+  );
+}
+
+function normalize(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function escapeAttributeValue(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
