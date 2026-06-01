@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { BrandLogo } from "@/components/brand/brand-logo";
+import { MobileNavSheet } from "@/components/layout/mobile-nav-sheet";
 import { UserMenu } from "@/components/layout/user-menu";
 
 const AUTH_ROUTES = new Set([
@@ -36,10 +38,23 @@ export function TopBarInner({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-end gap-3 border-b border-border/70 bg-background/[0.82] px-4 backdrop-blur-xl sm:px-6">
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-30 flex min-h-14 items-center justify-between gap-3 border-b border-border/70 bg-background/[0.86] px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl sm:px-6 md:h-14 md:justify-end md:pt-0">
+      <Link
+        aria-label="Go to jobs"
+        className="flex min-w-0 items-center rounded-[14px] py-2 pr-2 transition hover:bg-card md:hidden"
+        href="/jobs"
+      >
+        <BrandLogo
+          iconClassName="size-8"
+          textClassName="max-w-[10rem] text-sm text-foreground"
+        />
+      </Link>
+      <div className="flex shrink-0 items-center gap-2">
         {user ? (
-          <UserMenu user={user} />
+          <>
+            <UserMenu user={user} />
+            <MobileNavSheet />
+          </>
         ) : (
           <div className="flex items-center gap-2">
             <Link

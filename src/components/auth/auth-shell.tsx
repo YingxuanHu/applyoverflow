@@ -35,8 +35,8 @@ export function AuthShell({
   ];
 
   return (
-    <main className="flex min-h-screen items-center bg-background px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto grid w-full max-w-6xl min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:items-center">
+    <main className="flex min-h-dvh items-center bg-background px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
+      <div className="mx-auto grid w-full max-w-6xl min-w-0 items-center gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:gap-8">
         <section className="order-2 min-w-0 lg:order-1">
           <Link
             aria-label="Go to sign in"
@@ -46,28 +46,37 @@ export function AuthShell({
             <BrandLogo priority />
           </Link>
 
-          <div className="mt-10 max-w-2xl">
+          <div className="mt-7 max-w-2xl sm:mt-10">
             <p className="section-label">Smarter job search workspace</p>
-            <h1 className="mt-4 max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            <h1 className="mt-3 max-w-xl text-[2.35rem] font-semibold leading-[1.06] tracking-tight text-foreground sm:mt-4 sm:text-5xl">
               {contextTitle}
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg">
+            <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground sm:mt-5 sm:text-lg sm:leading-7">
               {contextDescription}
             </p>
           </div>
 
-          <div className="mt-8 max-w-xl rounded-[28px] border border-border/60 bg-card/80 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.035)] backdrop-blur">
-            <div className="grid gap-3 sm:grid-cols-3">
+          <div className="mt-6 max-w-xl rounded-[24px] border border-border/60 bg-card/80 p-3 shadow-[0_1px_2px_rgba(0,0,0,0.035)] backdrop-blur sm:mt-8 sm:rounded-[28px] sm:p-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
               {previewItems.map((item) => {
                 const Icon = item.icon;
 
                 return (
-                  <div key={item.label} className="min-w-0 rounded-[20px] bg-muted/45 p-4">
-                    <div className="flex size-9 items-center justify-center rounded-full bg-card text-muted-foreground">
+                  <div
+                    key={item.label}
+                    className="flex min-w-0 items-center gap-3 rounded-[18px] bg-muted/45 p-3 sm:block sm:rounded-[20px] sm:p-4"
+                  >
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-card text-muted-foreground sm:size-9">
                       <Icon className="size-4" />
                     </div>
-                    <p className="mt-3 text-sm font-semibold text-foreground">{item.label}</p>
-                    <p className="mt-1 text-sm leading-5 text-muted-foreground">{item.value}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground sm:mt-3">
+                        {item.label}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-muted-foreground sm:mt-1 sm:text-sm sm:leading-5">
+                        {item.value}
+                      </p>
+                    </div>
                   </div>
                 );
               })}
