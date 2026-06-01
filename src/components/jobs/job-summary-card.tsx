@@ -50,7 +50,7 @@ export function JobSummaryCard({
   return (
     <article
       className={cn(
-        "flex flex-wrap items-start justify-between gap-3",
+        "flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row sm:gap-3",
         (job.status === "EXPIRED" || job.status === "REMOVED") && "opacity-60"
       )}
     >
@@ -58,7 +58,7 @@ export function JobSummaryCard({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={`/jobs/${job.id}`}
-            className="inline-block max-w-full truncate text-base font-semibold text-foreground transition hover:underline"
+            className="mobile-list-title inline-block max-w-full text-base font-semibold text-foreground transition hover:underline sm:truncate"
           >
             {job.title}
           </Link>
@@ -74,7 +74,7 @@ export function JobSummaryCard({
           ) : null}
         </div>
 
-        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-muted-foreground sm:gap-x-4 sm:text-sm">
           <MetaField
             emphasis
             icon={<Building2 className="h-3.5 w-3.5" />}
@@ -97,12 +97,12 @@ export function JobSummaryCard({
         </div>
 
         {summary ? (
-          <p className="mt-2 line-clamp-2 max-w-3xl text-sm text-muted-foreground">
+          <p className="mt-2 hidden max-w-3xl text-[13px] leading-5 text-muted-foreground sm:line-clamp-2 sm:text-sm">
             {summary}
           </p>
         ) : null}
 
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p className="mt-2 truncate text-xs leading-5 text-muted-foreground sm:mt-3">
           Posted {formatPostedAge(job.postedAt, referenceNow)}
           {roleLabel ? (
             <>
@@ -122,19 +122,23 @@ export function JobSummaryCard({
       </div>
 
       {job.primaryExternalLink || footerActions ? (
-        <div className="flex w-full shrink-0 flex-col items-end gap-2 sm:w-auto">
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:flex-col sm:items-end">
           {job.primaryExternalLink ? (
             <a
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:flex-none"
               href={job.primaryExternalLink.href}
               rel="noreferrer"
               target="_blank"
             >
-              Posting
+              <span className="truncate">Posting</span>
               <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
             </a>
           ) : null}
-          {footerActions}
+          {footerActions ? (
+            <div className="min-w-0 flex-1 [&_button]:w-full [&_button_span]:truncate sm:flex-none sm:[&_button]:w-auto">
+              {footerActions}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -157,9 +161,9 @@ function MetaField({
   value: string;
 }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
       <span className="shrink-0 text-muted-foreground/70">{icon}</span>
-      <span className={cn("truncate", emphasis && "font-semibold text-foreground")}>
+      <span className={cn("max-w-[16rem] truncate sm:max-w-none", emphasis && "font-semibold text-foreground")}>
         {value}
       </span>
     </span>

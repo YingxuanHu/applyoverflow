@@ -5,11 +5,17 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type SearchParamMemoryProps = {
   basePath: string;
+  cookieName?: string;
+  persistEndpoint?: string;
+  stateParamKeys?: readonly string[];
   storageKey: string;
 };
 
 export function SearchParamMemory({
   basePath,
+  cookieName,
+  persistEndpoint,
+  stateParamKeys,
   storageKey,
 }: SearchParamMemoryProps) {
   const pathname = usePathname();
@@ -23,12 +29,25 @@ export function SearchParamMemory({
     const reset = searchParams.get("reset");
     if (reset === "1") {
       sessionStorage.removeItem(storageKey);
+      if (cookieName) expireCookie(cookieName);
+      if (persistEndpoint) {
+        void fetch(persistEndpoint, { method: "DELETE" }).catch(() => undefined);
+      }
       router.replace(basePath);
       return;
     }
 
-    if (search) {
-      sessionStorage.setItem(storageKey, search);
+    const stateSearch = getStateSearch(searchParams, stateParamKeys);
+    if (stateSearch) {
+      sessionStorage.setItem(storageKey, stateSearch);
+      if (cookieName) setMemoryCookie(cookieName, stateSearch);
+      if (persistEndpoint) {
+        void fetch(persistEndpoint, {
+          body: JSON.stringify({ query: stateSearch }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }).catch(() => undefined);
+      }
       return;
     }
 
@@ -36,7 +55,43 @@ export function SearchParamMemory({
     if (saved) {
       router.replace(`${basePath}?${saved}`);
     }
-  }, [basePath, pathname, router, search, searchParams, storageKey]);
+  }, [
+    basePath,
+    cookieName,
+    pathname,
+    persistEndpoint,
+    router,
+    search,
+    searchParams,
+    stateParamKeys,
+    storageKey,
+  ]);
 
   return null;
+}
+
+function getStateSearch(
+  searchParams: ReturnType<typeof useSearchParams>,
+  stateParamKeys?: readonly string[]
+) {
+  const search = searchParams.toString();
+  if (!search) return "";
+  const params = new URLSearchParams(search);
+  params.delete("reset");
+  if (stateParamKeys?.length) {
+    const hasState = stateParamKeys.some((key) => {
+      const value = params.get(key);
+      return value !== null && value.trim() !== "";
+    });
+    if (!hasState) return "";
+  }
+  return params.toString();
+}
+
+function setMemoryCookie(name: string, value: string) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=2592000; Path=/; SameSite=Lax`;
+}
+
+function expireCookie(name: string) {
+  document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
 }

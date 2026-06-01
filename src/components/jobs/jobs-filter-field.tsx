@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { Input } from "@/components/ui/input";
 
 type FilterOption = {
   label: string;
@@ -11,7 +12,7 @@ type FilterOption = {
 
 type JobsFilterDropdownFieldProps = {
   className?: string;
-  clearHref: string;
+  clearHref?: string;
   columnsClassName?: string;
   emptyLabel: string;
   name: string;
@@ -22,7 +23,6 @@ type JobsFilterDropdownFieldProps = {
 
 export function JobsFilterDropdownField({
   className,
-  clearHref,
   columnsClassName,
   emptyLabel,
   name,
@@ -76,12 +76,13 @@ export function JobsFilterDropdownField({
       <div className="border-t border-border/60 px-2 py-2">
         {selectedLabels.length > 0 ? (
           <div className="mb-2 flex justify-end">
-            <Link
+            <button
               className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-              href={clearHref}
+              onClick={() => setSelectedValues([])}
+              type="button"
             >
               Clear filter
-            </Link>
+            </button>
           </div>
         ) : null}
         <div className={`grid gap-1 ${columnsClassName ?? ""}`}>
@@ -113,6 +114,49 @@ export function JobsFilterDropdownField({
   );
 }
 
+export function JobsTextFilterField({
+  defaultValue,
+  name,
+  placeholder,
+  title,
+}: {
+  defaultValue: string | undefined;
+  name: string;
+  placeholder: string;
+  title: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [hasValue, setHasValue] = useState(Boolean(defaultValue?.trim()));
+
+  return (
+    <div className="rounded-[12px] border border-border/60 bg-card p-3 sm:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <FilterFieldLabel>{title}</FilterFieldLabel>
+        {hasValue ? (
+          <button
+            className="mb-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            onClick={() => {
+              if (inputRef.current) inputRef.current.value = "";
+              setHasValue(false);
+            }}
+            type="button"
+          >
+            Clear filter
+          </button>
+        ) : null}
+      </div>
+      <Input
+        className="h-9 rounded-[10px] px-2.5 text-xs"
+        defaultValue={defaultValue ?? ""}
+        name={hasValue ? name : undefined}
+        onChange={(event) => setHasValue(Boolean(event.target.value.trim()))}
+        placeholder={placeholder}
+        ref={inputRef}
+      />
+    </div>
+  );
+}
+
 function collectSelectedLabels(current: string[], options: FilterOption[]) {
   const remaining = new Set(current);
   const labels: string[] = [];
@@ -128,6 +172,14 @@ function collectSelectedLabels(current: string[], options: FilterOption[]) {
   }
 
   return labels.concat([...remaining]);
+}
+
+function FilterFieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="mb-1 block text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
+      {children}
+    </label>
+  );
 }
 
 function getFilterSummaryText(selectedLabels: string[], emptyLabel: string) {

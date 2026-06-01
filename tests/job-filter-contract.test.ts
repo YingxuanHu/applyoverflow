@@ -32,14 +32,14 @@ test("Finance / Accounting role filter only accepts Finance / Accounting role me
       title: "Senior Software Engineering Lead - TSQL and 837 Medical Claims",
       roleFamily: "SWE",
       normalizedRoleCategory: "SOFTWARE_ENGINEERING",
-      normalizedIndustry: "INSURANCE",
+      normalizedIndustry: "FINANCIAL_SERVICES",
     }),
     job({
       id: "bad_data",
       title: "Data Engineer, Risk Platform",
       roleFamily: "Data Engineering",
       normalizedRoleCategory: "DATA_ANALYTICS",
-      normalizedIndustry: "FINANCE_BANKING",
+      normalizedIndustry: "FINANCIAL_SERVICES",
     }),
     job({
       id: "bad_consulting",
@@ -93,7 +93,7 @@ test("search-like titles do not override active structured role filters", () => 
           title: "Backend Developer, Payments",
           roleFamily: "SWE",
           normalizedRoleCategory: "SOFTWARE_ENGINEERING",
-          normalizedIndustry: "FINANCE_BANKING",
+          normalizedIndustry: "FINANCIAL_SERVICES",
         }),
       ],
       "test"
@@ -126,7 +126,7 @@ test("industry and role are independent in the role filter contract", () => {
       title: "Software Engineer",
       roleFamily: "SWE",
       normalizedRoleCategory: "SOFTWARE_ENGINEERING",
-      normalizedIndustry: "FINANCE_BANKING",
+      normalizedIndustry: "FINANCIAL_SERVICES",
     }),
     job({
       id: "finance_at_tech",

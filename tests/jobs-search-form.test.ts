@@ -49,7 +49,7 @@ test("scoped job searches can still combine title, company, and location", () =>
   assert.doesNotMatch(html, /name="search" value="ignored global text"/);
 });
 
-test("legacy everything scope falls back to title search", () => {
+test("all scope submits a global search without stale scoped fields", () => {
   const html = renderToStaticMarkup(
     React.createElement(JobsSearchForm, {
       hiddenFields: [],
@@ -63,11 +63,10 @@ test("legacy everything scope falls back to title search", () => {
     })
   );
 
-  assert.match(html, /name="titleSearch"/);
-  assert.match(html, />Title</);
-  assert.doesNotMatch(html, />All</);
+  assert.match(html, /name="search"/);
+  assert.match(html, />All</);
   assert.doesNotMatch(html, />Everything</);
-  assert.doesNotMatch(html, /name="search" value="amazon"/);
+  assert.doesNotMatch(html, /name="titleSearch"/);
   assert.doesNotMatch(html, /name="companySearch"/);
   assert.doesNotMatch(html, /name="locationSearch"/);
 });

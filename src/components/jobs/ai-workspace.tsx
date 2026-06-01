@@ -39,10 +39,8 @@ type Props = {
   onFitAnalysisGenerated?: (analysis: FitAnalysis) => void;
   initialCoverLetter?: CoverLetterState | null;
   sectionTitleClassName?: string;
-  // List of the user's resume documents. When provided and the user picks
-  // one, the resumeId is included in the fit-analysis request so the API
-  // can ground the analysis in that specific resume's extracted text
-  // instead of (or in addition to) the structured profile.
+  // Legacy props kept so existing callers do not need churn. Fit analysis
+  // now uses the full saved profile instead of a chosen resume.
   userResumes?: ResumeOption[];
   fixedResumeId?: string | null;
   showResumeSelector?: boolean;
@@ -65,18 +63,8 @@ export function AIWorkspace({
   onFitAnalysisGenerated,
   initialCoverLetter = null,
   sectionTitleClassName,
-  userResumes = [],
-  fixedResumeId = null,
-  showResumeSelector = true,
   showCoverLetter = true,
 }: Props) {
-  // Default to the primary resume (workspace's existing convention); user
-  // can override before clicking Analyze fit.
-  const primaryResume = userResumes.find((entry) => entry.isPrimary);
-  const [selectedResumeId, setSelectedResumeId] = useState<string>(
-    primaryResume?.id ?? userResumes[0]?.id ?? ""
-  );
-  const analysisResumeId = fixedResumeId ?? (showResumeSelector ? selectedResumeId : "");
   const initialFitData = useMemo(
     () => parseStoredFitAnalysis(initialFitAnalysisText),
     [initialFitAnalysisText]
@@ -109,7 +97,7 @@ export function AIWorkspace({
       const res = await fetch(resolvedFitEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(analysisResumeId ? { resumeId: analysisResumeId } : {}),
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => null);
@@ -171,30 +159,6 @@ export function AIWorkspace({
         defaultOpen
         titleClassName={sectionTitleClassName}
       >
-        {showResumeSelector && canAnalyzeFit && userResumes.length > 0 ? (
-          <div className="mb-3 flex flex-col gap-1.5 sm:max-w-sm">
-            <label
-              className="text-xs font-medium text-muted-foreground"
-              htmlFor={`fit-resume-${jobId ?? "workspace"}`}
-            >
-              Analyze based on
-            </label>
-            <select
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:border-foreground/40"
-              id={`fit-resume-${jobId ?? "workspace"}`}
-              onChange={(event) => setSelectedResumeId(event.target.value)}
-              value={selectedResumeId}
-            >
-              {userResumes.map((resume) => (
-                <option key={resume.id} value={resume.id}>
-                  {resume.title}
-                  {resume.isPrimary ? " (Primary)" : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
         {!fitData && !legacyFitText ? (
           canAnalyzeFit ? (
             <div className="flex items-center gap-3">
@@ -322,6 +286,8 @@ function FitResult({
 
   return (
     <div className="space-y-3">
+      {data.profileNotice ? <ProfileNotice message={data.profileNotice} /> : null}
+
       {/* Score */}
       <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 ${tierBg}`}>
         <span className={`text-lg font-bold ${tierColor}`}>{data.score}/10</span>
@@ -484,6 +450,8 @@ function CoverLetterResult({
 }) {
   return (
     <div className="space-y-3">
+      {data.profileNotice ? <ProfileNotice message={data.profileNotice} /> : null}
+
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           {jobTitle} · {company} · {data.wordCount} words
@@ -530,6 +498,14 @@ function CoverLetterResult({
           Tailored cover letter is saved for this application.
         </p>
       )}
+    </div>
+  );
+}
+
+function ProfileNotice({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-blue-700 dark:text-blue-200">
+      {message}
     </div>
   );
 }
