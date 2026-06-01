@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import type { CompanyDiscoveryStatus, CrawlStatus } from "@/generated/prisma/client";
+import { resolveCompanyIndustry } from "@/lib/company-industry";
 
 const THIRD_PARTY_JOB_HOST_HINTS = [
   "ashbyhq.com",
@@ -85,15 +86,29 @@ export async function ensureCompanyRecord(input: {
       crawlStatus: true,
       discoveryConfidence: true,
       metadataJson: true,
+      normalizedIndustry: true,
+      normalizedIndustryConfidence: true,
+      normalizedIndustrySource: true,
     },
   });
 
   if (existing) {
+    const nextName = chooseBetterCompanyName(existing.name, input.companyName);
+    const nextDomain = existing.domain ?? domain;
+    const nextMetadata = mergeMetadataJson(
+      existing.metadataJson as Record<string, unknown> | null,
+      input.metadataJson
+    );
+    const industry = resolveCompanyIndustry({
+      companyName: nextName,
+      domain: nextDomain,
+      metadataJson: nextMetadata,
+    });
     return prisma.company.update({
       where: { companyKey: input.companyKey },
       data: {
-        name: chooseBetterCompanyName(existing.name, input.companyName),
-        domain: existing.domain ?? domain,
+        name: nextName,
+        domain: nextDomain,
         careersUrl: existing.careersUrl ?? input.careersUrl ?? null,
         detectedAts: existing.detectedAts ?? input.detectedAts ?? null,
         discoveryStatus: input.discoveryStatus ?? existing.discoveryStatus,
@@ -103,13 +118,20 @@ export async function ensureCompanyRecord(input: {
           input.discoveryConfidence ?? 0
         ),
         metadataJson:
-          ((mergeMetadataJson(
-            existing.metadataJson as Record<string, unknown> | null,
-            input.metadataJson
-          ) as Prisma.InputJsonValue | null) ?? Prisma.DbNull),
+          ((nextMetadata as Prisma.InputJsonValue | null) ?? Prisma.DbNull),
+        normalizedIndustry: industry.normalizedIndustry,
+        normalizedIndustryConfidence: industry.confidence,
+        normalizedIndustrySource: industry.source,
+        normalizedIndustryUpdatedAt: new Date(),
       },
     });
   }
+
+  const industry = resolveCompanyIndustry({
+    companyName: input.companyName,
+    domain,
+    metadataJson: input.metadataJson,
+  });
 
   return prisma.company.create({
     data: {
@@ -125,6 +147,10 @@ export async function ensureCompanyRecord(input: {
         input.metadataJson != null
           ? (input.metadataJson as Prisma.InputJsonValue)
           : Prisma.DbNull,
+      normalizedIndustry: industry.normalizedIndustry,
+      normalizedIndustryConfidence: industry.confidence,
+      normalizedIndustrySource: industry.source,
+      normalizedIndustryUpdatedAt: new Date(),
     },
   });
 }

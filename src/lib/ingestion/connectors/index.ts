@@ -71,6 +71,8 @@ export {
   buildAmazonSearchUrl,
   buildAppleSearchUrl,
   buildGoogleSearchUrl,
+  buildNetflixDetailUrl,
+  buildNetflixSearchUrl,
   createOfficialCompanyConnector,
   extractAppleJobsFromHydration,
   extractGoogleJobsFromHtml,

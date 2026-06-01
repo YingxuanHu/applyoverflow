@@ -405,7 +405,8 @@ async function main() {
   const limit = readIntArg("--limit", 100);
   const maxBatches = readIntArg("--max-batches", 6);
   const idleSleepMs = readIntArg("--idle-sleep-ms", 5000);
-  const rawParseLimit = readIntArg("--raw-parse-limit", limit);
+  const rawParseLimit =
+    readArg("--raw-parse-limit") == null ? 0 : readIntArg("--raw-parse-limit", limit);
   const dedupeLimit = readIntArg("--dedupe-limit", limit);
   const lifecycleLimit = readIntArg(
     "--lifecycle-limit",

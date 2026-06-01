@@ -143,11 +143,24 @@ function buildDescription(job: RipplingJob): string {
 }
 
 function buildCompanyName(boardSlug: string): string {
-  return boardSlug
+  const cleanedSlug = boardSlug
+    .replace(/^jobs[-_](?:at|in)[-_]/i, "")
+    .replace(/^career[-_]opportunities[-_]at[-_]/i, "")
+    .replace(/^careers?[-_](?:at|for)[-_]/i, "")
+    .replace(/^job[-_]board[-_]/i, "")
+    .replace(/[-_]jobs?$/i, "")
+    .replace(/[-_]careers?$/i, "");
+
+  return cleanedSlug
     .split(/[-_]+/)
     .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .map((segment) => formatCompanySegment(segment))
     .join(" ");
+}
+
+function formatCompanySegment(segment: string) {
+  if (/^[a-z]{2,4}$/i.test(segment)) return segment.toUpperCase();
+  return segment.charAt(0).toUpperCase() + segment.slice(1);
 }
 
 function readText(value: unknown): string | null {

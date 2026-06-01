@@ -59,23 +59,23 @@ const ENTRIES: Entry[] = [
   { companyName: "Palantir", connector: "lever", token: "palantir", boardUrl: "https://jobs.lever.co/palantir" },
 
   // ── Big chips / hardware on Workday ──────────────────────────────────────
-  { companyName: "NVIDIA", connector: "workday", token: "nvidia:wd5:NVIDIAExternalCareerSite", boardUrl: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite" },
-  { companyName: "AMD", connector: "workday", token: "amd:wd1:External", boardUrl: "https://amd.wd1.myworkdayjobs.com/External" },
-  { companyName: "Qualcomm", connector: "workday", token: "qualcomm:wd1:External", boardUrl: "https://qualcomm.wd1.myworkdayjobs.com/External" },
+  { companyName: "NVIDIA", connector: "workday", token: "nvidia.wd5.myworkdayjobs.com|nvidia|NVIDIAExternalCareerSite", boardUrl: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite" },
+  { companyName: "AMD", connector: "workday", token: "amd.wd1.myworkdayjobs.com|amd|External", boardUrl: "https://amd.wd1.myworkdayjobs.com/External" },
+  { companyName: "Qualcomm", connector: "workday", token: "qualcomm.wd12.myworkdayjobs.com|qualcomm|external", boardUrl: "https://qualcomm.wd12.myworkdayjobs.com/external" },
 
   // ── Enterprise SaaS / cloud on Workday ───────────────────────────────────
-  { companyName: "IBM", connector: "workday", token: "ibm:wd1:IBM", boardUrl: "https://ibm.wd1.myworkdayjobs.com/IBM" },
-  { companyName: "Adobe", connector: "workday", token: "adobe:wd5:external_experienced", boardUrl: "https://adobe.wd5.myworkdayjobs.com/external_experienced" },
-  { companyName: "Salesforce", connector: "workday", token: "salesforce:wd12:External_Career_Site", boardUrl: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site" },
-  { companyName: "Twilio", connector: "workday", token: "twilio:wd5:twilio", boardUrl: "https://twilio.wd5.myworkdayjobs.com/twilio" },
-  { companyName: "Okta", connector: "workday", token: "okta:wd5:OktaCareers", boardUrl: "https://okta.wd5.myworkdayjobs.com/OktaCareers" },
-  { companyName: "ServiceNow", connector: "workday", token: "servicenow:wd1:ServiceNowCareers", boardUrl: "https://servicenow.wd1.myworkdayjobs.com/ServiceNowCareers" },
-  { companyName: "Workday", connector: "workday", token: "workday:wd5:Workday", boardUrl: "https://workday.wd5.myworkdayjobs.com/Workday" },
-  { companyName: "Cisco", connector: "workday", token: "cisco:wd5:at_cisco", boardUrl: "https://cisco.wd5.myworkdayjobs.com/at_cisco" },
-  { companyName: "Intuit", connector: "workday", token: "intuit:wd5:IntuitCareers", boardUrl: "https://intuit.wd5.myworkdayjobs.com/IntuitCareers" },
-  { companyName: "Ericsson", connector: "workday", token: "ericsson:wd3:Ericsson_Careers", boardUrl: "https://ericsson.wd3.myworkdayjobs.com/Ericsson_Careers" },
-  { companyName: "Nokia", connector: "workday", token: "nokia:wd3:nokia", boardUrl: "https://nokia.wd3.myworkdayjobs.com/nokia" },
-  { companyName: "Electronic Arts", companyKey: "electronic-arts", connector: "workday", token: "ea:wd1:EA", boardUrl: "https://ea.wd1.myworkdayjobs.com/EA" },
+  { companyName: "IBM", connector: "workday", token: "ibm.wd1.myworkdayjobs.com|ibm|IBM", boardUrl: "https://ibm.wd1.myworkdayjobs.com/IBM" },
+  { companyName: "Adobe", connector: "workday", token: "adobe.wd5.myworkdayjobs.com|adobe|external_experienced", boardUrl: "https://adobe.wd5.myworkdayjobs.com/external_experienced" },
+  { companyName: "Salesforce", connector: "workday", token: "salesforce.wd12.myworkdayjobs.com|salesforce|External_Career_Site", boardUrl: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site" },
+  { companyName: "Twilio", connector: "workday", token: "twilio.wd5.myworkdayjobs.com|twilio|twilio", boardUrl: "https://twilio.wd5.myworkdayjobs.com/twilio" },
+  { companyName: "Okta", connector: "workday", token: "okta.wd5.myworkdayjobs.com|okta|OktaCareers", boardUrl: "https://okta.wd5.myworkdayjobs.com/OktaCareers" },
+  { companyName: "ServiceNow", connector: "workday", token: "servicenow.wd1.myworkdayjobs.com|servicenow|ServiceNowCareers", boardUrl: "https://servicenow.wd1.myworkdayjobs.com/ServiceNowCareers" },
+  { companyName: "Workday", connector: "workday", token: "workday.wd5.myworkdayjobs.com|workday|Workday", boardUrl: "https://workday.wd5.myworkdayjobs.com/Workday" },
+  { companyName: "Cisco", connector: "workday", token: "cisco.wd5.myworkdayjobs.com|cisco|at_cisco", boardUrl: "https://cisco.wd5.myworkdayjobs.com/at_cisco" },
+  { companyName: "Intuit", connector: "workday", token: "intuit.wd5.myworkdayjobs.com|intuit|IntuitCareers", boardUrl: "https://intuit.wd5.myworkdayjobs.com/IntuitCareers" },
+  { companyName: "Ericsson", connector: "workday", token: "ericsson.wd3.myworkdayjobs.com|ericsson|Ericsson_Careers", boardUrl: "https://ericsson.wd3.myworkdayjobs.com/Ericsson_Careers" },
+  { companyName: "Nokia", connector: "workday", token: "nokia.wd3.myworkdayjobs.com|nokia|nokia", boardUrl: "https://nokia.wd3.myworkdayjobs.com/nokia" },
+  { companyName: "Electronic Arts", companyKey: "electronic-arts", connector: "workday", token: "ea.wd1.myworkdayjobs.com|ea|EA", boardUrl: "https://ea.wd1.myworkdayjobs.com/EA" },
 
   // ── SAP / SuccessFactors ─────────────────────────────────────────────────
   { companyName: "SAP", connector: "successfactors", token: "jobs.sap.com", boardUrl: "https://jobs.sap.com/" },
@@ -155,10 +155,24 @@ async function run() {
           },
         ],
       },
-      select: { id: true },
+      select: { id: true, companyId: true },
     });
 
     if (existingSource) {
+      if (existingSource.companyId !== company.id) {
+        await prisma.companySource.update({
+          where: { id: existingSource.id },
+          data: {
+            companyId: company.id,
+            metadataJson: {
+              seedSource: "top-tech-curated:v1",
+              curatedAt: new Date().toISOString(),
+              repairedCompanyOwnerAt: new Date().toISOString(),
+              previousCompanySourceOwnerId: existingSource.companyId,
+            },
+          },
+        });
+      }
       sourcesSkipped += 1;
       continue;
     }

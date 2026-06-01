@@ -12,6 +12,7 @@ import {
   createLeverConnector,
   createMuseConnector,
   createOfficialCompanyConnector,
+  createOracleCloudConnector,
   createRemoteOkConnector,
   createRemotiveConnector,
   createTaleoConnector,
@@ -234,6 +235,11 @@ export function buildDiscoveredSourceName(
   connectorName: SupportedConnectorName,
   token: string
 ) {
+  if (connectorName === "oraclecloud") {
+    const [tenant] = token.trim().toLowerCase().split("|");
+    return `OracleCloud:${(tenant ?? token).replace(/\.oraclecloud\.com$/i, "")}`;
+  }
+
   const prefix = (() => {
     switch (connectorName) {
       case "smartrecruiters":
@@ -290,6 +296,12 @@ export function buildDiscoveredSourceUrl(
       return `https://jobs.smartrecruiters.com/${normalizedToken}`;
     case "workday":
       return buildWorkdayBoardUrl(token);
+    case "oraclecloud": {
+      const [tenant, site] = normalizedToken.split("|");
+      return tenant
+        ? `https://${tenant}/hcmUI/CandidateExperience/en/sites/${site || "cx"}/requisitions`
+        : "https://oraclecloud.com/";
+    }
     case "workable":
       return `https://apply.workable.com/${normalizedToken}/`;
     case "jobvite":
@@ -329,8 +341,12 @@ export function buildDiscoveredSourceUrl(
           return "https://www.amazon.jobs";
         case "apple":
           return "https://jobs.apple.com";
+        case "google":
+          return "https://www.google.com/about/careers/applications/jobs/results/";
         case "microsoft":
           return "https://apply.careers.microsoft.com/careers";
+        case "netflix":
+          return "https://explore.jobs.netflix.net/careers?domain=netflix.com";
         case "nvidia":
           return "https://jobs.nvidia.com/careers";
       }
@@ -1291,7 +1307,7 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     };
   }
 
-  const teamtailorMatch = hostname.match(/^([a-z0-9-]+)\.teamtailor\.com$/i);
+  const teamtailorMatch = hostname.match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.teamtailor\.com$/i);
   if (
     teamtailorMatch?.[1] &&
     pathSegments[0] === "jobs" &&
@@ -1394,6 +1410,23 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     }
   }
 
+  const oracleCloudMatch = hostname.match(/^([a-z0-9.-]+)\.oraclecloud\.com$/i);
+  if (oracleCloudMatch) {
+    const sitesIndex = pathSegments.findIndex(
+      (segment, index) =>
+        segment.toLowerCase() === "sites" &&
+        index > 0 &&
+        pathSegments[index - 1]?.toLowerCase() === "en"
+    );
+    const candidateSite =
+      sitesIndex >= 0 ? pathSegments[sitesIndex + 1] : parsedUrl.searchParams.get("siteNumber");
+    const site = candidateSite?.trim() || "CX";
+    return {
+      connectorName: "oraclecloud",
+      token: `${hostname}|${site}`,
+    };
+  }
+
   return null;
 }
 
@@ -1446,6 +1479,16 @@ export function createConnectorForCandidate(candidate: DiscoveredSourceCandidate
     case "official-company": {
       const parsed = parseOfficialCompanySourceToken(candidate.token);
       return createOfficialCompanyConnector(parsed);
+    }
+    case "oraclecloud": {
+      const [tenant, site] = candidate.token.split("|");
+      if (!tenant) {
+        throw new Error(`Invalid Oracle Cloud source token "${candidate.token}".`);
+      }
+      return createOracleCloudConnector({
+        tenant,
+        site: site?.trim() || "CX",
+      });
     }
     default:
       throw new Error(

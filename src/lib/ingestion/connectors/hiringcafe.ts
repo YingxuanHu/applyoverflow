@@ -280,9 +280,11 @@ function mapHiringCafeHit(
     sanitizeText(hit.job_information?.job_title_raw);
   if (!title) return null;
 
-  const company =
-    sanitizeText(v5.company_name) ??
-    sanitizeText(hit.enriched_company_data?.name);
+  const company = chooseCompanyName({
+    processedCompany: sanitizeText(v5.company_name),
+    enrichedCompany: sanitizeText(hit.enriched_company_data?.name),
+    applyUrl,
+  });
   if (!company) return null;
 
   const location =
@@ -344,6 +346,37 @@ function inferWorkMode(
   if (/^remote\b/i.test(location)) return "REMOTE";
   if (/hybrid/i.test(location)) return "HYBRID";
   return "ONSITE";
+}
+
+function chooseCompanyName(input: {
+  processedCompany: string | undefined;
+  enrichedCompany: string | undefined;
+  applyUrl: string;
+}) {
+  const processed = input.processedCompany;
+  const enriched = input.enrichedCompany;
+
+  if (processed && !looksLikePlatformCompanyName(processed, input.applyUrl)) {
+    return processed;
+  }
+  if (enriched && !looksLikePlatformCompanyName(enriched, input.applyUrl)) {
+    return enriched;
+  }
+  return processed ?? enriched;
+}
+
+function looksLikePlatformCompanyName(company: string, applyUrl: string) {
+  const normalized = company.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return [
+    { name: "adp", host: /(?:workforcenow\.adp\.com|adp\.com)/i },
+    { name: "hcshiring", host: /hcshiring\.com/i },
+    { name: "jobappnetwork", host: /jobappnetwork\.com/i },
+    { name: "paylocity", host: /paylocity\.com/i },
+    { name: "rippling", host: /rippling\.com/i },
+    { name: "successfactors", host: /successfactors\.com/i },
+    { name: "taleo", host: /(?:taleo\.net|taleo\.com)/i },
+    { name: "workstream", host: /workstream\.(?:us|is|co)/i },
+  ].some((entry) => normalized === entry.name && entry.host.test(applyUrl));
 }
 
 function inferEmploymentType(

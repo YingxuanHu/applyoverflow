@@ -66,6 +66,7 @@ function connectorBonus(connectorName: string, sourceType: string | null) {
   if (connectorName === "official-company") return 600;
   if (sourceType === "COMPANY_JSON") return 420;
   if (sourceType === "COMPANY_HTML") return 260;
+  if (connectorName === "oraclecloud") return 250;
   if (connectorName === "workday") return 240;
   if (connectorName === "greenhouse") return 80;
   if (connectorName === "icims") return 70;

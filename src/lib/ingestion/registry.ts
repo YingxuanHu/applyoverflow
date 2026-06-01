@@ -200,7 +200,7 @@ export function resolveConnectors(
         args.sources ??
         args.source ??
         process.env.OFFICIAL_COMPANY_SOURCES ??
-        "amazon:global,google:global,apple:global,microsoft:global,nvidia:global"
+        "amazon:global,google:global,apple:global,microsoft:global,nvidia:global,netflix:global"
     );
 
     return sourceTokens.map((sourceToken) =>
@@ -663,7 +663,7 @@ export function getScheduledConnectors(): ScheduledConnectorDefinition[] {
       resolveConnectors("official-company", {
         sources:
           process.env.OFFICIAL_COMPANY_SOURCES ??
-          "amazon:global,google:global,apple:global,microsoft:global,nvidia:global",
+          "amazon:global,google:global,apple:global,microsoft:global,nvidia:global,netflix:global",
       }).map((connector) => ({
         connector,
         cadenceMinutes: resolveCadenceMinutes(

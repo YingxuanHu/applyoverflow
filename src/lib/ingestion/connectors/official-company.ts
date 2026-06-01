@@ -15,6 +15,7 @@ const AMAZON_PAGE_SIZE = 100;
 const APPLE_PAGE_SIZE = 20;
 const GOOGLE_PAGE_SIZE = 20;
 const EIGHTFOLD_PAGE_SIZE = 100;
+const NETFLIX_PAGE_SIZE = 50;
 const AMAZON_GLOBAL_SHARD_MODE = "global-unfiltered-first-v2";
 export const AMAZON_US_CATEGORY_SHARDS = [
   "Software Development",
@@ -64,6 +65,7 @@ export type OfficialCompanyKey =
   | "apple"
   | "google"
   | "microsoft"
+  | "netflix"
   | "nvidia";
 export type OfficialCompanyMarket = "ca" | "us" | "north-america" | "global";
 
@@ -165,6 +167,44 @@ type GoogleCheckpoint = {
   itemIndex: number;
 };
 
+type NetflixSearchResponse = {
+  count?: number;
+  positions?: NetflixJob[];
+};
+
+type NetflixJob = {
+  id?: string | number;
+  name?: string;
+  posting_name?: string;
+  location?: string;
+  locations?: string[];
+  department?: string;
+  business_unit?: string;
+  t_update?: number;
+  t_create?: number;
+  ats_job_id?: string;
+  display_job_id?: string;
+  job_description?: string;
+  canonicalPositionUrl?: string;
+  work_location_option?: string | null;
+  type?: string;
+  isPrivate?: boolean;
+};
+
+type NetflixJobDetail = NetflixJob & {
+  displayJobId?: string;
+  jobDescription?: string;
+  standardizedLocations?: string[];
+  postedTs?: number;
+  creationTs?: number;
+  workLocationOption?: string | null;
+};
+
+type NetflixCheckpoint = {
+  kind: "netflix-official";
+  offset: number;
+};
+
 type EightfoldCompanyKey = Extract<OfficialCompanyKey, "microsoft" | "nvidia">;
 
 type EightfoldConfig = {
@@ -246,6 +286,10 @@ export function createOfficialCompanyConnector(
         return fetchEightfoldJobs({ company: options.company, market }, fetchOptions);
       }
 
+      if (options.company === "netflix") {
+        return fetchNetflixJobs(fetchOptions);
+      }
+
       return fetchAppleJobs({ market }, fetchOptions);
     },
   };
@@ -264,10 +308,11 @@ export function parseOfficialCompanySourceToken(token: string): {
     company !== "apple" &&
     company !== "google" &&
     company !== "microsoft" &&
+    company !== "netflix" &&
     company !== "nvidia"
   ) {
     throw new Error(
-      `Unsupported official company source "${token}". Supported values: amazon, apple, google, microsoft, nvidia.`
+      `Unsupported official company source "${token}". Supported values: amazon, apple, google, microsoft, netflix, nvidia.`
     );
   }
 
@@ -511,6 +556,82 @@ export async function fetchGoogleJobs(
   });
 }
 
+export async function fetchNetflixJobs(
+  fetchOptions: SourceConnectorFetchOptions
+): Promise<SourceConnectorFetchResult> {
+  const checkpoint = parseNetflixCheckpoint(fetchOptions.checkpoint);
+  const jobsById = new Map<string, SourceConnectorJob>();
+  let offset = checkpoint?.offset ?? 0;
+  let totalRecords = Number.POSITIVE_INFINITY;
+  let exhausted = true;
+
+  while (offset < totalRecords) {
+    if (isDeadlineNear(fetchOptions)) {
+      exhausted = false;
+      const nextCheckpoint = buildNetflixCheckpoint(offset);
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "netflix",
+        totalRecords: Number.isFinite(totalRecords) ? totalRecords : null,
+        stoppedReason: "deadline_near",
+      }, nextCheckpoint);
+    }
+
+    const pageLimit =
+      fetchOptions.limit && fetchOptions.limit > jobsById.size
+        ? Math.min(NETFLIX_PAGE_SIZE, fetchOptions.limit - jobsById.size)
+        : NETFLIX_PAGE_SIZE;
+    let payload: NetflixSearchResponse;
+    try {
+      payload = await fetchJson<NetflixSearchResponse>(
+        buildNetflixSearchUrl({ offset, limit: pageLimit }),
+        fetchOptions.signal
+      );
+    } catch (error) {
+      if (jobsById.size === 0) throw error;
+
+      exhausted = false;
+      const nextCheckpoint = buildNetflixCheckpoint(offset);
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "netflix",
+        totalRecords: Number.isFinite(totalRecords) ? totalRecords : null,
+        stoppedReason: "search_page_error",
+        error: error instanceof Error ? error.message : String(error),
+      }, nextCheckpoint);
+    }
+    const positions = Array.isArray(payload.positions) ? payload.positions : [];
+    totalRecords = typeof payload.count === "number" ? payload.count : offset + positions.length;
+
+    for (const position of positions) {
+      const detail = shouldFetchNetflixDetails()
+        ? await fetchNetflixJobDetail(position, fetchOptions)
+        : null;
+      const mapped = mapNetflixJob(position, detail);
+      if (mapped) jobsById.set(mapped.sourceId, mapped);
+    }
+
+    offset += positions.length;
+    if (fetchOptions.limit && jobsById.size >= fetchOptions.limit) {
+      exhausted = false;
+      const nextCheckpoint =
+        offset < totalRecords ? buildNetflixCheckpoint(offset) : null;
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "netflix",
+        totalRecords,
+      }, nextCheckpoint);
+    }
+
+    if (positions.length === 0) break;
+  }
+
+  return buildResult(jobsById, exhausted, {
+    company: "netflix",
+    totalRecords: Number.isFinite(totalRecords) ? totalRecords : jobsById.size,
+  });
+}
+
 export async function fetchEightfoldJobs(
   options: { company: EightfoldCompanyKey; market: OfficialCompanyMarket },
   fetchOptions: SourceConnectorFetchOptions
@@ -690,6 +811,22 @@ export function buildGoogleSearchUrl(input: { page: number }) {
   if (input.page > 1) {
     url.searchParams.set("page", String(input.page));
   }
+  return url.toString();
+}
+
+export function buildNetflixSearchUrl(input: { offset: number; limit: number }) {
+  const url = new URL("https://explore.jobs.netflix.net/api/apply/v2/jobs");
+  url.searchParams.set("domain", "netflix.com");
+  url.searchParams.set("start", String(input.offset));
+  url.searchParams.set("num", String(input.limit));
+  return url.toString();
+}
+
+export function buildNetflixDetailUrl(input: { positionId: string }) {
+  const url = new URL(
+    `https://explore.jobs.netflix.net/api/apply/v2/jobs/${input.positionId}`
+  );
+  url.searchParams.set("domain", "netflix.com");
   return url.toString();
 }
 
@@ -890,6 +1027,117 @@ function mapGoogleJob(job: GoogleRawJob): SourceConnectorJob | null {
       postingId,
       sourceUrl,
       applyUrl,
+    } satisfies Record<string, Prisma.InputJsonValue | null>,
+  };
+}
+
+async function fetchNetflixJobDetail(
+  position: NetflixJob,
+  fetchOptions: SourceConnectorFetchOptions
+) {
+  const positionId = stringOrNull(position.id);
+  if (!positionId) return null;
+
+  try {
+    return await fetchJson<NetflixJobDetail>(
+      buildNetflixDetailUrl({ positionId }),
+      fetchOptions.signal
+    );
+  } catch {
+    return null;
+  }
+}
+
+function mapNetflixJob(
+  position: NetflixJob,
+  detail: NetflixJobDetail | null
+): SourceConnectorJob | null {
+  const positionId = stringOrNull(detail?.id) ?? stringOrNull(position.id);
+  const postingId =
+    stringOrNull(detail?.display_job_id) ??
+    stringOrNull(detail?.displayJobId) ??
+    stringOrNull(position.display_job_id) ??
+    stringOrNull(detail?.ats_job_id) ??
+    stringOrNull(position.ats_job_id) ??
+    positionId;
+  const title = cleanText(
+    detail?.posting_name ??
+      detail?.name ??
+      position.posting_name ??
+      position.name ??
+      ""
+  );
+  if (!positionId || !postingId || !title) return null;
+
+  const locations =
+    detail?.locations && detail.locations.length > 0
+      ? detail.locations
+      : position.locations ?? [];
+  const standardizedLocations = Array.isArray(detail?.standardizedLocations)
+    ? detail.standardizedLocations
+    : [];
+  const location = cleanText(
+    [...locations, ...standardizedLocations].filter(Boolean).join("; ") ||
+      detail?.location ||
+      position.location ||
+      "Unknown"
+  );
+  const sourceUrl =
+    detail?.canonicalPositionUrl ??
+    position.canonicalPositionUrl ??
+    `https://explore.jobs.netflix.net/careers/job/${positionId}`;
+  const description = cleanText(
+    firstNonEmptyString(
+      detail?.job_description,
+      detail?.jobDescription,
+      position.job_description
+    ) ??
+      buildNetflixFallbackDescription({
+        title,
+        department: detail?.department ?? position.department ?? null,
+        businessUnit: detail?.business_unit ?? position.business_unit ?? null,
+        location,
+      })
+  );
+  const workLocationOption =
+    detail?.work_location_option ??
+    detail?.workLocationOption ??
+    position.work_location_option ??
+    null;
+
+  return {
+    sourceId: `netflix:${postingId}`,
+    sourceUrl,
+    title,
+    company: "Netflix",
+    location,
+    description,
+    applyUrl: sourceUrl,
+    postedAt: parseEpochSeconds(
+      detail?.t_create ?? detail?.creationTs ?? position.t_create
+    ),
+    deadline: null,
+    employmentType: null,
+    workMode: mapNetflixWorkMode(workLocationOption, [location, description].join(" ")),
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    metadata: {
+      officialCompany: "netflix",
+      postingId,
+      positionId,
+      atsJobId: detail?.ats_job_id ?? position.ats_job_id ?? null,
+      displayJobId:
+        detail?.display_job_id ??
+        detail?.displayJobId ??
+        position.display_job_id ??
+        null,
+      department: detail?.department ?? position.department ?? null,
+      businessUnit: detail?.business_unit ?? position.business_unit ?? null,
+      updatedAtEpoch: detail?.t_update ?? detail?.postedTs ?? position.t_update ?? null,
+      workLocationOption,
+      sourceUrl,
+      applyUrl: sourceUrl,
     } satisfies Record<string, Prisma.InputJsonValue | null>,
   };
 }
@@ -1123,6 +1371,11 @@ function shouldFetchEightfoldDetails() {
   return !/^(0|false|no|off)$/i.test(value.trim());
 }
 
+function shouldFetchNetflixDetails() {
+  const value = process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS;
+  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
 function buildEightfoldFallbackDescription(input: {
   title: string;
   department: string | null;
@@ -1136,6 +1389,23 @@ function buildEightfoldFallbackDescription(input: {
       : null,
     input.workLocationOption
       ? `Work mode: ${input.workLocationOption.replace(/_/g, " ")}.`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" ") : input.title;
+}
+
+function buildNetflixFallbackDescription(input: {
+  title: string;
+  department: string | null;
+  businessUnit: string | null;
+  location: string;
+}) {
+  const parts = [
+    input.department ? `Department: ${input.department}.` : null,
+    input.businessUnit ? `Business unit: ${input.businessUnit}.` : null,
+    input.location && input.location !== "Unknown"
+      ? `Locations: ${input.location}.`
       : null,
   ].filter(Boolean);
 
@@ -1402,6 +1672,27 @@ function parseGoogleCheckpoint(
   };
 }
 
+function buildNetflixCheckpoint(offset: number): NetflixCheckpoint {
+  return {
+    kind: "netflix-official",
+    offset,
+  };
+}
+
+function parseNetflixCheckpoint(
+  value: Prisma.InputJsonValue | null | undefined
+): NetflixCheckpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, Prisma.InputJsonValue | null>;
+  if (record.kind !== "netflix-official") return null;
+  const offset = typeof record.offset === "number" ? record.offset : 0;
+  if (offset < 0) return null;
+  return {
+    kind: "netflix-official",
+    offset,
+  };
+}
+
 function buildEightfoldCheckpoint(
   company: EightfoldCompanyKey,
   market: OfficialCompanyMarket,
@@ -1520,6 +1811,13 @@ function stringOrNull(value: string | number | undefined | null) {
   return normalized || null;
 }
 
+function firstNonEmptyString(...values: Array<string | undefined | null>) {
+  for (const value of values) {
+    if (value?.trim()) return value;
+  }
+  return null;
+}
+
 function mapEmploymentType(value: string | undefined | null) {
   const normalized = value?.toLowerCase() ?? "";
   if (normalized.includes("full")) return "FULL_TIME";
@@ -1545,6 +1843,17 @@ function mapEightfoldWorkMode(value: string | null, fallback: string) {
   return inferWorkMode(fallback);
 }
 
+function mapNetflixWorkMode(value: string | null, fallback: string) {
+  const inferred = inferWorkMode(fallback);
+  if (inferred) return inferred;
+
+  const normalized = value?.toLowerCase() ?? "";
+  if (normalized.includes("remote")) return "REMOTE";
+  if (normalized.includes("hybrid")) return "HYBRID";
+  if (normalized.includes("onsite") || normalized.includes("on_site")) return "ONSITE";
+  return null;
+}
+
 function isDeadlineNear(fetchOptions: SourceConnectorFetchOptions) {
   const deadlineAt = fetchOptions.deadlineAt;
   if (!deadlineAt) return false;
@@ -1560,5 +1869,6 @@ function slugify(value: string) {
 
 function officialCompanyDisplayName(company: OfficialCompanyKey) {
   if (company === "nvidia") return "NVIDIA";
+  if (company === "netflix") return "Netflix";
   return company.charAt(0).toUpperCase() + company.slice(1);
 }

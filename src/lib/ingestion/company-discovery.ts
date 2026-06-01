@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import {
   createCompanySiteConnector,
   createOfficialCompanyConnector,
+  createOracleCloudConnector,
   inspectCompanySiteRoute,
   parseOfficialCompanySourceToken,
 } from "@/lib/ingestion/connectors";
@@ -54,6 +55,11 @@ import type {
   Prisma,
   SourceTask,
 } from "@/generated/prisma/client";
+import type {
+  SourceConnector,
+  SourceConnectorFetchResult,
+  SourceConnectorJob,
+} from "@/lib/ingestion/types";
 
 const DISCOVERY_TASK_LIMIT = 200;
 const SOURCE_VALIDATION_TASK_LIMIT = 500;
@@ -290,6 +296,26 @@ const COMPANY_SOURCE_RECOVERY_ZERO_YIELD_SUCCESS_THRESHOLD = 3;
 const COMPANY_SOURCE_RECOVERY_LOW_NOVELTY_RATIO = 0.08;
 const COMPANY_SOURCE_RECOVERY_LOW_NOVELTY_ACCEPTED_THRESHOLD = 25;
 const COMPANY_SOURCE_RECOVERY_SUPPRESSED_ATS_DEFER_MINUTES = 180;
+const COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_COOLDOWN_HOURS") ?? 12
+);
+const COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNS = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_MIN_RUNS") ?? 2
+);
+const COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNTIME_MS = Math.max(
+  15_000,
+  readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_MIN_RUNTIME_MS") ?? 45_000
+);
+const COMPANY_SOURCE_SLOW_LOW_YIELD_MAX_CREATED_PER_MINUTE =
+  Math.max(
+    0,
+    Math.min(
+      100,
+      readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_MAX_CREATED_PER_100_MINUTES") ?? 5
+    )
+  ) / 100;
 const GROWTH_FRONTIER_WINDOW_HOURS = Math.max(
   24,
   readNonNegativeIntegerEnv("INGEST_GROWTH_FRONTIER_WINDOW_HOURS") ?? 120
@@ -383,6 +409,7 @@ const DEFAULT_CONNECTOR_POLL_RUNTIME_MS: Record<string, number> = {
   rippling: 16_000,
   smartrecruiters: 30_000,
   successfactors: 42_000,
+  oraclecloud: 150_000,
   taleo: 70_000,
   teamtailor: 24_000,
   workable: 24_000,
@@ -403,6 +430,7 @@ const HARD_CONNECTOR_POLL_TIMEOUT_MS: Record<string, number> = {
   rippling: 30_000,
   smartrecruiters: 35_000,
   successfactors: 45_000,
+  oraclecloud: 180_000,
   taleo: 60_000,
   teamtailor: 45_000,
   workable: 30_000,
@@ -424,6 +452,7 @@ const GROWTH_HARD_CONNECTOR_POLL_TIMEOUT_MS: Record<string, number> = {
   rippling: 60_000,
   smartrecruiters: 90_000,
   successfactors: 90_000,
+  oraclecloud: 240_000,
   taleo: 90_000,
   teamtailor: 75_000,
   workable: 75_000,
@@ -448,6 +477,13 @@ type RecentSourceYieldMetrics = {
   canonicalCreatedCount7d: number;
   acceptedCount7d: number;
   runCount7d: number;
+};
+
+type PollVelocitySignals = {
+  createdPerMinute7d: number;
+  acceptedPerMinute7d: number;
+  duplicateRate: number;
+  failureRate: number;
 };
 
 function clampScore(value: number, min: number, max: number) {
@@ -602,6 +638,47 @@ function computeNoveltyRatio(input: {
   );
 }
 
+function computePollVelocitySignals(input: {
+  recentCanonicalCreatedCount: number;
+  recentAcceptedCount: number;
+  recentRunCount: number;
+  estimatedRuntimeMs: number;
+  pollAttemptCount: number;
+  pollSuccessCount: number;
+  jobsFetchedCount: number;
+  jobsDedupedCount: number;
+}) {
+  const estimatedRecentRuntimeMinutes =
+    (input.recentRunCount * Math.max(input.estimatedRuntimeMs, 1)) / 60_000;
+  const createdPerMinute7d =
+    estimatedRecentRuntimeMinutes > 0
+      ? input.recentCanonicalCreatedCount / estimatedRecentRuntimeMinutes
+      : 0;
+  const acceptedPerMinute7d =
+    estimatedRecentRuntimeMinutes > 0
+      ? input.recentAcceptedCount / estimatedRecentRuntimeMinutes
+      : 0;
+  const duplicateRate =
+    input.jobsFetchedCount > 0
+      ? clampScore(input.jobsDedupedCount / input.jobsFetchedCount, 0, 1)
+      : 0;
+  const failureRate =
+    input.pollAttemptCount > 0
+      ? clampScore(
+          (input.pollAttemptCount - input.pollSuccessCount) / input.pollAttemptCount,
+          0,
+          1
+        )
+      : 0;
+
+  return {
+    createdPerMinute7d,
+    acceptedPerMinute7d,
+    duplicateRate,
+    failureRate,
+  } satisfies PollVelocitySignals;
+}
+
 function shouldSuppressRecoveryAtsSource(input: {
   sourceType: string | null;
   pollSuccessCount: number;
@@ -672,6 +749,63 @@ function shouldSuppressRecoveryAtsSource(input: {
   }
 
   return false;
+}
+
+function shouldCooldownSlowLowYieldSource(input: {
+  connectorName: string;
+  sourceType: string | null;
+  pollAttemptCount: number;
+  pollSuccessCount: number;
+  lastJobsCreatedCount: number;
+  retainedLiveJobCount: number;
+  recentCanonicalCreatedCount: number;
+  recentAcceptedCount: number;
+  recentRunCount: number;
+  estimatedRuntimeMs: number;
+  blockedRisk: number;
+  velocitySignals: PollVelocitySignals;
+  frontierCandidate: boolean;
+}) {
+  if (input.frontierCandidate || input.pollAttemptCount < 3) {
+    return false;
+  }
+
+  const enoughRecentRuns =
+    input.recentRunCount >= COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNS ||
+    input.pollSuccessCount >= COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNS + 1;
+  if (!enoughRecentRuns) {
+    return false;
+  }
+
+  const slowOrRisky =
+    input.estimatedRuntimeMs >= COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNTIME_MS ||
+    input.connectorName === "taleo" ||
+    input.connectorName === "workday" ||
+    input.connectorName === "company-site" ||
+    input.sourceType === "COMPANY_HTML" ||
+    input.blockedRisk >= 0.6;
+  if (!slowOrRisky) {
+    return false;
+  }
+
+  const effectivelyNoNewJobs =
+    input.recentCanonicalCreatedCount <= 1 &&
+    input.lastJobsCreatedCount === 0 &&
+    input.velocitySignals.createdPerMinute7d <=
+      COMPANY_SOURCE_SLOW_LOW_YIELD_MAX_CREATED_PER_MINUTE;
+  if (!effectivelyNoNewJobs) {
+    return false;
+  }
+
+  const highDuplicateRefresh =
+    input.recentAcceptedCount >= 50 &&
+    input.velocitySignals.duplicateRate >= 0.75 &&
+    input.retainedLiveJobCount > 0;
+  const mostlyFailing =
+    input.velocitySignals.failureRate >= 0.6 || input.blockedRisk >= 0.75;
+  const emptySlowPolls = input.recentAcceptedCount === 0 && input.pollSuccessCount >= 2;
+
+  return highDuplicateRefresh || mostlyFailing || emptySlowPolls || input.sourceType === "COMPANY_HTML";
 }
 
 function computePollPriorityScore(input: {
@@ -1490,6 +1624,7 @@ function classifyPollTier(input: {
   createdAt: Date | null | undefined;
   updatedAt: Date | null | undefined;
   lastSuccessfulPollAt: Date | null | undefined;
+  velocitySignals: PollVelocitySignals;
 }) {
   const noveltyRatio = computeNoveltyRatio({
     canonicalCreatedCount7d: input.canonicalCreatedCount7d,
@@ -1543,6 +1678,15 @@ function classifyPollTier(input: {
 
   if (GROWTH_MODE_ENABLED && growthSignals.refreshHeavyCandidate) {
     return "TIER_3";
+  }
+
+  if (
+    input.blockedRisk < 0.4 &&
+    input.canonicalCreatedCount7d >= 5 &&
+    input.velocitySignals.createdPerMinute7d >= 0.05 &&
+    input.velocitySignals.failureRate <= 0.45
+  ) {
+    return "TIER_1";
   }
 
   if (
@@ -1625,15 +1769,20 @@ function computePollEfficiencyScore(input: {
   canonicalCreatedCount7d: number;
   acceptedCount7d: number;
   noveltyRatio: number;
+  velocitySignals: PollVelocitySignals;
 }) {
   const score =
     input.expectedAcceptedJobs * 5 +
     input.canonicalCreatedCount7d * 24 +
     input.acceptedCount7d * Math.max(0.01, input.noveltyRatio * 0.04) +
     input.retainedLiveJobCount * Math.max(0.01, input.noveltyRatio * 0.035) +
+    Math.min(180, input.velocitySignals.createdPerMinute7d * 180) +
+    Math.min(50, input.velocitySignals.acceptedPerMinute7d * 6) +
     input.noveltyRatio * 60 +
     input.recentSuccessRate * 20 +
     input.basePriorityScore * 0.12 -
+    input.velocitySignals.duplicateRate * 12 -
+    input.velocitySignals.failureRate * 28 -
     input.blockedRisk * 30;
 
   return score / Math.max(input.estimatedRuntimeMs / 1000, 1);
@@ -2445,6 +2594,16 @@ export async function enqueueCompanySourcePollTasks(options: {
       lastHttpStatus: source.lastHttpStatus,
       hostMetrics,
     });
+    const velocitySignals = computePollVelocitySignals({
+      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
+      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
+      recentRunCount: recentYield?.runCount7d ?? 0,
+      estimatedRuntimeMs,
+      pollAttemptCount: source.pollAttemptCount,
+      pollSuccessCount: source.pollSuccessCount,
+      jobsFetchedCount: source.jobsFetchedCount,
+      jobsDedupedCount: source.jobsDedupedCount,
+    });
     const expectedAcceptedJobs = computeExpectedAcceptedJobs({
       now,
       connectorName: source.connectorName,
@@ -2495,6 +2654,7 @@ export async function enqueueCompanySourcePollTasks(options: {
       createdAt: source.createdAt,
       updatedAt: source.updatedAt,
       lastSuccessfulPollAt: source.lastSuccessfulPollAt,
+      velocitySignals,
     });
     const efficiencyScore = computePollEfficiencyScore({
       basePriorityScore,
@@ -2506,6 +2666,7 @@ export async function enqueueCompanySourcePollTasks(options: {
       canonicalCreatedCount7d: recentYield?.canonicalCreatedCount7d ?? 0,
       acceptedCount7d: recentYield?.acceptedCount7d ?? 0,
       noveltyRatio,
+      velocitySignals,
     });
     const priorityScore = computeQueuePriorityScore({
       tier,
@@ -2539,6 +2700,21 @@ export async function enqueueCompanySourcePollTasks(options: {
       metadataJson: source.metadataJson,
       companyMetadataJson: source.company.metadataJson,
     });
+    const slowLowYieldCooldown = shouldCooldownSlowLowYieldSource({
+      connectorName: source.connectorName,
+      sourceType: source.sourceType,
+      pollAttemptCount: source.pollAttemptCount,
+      pollSuccessCount: source.pollSuccessCount,
+      lastJobsCreatedCount: source.lastJobsCreatedCount,
+      retainedLiveJobCount: source.retainedLiveJobCount,
+      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
+      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
+      recentRunCount: recentYield?.runCount7d ?? 0,
+      estimatedRuntimeMs,
+      blockedRisk,
+      velocitySignals,
+      frontierCandidate: growthSignals.frontierCandidate,
+    });
 
     return {
       source,
@@ -2554,10 +2730,12 @@ export async function enqueueCompanySourcePollTasks(options: {
       expectedAcceptedJobs,
       blockedRisk,
       efficiencyScore,
+      velocitySignals,
       noveltyRatio,
       suppressedForLowNoveltyAts,
       frontierCandidate: growthSignals.frontierCandidate,
       hardCooldownForGrowth: growthSignals.shouldHardCooldown,
+      slowLowYieldCooldown,
     };
   }).filter(({ hostMetrics, source, frontierCandidate }) => {
     if (SKIP_GENERIC_COMPANY_SITE_POLLS && source.connectorName === "company-site") {
@@ -2585,8 +2763,16 @@ export async function enqueueCompanySourcePollTasks(options: {
   const hardCooldownGrowthSourceIds = scoredSources
     .filter((candidate) => candidate.hardCooldownForGrowth)
     .map((candidate) => candidate.source.id);
+  const slowLowYieldCooldownSourceIds = targetIds
+    ? []
+    : scoredSources
+        .filter((candidate) => candidate.slowLowYieldCooldown)
+        .map((candidate) => candidate.source.id);
   const eligibleScoredSources = scoredSources.filter(
-    (candidate) => !candidate.suppressedForLowNoveltyAts && !candidate.hardCooldownForGrowth
+    (candidate) =>
+      !candidate.suppressedForLowNoveltyAts &&
+      !candidate.hardCooldownForGrowth &&
+      (!candidate.slowLowYieldCooldown || targetIds !== null)
   );
 
   const orderedByTier = (tier: PollTier) =>
@@ -2791,6 +2977,36 @@ export async function enqueueCompanySourcePollTasks(options: {
     });
   }
 
+  if (slowLowYieldCooldownSourceIds.length > 0) {
+    const suppressionUntil = new Date(
+      now.getTime() + COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS * 60 * 60 * 1000
+    );
+
+    await prisma.sourceTask.updateMany({
+      where: {
+        kind: "CONNECTOR_POLL",
+        status: "PENDING",
+        companySourceId: { in: slowLowYieldCooldownSourceIds },
+      },
+      data: {
+        notBeforeAt: suppressionUntil,
+      },
+    });
+
+    await prisma.companySource.updateMany({
+      where: {
+        id: { in: slowLowYieldCooldownSourceIds },
+        OR: [{ cooldownUntil: null }, { cooldownUntil: { lt: suppressionUntil } }],
+      },
+      data: {
+        cooldownUntil: suppressionUntil,
+        pollState: "BACKOFF",
+        validationMessage:
+          "Throughput cooldown: source is slow or failure-prone and has not created enough new canonical jobs recently.",
+      },
+    });
+  }
+
   for (const candidate of selectedSources) {
     await enqueueUniqueSourceTask({
       kind: "CONNECTOR_POLL",
@@ -2804,6 +3020,14 @@ export async function enqueueCompanySourcePollTasks(options: {
         estimatedRuntimeMs: candidate.estimatedRuntimeMs,
         expectedAcceptedJobs:
           Math.round(candidate.expectedAcceptedJobs * 100) / 100,
+        createdPerMinute7d:
+          Math.round(candidate.velocitySignals.createdPerMinute7d * 1000) / 1000,
+        acceptedPerMinute7d:
+          Math.round(candidate.velocitySignals.acceptedPerMinute7d * 1000) / 1000,
+        duplicateRate:
+          Math.round(candidate.velocitySignals.duplicateRate * 1000) / 1000,
+        failureRate:
+          Math.round(candidate.velocitySignals.failureRate * 1000) / 1000,
         tier: candidate.tier,
         workdayHost: candidate.workdayHost,
         workdayTier: candidate.workdayTier,
@@ -2815,6 +3039,7 @@ export async function enqueueCompanySourcePollTasks(options: {
     enqueuedCount: selectedSources.length,
     companySourceIds: selectedSources.map(({ source }) => source.id),
     suppressedLowNoveltyAtsCount: suppressedLowNoveltyAtsSourceIds.length,
+    slowLowYieldCooldownCount: slowLowYieldCooldownSourceIds.length,
   };
 }
 
@@ -4761,7 +4986,20 @@ function buildConnectorForCompanySource(
     return createOfficialCompanyConnector(parseOfficialCompanySourceToken(source.token));
   }
 
-  return createConnectorForCandidate({
+  if (source.connectorName === "oraclecloud") {
+    const [tenant, site] = source.token.split("|");
+    if (!tenant) {
+      throw new Error(`Invalid Oracle Cloud source token "${source.token}".`);
+    }
+    return createOracleCloudConnector({
+      tenant,
+      site: site?.trim() || "CX",
+      companyName: source.company.name,
+    });
+  }
+
+  return withCompanySourceOwner(
+    createConnectorForCandidate({
     input: source.boardUrl,
     connectorName: source.connectorName as DiscoveredSourceCandidate["connectorName"],
     token: source.token,
@@ -4769,7 +5007,49 @@ function buildConnectorForCompanySource(
     sourceName: source.sourceName,
     boardUrl: source.boardUrl,
     source: "url",
-  });
+    }),
+    source.company.name
+  );
+}
+
+function withCompanySourceOwner(
+  connector: SourceConnector,
+  companyName: string
+): SourceConnector {
+  const cleanedCompanyName = cleanCompanyName(companyName) || companyName.trim();
+  if (!cleanedCompanyName) return connector;
+
+  return {
+    ...connector,
+    async fetchJobs(options): Promise<SourceConnectorFetchResult> {
+      const result = await connector.fetchJobs(options);
+      return {
+        ...result,
+        jobs: result.jobs.map((job) =>
+          rewriteSourceJobCompany(job, cleanedCompanyName)
+        ),
+      };
+    },
+  };
+}
+
+function rewriteSourceJobCompany(
+  job: SourceConnectorJob,
+  companyName: string
+): SourceConnectorJob {
+  if (job.company === companyName) return job;
+
+  return {
+    ...job,
+    company: companyName,
+    metadata: {
+      ...(typeof job.metadata === "object" && job.metadata !== null && !Array.isArray(job.metadata)
+        ? job.metadata
+        : {}),
+      sourceReportedCompany: job.company,
+      companySourceOwnerCompany: companyName,
+    },
+  };
 }
 
 function buildEnterpriseRecordForCompany(company: {
