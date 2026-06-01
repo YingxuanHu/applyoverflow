@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
 import { buildEligibilityDraft } from "@/lib/ingestion/classify";
 import {
+  APPLY_LINK_VALIDATION_STATUS,
+  hasBadApplyLinkValidationStatus,
+  isClearlyGenericFinalApplyUrl,
+} from "@/lib/ingestion/apply-link-quality";
+import {
   assignCanonicalJobsToCompany,
   ensureCompanyRecord,
 } from "@/lib/ingestion/company-records";
@@ -26,6 +31,7 @@ import {
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
+import { coerceNormalizedIndustry } from "@/lib/job-metadata";
 import type {
   IngestionSummary,
   NormalizedJobInput,
@@ -108,6 +114,10 @@ type CanonicalStatusSnapshot = {
   lastSourceSeenAt: Date | null;
   lastApplyCheckAt: Date | null;
   lastConfirmedAliveAt: Date | null;
+  applyUrlValidationStatus: string | null;
+  applyUrlValidationReason: string | null;
+  finalResolvedApplyUrl: string | null;
+  applyUrlRedirectDepth: number | null;
   availabilityScore: number;
   deadSignalAt: Date | null;
   deadSignalReason: string | null;
@@ -448,9 +458,12 @@ export async function bulkSyncCanonicalStatuses(options: {
   now?: Date;
   /** Max number of AGING/STALE jobs to run the full per-job refresh on. Default 3000. */
   perJobLimit?: number;
+  /** Max number of canonical rows to bulk-status-sync per daemon cycle. Default 5000. */
+  bulkLimit?: number;
 } = {}) {
   const now = options.now ?? new Date();
   const perJobLimit = options.perJobLimit ?? 3_000;
+  const bulkLimit = options.bulkLimit ?? 5_000;
   const confirmationLiveCutoff = new Date(
     now.getTime() - LIFECYCLE_PROFILE.confirmationWindowsDays.liveFloor * 24 * 60 * 60 * 1000
   );
@@ -477,23 +490,52 @@ export async function bulkSyncCanonicalStatuses(options: {
   const [syncResult, feedVisibilitySyncResult] = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '15min'");
-      const canonicalSyncResult = await tx.$executeRaw`
-        UPDATE "JobCanonical"
+      const canonicalSyncResult =
+        bulkLimit > 0
+          ? await tx.$executeRaw`
+        WITH candidates AS (
+          SELECT id
+          FROM "JobCanonical"
+          WHERE status != 'REMOVED'::"JobStatus"
+            AND (
+              (
+                "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+                AND (
+                  "availabilityScore" < ${liveConfirmationFloor}
+                  OR status != 'LIVE'::"JobStatus"
+                )
+              )
+              OR (
+                ("lastConfirmedAliveAt" IS NULL OR "lastConfirmedAliveAt" < ${confirmationLiveCutoff})
+                AND status IS DISTINCT FROM CASE
+                  WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+                  WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+                  WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
+                  ELSE                                'EXPIRED'::"JobStatus"
+                END
+              )
+            )
+          ORDER BY "updatedAt" ASC
+          LIMIT ${bulkLimit}
+        )
+        UPDATE "JobCanonical" jc
         SET
           "availabilityScore" = CASE
-            WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
-              THEN GREATEST("availabilityScore", ${liveConfirmationFloor})
-            ELSE "availabilityScore"
+            WHEN jc."lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+              THEN GREATEST(jc."availabilityScore", ${liveConfirmationFloor})
+            ELSE jc."availabilityScore"
           END,
           status = CASE
-            WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
-            WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
-            WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
-            WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
+            WHEN jc."lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
+            WHEN jc."availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+            WHEN jc."availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+            WHEN jc."availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
             ELSE                                'EXPIRED'::"JobStatus"
           END
-        WHERE status != 'REMOVED'::"JobStatus"
-      `;
+        FROM candidates
+        WHERE jc.id = candidates.id
+      `
+          : 0;
       const feedSyncResult = await tx.$executeRaw`
         UPDATE "JobFeedIndex" jfi
         SET
@@ -506,6 +548,14 @@ export async function bulkSyncCanonicalStatuses(options: {
             jc.status != 'LIVE'::"JobStatus"
             OR jc."availabilityScore" < 60
             OR jc."deadSignalAt" IS NOT NULL
+            OR jfi."sourceCount" <= 0
+            OR COALESCE(jc."applyUrlValidationStatus", 'ACTIVE') IN (
+              'EXPIRED',
+              'BROKEN_APPLY_LINK',
+              'GENERIC_APPLY_PAGE',
+              'SOURCE_STALE',
+              'HIDDEN_LOW_QUALITY'
+            )
             OR (jc.deadline IS NOT NULL AND jc.deadline < ${now})
             OR jc."applyUrl" !~* '^https?://'
           )
@@ -1412,6 +1462,25 @@ const canonicalMatchSelect = {
   workMode: true,
 } as const;
 
+function applyCompanyIndustryToNormalizedJob(
+  normalizedJob: NormalizedJobInput,
+  companyRecord: {
+    normalizedIndustry?: string | null;
+    normalizedIndustryConfidence?: number | null;
+  }
+): NormalizedJobInput {
+  const normalizedIndustry = coerceNormalizedIndustry(companyRecord.normalizedIndustry);
+  const normalizedIndustryConfidence =
+    companyRecord.normalizedIndustryConfidence ??
+    (normalizedIndustry === "UNKNOWN" ? 0.2 : 0.9);
+
+  return {
+    ...normalizedJob,
+    normalizedIndustry,
+    normalizedIndustryConfidence,
+  };
+}
+
 export async function upsertCanonicalJob({
   currentCanonicalId,
   normalizedJob,
@@ -1432,6 +1501,7 @@ export async function upsertCanonicalJob({
     companyKey: normalizedJob.companyKey,
     urls: [sourceUrl, rawApplyUrl, normalizedJob.applyUrl],
   });
+  normalizedJob = applyCompanyIndustryToNormalizedJob(normalizedJob, companyRecord);
 
   if (!currentCanonicalId) {
     const canonicalJob = await prisma.jobCanonical.create({
@@ -1547,10 +1617,10 @@ export async function upsertCanonicalJob({
     unknownValues: ["UNKNOWN"],
   });
   const normalizedIndustry = chooseCanonicalStringValue({
-    currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+    currentValue: coerceNormalizedIndustry(currentCanonical.normalizedIndustry),
     nextValue: normalizedJob.normalizedIndustry,
     preferNext: preferIncomingSource,
-    unknownValues: ["OTHER_UNKNOWN"],
+    unknownValues: ["UNKNOWN", "OTHER_UNKNOWN"],
   });
   const normalizedRoleCategory = chooseCanonicalStringValue({
     currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
@@ -1573,7 +1643,7 @@ export async function upsertCanonicalJob({
     nextConfidence: normalizedJob.normalizedCareerStageConfidence,
   });
   const normalizedIndustryConfidence = chooseCanonicalMetadataConfidence({
-    currentValue: currentCanonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+    currentValue: coerceNormalizedIndustry(currentCanonical.normalizedIndustry),
     nextValue: normalizedJob.normalizedIndustry,
     chosenValue: normalizedIndustry,
     currentConfidence: currentCanonical.normalizedIndustryConfidence,
@@ -1996,6 +2066,10 @@ async function refreshCanonicalStatus(
       lastSourceSeenAt: true,
       lastApplyCheckAt: true,
       lastConfirmedAliveAt: true,
+      applyUrlValidationStatus: true,
+      applyUrlValidationReason: true,
+      finalResolvedApplyUrl: true,
+      applyUrlRedirectDepth: true,
       availabilityScore: true,
       deadSignalAt: true,
       deadSignalReason: true,
@@ -2072,6 +2146,10 @@ async function refreshCanonicalStatusFromSnapshot(
       nextLifecycleData.lastConfirmedAliveAt,
       canonicalJob.lastConfirmedAliveAt
     ) ||
+    nextLifecycleData.applyUrlValidationStatus !== canonicalJob.applyUrlValidationStatus ||
+    nextLifecycleData.applyUrlValidationReason !== canonicalJob.applyUrlValidationReason ||
+    nextLifecycleData.finalResolvedApplyUrl !== canonicalJob.finalResolvedApplyUrl ||
+    nextLifecycleData.applyUrlRedirectDepth !== canonicalJob.applyUrlRedirectDepth ||
     nextLifecycleData.availabilityScore !== canonicalJob.availabilityScore ||
     !sameNullableDate(nextLifecycleData.deadSignalAt, canonicalJob.deadSignalAt) ||
     nextLifecycleData.deadSignalReason !== canonicalJob.deadSignalReason ||
@@ -2110,11 +2188,23 @@ function buildLifecycleUpdateData({
     applyCheckOutcome?.aliveConfirmedAt ?? canonicalJob.lastConfirmedAliveAt;
   const deadSignalAt = applyCheckOutcome?.deadSignalAt ?? canonicalJob.deadSignalAt;
   const deadSignalReason = applyCheckOutcome?.deadSignalReason ?? canonicalJob.deadSignalReason;
+  const applyUrlValidationStatus =
+    applyCheckOutcome?.validationStatus ?? canonicalJob.applyUrlValidationStatus;
+  const applyUrlValidationReason =
+    applyCheckOutcome?.validationReason ?? canonicalJob.applyUrlValidationReason;
+  const finalResolvedApplyUrl =
+    applyCheckOutcome?.finalResolvedApplyUrl ?? canonicalJob.finalResolvedApplyUrl;
+  const applyUrlRedirectDepth =
+    applyCheckOutcome?.redirectDepth ?? canonicalJob.applyUrlRedirectDepth;
   const computed = computeLifecycleState({
     canonicalJob: {
       ...canonicalJob,
       lastApplyCheckAt,
       lastConfirmedAliveAt,
+      applyUrlValidationStatus,
+      applyUrlValidationReason,
+      finalResolvedApplyUrl,
+      applyUrlRedirectDepth,
       deadSignalAt,
       deadSignalReason,
     },
@@ -2129,6 +2219,10 @@ function buildLifecycleUpdateData({
     lastSourceSeenAt: computed.lastSourceSeenAt,
     lastApplyCheckAt,
     lastConfirmedAliveAt,
+    applyUrlValidationStatus,
+    applyUrlValidationReason,
+    finalResolvedApplyUrl,
+    applyUrlRedirectDepth,
     availabilityScore: computed.availabilityScore,
     deadSignalAt,
     deadSignalReason,
@@ -2158,6 +2252,10 @@ type ApplyUrlCheckOutcome = {
   aliveConfirmedAt: Date | null;
   deadSignalAt: Date | null;
   deadSignalReason: string | null;
+  validationStatus: string | null;
+  validationReason: string | null;
+  finalResolvedApplyUrl: string | null;
+  redirectDepth: number | null;
 };
 
 function computeLifecycleState({
@@ -2174,6 +2272,10 @@ function computeLifecycleState({
     | "lastSourceSeenAt"
     | "lastApplyCheckAt"
     | "lastConfirmedAliveAt"
+    | "applyUrlValidationStatus"
+    | "applyUrlValidationReason"
+    | "finalResolvedApplyUrl"
+    | "applyUrlRedirectDepth"
     | "availabilityScore"
     | "deadline"
     | "deadSignalAt"
@@ -2200,6 +2302,16 @@ function computeLifecycleState({
     lastSourceSeenAt,
     canonicalJob.lastConfirmedAliveAt,
   ]);
+  const strongRemovalEvidence = hasStrongRemovalEvidence(removedMappings, now);
+
+  if (activeMappings.length === 0 && strongRemovalEvidence) {
+    return {
+      status: "REMOVED" as JobStatus,
+      availabilityScore: 0,
+      lastSeenAt: lastEvidenceAt,
+      lastSourceSeenAt,
+    };
+  }
 
   if (
     canonicalJob.deadline &&
@@ -2215,9 +2327,10 @@ function computeLifecycleState({
   }
 
   if (
-    canonicalJob.deadSignalAt &&
-    (!canonicalJob.lastConfirmedAliveAt ||
-      canonicalJob.deadSignalAt.getTime() >= canonicalJob.lastConfirmedAliveAt.getTime())
+    hasBadApplyLinkValidationStatus(canonicalJob.applyUrlValidationStatus) ||
+    (canonicalJob.deadSignalAt &&
+      (!canonicalJob.lastConfirmedAliveAt ||
+        canonicalJob.deadSignalAt.getTime() >= canonicalJob.lastConfirmedAliveAt.getTime()))
   ) {
     return {
       status: "EXPIRED" as JobStatus,
@@ -2260,8 +2373,6 @@ function computeLifecycleState({
     activeEvidenceScore + consistencyBonus + confirmationBonus - agePenalty - removalPenalty
     )
   );
-  const strongRemovalEvidence = hasStrongRemovalEvidence(removedMappings, now);
-
   let status: JobStatus;
   if (availabilityScore >= liveMinScore) status = "LIVE";
   else if (availabilityScore >= agingMinScore) status = "AGING";
@@ -2520,6 +2631,23 @@ async function checkApplyUrlAvailability(
         aliveConfirmedAt: null,
         deadSignalAt: now,
         deadSignalReason: `Apply URL returned HTTP ${status}.`,
+        validationStatus: APPLY_LINK_VALIDATION_STATUS.BROKEN_APPLY_LINK,
+        validationReason: `Apply URL returned HTTP ${status}.`,
+        finalResolvedApplyUrl: response.url,
+        redirectDepth: response.redirected ? 1 : 0,
+      };
+    }
+
+    if (response.ok && isClearlyGenericFinalApplyUrl(applyUrl, response.url)) {
+      return {
+        checkedAt: now,
+        aliveConfirmedAt: null,
+        deadSignalAt: now,
+        deadSignalReason: "Apply URL redirects to a generic careers/search page.",
+        validationStatus: APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE,
+        validationReason: "Apply URL redirects to a generic careers/search page.",
+        finalResolvedApplyUrl: response.url,
+        redirectDepth: response.redirected ? 1 : 0,
       };
     }
 
@@ -2529,6 +2657,10 @@ async function checkApplyUrlAvailability(
         aliveConfirmedAt: now,
         deadSignalAt: null,
         deadSignalReason: null,
+        validationStatus: APPLY_LINK_VALIDATION_STATUS.ACTIVE,
+        validationReason: null,
+        finalResolvedApplyUrl: response.url,
+        redirectDepth: response.redirected ? 1 : 0,
       };
     }
 
@@ -2538,6 +2670,10 @@ async function checkApplyUrlAvailability(
       aliveConfirmedAt: null,
       deadSignalAt: null,
       deadSignalReason: null,
+      validationStatus: APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION,
+      validationReason: `Apply URL returned HTTP ${status}.`,
+      finalResolvedApplyUrl: response.url,
+      redirectDepth: response.redirected ? 1 : 0,
     };
   } catch {
     return {
@@ -2545,6 +2681,10 @@ async function checkApplyUrlAvailability(
       aliveConfirmedAt: null,
       deadSignalAt: null,
       deadSignalReason: null,
+      validationStatus: APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION,
+      validationReason: "Apply URL availability check failed.",
+      finalResolvedApplyUrl: applyUrl,
+      redirectDepth: null,
     };
   } finally {
     clearTimeout(timeout);

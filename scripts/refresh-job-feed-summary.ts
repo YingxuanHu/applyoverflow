@@ -21,23 +21,18 @@ import type { Prisma } from "@/generated/prisma/client";
 
 const SINGLETON_ID = "singleton";
 
-// The visibility statuses that count as "live on the board." Kept in sync
-// with VISIBLE_JOB_STATUSES used elsewhere in the query layer.
-const VISIBLE_STATUSES = ["LIVE", "AGING", "STALE"] as const;
-
 async function main() {
   const startedAt = Date.now();
   const now = new Date();
   const timeZone = normalizeUserTimeZone(process.env.JOB_FEED_SUMMARY_TIME_ZONE);
   const startOfToday = getStartOfTodayInTimeZone(timeZone, now);
 
-  const visibleWhere: Prisma.JobCanonicalWhereInput = {
-    AND: [
-      { status: { in: [...VISIBLE_STATUSES] } },
-      {
-        OR: [{ deadline: null }, { deadline: { gte: now } }],
-      },
-    ],
+  const visibleWhere: Prisma.JobFeedIndexWhereInput = {
+    status: "LIVE",
+    canonicalJob: {
+      status: "LIVE",
+      OR: [{ deadline: null }, { deadline: { gte: now } }],
+    },
   };
 
   const [
@@ -46,10 +41,17 @@ async function main() {
     expiredTodayCount,
     removedTodayCount,
   ] = await Promise.all([
-    prisma.jobCanonical.count({ where: visibleWhere }),
-    prisma.jobCanonical.count({
+    prisma.jobFeedIndex.count({ where: visibleWhere }),
+    prisma.jobFeedIndex.count({
       where: {
-        AND: [visibleWhere, { firstSeenAt: { gte: startOfToday } }],
+        ...visibleWhere,
+        canonicalJob: {
+          AND: [
+            { status: "LIVE" },
+            { firstSeenAt: { gte: startOfToday } },
+            { OR: [{ deadline: null }, { deadline: { gte: now } }] },
+          ],
+        },
       },
     }),
     prisma.jobCanonical.count({

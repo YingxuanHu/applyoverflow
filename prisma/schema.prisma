@@ -394,6 +394,10 @@ model Company {
   companyKey           String                 @unique
   domain               String?
   careersUrl           String?
+  normalizedIndustry   String?
+  normalizedIndustryConfidence Float?
+  normalizedIndustrySource     String?
+  normalizedIndustryUpdatedAt  DateTime?
   discoveryStatus      CompanyDiscoveryStatus @default(PENDING)
   crawlStatus          CrawlStatus            @default(IDLE)
   detectedAts          String?
@@ -415,6 +419,7 @@ model Company {
 
   @@index([discoveryStatus, lastDiscoveryAt(sort: Desc)])
   @@index([crawlStatus, lastSuccessfulPollAt(sort: Desc)])
+  @@index([normalizedIndustry, normalizedIndustryConfidence])
   @@index([domain])
 }
 
@@ -543,6 +548,11 @@ model JobCanonical {
   lastSourceSeenAt         DateTime?
   lastApplyCheckAt         DateTime?
   lastConfirmedAliveAt     DateTime?
+  applyUrlValidatedAt      DateTime?
+  applyUrlValidationStatus String?
+  applyUrlValidationReason String?
+  finalResolvedApplyUrl    String?
+  applyUrlRedirectDepth    Int?
   availabilityScore        Float                    @default(0)
   qualityScore             Float                    @default(0)
   trustScore               Float                    @default(0)
@@ -599,6 +609,8 @@ model JobCanonical {
   @@index([status, availabilityScore(sort: Desc)])
   @@index([status, qualityScore(sort: Desc)])
   @@index([status, freshnessScore(sort: Desc)])
+  @@index([status, applyUrlValidationStatus, postedAt(sort: Desc)])
+  @@index([applyUrlValidatedAt])
   @@index([lastSourceSeenAt])
   @@index([lastConfirmedAliveAt])
   @@index([companyId])

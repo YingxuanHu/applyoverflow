@@ -1,3 +1,85 @@
+const NON_JOB_CONTENT_URL_SEGMENTS = [
+  "/ai-guidelines",
+  "/blog/",
+  "/guide/",
+  "/guides/",
+  "/docs/",
+  "/events/",
+  "/support/",
+  "/resources/",
+  "/resource/",
+  "/case-studies/",
+  "/collections/",
+  "/dataset/",
+  "/datasets/",
+  "/insights/",
+  "/media/video/",
+  "/media/videos/",
+  "/model/",
+  "/models/",
+  "/news/",
+  "/newsroom/",
+  "/partner/",
+  "/partners/",
+  "/papers/",
+  "/press/",
+  "/press-release/",
+  "/protect-yourself",
+  "/product/",
+  "/products/",
+  "/posts/",
+  "/spaces/",
+  "/videos/",
+  "/faq/",
+  "/faqs/",
+  "/thank-you",
+  "/download",
+  "/webinar/",
+  "/webinars/",
+  "/whitepaper/",
+  "/whitepapers/",
+  "/lesson-center/",
+  "/people-ops/",
+] as const;
+
+const HARD_NON_JOB_CONTENT_URL_SEGMENTS = [
+  "/ai-guidelines",
+  "/blog/",
+  "/guide/",
+  "/guides/",
+  "/docs/",
+  "/events/",
+  "/support/",
+  "/resources/",
+  "/resource/",
+  "/case-studies/",
+  "/collections/",
+  "/insights/",
+  "/media/video/",
+  "/media/videos/",
+  "/news/",
+  "/newsroom/",
+  "/papers/",
+  "/press/",
+  "/press-release/",
+  "/protect-yourself",
+  "/posts/",
+  "/videos/",
+  "/faq/",
+  "/faqs/",
+  "/thank-you",
+  "/download",
+  "/webinar/",
+  "/webinars/",
+  "/whitepaper/",
+  "/whitepapers/",
+  "/lesson-center/",
+  "/people-ops/",
+] as const;
+
+const JOB_SECTION_URL_RE =
+  /\/(?:remote-jobs|jobs?|careers?|job-openings?|openings?|open-positions?|positions?|job-offers?)(?:\/|$)/i;
+
 const NON_JOB_TITLE_PATTERNS = [
   /^how to\b/i,
   /^what is\b/i,
@@ -22,8 +104,17 @@ const NON_JOB_TITLE_PATTERNS = [
   /^announcing\b/i,
   /^careers? blog$/i,
   /^careers?(?: at .+)?$/i,
+  /^.+\s+careers$/i,
   /^jobs?(?: at .+)?$/i,
+  /^.+\s+jobs$/i,
+  /^job listings?$/i,
+  /^job title$/i,
   /^faqs?$/i,
+  /^masscareers$/i,
+  /^.+\.pdf$/i,
+  /^datasets?\s*:/i,
+  /^models?\s*:/i,
+  /^spaces?\s*:/i,
   /^benefits$/i,
   /^benefits and perks$/i,
   /^learn more$/i,
@@ -34,6 +125,7 @@ const NON_JOB_TITLE_PATTERNS = [
   /^we make work an adventure!?$/i,
   /^work (?:at|with|for) .+$/i,
   /^join (?:us|our team|the team)\b/i,
+  /^join (?:the )?.+\s+team$/i,
   /^come work with us\b/i,
   /^join our team and thrive!?$/i,
   /^search careers? at .+$/i,
@@ -54,11 +146,26 @@ const NON_JOB_TITLE_PATTERNS = [
   /^become a future leader\b/i,
   /\bcareer guide$/i,
   /^top (?:\d+|seven|ten)\b.*\bpositions\b/i,
-  /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i,
   /^privacy notice(?: for job applicants)?$/i,
   /^notice on fraudulent job offers$/i,
+  /^protect yourself from job scams$/i,
+  /\bjob scams?\b/i,
+  /\bannounce(?:s|d)?\b.*\bopening\b/i,
+  /\bcopy of careers\b/i,
   /^helpful tips for writing\b/i,
   /^kb\d+\b/i,
+  /^redirect$/i,
+  /^apply$/i,
+  /^bewerbung$/i,
+  /^initiativbewerbung$/i,
+  /^stellen$/i,
+  /^search results?[:：]/i,
+  /^搜索结果[:：]?/i,
+  /^unsuccessful activation/i,
+  /^we apologize for the inconvenience/i,
+  /^about\s+[a-z0-9 .,&'-]+$/i,
+  /^open your own\b.*\bfranchise\b/i,
+  /^(?:req|requisition|job)\s*#?\s*\d+$/i,
   /^s\d+\s+e\d+\b/i,
   /^504 gateway time-?out$/i,
   /^gateway time-?out$/i,
@@ -85,7 +192,7 @@ const NON_JOB_TITLE_PATTERNS = [
 ] satisfies RegExp[];
 
 const LOCATION_ONLY_TITLE_RE =
-  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore)(?:\s+(?:office|area|region|centre|center|city))?$/i;
+  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore|apac|emea|latam|europe|asia|africa|middle east|united kingdom|uk|india|australia)(?:\s+(?:office|area|region|centre|center|city))?$/i;
 
 const GENERIC_CAREER_LANDING_TITLE_PATTERNS = [
   /^careers?(?: at .+)?$/i,
@@ -100,6 +207,9 @@ const GENERIC_CAREER_LANDING_TITLE_PATTERNS = [
   /^grow your career\b/i,
   /^help us\b/i,
 ] satisfies RegExp[];
+
+const DEPARTMENT_BUCKET_TITLE_RE =
+  /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i;
 
 const NON_JOB_CONTENT_PATTERNS = [
   /\broles we fill\b/i,
@@ -124,9 +234,12 @@ const NON_JOB_CONTENT_PATTERNS = [
   /\bget paid reliably\b/i,
   /\bjoin our network\b/i,
   /\bsearch careers? at\b/i,
+  /\bexplore open roles\b/i,
   /\bgrow your career\b/i,
   /\bbuild your career\b/i,
   /\bthrive[s]? here\b/i,
+  /\bwidget title goes here\b/i,
+  /\bmeta text goes here\b/i,
   /\btrusted by\b/i,
   /\bfeatured in\b/i,
   /\banswers to frequently asked questions\b/i,
@@ -224,10 +337,25 @@ export function classifyNonJobPosting(input: {
     };
   }
 
+  const departmentBucketTitle = Boolean(title) && DEPARTMENT_BUCKET_TITLE_RE.test(title);
+
   if (title && LOCATION_ONLY_TITLE_RE.test(title.replace(/[()]/g, "").trim())) {
     return {
       detected: true,
       reason: "location_only_title",
+      negativeHits,
+      positiveHits,
+    };
+  }
+
+  if (
+    departmentBucketTitle &&
+    (genericCareerUrl || negativeHits >= 2) &&
+    positiveHits <= 1
+  ) {
+    return {
+      detected: true,
+      reason: genericCareerUrl ? "generic_department_url" : "generic_department_copy",
       negativeHits,
       positiveHits,
     };
@@ -316,6 +444,17 @@ function looksLikeGenericCareerUrl(url: string) {
   try {
     const parsed = new URL(url);
     const pathname = parsed.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+    const hasPostingQueryId =
+      parsed.searchParams.has("gh_jid") ||
+      parsed.searchParams.has("job_id") ||
+      parsed.searchParams.has("jobId") ||
+      parsed.searchParams.has("job") ||
+      parsed.searchParams.has("requisitionId") ||
+      parsed.searchParams.has("reqId");
+
+    if (hasPostingQueryId) {
+      return false;
+    }
 
     // Many real ATS apply URLs end in a literal `/job` segment while carrying
     // the actual requisition id in the path or query string:
@@ -324,14 +463,15 @@ function looksLikeGenericCareerUrl(url: string) {
     // Treat those as item pages, not generic job-board landing pages.
     if (
       /\/job$/.test(pathname) &&
-      (parsed.searchParams.has("gh_jid") ||
-        parsed.searchParams.has("job_id") ||
-        parsed.searchParams.has("jobId") ||
-        parsed.searchParams.has("mode") ||
+      (parsed.searchParams.has("mode") ||
         parsed.searchParams.has("apply") ||
         /\/jobs?\/\d+\//.test(pathname))
     ) {
       return false;
+    }
+
+    if (looksLikeGenericAtsBoardUrl(parsed)) {
+      return true;
     }
 
     if (
@@ -352,31 +492,55 @@ function looksLikeGenericCareerUrl(url: string) {
   }
 }
 
-function looksLikeArticleOrDocsUrl(url: string) {
-  if (!url) return false;
+function looksLikeGenericAtsBoardUrl(parsed: URL) {
+  const host = parsed.hostname.toLowerCase();
+  const parts = parsed.pathname
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
 
+  if (host === "jobs.lever.co") {
+    return parts.length <= 1;
+  }
+
+  if (host === "jobs.ashbyhq.com") {
+    return parts.length <= 1;
+  }
+
+  if (host === "apply.workable.com") {
+    return parts.length <= 1;
+  }
+
+  if (host === "jobs.smartrecruiters.com") {
+    return parts.length <= 1;
+  }
+
+  if (host === "boards.greenhouse.io" || host === "job-boards.greenhouse.io") {
+    return parts.length <= 1 || /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? "");
+  }
+
+  if (host.endsWith(".greenhouse.io")) {
+    return parts.length <= 1 || /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? "");
+  }
+
+  return false;
+}
+
+function looksLikeArticleOrDocsUrl(url: string) {
+  return isClearlyNonJobContentUrl(url);
+}
+
+export function isClearlyNonJobContentUrl(url: string | null | undefined) {
+  if (!url) return false;
   try {
     const pathname = new URL(url).pathname.toLowerCase();
-    return [
-      "/blog/",
-      "/guide/",
-      "/guides/",
-      "/docs/",
-      "/support/",
-      "/resources/",
-      "/resource/",
-      "/case-studies/",
-      "/insights/",
-      "/news/",
-      "/videos/",
-      "/faq/",
-      "/faqs/",
-      "/thank-you",
-      "/download",
-      "/webinar/",
-      "/lesson-center/",
-      "/people-ops/",
-    ].some((segment) => pathname.includes(segment));
+    if (!NON_JOB_CONTENT_URL_SEGMENTS.some((segment) => pathname.includes(segment))) {
+      return false;
+    }
+    if (JOB_SECTION_URL_RE.test(pathname)) {
+      return HARD_NON_JOB_CONTENT_URL_SEGMENTS.some((segment) => pathname.includes(segment));
+    }
+    return true;
   } catch {
     return false;
   }

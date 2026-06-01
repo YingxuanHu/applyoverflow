@@ -4,13 +4,13 @@ import {
 } from "@/lib/ingestion/html-description";
 
 const TITLE_ROLE_HINT_RE =
-  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|operations|lighter|trainer|tutor|student|co-?op)\b/i;
+  /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|leader|partner|recruiter|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|marketer|operations|lighter|trainer|tutor|student|co-?op|executive|head|counsel|compliance|clerk|inspector|operator|strategist|electrician|bricklayer|welder|welding|fabrication)\b/i;
 
 const TITLE_BAD_MARKER_RE =
-  /\b(work at|careers?\b|career page|find real[- ]time|parking|join (?:our )?team|we make work|intelligent parking|close search|skip to main content|about us|our current job openings|what do we offer)\b/i;
+  /(^\s*(?:careers?|jobs?|job listings?|open positions?|redirect|apply|datasets?|models?|spaces?)\s*(?::.*)?$|\b(?:work at|career page|copy of careers|find real[- ]time|parking|join (?:our )?team|we make work|intelligent parking|close search|skip to main content|about us|our current job openings|what do we offer)\b)/i;
 
 const TITLE_LOCATION_ONLY_RE =
-  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore)(?:\s+(?:office|area|region|centre|center|city))?$/i;
+  /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore|apac|emea|latam|europe|asia|africa|middle east|united kingdom|uk|india|australia)(?:\s+(?:office|area|region|centre|center|city))?$/i;
 
 const COMPANY_BAD_MARKER_RE =
   /\b(jobs?|careers?|career page|work at|hiring|logo|intelligent parking|using ai|find real[- ]time|close search|skip to main content)\b/i;
@@ -62,7 +62,75 @@ const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
   { company: "bamboohr", hostPattern: /bamboohr\.com/i },
   { company: "oraclecloud", hostPattern: /oraclecloud\.com/i },
   { company: "gc", hostPattern: /(?:jobbank\.gc\.ca|\.gc\.ca)/i },
+  { company: "taleo", hostPattern: /(?:taleo\.net|taleo\.com|oraclecloud\.com)/i },
+  { company: "rippling", hostPattern: /rippling\.com/i },
+  { company: "paylocity", hostPattern: /paylocity\.com/i },
+  { company: "adp", hostPattern: /(?:workforcenow\.adp\.com|adp\.com)/i },
+  { company: "jobappnetwork", hostPattern: /jobappnetwork\.com/i },
+  { company: "workstream", hostPattern: /workstream\.(?:us|is|co)/i },
+  { company: "hcshiring", hostPattern: /hcshiring\.com/i },
+  { company: "typeform", hostPattern: /typeform\.com/i },
+  { company: "successfactors", hostPattern: /successfactors\.com/i },
+  { company: "teamtailor", hostPattern: /teamtailor\.com/i },
 ];
+
+const URL_TITLE_MARKER_SEGMENTS = new Set([
+  "career",
+  "careers",
+  "job",
+  "jobs",
+  "opening",
+  "openings",
+  "opportunity",
+  "opportunities",
+  "position",
+  "positions",
+  "requisition",
+  "requisitions",
+  "role",
+  "roles",
+  "vacancy",
+  "vacancies",
+]);
+
+const URL_TITLE_IGNORED_SEGMENTS = new Set([
+  "",
+  "about",
+  "about-us",
+  "ai-guidelines",
+  "apply",
+  "blog",
+  "candidate",
+  "candidate-experience",
+  "company",
+  "details",
+  "en",
+  "en-us",
+  "external",
+  "faq",
+  "faqs",
+  "guide",
+  "guides",
+  "home",
+  "copy of careers",
+  "copy-of-careers",
+  "copy-of-careers-1",
+  "jobdescription",
+  "jobdetails",
+  "jobposting",
+  "news",
+  "newsroom",
+  "partners",
+  "people-ops",
+  "products",
+  "resources",
+  "search",
+  "search-results",
+  "sites",
+  "support",
+  "us",
+  "videos",
+]);
 
 const CHROME_LINE_PATTERNS = [
   /^skip to main content$/i,
@@ -140,6 +208,76 @@ export function sanitizeJobTitle(value: unknown) {
   }
 
   return best;
+}
+
+export function selectBestJobTitle(
+  value: unknown,
+  options?: {
+    company?: string | null;
+    urls?: Array<string | null | undefined>;
+  }
+) {
+  const sanitized = sanitizeJobTitle(value);
+  const derived = deriveJobTitleFromUrls(options?.urls ?? []);
+  if (!derived) return sanitized;
+  if (!sanitized) return derived;
+
+  if (shouldPreferUrlDerivedTitle(sanitized, derived, options?.company ?? null)) {
+    return derived;
+  }
+
+  return sanitized;
+}
+
+export function deriveJobTitleFromUrls(urls: Array<string | null | undefined>) {
+  for (const value of urls) {
+    if (!value) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      continue;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => normalizeUrlTitleSegment(segment))
+      .filter((segment) => segment !== null) as string[];
+
+    const candidates: string[] = [];
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+      if (!segment) continue;
+
+      const normalizedSegment = segment.toLowerCase();
+      const previousSegment = segments[index - 1]?.toLowerCase() ?? "";
+      const nextSegment = segments[index + 1] ?? "";
+
+      if (
+        URL_TITLE_MARKER_SEGMENTS.has(previousSegment) ||
+        URL_TITLE_MARKER_SEGMENTS.has(normalizedSegment) ||
+        looksLikeTitleSlug(segment)
+      ) {
+        const candidate = URL_TITLE_MARKER_SEGMENTS.has(normalizedSegment)
+          ? nextSegment
+          : segment;
+        if (candidate) candidates.push(candidate);
+      }
+    }
+
+    const best = candidates
+      .map((candidate) => sanitizeJobTitle(candidate))
+      .filter((candidate) => candidate && isUsableUrlTitleCandidate(candidate))
+      .sort((left, right) => {
+        const scoreDelta = scoreTitleCandidate(right) - scoreTitleCandidate(left);
+        if (scoreDelta !== 0) return scoreDelta;
+        return left.length - right.length;
+      })[0];
+
+    if (best) return best;
+  }
+
+  return null;
 }
 
 export function sanitizeCompanyName(
@@ -263,6 +401,22 @@ export function hasUnresolvedGenericCompanyName(
   );
 }
 
+export function isSuspiciousJobTitle(title: string, company?: string | null) {
+  const normalized = compactWhitespace(title);
+  if (!normalized) return true;
+  const comparable = normalizeComparable(normalized);
+  const companyComparable = normalizeComparable(company ?? "");
+
+  if (TITLE_LOCATION_ONLY_RE.test(normalized.replace(/[()]/g, "").trim())) return true;
+  if (TITLE_BAD_MARKER_RE.test(normalized)) return true;
+  if (/^(?:redirect|apply|job|jobs|career|careers|open positions?)$/i.test(normalized)) {
+    return true;
+  }
+  if (/^(?:req|requisition|job)\s*#?\s*\d+$/i.test(normalized)) return true;
+  if (companyComparable && comparable === companyComparable) return true;
+  return false;
+}
+
 function scoreTitleCandidate(candidate: string) {
   let score = 0;
   const locationCandidate = candidate.replace(/[()]/g, "").trim();
@@ -277,6 +431,113 @@ function scoreTitleCandidate(candidate: string) {
   if (/\?$/.test(candidate)) score -= 4;
   if (/^[a-z]/.test(candidate)) score -= 1;
   return score;
+}
+
+function shouldPreferUrlDerivedTitle(
+  sanitizedTitle: string,
+  derivedTitle: string,
+  company: string | null
+) {
+  if (!derivedTitle || derivedTitle === sanitizedTitle) return false;
+  if (isSuspiciousJobTitle(sanitizedTitle, company)) return true;
+
+  const sanitizedScore = scoreTitleCandidate(sanitizedTitle);
+  const derivedScore = scoreTitleCandidate(derivedTitle);
+  return derivedScore >= sanitizedScore + 4;
+}
+
+function normalizeUrlTitleSegment(segment: string) {
+  if (looksLikeIdentifierSegment(segment)) return null;
+
+  const decoded = safeDecodeURIComponent(segment)
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!decoded) return null;
+
+  const withoutIds = decoded
+    .replace(/\b(?:job|req|requisition|posting)?\s*#?\d{4,}\b/gi, " ")
+    .replace(/\b\d{4,}(?: [a-z]{2}(?: [a-z]{2})?)?\b/gi, " ")
+    .replace(/\b[a-f0-9]{8,}\b/gi, " ")
+    .replace(/\s+\b(?:[a-f0-9]{4,}\s*){2,}$/i, " ")
+    .replace(/\b(?:jid|jr|req|requisition|r)\b\s*$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalized = withoutIds.toLowerCase();
+  if (!withoutIds || URL_TITLE_IGNORED_SEGMENTS.has(normalized)) return null;
+  if (normalized.includes("copy of careers")) return null;
+  if (looksLikeIdentifierSegment(withoutIds)) return null;
+  if (/^[a-z]{2}(?:-[a-z]{2})?$/i.test(withoutIds)) return null;
+  if (!/[a-z]/i.test(withoutIds)) return null;
+  return formatUrlTitleCandidate(withoutIds);
+}
+
+function looksLikeTitleSlug(segment: string) {
+  const normalized = segment.toLowerCase();
+  if (URL_TITLE_IGNORED_SEGMENTS.has(normalized)) return false;
+  if (TITLE_BAD_MARKER_RE.test(segment)) return false;
+  if (TITLE_LOCATION_ONLY_RE.test(segment.replace(/[()]/g, "").trim())) return false;
+  return TITLE_ROLE_HINT_RE.test(segment) || segment.split(/\s+/).length >= 3;
+}
+
+function isUsableUrlTitleCandidate(candidate: string) {
+  if (!candidate) return false;
+  if (candidate.length < 4 || candidate.length > 110) return false;
+  if (TITLE_BAD_MARKER_RE.test(candidate)) return false;
+  if (/copy of careers/i.test(candidate)) return false;
+  if (TITLE_LOCATION_ONLY_RE.test(candidate.replace(/[()]/g, "").trim())) return false;
+  if (/^(?:req|requisition|job)\s*#?\s*\d+$/i.test(candidate)) return false;
+  if (looksLikeIdentifierSegment(candidate)) return false;
+  return TITLE_ROLE_HINT_RE.test(candidate);
+}
+
+function looksLikeIdentifierSegment(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return true;
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(normalized)) {
+    return true;
+  }
+  if (/^[a-f0-9]{8,}$/i.test(normalized)) return true;
+  if (/^(?:[a-f0-9]{4,}\s+){2,}[a-f0-9]{4,}$/i.test(normalized)) return true;
+  if (/^\d+[_-]?(?:en|fr|de|es|us|ca)(?:[_-]?[a-z]{2})?$/i.test(normalized)) return true;
+  return false;
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
+  }
+}
+
+function formatUrlTitleCandidate(value: string) {
+  const lowerCaseWords = new Set(["a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to", "with"]);
+  const forcedCase = new Map([
+    ["api", "API"],
+    ["apac", "APAC"],
+    ["aws", "AWS"],
+    ["bi", "BI"],
+    ["ios", "iOS"],
+    ["it", "IT"],
+    ["ml", "ML"],
+    ["qa", "QA"],
+    ["sre", "SRE"],
+    ["ui", "UI"],
+    ["ux", "UX"],
+  ]);
+
+  return value
+    .split(/\s+/)
+    .map((word, index) => {
+      const normalized = word.toLowerCase();
+      const forced = forcedCase.get(normalized);
+      if (forced) return forced;
+      if (index > 0 && lowerCaseWords.has(normalized)) return normalized;
+      return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    })
+    .join(" ");
 }
 
 function stripTrailingLocationQualifier(value: string) {
@@ -442,6 +703,13 @@ function deriveKnownAtsCompanyName(hostname: string, pathParts: string[]) {
 
   if (hostname.endsWith(".bamboohr.com")) {
     return formatCompanySlug(hostname.split(".")[0] ?? "");
+  }
+
+  if (hostname.endsWith(".teamtailor.com")) {
+    const subdomain = hostname.split(".")[0] ?? "";
+    if (!/^(?:www|careers?|jobs?)$/i.test(subdomain)) {
+      return formatCompanySlug(subdomain);
+    }
   }
 
   if (hostname.includes(".icims.com")) {

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyNonJobPosting } from "../src/lib/job-integrity";
+import {
+  classifyNonJobPosting,
+  isClearlyNonJobContentUrl,
+} from "../src/lib/job-integrity";
 
 test("classifyNonJobPosting rejects location-only titles", () => {
   const result = classifyNonJobPosting({
@@ -19,6 +22,15 @@ test("classifyNonJobPosting rejects article and resource URLs", () => {
     "https://www.chef.io/blog/push-jobs-server-1-1-5-and-future-improvements",
     "https://www.uplers.com/blog/wordpress-developer-job-description/",
     "https://www.atlassian.com/company/careers/resources/applying",
+    "https://www.epicor.com/en-us/products/kinect-platform/",
+    "https://www.epicor.com/en-us/newsroom/",
+    "https://careers.example.com/ai-guidelines/",
+    "https://automattic.com/protect-yourself-from-job-scams/",
+    "https://huggingface.co/datasets/sohaibdevv/Tech-Job-Scams-and-Predatory-Recruitment",
+    "https://huggingface.co/models/company/career-advice-model",
+    "https://www.cgi.com/en/media/video/role-compliance-banks-seek-move-saas-models",
+    "https://www.nasuni.com/press-release/cloud-firm-nasuni-sees-plenty-jobs-coming-triangle-winters-kinder/",
+    "https://spire.com/whitepaper/weather-climate/the-role-of-weather-data-in-vessel-performance/",
   ]) {
     const result = classifyNonJobPosting({
       title: "Software Developer Job Description",
@@ -31,15 +43,100 @@ test("classifyNonJobPosting rejects article and resource URLs", () => {
   }
 });
 
-test("classifyNonJobPosting rejects generic careers landing pages", () => {
-  const result = classifyNonJobPosting({
-    title: "Join GitLab",
-    description: "Explore open positions, benefits, and our company culture.",
-    applyUrl: "https://about.gitlab.com/jobs/",
-  });
+test("isClearlyNonJobContentUrl flags resource pages without blocking real job words", () => {
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://huggingface.co/datasets/sohaibdevv/Tech-Job-Scams-and-Predatory-Recruitment"
+    ),
+    true
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://pae.wd1.myworkdayjobs.com/amentum_careers/job/US-TX-Houston/Spacesuit-Software-Engineer_R0159266"
+    ),
+    false
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://www.google.com/about/careers/applications/jobs/results"
+    ),
+    false
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl("https://www.edc.ca/en/about-us/careers.html"),
+    false
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://www.atlassian.com/company/careers/resources/applying"
+    ),
+    true
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://remotive.com/remote-jobs/product/staff-product-engineer-campinas-2090902"
+    ),
+    false
+  );
+  assert.equal(
+    isClearlyNonJobContentUrl(
+      "https://www.coopersurgical.com/product/insorb-absorbable-skin-stapler/"
+    ),
+    true
+  );
+});
 
-  assert.equal(result.detected, true);
-  assert.equal(result.reason, "generic_careers_url");
+test("classifyNonJobPosting rejects generic careers landing pages", () => {
+  for (const input of [
+    {
+      title: "Join GitLab",
+      description: "Explore open positions, benefits, and our company culture.",
+      applyUrl: "https://about.gitlab.com/jobs/",
+      reason: "generic_careers_url",
+    },
+    {
+      title: "Search Jobs",
+      description: "Search by keyword or location and create job alerts.",
+      applyUrl: "https://jobs.citi.com/category/research-jobs/287/19623/1",
+      reason: "non_job_title",
+    },
+    {
+      title: "Job Listings",
+      description: "Search by keyword or location and browse all available openings.",
+      applyUrl: "https://careers-kinaxis.icims.com/jobs/search?hashed=-625890713",
+      reason: "non_job_title",
+    },
+    {
+      title: "Join the Hybrid Cloud Team",
+      description:
+        "Explore open roles. Widget title goes here. Meta text goes here. Learn more about careers and culture.",
+      applyUrl: "https://careers.hpe.com/us/en/hybrid-cloud",
+      reason: "non_job_title",
+    },
+  ]) {
+    const result = classifyNonJobPosting(input);
+
+    assert.equal(result.detected, true, input.applyUrl);
+    assert.equal(result.reason, input.reason, input.applyUrl);
+  }
+});
+
+test("classifyNonJobPosting rejects generic ATS board pages even when a scraped title looks real", () => {
+  for (const applyUrl of [
+    "https://jobs.lever.co/buckmason/?workplaceType=remote",
+    "https://boards.greenhouse.io/example",
+    "https://jobs.ashbyhq.com/example",
+    "https://apply.workable.com/example/",
+  ]) {
+    const result = classifyNonJobPosting({
+      title: "Associate Raw Material Sourcing CONTRACTOR (PT/FT)",
+      description: "Location type All On-site Hybrid Remote. Department Apparel Design and Production.",
+      applyUrl,
+    });
+
+    assert.equal(result.detected, true, applyUrl);
+    assert.equal(result.reason, "generic_careers_url", applyUrl);
+  }
 });
 
 test("classifyNonJobPosting rejects department-only titles", () => {
@@ -47,11 +144,48 @@ test("classifyNonJobPosting rejects department-only titles", () => {
     const result = classifyNonJobPosting({
       title,
       description: "Explore opportunities across this team.",
-      applyUrl: "https://example.com/careers/open-positions?gh_jid=123456",
+      applyUrl: "https://example.com/careers",
     });
 
     assert.equal(result.detected, true, title);
-    assert.equal(result.reason, "non_job_title", title);
+    assert.equal(result.reason, "generic_department_url", title);
+  }
+});
+
+test("classifyNonJobPosting rejects redirect and region-only title rows", () => {
+  for (const title of ["redirect", "APAC", "EMEA"]) {
+    const result = classifyNonJobPosting({
+      title,
+      description: "Beginning of the main content section.",
+      applyUrl: "https://example.taleo.net/careersection/jobdetail.ftl?job=123",
+    });
+
+    assert.equal(result.detected, true, title);
+  }
+});
+
+test("classifyNonJobPosting rejects malformed scraped page titles", () => {
+  for (const title of [
+    "MassCareers",
+    "CSS Annonce FR.pdf",
+    "Job Title",
+    "Bewerbung",
+    "Initiativbewerbung",
+    "Stellen",
+    "搜索结果： \"\".",
+    "We apologize for the inconvenience...",
+    "K1 Speed Careers",
+    "Customer Service Jobs",
+    "Open Your Own Indoor Go Kart Franchise",
+    "About AasaanJobs",
+  ]) {
+    const result = classifyNonJobPosting({
+      title,
+      description: "Search by keyword, location, and department.",
+      applyUrl: "https://example.com/careers/search",
+    });
+
+    assert.equal(result.detected, true, title);
   }
 });
 
@@ -88,6 +222,24 @@ test("classifyNonJobPosting allows concrete job postings", () => {
       description:
         "DESCRIPTION The team is looking for a Software Development Engineer. BASIC QUALIFICATIONS include professional software development experience.",
       applyUrl: "https://www.amazon.jobs/en/jobs/123456/software-development-engineer",
+    },
+    {
+      title: "Business Operations",
+      description:
+        "About the role. Responsibilities include solving business problems, working across product and go-to-market teams, and improving operating metrics. Requirements include experience in analytical business operations.",
+      applyUrl: "https://boards.greenhouse.io/figma/jobs/5786381004?gh_jid=5786381004",
+    },
+    {
+      title: "AI Account Strategist, Early Career",
+      description:
+        "About the role. Responsibilities include working with customers on account strategy and AI adoption.",
+      applyUrl: "https://jobs.ashbyhq.com/nectar-social/53bed905-b75d-43e6-8581-7802f9852ddf",
+    },
+    {
+      title: "Business Development Representative (Japanese and English speaking)",
+      description:
+        "About the role. Responsibilities include outbound prospecting and building pipeline.",
+      applyUrl: "https://www.relexsolutions.com/careers/jobs/?gh_jid=6675540003",
     },
   ]) {
     const result = classifyNonJobPosting(input);
