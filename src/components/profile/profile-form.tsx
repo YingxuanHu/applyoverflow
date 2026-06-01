@@ -163,8 +163,8 @@ function ProfileSection({
   const isOpen = activeSection === id;
 
   return (
-    <section className="border-t border-border/60 py-4 first:border-t-0 first:pt-0">
-      <div className="flex items-start justify-between gap-4">
+    <section className="border-t border-border/60 py-3 first:border-t-0 first:pt-0 sm:py-4">
+      <div className="flex items-start justify-between gap-3 sm:gap-4">
         <button
           className="min-w-0 flex-1 text-left"
           onClick={() => setActiveSection(isOpen ? null : id)}
@@ -188,7 +188,7 @@ function ProfileSection({
         </button>
       </div>
 
-      <div className={isOpen ? "mt-4" : "hidden"}>{children}</div>
+      <div className={isOpen ? "mt-3 sm:mt-4" : "hidden"}>{children}</div>
     </section>
   );
 }
@@ -450,7 +450,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   }
 
   return (
-    <div className="mt-5">
+    <div className="mt-3 sm:mt-5">
       <input type="hidden" name="contactJson" value={contactJson} />
       <input type="hidden" name="skillsJson" value={skillsJson} />
       <input type="hidden" name="educationsJson" value={educationsJson} />
@@ -508,7 +508,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         )}
         id="contact"
         setActiveSection={setActiveSection}
-        title="Application profile"
+        title="Personal info and links"
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -926,7 +926,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </div>
       </ProfileSection>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border/70 pt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border/70 pt-4 max-sm:[&_button]:w-full">
         <SaveButton
           dirty={isDirty}
           onClick={handleSaveClick}

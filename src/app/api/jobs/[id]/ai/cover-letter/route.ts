@@ -2,6 +2,7 @@ import { successResponse, errorResponse } from "@/lib/api-utils";
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { UnauthorizedError, requireCurrentUserProfile } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
+import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { prisma } from "@/lib/db";
 import { buildDocumentStorageKey, saveFile } from "@/lib/storage";
 
@@ -23,10 +24,15 @@ export async function POST(
 
     if (!jobCtx) return errorResponse("Job not found", 404);
     if (!profileCtx) return errorResponse("Profile not found", 404);
+    const profileReadiness = assessProfileForAi(profileCtx);
+    if (!profileReadiness.canUseAi) {
+      return errorResponse(profileReadiness.blockingMessage ?? "Please complete your profile.", 400);
+    }
 
     // Lazy-import to avoid bundling the OpenAI SDK into other routes
     const { generateCoverLetter } = await import("@/lib/ai/cover-letter");
     const result = await generateCoverLetter(jobCtx, profileCtx);
+    result.profileNotice = profileReadiness.profileNotice;
 
     // Persist the generated letter as an AI document. Best-effort.
     let savedDocumentId: string | null = null;

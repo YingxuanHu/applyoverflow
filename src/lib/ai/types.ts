@@ -5,9 +5,11 @@ export type FitAnalysis = {
   strengths: string[];
   gaps: string[];
   keywords: string[];
+  profileNotice?: string | null;
 };
 
 export type CoverLetterResult = {
   text: string;
   wordCount: number;
+  profileNotice?: string | null;
 };

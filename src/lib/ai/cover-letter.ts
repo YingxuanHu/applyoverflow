@@ -5,6 +5,7 @@
  * and the user's profile. ~3 paragraphs, no filler.
  */
 import { aiComplete } from "./provider";
+import { buildAiProfileText } from "./profile-context";
 import type { JobContext, ProfileContext } from "./job-fit";
 import type { CoverLetterResult } from "./types";
 
@@ -16,6 +17,7 @@ Rules:
 - 3 short paragraphs: why this role, what you bring, call to action
 - No generic filler ("I am writing to apply...", "Please find attached...")
 - Specific — reference the company name, role, and 1-2 concrete achievements
+- Ground every claim in the user's saved profile. Do not invent experience, employers, metrics, tools, or credentials.
 - Confident and direct tone
 - 150–250 words total
 - Do NOT include a salutation, date, address, or closing signature
@@ -25,7 +27,7 @@ export async function generateCoverLetter(
   job: JobContext,
   profile: ProfileContext
 ): Promise<CoverLetterResult> {
-  const profileText = buildProfileText(profile);
+  const profileText = buildAiProfileText(profile);
 
   const text = await aiComplete({
     system: SYSTEM_PROMPT,
@@ -44,29 +46,4 @@ export async function generateCoverLetter(
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
 
   return { text: trimmed, wordCount };
-}
-
-function buildProfileText(profile: ProfileContext): string {
-  const lines: string[] = [];
-  if (profile.headline) lines.push(`Title: ${profile.headline}`);
-  if (profile.summary) lines.push(`Summary: ${profile.summary}`);
-  if (profile.skills.length > 0) lines.push(`Skills: ${profile.skills.slice(0, 20).join(", ")}`);
-
-  if (profile.experiences.length > 0) {
-    lines.push("Recent experience:");
-    for (const e of profile.experiences.slice(0, 3)) {
-      lines.push(`  • ${e.title} at ${e.company}`);
-      if (e.description) lines.push(`    ${e.description.slice(0, 200)}`);
-    }
-  }
-
-  if (profile.educations.length > 0) {
-    const edu = profile.educations[0];
-    const details = [edu.time, edu.location].filter(Boolean).join(" | ");
-    lines.push(`Education: ${[edu.degree, edu.school].filter(Boolean).join(" at ")}`);
-    if (details) lines.push(`  ${details}`);
-    if (edu.description) lines.push(`  ${edu.description.slice(0, 180)}`);
-  }
-
-  return lines.join("\n");
 }

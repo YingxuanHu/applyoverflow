@@ -36,6 +36,16 @@ type CoverLetterManagerProps = {
   storageConfigured: boolean;
 };
 
+function formatDocumentKind(mimeType: string, fileName?: string) {
+  const value = mimeType.toLowerCase();
+  const name = (fileName ?? "").toLowerCase();
+  if (value.includes("pdf") || name.endsWith(".pdf")) return "PDF";
+  if (value.includes("word") || name.endsWith(".doc") || name.endsWith(".docx")) return "Word";
+  if (value.includes("text") || name.endsWith(".txt")) return "Text";
+  if (name.endsWith(".rtf")) return "RTF";
+  return "File";
+}
+
 function CoverLetterRow({ coverLetter }: { coverLetter: CoverLetterRecord }) {
   const router = useRouter();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -61,14 +71,14 @@ function CoverLetterRow({ coverLetter }: { coverLetter: CoverLetterRecord }) {
   }
 
   return (
-    <div className="rounded-[14px] border border-border/65 bg-card px-3.5 py-3">
+    <div className="rounded-[14px] border border-border/65 bg-card px-3 py-2.5 sm:px-3.5 sm:py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="truncate text-sm font-medium text-foreground">{coverLetter.title}</span>
           <p className="mt-1 truncate text-xs text-muted-foreground">{coverLetter.originalFileName}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button render={<a href={coverLetter.downloadHref} />} className="h-8 px-3 text-xs" size="sm" variant="secondary">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <Button render={<a href={coverLetter.downloadHref} />} className="h-8 px-2.5 text-xs sm:px-3" size="sm" variant="secondary">
             Download
           </Button>
           <DropdownMenu>
@@ -87,8 +97,8 @@ function CoverLetterRow({ coverLetter }: { coverLetter: CoverLetterRecord }) {
           </DropdownMenu>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>{coverLetter.mimeType}</span>
+      <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground sm:gap-x-4">
+        <span>{formatDocumentKind(coverLetter.mimeType, coverLetter.originalFileName)}</span>
         <span>{coverLetter.sizeLabel}</span>
         <span>{coverLetter.createdAtLabel}</span>
       </div>
@@ -189,7 +199,7 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
   );
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-3 sm:gap-5">
       <DocumentGroup
         count={uploadedCoverLetters.length}
         description="Uploaded cover letters you can attach from the application workspace."
@@ -232,14 +242,14 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
       </DocumentGroup>
 
       {aiCoverLetters.length > 0 ? (
-        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-4">
+        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Generated cover letters
             </h3>
             <span className="text-xs text-muted-foreground">{aiCoverLetters.length}</span>
           </div>
-          <p className="mb-2 text-xs text-muted-foreground">
+          <p className="mb-2 hidden text-xs text-muted-foreground sm:block">
             Cover letters produced by the app for specific jobs.
           </p>
           <div className="grid gap-2">
@@ -265,13 +275,13 @@ function DocumentGroup({
   title: string;
 }) {
   return (
-    <section className="grouped-panel p-4">
+    <section className="grouped-panel p-3 sm:p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
             {title}
           </h3>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+          <p className="mt-1 hidden text-sm leading-5 text-muted-foreground sm:block">{description}</p>
         </div>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>
       </div>

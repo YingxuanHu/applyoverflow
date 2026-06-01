@@ -50,7 +50,7 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(searchFieldSource, /companySearch/);
   assert.match(searchFieldSource, /locationSearch/);
   assert.match(searchFieldSource, /tagSearch/);
-  assert.doesNotMatch(searchFieldSource, /\{ label: "All", value: "all" \}/);
+  assert.match(searchFieldSource, /\{ label: "All", value: "all" \}/);
   assert.doesNotMatch(searchFieldSource, /label: "Reminder"/);
   assert.doesNotMatch(searchFieldSource, /reminder: "reminderSearch"/);
   assert.match(pageSource, /ApplicationRemindersSummary/);

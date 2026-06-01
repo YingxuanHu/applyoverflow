@@ -10,7 +10,7 @@ import { useNotifications } from "@/components/ui/notification-provider";
 
 function SubmitButton({ pending }: { pending: boolean }) {
   return (
-    <Button type="submit" disabled={pending}>
+    <Button className="w-full sm:w-auto" type="submit" disabled={pending}>
       {pending ? "Saving..." : "Add application"}
     </Button>
   );
@@ -146,7 +146,7 @@ export function CreateTrackedApplicationForm() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
           Jobs submitted from the feed will also appear here automatically.
         </p>

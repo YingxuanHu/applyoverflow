@@ -130,6 +130,9 @@ export async function getApplicationReviewData(
   ) {
     return null;
   }
+  if (isUnavailableForJobDetail(job)) {
+    return null;
+  }
 
   const latestPackage = job.applicationPackages[0] ?? null;
   const recommendedResume =
@@ -471,6 +474,21 @@ function isReadyToApplyJob(job: {
     /^https?:\/\//i.test(job.applyUrl) &&
     job.deadSignalAt === null &&
     (!job.deadline || job.deadline.getTime() >= Date.now())
+  );
+}
+
+function isUnavailableForJobDetail(job: {
+  status: string;
+  applyUrl: string;
+  deadline: Date | null;
+  deadSignalAt: Date | null;
+}) {
+  return (
+    job.status === "REMOVED" ||
+    job.status === "EXPIRED" ||
+    !/^https?:\/\//i.test(job.applyUrl) ||
+    job.deadSignalAt !== null ||
+    (job.deadline !== null && job.deadline.getTime() < Date.now())
   );
 }
 

@@ -152,7 +152,7 @@ export function ApplicationListCard({ application }: { application: ApplicationL
 
   return (
     <>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-3">
         <div className="min-w-0">
           {editing ? (
             <div className="space-y-2">
@@ -215,10 +215,10 @@ export function ApplicationListCard({ application }: { application: ApplicationL
             </div>
           ) : (
             <>
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Link
                   href={`/applications/${application.id}`}
-                  className="block text-ellipsis-1 text-base font-semibold text-foreground transition hover:underline"
+                  className="mobile-list-title block text-base font-semibold text-foreground transition hover:underline sm:truncate"
                   title={application.roleTitle}
                 >
                   {application.roleTitle}
@@ -235,7 +235,7 @@ export function ApplicationListCard({ application }: { application: ApplicationL
                 ) : null}
               </div>
               <p
-                className="text-ellipsis-1 text-sm text-muted-foreground"
+                className="mobile-meta-line text-sm text-muted-foreground"
                 title={[
                   application.company,
                   application.canonicalJob?.location,
@@ -252,7 +252,7 @@ export function ApplicationListCard({ application }: { application: ApplicationL
                   ? ` · ${application.canonicalJob.workMode.toLowerCase()}`
                   : ""}
               </p>
-              <p className="mt-2 text-ellipsis-1 text-sm text-muted-foreground">
+              <p className="mt-1.5 text-ellipsis-1 text-[13px] text-muted-foreground sm:mt-2 sm:text-sm">
                 Deadline: {formatTrackerDate(application.deadline)}
               </p>
               {application.tags.length > 0 ? (
@@ -272,12 +272,12 @@ export function ApplicationListCard({ application }: { application: ApplicationL
           )}
         </div>
 
-        <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
-          <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex min-w-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+          <div className="flex max-w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {application.canonicalJobId ? (
               <Link
                 href={`/jobs/${application.canonicalJobId}`}
-                className="action-pill h-8 max-w-28 px-3"
+                className="action-pill h-8 px-3 sm:max-w-28"
                 title="Open job"
               >
                 <span className="block truncate">Open job</span>
@@ -285,7 +285,7 @@ export function ApplicationListCard({ application }: { application: ApplicationL
             ) : null}
             {application.roleUrl ? (
               <a
-                className="action-pill h-8 max-w-28 px-3"
+                className="action-pill h-8 px-3 sm:max-w-28"
                 href={application.roleUrl}
                 rel="noreferrer"
                 target="_blank"
@@ -299,7 +299,7 @@ export function ApplicationListCard({ application }: { application: ApplicationL
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Application actions"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 sm:border-0"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </DropdownMenuTrigger>

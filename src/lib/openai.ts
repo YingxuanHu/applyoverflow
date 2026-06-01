@@ -12,15 +12,15 @@ const globalForOpenAI = globalThis as unknown as {
 };
 
 export function getReasoningModel() {
-  return process.env.OPENAI_REASONING_MODEL?.trim() || "gpt-5-mini";
+  return process.env.OPENAI_REASONING_MODEL?.trim() || "gpt-5.4";
 }
 
 export function getStandardModel() {
-  return process.env.OPENAI_STANDARD_MODEL?.trim() || "gpt-4.1-mini";
+  return process.env.OPENAI_STANDARD_MODEL?.trim() || "gpt-5.4-mini";
 }
 
 export function getFastModel() {
-  return process.env.OPENAI_FAST_MODEL?.trim() || "gpt-4o-mini";
+  return process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-nano";
 }
 
 export function getOpenAIReadiness(): OpenAIReadiness {

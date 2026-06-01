@@ -246,6 +246,7 @@ export function JobAssistant({
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
 
   async function askQuestion(nextQuestion: string) {
     const trimmed = nextQuestion.trim();
@@ -288,6 +289,9 @@ export function JobAssistant({
       }
 
       const answer = typeof payload.answer === "string" ? payload.answer.trim() : "";
+      const nextProfileNotice =
+        typeof payload.profileNotice === "string" ? payload.profileNotice.trim() : "";
+      setProfileNotice(nextProfileNotice || null);
       if (!answer) {
         setError("AI returned an empty response. Please try again.");
         return;
@@ -341,6 +345,7 @@ export function JobAssistant({
               onClick={() => {
                 setMessages([]);
                 setError(null);
+                setProfileNotice(null);
               }}
               size="sm"
               type="button"
@@ -364,6 +369,12 @@ export function JobAssistant({
         {!aiConfigured ? (
           <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             OpenAI is not configured. Add <code>OPENAI_API_KEY</code> to use the job assistant.
+          </p>
+        ) : null}
+
+        {profileNotice ? (
+          <p className="mb-3 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-blue-700 dark:text-blue-200">
+            {profileNotice}
           </p>
         ) : null}
 

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { zodResponseFormat } from "openai/helpers/zod";
 
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
+import { buildProfileContext } from "@/lib/ai/context-builders";
+import { assessProfileForAi } from "@/lib/ai/profile-context";
 import {
   UnauthorizedError,
   requireCurrentAuthUserId,
@@ -376,6 +378,19 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const readiness = getOpenAIReadiness();
     if (!readiness.configured) {
       return NextResponse.json({ error: "OpenAI is not configured." }, { status: 503 });
+    }
+
+    const aiProfileContext = await buildProfileContext();
+    if (!aiProfileContext) {
+      return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+    }
+
+    const profileReadiness = assessProfileForAi(aiProfileContext);
+    if (!profileReadiness.canUseAi) {
+      return NextResponse.json(
+        { error: profileReadiness.blockingMessage ?? "Please complete your profile." },
+        { status: 400 }
+      );
     }
 
     const { id: applicationId } = await params;
@@ -828,6 +843,7 @@ ${JSON.stringify(
       pdfBase64: compiledPdf.pdfBuffer.toString("base64"),
       usedFallback,
       documentId: savedDocumentId,
+      profileNotice: profileReadiness.profileNotice,
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {

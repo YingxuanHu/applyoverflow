@@ -6,10 +6,11 @@ import { ChevronDown, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { TrackerSearchScope } from "@/lib/queries/tracker";
 
-type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "all" | "reminder">;
+type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "reminder">;
 type SearchValues = Record<TrackerSearchScope, string>;
 
 const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleTrackerSearchScope }> = [
+  { label: "All", value: "all" },
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
   { label: "Location", value: "location" },
@@ -17,6 +18,7 @@ const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleTrackerSearchSc
 ];
 
 const SEARCH_PARAM_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
+  all: "search",
   title: "titleSearch",
   company: "companySearch",
   location: "locationSearch",
@@ -24,6 +26,7 @@ const SEARCH_PARAM_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
 };
 
 const PLACEHOLDER_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
+  all: "Search applications",
   title: "Search application titles",
   company: "Search companies",
   location: "Search locations",
@@ -37,19 +40,18 @@ export function ApplicationsSearchField({
   initialScope: TrackerSearchScope;
   initialValues: SearchValues;
 }) {
-  const initialVisibleScope =
-    initialScope === "all" || initialScope === "reminder" ? "title" : initialScope;
+  const initialVisibleScope = initialScope === "reminder" ? "all" : initialScope;
   const [scope, setScope] = useState<VisibleTrackerSearchScope>(initialVisibleScope);
   const [values, setValues] = useState<SearchValues>(initialValues);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
 
   return (
     <div className="grid min-w-0 gap-1.5 text-sm">
-      <span className="control-label">
+      <span className="control-label hidden sm:block">
         Search
       </span>
       <input name="searchScope" type="hidden" value={scope} />
-      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
+      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope && option.value !== "all").map((option) => {
         const value = values[option.value].trim();
         if (!value) return null;
         return (
@@ -62,13 +64,13 @@ export function ApplicationsSearchField({
         );
       })}
 
-      <div className="flex min-w-0 flex-col overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
+      <div className="flex min-w-0 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         <label className="sr-only" htmlFor="applications-search-scope">
           Search within
         </label>
-        <div className="relative border-b border-border/60 sm:w-28 sm:border-b-0 sm:border-r">
+        <div className="relative w-[5.85rem] shrink-0 border-r border-border/60 sm:w-28">
           <select
-            className="h-10 w-full appearance-none bg-transparent pl-4 pr-8 text-left text-sm font-medium leading-10 text-foreground outline-none"
+            className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
             id="applications-search-scope"
             onChange={(event) => setScope(event.target.value as VisibleTrackerSearchScope)}
             style={{ textAlignLast: "left" }}
@@ -80,7 +82,7 @@ export function ApplicationsSearchField({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:right-2.5" />
         </div>
 
         <div className="relative min-w-0 flex-1">
