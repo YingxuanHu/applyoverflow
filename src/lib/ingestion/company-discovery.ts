@@ -3761,8 +3761,13 @@ async function discoverCompanySurface(
     fallbackRoute &&
     (discoveredSourceCount === 0 || shouldProvisionParallelCompanySite)
   ) {
-    await provisionCompanySiteSource(company.id, company.companyKey, fallbackRoute, now);
-    customSourceProvisioned = true;
+    const provisionedSource = await provisionCompanySiteSource(
+      company.id,
+      company.companyKey,
+      fallbackRoute,
+      now
+    );
+    customSourceProvisioned = provisionedSource !== null;
   }
 
   const nextStatus: CompanyDiscoveryStatus =
@@ -3946,6 +3951,17 @@ async function provisionCompanySiteSource(
       ? `CompanyJson:${companyKey}`
       : `CompanyHtml:${companyKey}`;
 
+  const tombstone = await readCompanySourceTombstone(companyId);
+  if (
+    tombstone.invalidSourceNames.has(sourceName) ||
+    tombstone.invalidSourceUrls.has(normalizeTombstonedSourceUrl(route.url))
+  ) {
+    console.warn(
+      `[company-discovery] Skipping tombstoned company-site source ${sourceName} (${route.url})`
+    );
+    return null;
+  }
+
   const companySource = await upsertCompanySourceByIdentity({
     identity: {
       companyId,
@@ -4020,6 +4036,39 @@ async function provisionCompanySiteSource(
   });
 
   return companySource;
+}
+
+async function readCompanySourceTombstone(companyId: string) {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { metadataJson: true },
+  });
+  const metadata =
+    company?.metadataJson &&
+    typeof company.metadataJson === "object" &&
+    !Array.isArray(company.metadataJson)
+      ? (company.metadataJson as Record<string, Prisma.JsonValue>)
+      : {};
+
+  return {
+    invalidSourceNames: new Set(readStringArray(metadata.invalidSourceNames)),
+    invalidSourceUrls: new Set(
+      readStringArray(metadata.invalidSourceUrls).map((url) =>
+        normalizeTombstonedSourceUrl(url)
+      )
+    ),
+  };
+}
+
+function normalizeTombstonedSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.trim().toLowerCase().replace(/\/+$/, "");
+  }
 }
 
 export async function promoteCompanySiteSourceRoute(

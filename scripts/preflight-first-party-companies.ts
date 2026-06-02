@@ -254,11 +254,17 @@ async function preflightSeed(
       existing: options.withDb ? await compareExistingSources(seed.companyKey) : null,
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const blocked = /(?:\b403\b|\b429\b|forbidden|blocked|access denied|too many requests)/i.test(
+      message
+    );
     return {
       ...base,
-      feasibility: "ERROR",
-      error: error instanceof Error ? error.message : String(error),
-      recommendation: "Preflight failed; retry before deciding whether to promote.",
+      feasibility: blocked ? "BLOCKED" : "ERROR",
+      error: message,
+      recommendation: blocked
+        ? "Official careers URL could not be fetched from the ingestion host. Do not promote as a generic source; add a compliant custom connector or approved access path."
+        : "Preflight failed; retry before deciding whether to promote.",
       existing: options.withDb ? await compareExistingSources(seed.companyKey) : null,
     };
   }

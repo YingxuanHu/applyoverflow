@@ -60,4 +60,8 @@ test("first-party seed classifier promotes only implemented official connectors"
   const meta = classifyFirstPartyCompanySeed(seedsByKey.get("meta")!);
   assert.equal(meta.kind, "deferred");
   assert.equal(meta.recommendation, "blocked");
+
+  const tesla = classifyFirstPartyCompanySeed(seedsByKey.get("tesla")!);
+  assert.equal(tesla.kind, "deferred");
+  assert.equal(tesla.recommendation, "blocked");
 });

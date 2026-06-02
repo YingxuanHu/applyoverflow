@@ -121,12 +121,17 @@ export async function ensureCompanyRecord(input: {
           source: "company_verified_csv" as const,
         }
       : resolvedIndustry;
+    const nextCareersUrl = chooseBetterCareersUrl(
+      existing.careersUrl,
+      input.careersUrl
+    );
+
     return prisma.company.update({
       where: { companyKey: input.companyKey },
       data: {
         name: nextName,
         domain: nextDomain,
-        careersUrl: existing.careersUrl ?? input.careersUrl ?? null,
+        careersUrl: nextCareersUrl,
         detectedAts: existing.detectedAts ?? input.detectedAts ?? null,
         discoveryStatus: input.discoveryStatus ?? existing.discoveryStatus,
         crawlStatus: input.crawlStatus ?? existing.crawlStatus,
@@ -190,6 +195,70 @@ function chooseBetterCompanyName(currentValue: string, nextValue: string) {
   if (nextLength === 0) return currentValue;
   if (currentLength === 0) return nextValue;
   return nextLength > currentLength ? nextValue : currentValue;
+}
+
+function chooseBetterCareersUrl(
+  currentValue: string | null,
+  nextValue: string | null | undefined
+) {
+  const current = normalizeUrlForComparison(currentValue);
+  const next = normalizeUrlForComparison(nextValue);
+
+  if (!current) return next;
+  if (!next) return current;
+
+  const currentScore = scoreCareersUrl(current);
+  const nextScore = scoreCareersUrl(next);
+  if (nextScore > currentScore) return next;
+
+  return current;
+}
+
+function normalizeUrlForComparison(value: string | null | undefined) {
+  if (!value) return null;
+
+  try {
+    const parsed = new URL(value);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function scoreCareersUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    const path = parsed.pathname.toLowerCase().replace(/\/+$/g, "") || "/";
+    const full = `${host}${path}`;
+    let score = 0;
+
+    if (isThirdPartyJobHost(host)) score += 75;
+    if (/(^|\/)(careers|career|jobs|job-openings|opportunities)(\/|$)/.test(path)) {
+      score += 60;
+    }
+    if (/(^|\/)(search|openings|positions|job-search|results)(\/|$)/.test(path)) {
+      score += 25;
+    }
+    if (
+      /(greenhouse|lever|ashby|workday|smartrecruiters|icims|taleo|successfactors|oraclecloud)/.test(
+        full
+      )
+    ) {
+      score += 20;
+    }
+    if (path === "/" || path === "/about" || path === "/about-us" || path === "/company") {
+      score -= 80;
+    }
+    if (/(^|\/)(blog|news|press|investors|contact|products|services)(\/|$)/.test(path)) {
+      score -= 30;
+    }
+
+    return score;
+  } catch {
+    return -100;
+  }
 }
 
 function mergeMetadataJson(

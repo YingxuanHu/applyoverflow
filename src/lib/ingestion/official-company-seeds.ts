@@ -123,6 +123,15 @@ const DEFERRED_COMPANY_KEYS = new Map<
         "Meta Careers has a prominent automated collection notice; keep it out of automated first-party ingestion until legal/robots handling is clarified.",
     },
   ],
+  [
+    "tesla",
+    {
+      recommendation: "blocked",
+      confidence: 0.35,
+      reason:
+        "Tesla Careers is official and high-volume, but server-side fetches from the ingestion host are blocked by Akamai 403. Keep it out of generic company-site polling until a compliant custom connector or approved access path exists.",
+    },
+  ],
 ]);
 
 export async function readFirstPartyCompanySeeds(

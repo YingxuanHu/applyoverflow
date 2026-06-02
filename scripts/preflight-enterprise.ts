@@ -450,13 +450,17 @@ async function persistDiscoveredRecords(
       }
 
       stage = "promote";
-      await promoteSourceCandidate({
+      const promotedSource = await promoteSourceCandidate({
         sourceCandidateId: candidate.id,
         connectorName: record.connectorName,
         token: record.token,
         sourceName: buildSourceName(record.connectorName, record.token),
         boardUrl: record.boardUrl,
       });
+      if (!promotedSource) {
+        summary.skippedPromotion += 1;
+        continue;
+      }
       summary.promoted += 1;
     } catch (error) {
       summary.errors.push({

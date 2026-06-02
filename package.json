@@ -35,6 +35,8 @@
     "first-party:preflight": "tsx -r dotenv/config scripts/preflight-first-party-companies.ts",
     "first-party:audit": "tsx -r dotenv/config scripts/audit-first-party-coverage.ts",
     "first-party:backfill": "tsx -r dotenv/config scripts/backfill-first-party-sources.ts",
+    "source:verify-paths": "tsx -r dotenv/config scripts/verify-company-source-paths.ts",
+    "source:repair": "tsx -r dotenv/config scripts/repair-company-sources.ts",
     "enterprise:corpus": "tsx -r dotenv/config scripts/discover-company-corpus.ts",
     "enterprise:corpus:batches": "tsx -r dotenv/config scripts/run-company-corpus-batches.ts",
     "company:import-csv": "tsx -r dotenv/config scripts/import-company-seed-csv.ts",
@@ -89,7 +91,8 @@
     "renormalize": "tsx -r dotenv/config scripts/renormalize-rejected.ts",
     "auto-apply": "tsx -r dotenv/config scripts/auto-apply.ts",
     "auto-apply:dry": "tsx -r dotenv/config scripts/auto-apply.ts --mode=dry_run",
-    "auto-apply:fill": "tsx -r dotenv/config scripts/auto-apply.ts --mode=fill_only"
+    "auto-apply:fill": "tsx -r dotenv/config scripts/auto-apply.ts --mode=fill_only",
+    "source:audit-cleanup": "tsx -r dotenv/config scripts/audit-company-sources.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
