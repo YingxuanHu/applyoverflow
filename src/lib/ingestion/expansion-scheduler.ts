@@ -178,45 +178,53 @@ export async function scheduleExploitationPipeline(options: {
   const searchIndexLimit = options.searchIndexLimit ?? 2_000;
 
   const [rawRows, normalizedRows, canonicalRows, indexRows] = await Promise.all([
-    prisma.jobRaw.findMany({
-      where: { normalizedRecord: null },
-      orderBy: { fetchedAt: "desc" },
-      take: rawParseLimit,
-      select: { id: true },
-    }),
-    prisma.normalizedJobRecord.findMany({
-      where: {
-        status: { in: ["VALIDATED", "NORMALIZED"] },
-        canonicalJobId: null,
-      },
-      orderBy: { updatedAt: "desc" },
-      take: dedupeLimit,
-      select: { id: true },
-    }),
-    prisma.jobCanonical.findMany({
-      where: {
-        status: { in: ["LIVE", "AGING", "STALE"] },
-      },
-      orderBy: [{ freshnessScore: "asc" }, { updatedAt: "asc" }],
-      take: lifecycleLimit,
-      select: { id: true },
-    }),
-    prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT jc.id
-      FROM "JobCanonical" jc
-      LEFT JOIN "JobFeedIndex" jfi
-        ON jfi."canonicalJobId" = jc.id
-      WHERE
-        jc.status IN ('LIVE', 'AGING', 'STALE')
-        AND (
-          jfi."canonicalJobId" IS NULL
-          OR jfi."indexedAt" < jc."updatedAt"
-        )
-      ORDER BY
-        CASE WHEN jfi."canonicalJobId" IS NULL THEN 0 ELSE 1 END ASC,
-        jc."updatedAt" DESC
-      LIMIT ${searchIndexLimit}
-    `),
+    rawParseLimit > 0
+      ? prisma.jobRaw.findMany({
+          where: { normalizedRecord: null },
+          orderBy: { fetchedAt: "desc" },
+          take: rawParseLimit,
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    dedupeLimit > 0
+      ? prisma.normalizedJobRecord.findMany({
+          where: {
+            status: { in: ["VALIDATED", "NORMALIZED"] },
+            canonicalJobId: null,
+          },
+          orderBy: { updatedAt: "desc" },
+          take: dedupeLimit,
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    lifecycleLimit > 0
+      ? prisma.jobCanonical.findMany({
+          where: {
+            status: { in: ["LIVE", "AGING", "STALE"] },
+          },
+          orderBy: [{ freshnessScore: "asc" }, { updatedAt: "asc" }],
+          take: lifecycleLimit,
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    searchIndexLimit > 0
+      ? prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT jc.id
+          FROM "JobCanonical" jc
+          LEFT JOIN "JobFeedIndex" jfi
+            ON jfi."canonicalJobId" = jc.id
+          WHERE
+            jc.status IN ('LIVE', 'AGING', 'STALE')
+            AND (
+              jfi."canonicalJobId" IS NULL
+              OR jfi."indexedAt" < jc."updatedAt"
+            )
+          ORDER BY
+            CASE WHEN jfi."canonicalJobId" IS NULL THEN 0 ELSE 1 END ASC,
+            jc."updatedAt" DESC
+          LIMIT ${searchIndexLimit}
+        `)
+      : Promise.resolve([]),
   ]);
 
   let rawQueued = 0;

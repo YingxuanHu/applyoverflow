@@ -71,6 +71,13 @@ const APPLICATION_SEARCH_PARAM_KEYS = [
   "tagSearch",
   "reminderSearch",
 ] as const;
+const APPLICATION_STATE_PARAM_KEYS = [
+  "status",
+  "sort",
+  "tags",
+  "searchScope",
+  ...APPLICATION_SEARCH_PARAM_KEYS,
+] as const;
 
 function normalizeTextParam(value?: string) {
   const trimmed = String(value ?? "").trim();
@@ -223,7 +230,7 @@ export default async function ApplicationsPage({
   let tagSearch = normalizeTextParam(params.tagSearch);
   let reminderSearch = normalizeTextParam(params.reminderSearch);
 
-  if (rawSearch && (selectedSearchScope === "all" || selectedSearchScope === "title")) {
+  if (rawSearch && selectedSearchScope === "title") {
     titleSearch = titleSearch ?? rawSearch;
     search = undefined;
   } else if (rawSearch && selectedSearchScope === "company") {
@@ -311,6 +318,7 @@ export default async function ApplicationsPage({
     <div className="app-page space-y-6">
       <SearchParamMemory
         basePath="/applications"
+        stateParamKeys={APPLICATION_STATE_PARAM_KEYS}
         storageKey="autoapplication.applications.filters"
       />
       <div className="page-header">
@@ -331,11 +339,11 @@ export default async function ApplicationsPage({
 
       <ApplicationRemindersSummary groups={reminderGroups} />
 
-      <section className="surface-panel p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <section className="surface-panel p-3.5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-foreground">Your applications</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
               Jobs submitted from the feed appear here automatically.
             </p>
           </div>
@@ -343,7 +351,7 @@ export default async function ApplicationsPage({
 
         <form
           method="GET"
-          className="toolbar-panel mt-4 grid min-w-0 items-end gap-4 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem_auto] xl:grid-cols-[minmax(24rem,1fr)_9rem_12.5rem_auto]"
+          className="toolbar-panel mt-3 grid min-w-0 items-end gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem_auto] xl:grid-cols-[minmax(24rem,1fr)_9rem_12.5rem_auto]"
         >
           <ApplicationsSearchField
             initialScope={selectedSearchScope}
@@ -351,7 +359,7 @@ export default async function ApplicationsPage({
           />
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label">
+            <span className="control-label hidden sm:block">
               Status
             </span>
             <select
@@ -372,7 +380,7 @@ export default async function ApplicationsPage({
           </label>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label">
+            <span className="control-label hidden sm:block">
               Sort
             </span>
             <select
@@ -389,16 +397,19 @@ export default async function ApplicationsPage({
             </select>
           </label>
 
-          <div className="flex items-end justify-end gap-3 lg:pl-1">
+          <div className="grid grid-cols-2 items-end gap-2 sm:col-span-2 lg:col-span-1 lg:flex lg:justify-end lg:gap-3 lg:pl-1">
             {selectedTags.length > 0 ? (
               <input type="hidden" name="tags" value={selectedTags.join(",")} />
             ) : null}
-            <Button className="h-10 min-w-24 px-5" type="submit">
+            <Button
+              className={`h-10 min-w-0 px-4 lg:min-w-24 ${hasActiveFilters ? "" : "col-span-2 lg:col-span-1"}`}
+              type="submit"
+            >
               Apply
             </Button>
             {hasActiveFilters ? (
               <Button
-                className="h-10 min-w-20 px-4"
+                className="h-10 min-w-0 px-4 lg:min-w-20"
                 render={<Link href="/applications?reset=1" />}
                 variant="outline"
               >

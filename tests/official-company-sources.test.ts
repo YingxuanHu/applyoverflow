@@ -6,6 +6,8 @@ import {
   buildGoogleSearchUrl,
   buildEightfoldDetailUrl,
   buildEightfoldSearchUrl,
+  buildNetflixDetailUrl,
+  buildNetflixSearchUrl,
   createOfficialCompanyConnector,
   extractAppleJobsFromHydration,
   extractGoogleJobsFromHtml,
@@ -72,6 +74,10 @@ test("official company token parser supports company and market", () => {
   assert.deepEqual(parseOfficialCompanySourceToken("nvidia:north-america"), {
     company: "nvidia",
     market: "north-america",
+  });
+  assert.deepEqual(parseOfficialCompanySourceToken("netflix:global"), {
+    company: "netflix",
+    market: "global",
   });
   assert.throws(() => parseOfficialCompanySourceToken("meta"), /Unsupported/);
 });
@@ -179,6 +185,14 @@ test("official company URL builders use official career surfaces", () => {
   assert.equal(
     buildEightfoldDetailUrl({ config: microsoftConfig, positionId: "1970393556753318" }),
     "https://apply.careers.microsoft.com/api/pcsx/position_details?domain=microsoft.com&position_id=1970393556753318"
+  );
+  assert.equal(
+    buildNetflixSearchUrl({ offset: 100, limit: 50 }),
+    "https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com&start=100&num=50"
+  );
+  assert.equal(
+    buildNetflixDetailUrl({ positionId: "790316087198" }),
+    "https://explore.jobs.netflix.net/api/apply/v2/jobs/790316087198?domain=netflix.com"
   );
 });
 
@@ -581,6 +595,146 @@ test("Eightfold official connector returns an offset resume checkpoint", async (
       company: "microsoft",
       market: "ca",
       locationIndex: 0,
+      offset: 1,
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("Netflix official connector maps official apply API jobs", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousDetailFlag = process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS;
+  process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS = "true";
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url.includes("/api/apply/v2/jobs/790316087198")) {
+      return new Response(
+        JSON.stringify({
+          id: 790316087198,
+          name: "Ad Sales Learning Enablement Manager (UCAN)",
+          posting_name: "Ad Sales Learning Enablement Manager (UCAN)",
+          locations: ["New York,New York,United States of America"],
+          department: "Talent",
+          business_unit: "Streaming",
+          t_create: 1779926400,
+          t_update: 1779926400,
+          ats_job_id: "JR40835",
+          display_job_id: "JR40835",
+          job_description: "<p>Build learning programs for Netflix Ads.</p>",
+          canonicalPositionUrl: "https://explore.jobs.netflix.net/careers/job/790316087198",
+          work_location_option: "onsite",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        count: 1,
+        positions: [
+          {
+            id: 790316087198,
+            name: "Ad Sales Learning Enablement Manager (UCAN)",
+            posting_name: "Ad Sales Learning Enablement Manager (UCAN)",
+            location: "New York,New York,United States of America",
+            locations: ["New York,New York,United States of America"],
+            department: "Talent",
+            business_unit: "Streaming",
+            t_create: 1779926400,
+            ats_job_id: "JR40835",
+            display_job_id: "JR40835",
+            canonicalPositionUrl: "https://explore.jobs.netflix.net/careers/job/790316087198",
+            work_location_option: "onsite",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "netflix",
+      market: "global",
+    });
+    const result = await connector.fetchJobs({ now: new Date(), limit: 5 });
+
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.jobs[0]?.sourceId, "netflix:JR40835");
+    assert.equal(result.jobs[0]?.company, "Netflix");
+    assert.equal(result.jobs[0]?.workMode, "ONSITE");
+    assert.equal(
+      result.jobs[0]?.applyUrl,
+      "https://explore.jobs.netflix.net/careers/job/790316087198"
+    );
+    assert.match(result.jobs[0]?.description ?? "", /Build learning programs/);
+    assert.ok(calls.some((url) => url.includes("/api/apply/v2/jobs?")));
+    assert.ok(calls.some((url) => url.includes("/api/apply/v2/jobs/790316087198")));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousDetailFlag == null) {
+      delete process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS;
+    } else {
+      process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS = previousDetailFlag;
+    }
+  }
+});
+
+test("Netflix official connector returns an offset resume checkpoint", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    if (url.includes("/api/apply/v2/jobs/790316087198")) {
+      return new Response(
+        JSON.stringify({
+          id: 790316087198,
+          name: "Remote Studio Engineer",
+          locations: ["USA - Remote"],
+          display_job_id: "JR40835",
+          job_description: "Support global production tooling.",
+          canonicalPositionUrl: "https://explore.jobs.netflix.net/careers/job/790316087198",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        count: 2,
+        positions: [
+          {
+            id: 790316087198,
+            name: "Remote Studio Engineer",
+            locations: ["USA - Remote"],
+            display_job_id: "JR40835",
+            canonicalPositionUrl: "https://explore.jobs.netflix.net/careers/job/790316087198",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "netflix",
+      market: "global",
+    });
+    const result = await connector.fetchJobs({ now: new Date(), limit: 1 });
+
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.jobs[0]?.workMode, "REMOTE");
+    assert.equal(
+      result.jobs[0]?.description,
+      "Locations: USA - Remote."
+    );
+    assert.equal(result.exhausted, false);
+    assert.deepEqual(result.checkpoint, {
+      kind: "netflix-official",
       offset: 1,
     });
   } finally {

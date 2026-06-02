@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,25 +14,30 @@ import { authClient } from "@/lib/auth-client";
 type SignInFormProps = {
   callbackUrl?: string;
   defaultEmail?: string;
+  googleError?: string;
   justVerified?: boolean;
   googleEnabled?: boolean;
 };
 
+function getGoogleErrorMessage(error: string | undefined) {
+  if (!error) return null;
+  if (error === "account_not_linked") {
+    return "This Google sign-in is separate from email/password accounts. Sign in with your password account, or use a Google account that was created with Google sign-in.";
+  }
+  return "Google sign-in could not be completed. Try again or use email and password.";
+}
+
 export function SignInForm({
   callbackUrl = "/jobs",
   defaultEmail = "",
+  googleError,
   justVerified,
   googleEnabled = false,
 }: SignInFormProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(getGoogleErrorMessage(googleError));
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,15 +72,15 @@ export function SignInForm({
   };
 
   return (
-    <Card className="w-full rounded-[28px] border-border/60 bg-card/95 py-5 shadow-[0_18px_60px_rgba(0,0,0,0.08)] dark:shadow-none">
-      <CardHeader className="gap-2 px-6">
+    <Card className="w-full rounded-[24px] border-border/60 bg-card/95 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:rounded-[28px] sm:py-5 dark:shadow-none">
+      <CardHeader className="gap-2 px-4 sm:px-6">
         <p className="section-label">Welcome back</p>
-        <CardTitle className="text-3xl font-semibold tracking-tight">Sign in</CardTitle>
+        <CardTitle className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Sign in</CardTitle>
         <CardDescription className="max-w-sm leading-6">
           Continue to your job feed, applications, and saved materials.
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-6">
+      <CardContent className="px-4 sm:px-6">
         {justVerified ? (
           <p className="mb-4 rounded-[14px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-700 dark:text-emerald-400">
             Email verified. You can now sign in.
@@ -139,12 +144,10 @@ export function SignInForm({
           ) : null}
           <Button
             className="h-11 w-full rounded-full"
-            disabled={pending || !isHydrated}
+            disabled={pending}
             type="submit"
           >
-            {!isHydrated ? (
-              "Loading sign in..."
-            ) : pending ? (
+            {pending ? (
               <>
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 Signing in...

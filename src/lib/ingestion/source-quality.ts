@@ -223,7 +223,12 @@ export function getSourceQualitySnapshot(input: {
 
   let base: SourceQualitySnapshot;
 
-  if (
+  if (prefix === "CompanyHtml") {
+    base = {
+      kind: "STRUCTURED_BOARD",
+      rank: 430,
+    };
+  } else if (
     !isAggregatorSource &&
     (FIRST_PARTY_COMPANY_PREFIXES.has(prefix) ||
       hasHostSuffix(sourceHost, FIRST_PARTY_COMPANY_HOST_HINTS) ||

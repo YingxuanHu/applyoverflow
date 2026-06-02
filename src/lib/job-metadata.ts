@@ -1,4 +1,8 @@
 import type { EmploymentType, Industry, WorkMode } from "@/generated/prisma/client";
+import {
+  COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
+  resolveCompanyIndustryFromName,
+} from "@/lib/company-industry";
 
 export type NormalizedEmploymentType =
   | "FULL_TIME"
@@ -27,26 +31,24 @@ export type NormalizedCareerStage =
 
 export type NormalizedIndustry =
   | "TECHNOLOGY"
-  | "FINANCE_BANKING"
+  | "FINANCIAL_SERVICES"
   | "CONSULTING_PROFESSIONAL_SERVICES"
   | "HEALTHCARE_LIFE_SCIENCES"
   | "EDUCATION"
   | "RETAIL_CONSUMER_GOODS"
-  | "MANUFACTURING_INDUSTRIAL"
-  | "ENERGY_UTILITIES"
+  | "MANUFACTURING_AUTOMOTIVE"
+  | "ENERGY_UTILITIES_NATURAL_RESOURCES"
   | "GOVERNMENT_PUBLIC_SECTOR"
-  | "LEGAL"
+  | "LEGAL_SERVICES"
   | "MEDIA_ENTERTAINMENT"
   | "TELECOMMUNICATIONS"
   | "TRANSPORTATION_LOGISTICS"
   | "REAL_ESTATE_CONSTRUCTION"
   | "HOSPITALITY_FOOD_SERVICES"
   | "NONPROFIT_SOCIAL_IMPACT"
-  | "AGRICULTURE_NATURAL_RESOURCES"
-  | "INSURANCE"
   | "AEROSPACE_DEFENSE"
-  | "AUTOMOTIVE"
-  | "OTHER_UNKNOWN";
+  | "OTHER"
+  | "UNKNOWN";
 
 export type NormalizedRoleCategory =
   | "SOFTWARE_ENGINEERING"
@@ -88,7 +90,7 @@ export type JobClassificationStatus =
 export const ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD = 0.75;
 export const CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD = 0.72;
 export const EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD = 0.72;
-export const INDUSTRY_FILTER_CONFIDENCE_THRESHOLD = 0.68;
+export const INDUSTRY_FILTER_CONFIDENCE_THRESHOLD = COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD;
 
 type TaxonomyOption<T extends string> = {
   label: string;
@@ -122,26 +124,23 @@ export const NORMALIZED_CAREER_STAGE_OPTIONS: Array<TaxonomyOption<NormalizedCar
 
 export const NORMALIZED_INDUSTRY_OPTIONS: Array<TaxonomyOption<NormalizedIndustry>> = [
   { label: "Technology", value: "TECHNOLOGY" },
-  { label: "Finance & Banking", value: "FINANCE_BANKING" },
+  { label: "Financial Services", value: "FINANCIAL_SERVICES" },
   { label: "Consulting & Professional Services", value: "CONSULTING_PROFESSIONAL_SERVICES" },
   { label: "Healthcare & Life Sciences", value: "HEALTHCARE_LIFE_SCIENCES" },
   { label: "Education", value: "EDUCATION" },
   { label: "Retail & Consumer Goods", value: "RETAIL_CONSUMER_GOODS" },
-  { label: "Manufacturing & Industrial", value: "MANUFACTURING_INDUSTRIAL" },
-  { label: "Energy & Utilities", value: "ENERGY_UTILITIES" },
+  { label: "Manufacturing & Automotive", value: "MANUFACTURING_AUTOMOTIVE" },
+  { label: "Energy, Utilities & Natural Resources", value: "ENERGY_UTILITIES_NATURAL_RESOURCES" },
   { label: "Government & Public Sector", value: "GOVERNMENT_PUBLIC_SECTOR" },
-  { label: "Legal Services", value: "LEGAL" },
   { label: "Media & Entertainment", value: "MEDIA_ENTERTAINMENT" },
   { label: "Telecommunications", value: "TELECOMMUNICATIONS" },
   { label: "Transportation & Logistics", value: "TRANSPORTATION_LOGISTICS" },
   { label: "Real Estate & Construction", value: "REAL_ESTATE_CONSTRUCTION" },
   { label: "Hospitality & Food Services", value: "HOSPITALITY_FOOD_SERVICES" },
   { label: "Nonprofit & Social Impact", value: "NONPROFIT_SOCIAL_IMPACT" },
-  { label: "Agriculture & Natural Resources", value: "AGRICULTURE_NATURAL_RESOURCES" },
-  { label: "Insurance", value: "INSURANCE" },
   { label: "Aerospace & Defense", value: "AEROSPACE_DEFENSE" },
-  { label: "Automotive", value: "AUTOMOTIVE" },
-  { label: "Other", value: "OTHER_UNKNOWN" },
+  { label: "Legal Services", value: "LEGAL_SERVICES" },
+  { label: "Other", value: "OTHER" },
 ];
 
 export const NORMALIZED_ROLE_CATEGORY_OPTIONS: Array<TaxonomyOption<NormalizedRoleCategory>> = [
@@ -174,7 +173,7 @@ export const NORMALIZED_ROLE_CATEGORY_OPTIONS: Array<TaxonomyOption<NormalizedRo
 
 const EMPLOYMENT_VALUES = new Set(NORMALIZED_EMPLOYMENT_TYPE_OPTIONS.map((option) => option.value).concat("UNKNOWN"));
 const CAREER_STAGE_VALUES = new Set(NORMALIZED_CAREER_STAGE_OPTIONS.map((option) => option.value).concat("UNKNOWN"));
-const INDUSTRY_VALUES = new Set(NORMALIZED_INDUSTRY_OPTIONS.map((option) => option.value).concat("OTHER_UNKNOWN"));
+const INDUSTRY_VALUES = new Set(NORMALIZED_INDUSTRY_OPTIONS.map((option) => option.value).concat("UNKNOWN"));
 const ROLE_CATEGORY_VALUES = new Set(
   NORMALIZED_ROLE_CATEGORY_OPTIONS.map((option) => option.value).concat(
     "BUSINESS_DEVELOPMENT",
@@ -209,9 +208,24 @@ const CAREER_STAGE_ALIASES: Record<string, NormalizedCareerStage> = {
 
 const INDUSTRY_ALIASES: Record<string, NormalizedIndustry> = {
   TECH: "TECHNOLOGY",
-  FINANCE: "FINANCE_BANKING",
-  GENERAL: "OTHER_UNKNOWN",
-  LEGAL_SERVICES: "LEGAL",
+  FINANCE: "FINANCIAL_SERVICES",
+  FINANCE_BANKING: "FINANCIAL_SERVICES",
+  FINANCE_AND_BANKING: "FINANCIAL_SERVICES",
+  FINANCIAL_SERVICE: "FINANCIAL_SERVICES",
+  FINANCIAL_SERVICES: "FINANCIAL_SERVICES",
+  INSURANCE: "FINANCIAL_SERVICES",
+  GENERAL: "UNKNOWN",
+  OTHER_UNKNOWN: "UNKNOWN",
+  UNKNOWN: "UNKNOWN",
+  MANUFACTURING: "MANUFACTURING_AUTOMOTIVE",
+  MANUFACTURING_INDUSTRIAL: "MANUFACTURING_AUTOMOTIVE",
+  AUTOMOTIVE: "MANUFACTURING_AUTOMOTIVE",
+  ENERGY: "ENERGY_UTILITIES_NATURAL_RESOURCES",
+  ENERGY_UTILITIES: "ENERGY_UTILITIES_NATURAL_RESOURCES",
+  AGRICULTURE_NATURAL_RESOURCES: "ENERGY_UTILITIES_NATURAL_RESOURCES",
+  NATURAL_RESOURCES: "ENERGY_UTILITIES_NATURAL_RESOURCES",
+  LEGAL: "LEGAL_SERVICES",
+  LEGAL_SERVICES: "LEGAL_SERVICES",
 };
 
 const ROLE_FAMILY_ALIASES: Record<string, NormalizedRoleCategory> = {
@@ -407,10 +421,13 @@ const FINANCE_ACCOUNTING_TECHNICAL_NEGATIVE_PATTERNS = [
 const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> = [
   {
     value: "AI_MACHINE_LEARNING",
-    title: [/\b(machine learning|ml engineer|ai engineer|llm|deep learning|computer vision|nlp)\b/i],
-    text: [/\b(machine learning|artificial intelligence|deep learning|large language models?)\b/i],
+    title: [
+      /\b(machine learning|ml engineer|ai engineer|ai researcher|ml researcher|deep learning|computer vision|nlp)\b/i,
+      /\b(?:applied|research)\s+scientist\b.*\b(?:ai|ml|machine learning|llm|language model|computer vision|nlp)\b/i,
+      /\b(?:ai|ml|machine learning|llm|language model|computer vision|nlp)\b.*\b(?:scientist|researcher|engineer)\b/i,
+    ],
     confidence: 0.92,
-    signals: ["ai_ml_keywords"],
+    signals: ["ai_ml_title_keywords"],
   },
   {
     value: "SOFTWARE_ENGINEERING",
@@ -501,13 +518,19 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "OPERATIONS",
-    title: [/\b(supply chain|logistics|procurement|buyer|inventory|demand planner|warehouse operations)\b/i],
+    title: [
+      /\b(supply chain|logistics|procurement|buyer|inventory|demand planner|warehouse operations|supplier performance)\b/i,
+      /\b(?:raw\s+)?materials?\s+sourcing\b/i,
+      /\bsourcing\s+(?:contractor|associate|specialist|analyst|manager|lead|coordinator)\b/i,
+      /\bvendor\s+(?:manager|management|relations?)\b/i,
+      /\bmill\s+(?:selection|relations?|sourcing)\b/i,
+    ],
     confidence: 0.84,
     signals: ["supply_chain_keywords"],
   },
   {
     value: "CUSTOMER_SUCCESS_SUPPORT",
-    title: [/\b(customer success|customer support|support specialist|solutions consultant|implementation consultant)\b/i],
+    title: [/\b(customer success|customer support|customer service|customer experience|support specialist|support executive|support agent|customer service agent|solutions consultant|implementation consultant)\b/i],
     confidence: 0.82,
     signals: ["customer_success_keywords"],
   },
@@ -549,7 +572,7 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
   },
   {
     value: "SKILLED_TRADES_FACILITIES",
-    title: [/\b(production operator|machine operator|packaging operator|welder|electrician|mechanic|technician|maintenance technician|facilities|assembler|machinist|journeyperson|plant operator|quality technician|quality inspector|forklift|warehouse associate)\b/i],
+    title: [/\b(production operator|machine operator|packaging operator|sanitation operator|welder|electrician|mechanic|technician|maintenance technician|facilities|assembler|machinist|journeyperson|plant operator|quality technician|quality inspector|forklift|warehouse associate)\b/i],
     confidence: 0.8,
     signals: ["manufacturing_trades_keywords"],
   },
@@ -569,7 +592,7 @@ const ROLE_CATEGORY_PATTERNS: Array<PatternDefinition<NormalizedRoleCategory>> =
 
 const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
   {
-    value: "FINANCE_BANKING",
+    value: "FINANCIAL_SERVICES",
     company: [/\b(bank|capital|financial|finance|credit|payments|stripe|visa|mastercard|jpmorgan|goldman|morgan stanley|citi|rbc|td|bmo|scotiabank|cibc|capital one)\b/i],
     text: [/\b(bank|banking|financial services|fintech|payments|credit union|capital markets|asset management|wealth management)\b/i],
     roleFamily: [/\b(finance|accounting|banking|investment|credit|wealth|risk)\b/i],
@@ -593,7 +616,7 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["consulting_industry_keywords"],
   },
   {
-    value: "INSURANCE",
+    value: "FINANCIAL_SERVICES",
     company: [/\b(insurance|assurance|mutual|life|allstate|geico|progressive|manulife|sun life)\b/i],
     text: [/\b(insurance|underwriting|claims|policyholder|actuarial)\b/i],
     roleFamily: [/\binsurance\b/i],
@@ -617,7 +640,7 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["education_industry_keywords"],
   },
   {
-    value: "LEGAL",
+    value: "LEGAL_SERVICES",
     company: [/\b(law firm|legal|llp|litigation)\b/i],
     text: [/\b(law firm|legal services|litigation|corporate law)\b/i],
     roleFamily: [/\blegal\b/i],
@@ -641,7 +664,7 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["transportation_industry_keywords"],
   },
   {
-    value: "ENERGY_UTILITIES",
+    value: "ENERGY_UTILITIES_NATURAL_RESOURCES",
     company: [/\b(energy|utility|utilities|power|solar|renewables|oil|gas)\b/i],
     text: [/\b(energy|utilities|power grid|renewable energy|oil and gas)\b/i],
     confidence: 0.78,
@@ -655,7 +678,7 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["aerospace_industry_keywords"],
   },
   {
-    value: "AUTOMOTIVE",
+    value: "MANUFACTURING_AUTOMOTIVE",
     company: [/\b(automotive|automobile|vehicle|cars?|ford|toyota|honda|tesla|rivian|stellantis|gm|general motors)\b/i],
     text: [/\b(automotive|automobile|vehicle manufacturing|electric vehicles?|ev charging|mobility platform)\b/i],
     confidence: 0.78,
@@ -692,14 +715,14 @@ const INDUSTRY_PATTERNS: Array<PatternDefinition<NormalizedIndustry>> = [
     signals: ["retail_industry_keywords"],
   },
   {
-    value: "MANUFACTURING_INDUSTRIAL",
+    value: "MANUFACTURING_AUTOMOTIVE",
     company: [/\b(manufacturing|industrial|factory|materials|automation)\b/i],
     text: [/\b(manufacturing|industrial operations|production systems|plant operations)\b/i],
     confidence: 0.7,
     signals: ["manufacturing_industry_keywords"],
   },
   {
-    value: "AGRICULTURE_NATURAL_RESOURCES",
+    value: "ENERGY_UTILITIES_NATURAL_RESOURCES",
     company: [/\b(agriculture|farming|natural resources|forestry|mining)\b/i],
     text: [/\b(agriculture|farming|forestry|mining|natural resources)\b/i],
     confidence: 0.7,
@@ -786,6 +809,19 @@ function firstPatternMatch<T extends string>(
     }
 
     if (titleMatch || textMatch || companyMatch || roleFamilyMatch) {
+      return pattern;
+    }
+  }
+
+  return null;
+}
+
+function firstCompanyPatternMatch<T extends string>(
+  patterns: Array<PatternDefinition<T>>,
+  company: string
+) {
+  for (const pattern of patterns) {
+    if (matchesAny(company, pattern.company)) {
       return pattern;
     }
   }
@@ -921,7 +957,7 @@ function classifyRoleCategory(input: JobMetadataInput): {
 } {
   const roleFamilyKey = normalizeText(input.roleFamily).toUpperCase();
   const roleFamilyAlias = ROLE_FAMILY_ALIASES[roleFamilyKey];
-  if (roleFamilyAlias) {
+  if (roleFamilyAlias && roleFamilyAlias !== "OTHER_UNKNOWN") {
     if (
       roleFamilyAlias === "SOFTWARE_ENGINEERING" &&
       !hasSoftwareEngineeringTitleEvidence(input.title)
@@ -959,40 +995,27 @@ function classifyRoleCategory(input: JobMetadataInput): {
   return { value: "OTHER_UNKNOWN", confidence: 0.2, signals: ["unknown_role_category"] };
 }
 
-function classifyIndustry(input: JobMetadataInput, roleCategory: NormalizedRoleCategory): {
+function classifyIndustry(input: JobMetadataInput): {
   value: NormalizedIndustry;
   confidence: number;
   signals: string[];
 } {
-  const match = firstPatternMatch(INDUSTRY_PATTERNS, {
-    title: input.title,
-    text: `${input.title} ${input.description ?? ""}`,
-    company: input.company ?? "",
-    roleFamily: input.roleFamily ?? "",
-  });
+  const companyIndustry = resolveCompanyIndustryFromName(input.company);
+  if (companyIndustry.normalizedIndustry !== "UNKNOWN") {
+    return {
+      value: companyIndustry.normalizedIndustry,
+      confidence: companyIndustry.confidence,
+      signals: companyIndustry.signals,
+    };
+  }
+
+  const match = firstCompanyPatternMatch(INDUSTRY_PATTERNS, input.company ?? "");
 
   if (match) {
     return { value: match.value, confidence: match.confidence, signals: match.signals };
   }
 
-  if (input.legacyIndustry === "TECH") {
-    return { value: "TECHNOLOGY", confidence: 0.62, signals: ["legacy_industry_tech"] };
-  }
-  if (input.legacyIndustry === "FINANCE") {
-    return { value: "FINANCE_BANKING", confidence: 0.62, signals: ["legacy_industry_finance"] };
-  }
-  if (
-    roleCategory === "SOFTWARE_ENGINEERING" ||
-    roleCategory === "DATA_ANALYTICS" ||
-    roleCategory === "AI_MACHINE_LEARNING" ||
-    roleCategory === "PRODUCT_MANAGEMENT" ||
-    roleCategory === "IT_SYSTEMS_DEVOPS" ||
-    roleCategory === "CYBERSECURITY"
-  ) {
-    return { value: "TECHNOLOGY", confidence: 0.55, signals: ["role_category_technology_default"] };
-  }
-
-  return { value: "OTHER_UNKNOWN", confidence: 0.2, signals: ["unknown_industry"] };
+  return { value: "UNKNOWN", confidence: 0.2, signals: ["unknown_industry"] };
 }
 
 function resolveClassificationStatus(input: {
@@ -1012,7 +1035,7 @@ function resolveClassificationStatus(input: {
     input.normalizedEmploymentType !== "UNKNOWN" &&
     input.confidence.employmentType >= EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD;
   const hasConfidentIndustry =
-    input.normalizedIndustry !== "OTHER_UNKNOWN" &&
+    input.normalizedIndustry !== "UNKNOWN" &&
     input.confidence.industry >= INDUSTRY_FILTER_CONFIDENCE_THRESHOLD;
 
   if (hasConfidentRole && (hasConfidentCareerStage || hasConfidentEmploymentType)) {
@@ -1035,7 +1058,7 @@ export function classifyJobMetadata(input: JobMetadataInput): JobMetadataClassif
   const employment = classifyEmploymentType(input);
   const careerStage = classifyCareerStage(input);
   const roleCategory = classifyRoleCategory(input);
-  const industry = classifyIndustry(input, roleCategory.value);
+  const industry = classifyIndustry(input);
   const workModeConfidence = input.workMode && input.workMode !== "UNKNOWN" ? 0.8 : 0.2;
   const confidence = {
     employmentType: employment.confidence,
@@ -1174,7 +1197,7 @@ export function coerceNormalizedCareerStage(value?: string | null): NormalizedCa
 
 export function coerceNormalizedIndustry(value?: string | null): NormalizedIndustry {
   return (normalizeIndustryFilterValue(value ?? undefined)?.split(",")[0] ??
-    "OTHER_UNKNOWN") as NormalizedIndustry;
+    "UNKNOWN") as NormalizedIndustry;
 }
 
 export function coerceNormalizedRoleCategory(value?: string | null): NormalizedRoleCategory {

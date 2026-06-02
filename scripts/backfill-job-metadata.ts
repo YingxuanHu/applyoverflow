@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import {
   classifyJobMetadata,
+  coerceNormalizedIndustry,
   hasRoleLevelInternshipTitleEvidence,
   hasStrongInternshipEvidence,
   type JobMetadataClassification,
@@ -12,7 +13,11 @@ type Args = {
   limit: number | null;
   dryRun: boolean;
   onlyMissing: boolean;
+  onlyAmbiguous: boolean;
+  skipCounts: boolean;
   status: "AGING" | "LIVE" | "EXPIRED" | "REMOVED" | "STALE" | null;
+  normalizedRole: string | null;
+  normalizedIndustry: string | null;
 };
 
 type CanonicalJobForBackfill = {
@@ -34,6 +39,10 @@ type CanonicalJobForBackfill = {
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
   classificationStatus: string | null;
+  companyRecord: {
+    normalizedIndustry: string | null;
+    normalizedIndustryConfidence: number | null;
+  } | null;
 };
 
 type CountRow = {
@@ -60,7 +69,11 @@ function parseArgs(argv: string[]): Args {
     limit: null,
     dryRun: false,
     onlyMissing: false,
+    onlyAmbiguous: false,
+    skipCounts: false,
     status: null,
+    normalizedRole: null,
+    normalizedIndustry: null,
   };
 
   for (const arg of argv) {
@@ -68,6 +81,10 @@ function parseArgs(argv: string[]): Args {
       args.dryRun = true;
     } else if (arg === "--only-missing") {
       args.onlyMissing = true;
+    } else if (arg === "--only-ambiguous") {
+      args.onlyAmbiguous = true;
+    } else if (arg === "--skip-counts") {
+      args.skipCounts = true;
     } else if (arg.startsWith("--batch-size=")) {
       args.batchSize = Math.max(1, Number.parseInt(arg.slice("--batch-size=".length), 10));
     } else if (arg.startsWith("--limit=")) {
@@ -77,6 +94,10 @@ function parseArgs(argv: string[]): Args {
       if (status === "AGING" || status === "LIVE" || status === "EXPIRED" || status === "REMOVED" || status === "STALE") {
         args.status = status;
       }
+    } else if (arg.startsWith("--normalized-role=")) {
+      args.normalizedRole = arg.slice("--normalized-role=".length).toUpperCase();
+    } else if (arg.startsWith("--normalized-industry=")) {
+      args.normalizedIndustry = arg.slice("--normalized-industry=".length).toUpperCase();
     }
   }
 
@@ -87,6 +108,8 @@ function buildBackfillWhere(args: Args): Prisma.JobCanonicalWhereInput | undefin
   const where: Prisma.JobCanonicalWhereInput = {};
 
   if (args.status) where.status = args.status;
+  if (args.normalizedRole) where.normalizedRoleCategory = args.normalizedRole;
+  if (args.normalizedIndustry) where.normalizedIndustry = args.normalizedIndustry;
   if (args.onlyMissing) {
     where.OR = [
       { normalizedEmploymentType: null },
@@ -100,6 +123,15 @@ function buildBackfillWhere(args: Args): Prisma.JobCanonicalWhereInput | undefin
       { classificationStatus: null },
     ];
   }
+  if (args.onlyAmbiguous) {
+    where.OR = [
+      ...(where.OR ?? []),
+      { normalizedRoleCategory: null },
+      { normalizedRoleCategory: "OTHER_UNKNOWN" },
+      { normalizedRoleCategoryConfidence: null },
+      { classificationStatus: { in: ["UNKNOWN", "NEEDS_REVIEW"] } },
+    ];
+  }
 
   return Object.keys(where).length > 0 ? where : undefined;
 }
@@ -108,7 +140,7 @@ function classify(job: CanonicalJobForBackfill) {
   // Existing canonical employmentType may already be polluted by description-only
   // "intern" matches, so backfill treats it as legacy inferred data, not trusted
   // structured source truth.
-  return classifyJobMetadata({
+  const metadata = classifyJobMetadata({
     title: job.title,
     company: job.company,
     description: job.description,
@@ -119,6 +151,20 @@ function classify(job: CanonicalJobForBackfill) {
     sourceEmploymentType: null,
     workMode: job.workMode,
   });
+  if (!job.companyRecord?.normalizedIndustry) return metadata;
+
+  const normalizedIndustry = coerceNormalizedIndustry(job.companyRecord.normalizedIndustry);
+  return {
+    ...metadata,
+    normalizedIndustry,
+    confidence: {
+      ...metadata.confidence,
+      industry:
+        job.companyRecord.normalizedIndustryConfidence ??
+        (normalizedIndustry === "UNKNOWN" ? 0.2 : 0.9),
+    },
+    signals: [...metadata.signals, "company_record_industry"],
+  };
 }
 
 function needsUpdate(job: CanonicalJobForBackfill, metadata: JobMetadataClassification) {
@@ -349,27 +395,19 @@ async function writeMetadataBatchWithRetry(
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   console.log(
-    `Backfilling normalized job metadata batchSize=${args.batchSize} limit=${args.limit ?? "all"} dryRun=${args.dryRun} onlyMissing=${args.onlyMissing} status=${args.status ?? "all"}`
+    `Backfilling normalized job metadata batchSize=${args.batchSize} limit=${args.limit ?? "all"} dryRun=${args.dryRun} onlyMissing=${args.onlyMissing} onlyAmbiguous=${args.onlyAmbiguous} skipCounts=${args.skipCounts} status=${args.status ?? "all"} normalizedRole=${args.normalizedRole ?? "all"} normalizedIndustry=${args.normalizedIndustry ?? "all"}`
   );
   const backfillWhere = buildBackfillWhere(args);
 
-  const before = await Promise.all([
-    countByEnumColumn("employmentType"),
-    countByEnumColumn("experienceLevel"),
-    countByJobCanonicalColumn("normalizedEmploymentType"),
-    countByJobCanonicalColumn("normalizedCareerStage"),
-    countByJobCanonicalColumn("normalizedIndustry"),
-    countByJobCanonicalColumn("normalizedRoleCategory"),
-    countByEnumColumn("workMode"),
-  ]);
-
-  printCounts("Before legacy employmentType", before[0]);
-  printCounts("Before legacy experienceLevel", before[1]);
-  printCounts("Before normalizedEmploymentType", before[2]);
-  printCounts("Before normalizedCareerStage", before[3]);
-  printCounts("Before normalizedIndustry", before[4]);
-  printCounts("Before normalizedRoleCategory", before[5]);
-  printCounts("Current workMode", before[6]);
+  if (!args.skipCounts) {
+    printCounts("Before legacy employmentType", await countByEnumColumn("employmentType"));
+    printCounts("Before legacy experienceLevel", await countByEnumColumn("experienceLevel"));
+    printCounts("Before normalizedEmploymentType", await countByJobCanonicalColumn("normalizedEmploymentType"));
+    printCounts("Before normalizedCareerStage", await countByJobCanonicalColumn("normalizedCareerStage"));
+    printCounts("Before normalizedIndustry", await countByJobCanonicalColumn("normalizedIndustry"));
+    printCounts("Before normalizedRoleCategory", await countByJobCanonicalColumn("normalizedRoleCategory"));
+    printCounts("Current workMode", await countByEnumColumn("workMode"));
+  }
 
   const proposedEmployment = new Map<string, number>();
   const proposedCareer = new Map<string, number>();
@@ -413,6 +451,12 @@ async function main() {
         normalizedRoleCategory: true,
         normalizedRoleCategoryConfidence: true,
         classificationStatus: true,
+        companyRecord: {
+          select: {
+            normalizedIndustry: true,
+            normalizedIndustryConfidence: true,
+          },
+        },
       },
     });
 
@@ -479,17 +523,11 @@ async function main() {
     }
   }
 
-  if (!args.dryRun) {
-    const after = await Promise.all([
-      countByJobCanonicalColumn("normalizedEmploymentType"),
-      countByJobCanonicalColumn("normalizedCareerStage"),
-      countByJobCanonicalColumn("normalizedIndustry"),
-      countByJobCanonicalColumn("normalizedRoleCategory"),
-    ]);
-    printCounts("After normalizedEmploymentType", after[0]);
-    printCounts("After normalizedCareerStage", after[1]);
-    printCounts("After normalizedIndustry", after[2]);
-    printCounts("After normalizedRoleCategory", after[3]);
+  if (!args.dryRun && !args.skipCounts) {
+    printCounts("After normalizedEmploymentType", await countByJobCanonicalColumn("normalizedEmploymentType"));
+    printCounts("After normalizedCareerStage", await countByJobCanonicalColumn("normalizedCareerStage"));
+    printCounts("After normalizedIndustry", await countByJobCanonicalColumn("normalizedIndustry"));
+    printCounts("After normalizedRoleCategory", await countByJobCanonicalColumn("normalizedRoleCategory"));
   }
 
   console.log(`\nDone. processed=${processed} changed=${changed} dryRun=${args.dryRun}`);

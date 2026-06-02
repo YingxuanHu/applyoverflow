@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client";
 
 type GoogleAuthButtonProps = {
   callbackUrl?: string;
-  mode?: "sign-in" | "sign-up" | "link";
+  mode?: "sign-in" | "sign-up";
   onError?: (message: string) => void;
 };
 
@@ -21,23 +21,14 @@ export function GoogleAuthButton({
 
   async function startGoogleFlow() {
     setPending(true);
-    const errorCallbackURL =
-      mode === "link" ? "/settings?google=error" : "/sign-in?google=error";
+    const errorCallbackURL = "/sign-in?google=error";
 
-    const result =
-      mode === "link"
-        ? await authClient.linkSocial({
-            provider: "google",
-            callbackURL: callbackUrl,
-            errorCallbackURL,
-            disableRedirect: true,
-          })
-        : await authClient.signIn.social({
-            provider: "google",
-            callbackURL: callbackUrl,
-            errorCallbackURL,
-            disableRedirect: true,
-          });
+    const result = await authClient.signIn.social({
+      provider: "google",
+      callbackURL: callbackUrl,
+      errorCallbackURL,
+      disableRedirect: true,
+    });
 
     if (result.error) {
       setPending(false);
@@ -53,12 +44,7 @@ export function GoogleAuthButton({
     setPending(false);
   }
 
-  const label =
-    mode === "link"
-      ? "Connect Google"
-      : mode === "sign-up"
-        ? "Sign up with Google"
-        : "Continue with Google";
+  const label = mode === "sign-up" ? "Sign up with Google" : "Continue with Google";
 
   return (
     <Button

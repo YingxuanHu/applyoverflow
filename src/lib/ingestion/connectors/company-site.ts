@@ -16,7 +16,10 @@ import {
   decodeHtmlEntitiesFull as decodeHtmlEntities,
   extractDescriptionFromHtml,
 } from "@/lib/ingestion/html-description";
-import { isClearlyNonJobPosting } from "@/lib/job-integrity";
+import {
+  isClearlyNonJobContentUrl,
+  isClearlyNonJobPosting,
+} from "@/lib/job-integrity";
 
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_LISTING_PAGES = 8;
@@ -94,7 +97,31 @@ export async function inspectCompanySiteRoute(
   confidence: number;
   metadata: Record<string, Prisma.InputJsonValue | null>;
 }> {
+  if (isClearlyNonJobContentUrl(url)) {
+    return {
+      finalUrl: url,
+      extractionRoute: "UNKNOWN",
+      parserVersion: "company-site:v4",
+      confidence: 0.02,
+      metadata: {
+        notAJobSourceReason: "non-job-content-url",
+      },
+    };
+  }
+
   const page = await fetchHtml(url, signal);
+  if (isClearlyNonJobContentUrl(page.url)) {
+    return {
+      finalUrl: page.url,
+      extractionRoute: "UNKNOWN",
+      parserVersion: "company-site:v4",
+      confidence: 0.02,
+      metadata: {
+        notAJobSourceReason: "non-job-content-url",
+      },
+    };
+  }
+
   const jsonLdJobs = extractJsonLdJobPostings(page.html, page.url);
   if (jsonLdJobs.length > 0) {
     return {
@@ -584,7 +611,12 @@ function extractCandidateJobLinks(html: string, pageUrl: string) {
       return (
         text.length <= 140 &&
         JOB_LINK_RE.test(`${text} ${link.href}`) &&
-        !PAGINATION_RE.test(text)
+        !PAGINATION_RE.test(text) &&
+        !isClearlyNonJobPosting({
+          title: text,
+          description: "",
+          applyUrl: link.href,
+        })
       );
     })
     .slice(0, MAX_LINKS_PER_PAGE);
@@ -606,6 +638,15 @@ function extractCandidateJobLinksFromScripts(html: string, pageUrl: string) {
         const href = new URL(candidate, base).toString();
         if (new URL(href).hostname !== base.hostname) continue;
         if (!JOB_LINK_RE.test(href)) continue;
+        if (
+          isClearlyNonJobPosting({
+            title: href.split("/").pop()?.replace(/[-_]+/g, " ") ?? "",
+            description: "",
+            applyUrl: href,
+          })
+        ) {
+          continue;
+        }
         if (seen.has(href)) continue;
         seen.add(href);
         links.push({
@@ -866,6 +907,7 @@ async function inspectSitemapCandidates(
       try {
         const href = new URL(loc, base).toString();
         if (new URL(href).hostname !== base.hostname) continue;
+        if (isClearlyNonJobContentUrl(href)) continue;
         if (looksLikeSitemapUrl(href)) {
           enqueue(href);
           continue;
@@ -942,6 +984,7 @@ function extractSitemapLocs(xml: string) {
 }
 
 function looksLikeJobUrl(url: string) {
+  if (isClearlyNonJobContentUrl(url)) return false;
   return JOB_LINK_RE.test(url) || /\/(jobs?|careers?|positions?|openings?)\//i.test(url);
 }
 

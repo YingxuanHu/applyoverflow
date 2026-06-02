@@ -12,22 +12,34 @@ type HiddenField = {
   value: string;
 };
 
-type VisibleJobSearchScope = Exclude<JobSearchScope, "all">;
 type SearchValues = Record<JobSearchScope, string>;
 
-const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleJobSearchScope }> = [
+const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: JobSearchScope }> = [
+  { label: "All", value: "all" },
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
   { label: "Location", value: "location" },
 ];
 
-const SEARCH_PARAM_BY_SCOPE: Record<VisibleJobSearchScope, string> = {
+const SEARCH_PARAM_BY_SCOPE: Record<JobSearchScope, string> = {
+  all: "search",
   title: "titleSearch",
   company: "companySearch",
   location: "locationSearch",
 };
 
-const PLACEHOLDER_BY_SCOPE: Record<VisibleJobSearchScope, string> = {
+const SEARCH_FIELD_PARAM_NAMES = new Set([
+  "field",
+  "q",
+  "search",
+  "searchScope",
+  "titleSearch",
+  "companySearch",
+  "locationSearch",
+]);
+
+const PLACEHOLDER_BY_SCOPE: Record<JobSearchScope, string> = {
+  all: "Search jobs",
   title: "Search job titles",
   company: "Search companies",
   location: "Search locations",
@@ -58,12 +70,8 @@ export function JobsSearchForm({
   initialScope: JobSearchScope;
   initialValues: SearchValues;
 }) {
-  const initialVisibleScope = initialScope === "all" ? "title" : initialScope;
-  const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
-  const [values, setValues] = useState<SearchValues>({
-    ...initialValues,
-    location: "",
-  });
+  const [scope, setScope] = useState<JobSearchScope>(initialScope);
+  const [values, setValues] = useState<SearchValues>(initialValues);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
   const existingLocationSearch = initialValues.location.trim();
   const pendingLocationSearch = normalizeSearchList(
@@ -71,41 +79,50 @@ export function JobsSearchForm({
   );
 
   return (
-    <form className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center" method="get">
-      {hiddenFields.map((field) => (
-        <input key={`${field.name}:${field.value}`} name={field.name} type="hidden" value={field.value} />
-      ))}
-      <input name="searchScope" type="hidden" value={scope} />
-      {SEARCH_SCOPE_OPTIONS.filter(
-        (option) => option.value !== scope
-      ).map((option) => {
-        const value =
-          option.value === "location"
-            ? pendingLocationSearch
-            : values[option.value].trim();
-        if (!value) return null;
-        return (
+    <form className="flex min-w-0 flex-1 items-center gap-2" method="get">
+      {hiddenFields
+        .filter((field) => !SEARCH_FIELD_PARAM_NAMES.has(field.name))
+        .map((field) => (
           <input
-            key={option.value}
-            name={SEARCH_PARAM_BY_SCOPE[option.value]}
+            key={`${field.name}:${field.value}`}
+            name={field.name}
             type="hidden"
-            value={value}
+            value={field.value}
           />
-        );
-      })}
+        ))}
+      <input name="searchScope" type="hidden" value={scope} />
+      {scope !== "all"
+        ? SEARCH_SCOPE_OPTIONS.filter(
+            (option) => option.value !== scope && option.value !== "all"
+          ).map((option) => {
+            const value =
+              option.value === "location"
+                ? pendingLocationSearch
+                : values[option.value].trim();
+            if (!value) return null;
+            return (
+              <input
+                key={option.value}
+                name={SEARCH_PARAM_BY_SCOPE[option.value]}
+                type="hidden"
+                value={value}
+              />
+            );
+          })
+        : null}
       {scope === "location" && pendingLocationSearch ? (
         <input name="locationSearch" type="hidden" value={pendingLocationSearch} />
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
+      <div className="flex min-w-0 flex-1 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         <label className="sr-only" htmlFor="jobs-search-scope">
           Search within
         </label>
-        <div className="relative border-b border-border/60 sm:w-32 sm:border-b-0 sm:border-r">
+        <div className="relative w-[5.85rem] shrink-0 border-r border-border/60 sm:w-32">
           <select
-            className="h-10 w-full appearance-none bg-transparent pl-4 pr-8 text-left text-sm font-medium leading-10 text-foreground outline-none"
+            className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
             id="jobs-search-scope"
-            onChange={(event) => setScope(event.target.value as VisibleJobSearchScope)}
+            onChange={(event) => setScope(event.target.value as JobSearchScope)}
             style={{ textAlignLast: "left" }}
             value={scope}
           >
@@ -115,13 +132,13 @@ export function JobsSearchForm({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:right-2.5" />
         </div>
 
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-10 rounded-none border-0 bg-transparent pl-9 pr-3 text-sm focus-visible:border-transparent focus-visible:ring-0"
+            className="h-10 rounded-none border-0 bg-transparent pl-9 pr-2 text-sm focus-visible:border-transparent focus-visible:ring-0 sm:pr-3"
             name={scope === "location" ? undefined : inputName}
             onChange={(event) =>
               setValues((current) => ({
@@ -135,8 +152,9 @@ export function JobsSearchForm({
         </div>
       </div>
 
-      <Button className="h-10 w-full px-5 sm:w-auto" type="submit">
-        Search
+      <Button className="h-10 w-11 rounded-[14px] px-0 sm:w-auto sm:px-5" type="submit">
+        <Search className="h-4 w-4 sm:hidden" />
+        <span className="sr-only sm:not-sr-only">Search</span>
       </Button>
     </form>
   );

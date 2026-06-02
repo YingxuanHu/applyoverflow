@@ -17,8 +17,9 @@ import { buildCanonicalDedupeFields } from "@/lib/ingestion/dedupe";
 import {
   sanitizeCompanyName,
   sanitizeJobDescriptionText,
-  sanitizeJobTitle,
+  selectBestJobTitle,
 } from "@/lib/job-cleanup";
+import { assessJobDataQuality } from "@/lib/ingestion/job-data-quality";
 import { classifyNonJobPosting } from "@/lib/job-integrity";
 import { classifyJobMetadata } from "@/lib/job-metadata";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
@@ -754,7 +755,14 @@ export function normalizeSourceJob({
   job,
   fetchedAt,
 }: NormalizeSourceJobOptions): NormalizationResult {
-  const title = sanitizeJobTitle(job.title);
+  const company =
+    sanitizeCompanyName(job.company, {
+      urls: [job.applyUrl, job.sourceUrl],
+    }) || "Unknown";
+  const title = selectBestJobTitle(job.title, {
+    company,
+    urls: [job.applyUrl, job.sourceUrl],
+  });
   const normalizedLocation = compactWhitespace(job.location) || "Unknown";
   const description = sanitizeText(job.description, {
     title,
@@ -807,10 +815,19 @@ export function normalizeSourceJob({
     };
   }
 
-  const company =
-    sanitizeCompanyName(job.company, {
-      urls: [job.applyUrl, job.sourceUrl],
-    }) || "Unknown";
+  const dataQuality = assessJobDataQuality({
+    title,
+    company,
+    description,
+    applyUrl,
+  });
+  if (dataQuality.severity === "reject") {
+    return {
+      kind: "rejected",
+      reason: dataQuality.rejectionReason ?? "bad_core_fields",
+    };
+  }
+
   const location = normalizedLocation;
 
   const region = inferRegion(location);

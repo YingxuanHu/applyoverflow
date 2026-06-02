@@ -76,11 +76,6 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   useEffect(() => {
     if (resendCooldownSeconds <= 0) {
@@ -201,15 +196,15 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
   };
 
   return (
-    <Card className="w-full max-w-md rounded-[28px] border-border/60 bg-card/95 py-5 shadow-[0_18px_60px_rgba(0,0,0,0.08)] dark:shadow-none">
-      <CardHeader className="gap-2 px-6">
+    <Card className="w-full max-w-md rounded-[24px] border-border/60 bg-card/95 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:rounded-[28px] sm:py-5 dark:shadow-none">
+      <CardHeader className="gap-2 px-4 sm:px-6">
         <p className="section-label">Start clean</p>
-        <CardTitle className="text-3xl font-semibold tracking-tight">Create account</CardTitle>
+        <CardTitle className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Create account</CardTitle>
         <CardDescription className="max-w-sm leading-6">
           Create one workspace for jobs, applications, documents, and reminders.
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-6">
+      <CardContent className="px-4 sm:px-6">
         <form className="space-y-4" method="post" onSubmit={onSubmit}>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="name">
@@ -293,8 +288,8 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
               <div>
                 <p className="font-medium text-foreground">
                   {existingEmailVerified
-                    ? "This account already exists."
-                    : "This account exists but still needs verification."}
+                    ? "This email is already registered."
+                    : "This email is already registered but still needs verification."}
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   {existingEmailVerified
@@ -344,12 +339,10 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
           ) : null}
           <Button
             className="h-11 w-full rounded-full"
-            disabled={pending || !isHydrated}
+            disabled={pending}
             type="submit"
           >
-            {!isHydrated ? (
-              "Loading..."
-            ) : pending ? (
+            {pending ? (
               <>
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 Creating...

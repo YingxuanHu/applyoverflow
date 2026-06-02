@@ -421,11 +421,13 @@ function ApplicationHeaderEditor({
   //   Row 3: posting link
   return (
     <div className="space-y-2">
-      <h2 className="text-2xl font-semibold text-foreground">{application.roleTitle}</h2>
-      <p className="text-base font-semibold text-foreground">{application.company}</p>
+      <h2 className="text-ellipsis-2 text-xl font-semibold leading-snug text-foreground sm:text-2xl">
+        {application.roleTitle}
+      </h2>
+      <p className="text-ellipsis-1 text-base font-semibold text-foreground">{application.company}</p>
       {application.roleUrl ? (
         <a
-          className="inline-block text-sm font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground"
+          className="inline-block max-w-full truncate text-sm font-medium text-foreground/80 underline underline-offset-2 hover:text-foreground"
           href={application.roleUrl}
           rel="noreferrer"
           target="_blank"
@@ -516,7 +518,7 @@ function AttachDocumentControl({
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={label}
-          className="flex min-h-14 w-56 max-w-full min-w-0 items-center justify-between gap-3 rounded-[14px] border border-border/70 bg-card px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          className="flex min-h-12 w-full max-w-full min-w-0 items-center justify-between gap-3 rounded-[14px] border border-border/70 bg-card px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 sm:min-h-14 sm:w-56"
         >
           <span className="flex min-w-0 items-center gap-2">
             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -651,10 +653,10 @@ function StatusSelector({
   useActionNotifications(state);
 
   return (
-    <form action={formAction} className="flex items-center gap-2">
+    <form action={formAction} className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
       <input name="applicationId" type="hidden" value={applicationId} />
       <select
-        className="h-10 min-w-[140px] rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25"
+        className="h-10 w-full min-w-0 rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 sm:min-w-[140px]"
         defaultValue={currentStatus}
         key={currentStatus}
         name="status"
@@ -868,13 +870,13 @@ function JobDescriptionField({
   }
 
   return (
-    <div className="surface-panel p-5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="surface-panel p-3.5 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>Job description</h3>
-        <div className="flex items-center gap-1">
+        <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center sm:gap-1">
           {!editing && !showPaste && hasRoleUrl ? (
             <button
-              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handleImportFromLink}
               type="button"
             >
@@ -883,7 +885,7 @@ function JobDescriptionField({
           ) : null}
           {!editing && !showPaste ? (
             <button
-              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handlePasteClick}
               type="button"
             >
@@ -892,7 +894,7 @@ function JobDescriptionField({
           ) : null}
           {!editing && !showPaste ? (
             <button
-              className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={() => setEditing(true)}
               type="button"
             >
@@ -1404,6 +1406,7 @@ function TailoredResumeSection({
 }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const [generatedResume, setGeneratedResume] = useState<{
     fileName: string;
     mimeType: string;
@@ -1443,6 +1446,7 @@ function TailoredResumeSection({
   async function handleGenerate() {
     setGenerating(true);
     setError(null);
+    setProfileNotice(null);
 
     try {
       const response = await fetch(`/api/applications/${applicationId}/tailored-resume`, {
@@ -1457,6 +1461,11 @@ function TailoredResumeSection({
       }
 
       const json = await response.json();
+      setProfileNotice(
+        typeof json.profileNotice === "string" && json.profileNotice.trim()
+          ? json.profileNotice.trim()
+          : null
+      );
       setGeneratedResume({
         fileName: String(json.fileName ?? "tailored-resume.pdf"),
         mimeType: String(json.mimeType ?? "application/pdf"),
@@ -1498,6 +1507,11 @@ function TailoredResumeSection({
       {error ? (
         <p className="mt-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {error}
+        </p>
+      ) : null}
+      {profileNotice ? (
+        <p className="mt-2 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-blue-700 dark:text-blue-200">
+          {profileNotice}
         </p>
       ) : null}
       {generatedResume ? (
@@ -1642,9 +1656,9 @@ export function ApplicationWorkspaceClient({
   const timelineEvents = application.events.filter((event) => event.type !== "REMINDER");
 
   return (
-    <div className="grid gap-5">
-      <section className="surface-panel p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="grid gap-4 sm:gap-5">
+      <section className="surface-panel p-3.5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1 space-y-2">
             <ApplicationHeaderEditor
               application={{
@@ -1657,7 +1671,7 @@ export function ApplicationWorkspaceClient({
               onClose={() => setHeaderEditing(false)}
             />
 
-            <p className="text-sm text-muted-foreground">
+            <p className="text-ellipsis-1 text-sm text-muted-foreground">
               {formatDate(application.deadline)} · Updated {formatDateTime(application.updatedAt)}
             </p>
 
@@ -1669,7 +1683,7 @@ export function ApplicationWorkspaceClient({
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="grid min-w-0 gap-2 pt-1 sm:flex sm:flex-wrap sm:items-center">
               <AttachDocumentControl
                 applicationId={application.id}
                 currentLink={resumeLink}
@@ -1687,8 +1701,8 @@ export function ApplicationWorkspaceClient({
             </div>
           </div>
 
-          <div className="flex flex-col items-start gap-2 sm:items-end">
-            <div className="flex items-center gap-2">
+          <div className="flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:items-end">
+            <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
               <StatusSelector applicationId={application.id} currentStatus={application.status} />
               {!headerEditing ? (
                 <WorkspaceActionsMenu
@@ -1703,12 +1717,12 @@ export function ApplicationWorkspaceClient({
         </div>
       </section>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="grid items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         {/* Main column — flat sections, ordered: job description → AI
             workspace (Fit analysis + Resume tailoring) → small Notes. The
             previous Documents section is gone; attach dropdowns live in the
             title-box footer above. */}
-        <div className="grid content-start gap-5 self-start">
+        <div className="grid content-start gap-4 self-start sm:gap-5">
           <JobDescriptionField
             applicationId={application.id}
             hasRoleUrl={Boolean(application.roleUrl)}
@@ -1729,7 +1743,7 @@ export function ApplicationWorkspaceClient({
           <RemindersSection applicationId={application.id} reminders={reminders} />
         </div>
 
-        <div className="grid content-start gap-5 self-start">
+        <div className="grid content-start gap-4 self-start sm:gap-5">
           <section className="surface-panel p-0">
             <JobAssistant
               aiConfigured={aiConfigured}
@@ -1744,7 +1758,7 @@ export function ApplicationWorkspaceClient({
             />
           </section>
 
-          <section className="surface-panel p-5 sm:p-6">
+          <section className="surface-panel p-3.5 sm:p-6">
             <h2 className="text-base font-semibold text-foreground">Timeline</h2>
 
             <div className="mt-3 grid gap-3">

@@ -89,10 +89,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       </div>
 
       {/* Header — stacks on mobile, row on sm+ */}
-      <div className="surface-panel flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+      <div className="surface-panel flex flex-col gap-5 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">{job.title}</h1>
+            <h1 className="text-[1.35rem] font-semibold leading-snug tracking-tight sm:text-2xl">
+              {job.title}
+            </h1>
             {expiringSoon ? (
               <span
                 className={cn(
@@ -154,7 +156,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
       ) : null}
 
       {/* Key fields */}
-      <div className="surface-panel grid grid-cols-2 gap-x-8 gap-y-4 p-5 sm:grid-cols-4">
+      <div className="surface-panel grid grid-cols-2 gap-x-4 gap-y-4 p-4 sm:grid-cols-4 sm:gap-x-8 sm:p-5">
         <Field
           label="Salary"
           value={

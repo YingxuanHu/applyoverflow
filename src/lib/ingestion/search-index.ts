@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
+import { assessJobDataQuality } from "@/lib/ingestion/job-data-quality";
 import {
   buildSearchText,
   computeFreshnessScore,
@@ -26,6 +28,8 @@ function shouldExcludeFromFeedIndex(input: {
   availabilityScore: number;
   applyUrl: string;
   company: string;
+  sourceCount: number;
+  applyUrlValidationStatus: string | null;
   deadline: Date | null;
   deadSignalAt: Date | null;
   lastSourceSeenAt: Date | null;
@@ -46,11 +50,30 @@ function shouldExcludeFromFeedIndex(input: {
     return true;
   }
 
+  if (
+    assessJobDataQuality({
+      title: input.title,
+      company: input.company,
+      description: input.description || input.shortSummary,
+      applyUrl: input.applyUrl,
+    }).severity === "reject"
+  ) {
+    return true;
+  }
+
   if (input.deadSignalAt) {
     return true;
   }
 
   if (input.availabilityScore < JOB_BOARD_MIN_AVAILABILITY_SCORE) {
+    return true;
+  }
+
+  if (input.sourceCount <= 0) {
+    return true;
+  }
+
+  if (hasBadApplyLinkValidationStatus(input.applyUrlValidationStatus)) {
     return true;
   }
 
@@ -122,6 +145,8 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
     availabilityScore: canonical.availabilityScore,
     applyUrl: canonical.applyUrl,
     company: canonical.company,
+    sourceCount,
+    applyUrlValidationStatus: canonical.applyUrlValidationStatus,
     deadline: canonical.deadline,
     deadSignalAt: canonical.deadSignalAt,
     lastSourceSeenAt: canonical.lastSourceSeenAt,
@@ -170,7 +195,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       normalizedEmploymentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
       normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
       normalizedCareerStageConfidence: canonical.normalizedCareerStageConfidence,
-      normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedIndustry: canonical.normalizedIndustry ?? "UNKNOWN",
       normalizedIndustryConfidence: canonical.normalizedIndustryConfidence,
       normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
       normalizedRoleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
@@ -198,12 +223,16 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
         availabilityScore: canonical.availabilityScore,
         lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
         sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        applyUrlValidationStatus: canonical.applyUrlValidationStatus ?? null,
+        applyUrlValidationReason: canonical.applyUrlValidationReason ?? null,
+        finalResolvedApplyUrl: canonical.finalResolvedApplyUrl ?? null,
+        applyUrlRedirectDepth: canonical.applyUrlRedirectDepth ?? null,
         normalizedMetadata: {
           employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
           employmentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
           careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
           careerStageConfidence: canonical.normalizedCareerStageConfidence,
-          industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          industry: canonical.normalizedIndustry ?? "UNKNOWN",
           industryConfidence: canonical.normalizedIndustryConfidence,
           roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
           roleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
@@ -228,7 +257,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
       normalizedEmploymentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
       normalizedCareerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
       normalizedCareerStageConfidence: canonical.normalizedCareerStageConfidence,
-      normalizedIndustry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+      normalizedIndustry: canonical.normalizedIndustry ?? "UNKNOWN",
       normalizedIndustryConfidence: canonical.normalizedIndustryConfidence,
       normalizedRoleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
       normalizedRoleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
@@ -256,12 +285,16 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
         availabilityScore: canonical.availabilityScore,
         lastConfirmedAliveAt: canonical.lastConfirmedAliveAt?.toISOString() ?? null,
         sourceQualityKind: primarySource?.sourceQualityKind ?? null,
+        applyUrlValidationStatus: canonical.applyUrlValidationStatus ?? null,
+        applyUrlValidationReason: canonical.applyUrlValidationReason ?? null,
+        finalResolvedApplyUrl: canonical.finalResolvedApplyUrl ?? null,
+        applyUrlRedirectDepth: canonical.applyUrlRedirectDepth ?? null,
         normalizedMetadata: {
           employmentType: canonical.normalizedEmploymentType ?? "UNKNOWN",
           employmentTypeConfidence: canonical.normalizedEmploymentTypeConfidence,
           careerStage: canonical.normalizedCareerStage ?? "UNKNOWN",
           careerStageConfidence: canonical.normalizedCareerStageConfidence,
-          industry: canonical.normalizedIndustry ?? "OTHER_UNKNOWN",
+          industry: canonical.normalizedIndustry ?? "UNKNOWN",
           industryConfidence: canonical.normalizedIndustryConfidence,
           roleCategory: canonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
           roleCategoryConfidence: canonical.normalizedRoleCategoryConfidence,
@@ -297,6 +330,19 @@ function buildJobFeedIndexRepairQuery(mode: JobFeedIndexRepairMode, limit: numbe
     AND jc."availabilityScore" >= ${JOB_BOARD_MIN_AVAILABILITY_SCORE}
     AND (jc.deadline IS NULL OR jc.deadline >= NOW())
     AND jc."applyUrl" ~* '^https?://'
+    AND COALESCE(jc."applyUrlValidationStatus", 'ACTIVE') NOT IN (
+      'EXPIRED',
+      'BROKEN_APPLY_LINK',
+      'GENERIC_APPLY_PAGE',
+      'SOURCE_STALE',
+      'HIDDEN_LOW_QUALITY'
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM "JobSourceMapping" jsm
+      WHERE jsm."canonicalJobId" = jc.id
+        AND jsm."removedAt" IS NULL
+    )
     AND (
       (
         jc."lastSourceSeenAt" IS NOT NULL

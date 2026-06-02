@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   classifyJobMetadata,
+  INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   normalizeCareerStageFilterValue,
   normalizeEmploymentTypeFilterValue,
   normalizeIndustryFilterValue,
@@ -182,10 +183,60 @@ test("industry and role category are independent labels", () => {
   });
 
   assert.equal(metadata.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
-  assert.equal(metadata.normalizedIndustry, "FINANCE_BANKING");
+  assert.equal(metadata.normalizedIndustry, "FINANCIAL_SERVICES");
   assert.ok(metadata.confidence.roleCategory >= 0.75);
-  assert.ok(metadata.confidence.industry >= 0.68);
+  assert.ok(metadata.confidence.industry >= INDUSTRY_FILTER_CONFIDENCE_THRESHOLD);
   assert.equal(metadata.classificationStatus, "PARTIAL");
+});
+
+test("industry is the company industry, not the job function or description topic", () => {
+  const retailSourcing = classifyJobMetadata({
+    title: "Associate Raw Material Sourcing CONTRACTOR (PT/FT)",
+    company: "Buckmason",
+    description:
+      "Work with mills and vendors on seasonal fabric development, sourcing processes, fabric quality, cost, lead times, MOQs, and procurement.",
+    roleFamily: "General Professional",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "HYBRID",
+  });
+
+  assert.equal(retailSourcing.normalizedRoleCategory, "OPERATIONS");
+  assert.equal(retailSourcing.normalizedIndustry, "RETAIL_CONSUMER_GOODS");
+  assert.notEqual(retailSourcing.normalizedRoleCategory, "AI_MACHINE_LEARNING");
+  assert.notEqual(retailSourcing.normalizedIndustry, "EDUCATION");
+
+  const softwareAtUnknownCompany = classifyJobMetadata({
+    title: "Software Engineer",
+    company: "Example",
+    description: "Build backend services for a customer platform.",
+    roleFamily: "SWE",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+
+  assert.equal(softwareAtUnknownCompany.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
+  assert.equal(softwareAtUnknownCompany.normalizedIndustry, "UNKNOWN");
+});
+
+test("generic AI wording in the description does not make a non-AI title AI/ML", () => {
+  const metadata = classifyJobMetadata({
+    title: "Sourcing Contractor",
+    company: "Buck Mason",
+    description:
+      "This employer may use artificial intelligence tools to support the hiring process. The role manages vendors and material sourcing.",
+    roleFamily: "General Professional",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "CONTRACT",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+
+  assert.equal(metadata.normalizedRoleCategory, "OPERATIONS");
+  assert.notEqual(metadata.normalizedRoleCategory, "AI_MACHINE_LEARNING");
 });
 
 test("finance role classification does not absorb software or technology jobs", () => {
@@ -395,7 +446,7 @@ test("metadata filter normalization maps legacy values to the new taxonomy", () 
     normalizeEmploymentTypeFilterValue("full time,co-op,contract"),
     "FULL_TIME,CO_OP,CONTRACT"
   );
-  assert.equal(normalizeIndustryFilterValue("TECH,Finance & Banking"), "TECHNOLOGY,FINANCE_BANKING");
+  assert.equal(normalizeIndustryFilterValue("TECH,Finance & Banking"), "TECHNOLOGY,FINANCIAL_SERVICES");
   assert.equal(
     normalizeRoleCategoryFilterValue("SWE,Software Engineering,Data Analytics"),
     "SOFTWARE_ENGINEERING,DATA_ANALYTICS"
@@ -434,4 +485,43 @@ test("new job function taxonomy separates retail service and media communication
     workMode: "HYBRID",
   });
   assert.equal(communications.normalizedRoleCategory, "MEDIA_CONTENT_COMMUNICATIONS");
+});
+
+test("generic legacy role families do not block stronger title evidence", () => {
+  const machineOperator = classifyJobMetadata({
+    title: "Machine Operator - Third Shift",
+    company: "Lincoln Electric",
+    description: "Operate production equipment and support plant operations.",
+    roleFamily: "General Professional",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "ONSITE",
+  });
+  assert.equal(machineOperator.normalizedRoleCategory, "SKILLED_TRADES_FACILITIES");
+
+  const developerIntern = classifyJobMetadata({
+    title: "Developer Internship",
+    company: "Example",
+    description: "Internship role building web applications with engineers.",
+    roleFamily: "Internship",
+    legacyIndustry: "TECH",
+    inferredEmploymentType: "INTERNSHIP",
+    sourceEmploymentType: null,
+    workMode: "HYBRID",
+  });
+  assert.equal(developerIntern.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
+  assert.equal(developerIntern.normalizedCareerStage, "INTERNSHIP_COOP_STUDENT");
+
+  const supportAgent = classifyJobMetadata({
+    title: "Customer Service Agent",
+    company: "Example",
+    description: "Support customers and resolve service requests.",
+    roleFamily: "General Professional",
+    legacyIndustry: "GENERAL",
+    inferredEmploymentType: "FULL_TIME",
+    sourceEmploymentType: null,
+    workMode: "REMOTE",
+  });
+  assert.equal(supportAgent.normalizedRoleCategory, "CUSTOMER_SUCCESS_SUPPORT");
 });

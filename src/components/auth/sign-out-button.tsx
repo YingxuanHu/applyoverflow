@@ -18,6 +18,12 @@ import {
   useNotifications,
 } from "@/components/ui/notification-provider";
 import { authClient } from "@/lib/auth-client";
+import {
+  JOBS_SEARCH_STATE_COOKIE,
+  JOBS_SEARCH_STATE_STORAGE_KEY,
+} from "@/lib/jobs/search-state";
+
+const APPLICATIONS_SEARCH_STATE_STORAGE_KEY = "autoapplication.applications.filters";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -40,6 +46,7 @@ export function SignOutButton() {
     }
 
     setOpen(false);
+    clearSearchStateMemory();
     queueFlashNotification({
       tone: "success",
       title: "Signed out",
@@ -89,4 +96,10 @@ export function SignOutButton() {
       </Dialog>
     </>
   );
+}
+
+function clearSearchStateMemory() {
+  window.sessionStorage.removeItem(JOBS_SEARCH_STATE_STORAGE_KEY);
+  window.sessionStorage.removeItem(APPLICATIONS_SEARCH_STATE_STORAGE_KEY);
+  document.cookie = `${JOBS_SEARCH_STATE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
 }

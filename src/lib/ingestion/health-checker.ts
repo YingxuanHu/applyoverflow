@@ -1,4 +1,11 @@
 import { prisma } from "@/lib/db";
+import {
+  APPLY_LINK_VALIDATION_STATUS,
+  classifyApplyLinkQuality,
+  type ApplyLinkContentMatch,
+  type ApplyLinkRedirectHop,
+  type ApplyLinkValidationStatus,
+} from "@/lib/ingestion/apply-link-quality";
 import { detectDeadSignal } from "@/lib/ingestion/normalize";
 import { reconcileCanonicalLifecycleByIds } from "@/lib/ingestion/pipeline";
 import { upsertJobFeedIndexes } from "@/lib/ingestion/search-index";
@@ -11,9 +18,11 @@ import type {
   JobUrlHealthResult,
   JobUrlHealthUrlType,
   JobStatus,
+  Prisma,
 } from "@/generated/prisma/client";
 
 const URL_HEALTH_TIMEOUT_MS = 10_000;
+const URL_HEALTH_MAX_REDIRECTS = 8;
 const URL_HEALTH_QUEUE_CONCURRENCY = resolveScaledInteger({
   base: 32,
   absoluteMax: 96,
@@ -31,10 +40,15 @@ const URL_HEALTH_ENQUEUE_DEFAULT_LIMIT = resolveScaledInteger({
 });
 const MAX_RESPONSE_SNIPPET_LENGTH = 1_200;
 
-type UrlHealthOutcome = {
+export type UrlHealthOutcome = {
   result: JobUrlHealthResult;
   statusCode: number | null;
   finalUrl: string | null;
+  redirectDepth: number;
+  redirectChain: ApplyLinkRedirectHop[];
+  validationStatus: ApplyLinkValidationStatus;
+  validationReason: string | null;
+  contentMatch: ApplyLinkContentMatch | null;
   checkedAt: Date;
   responseTimeMs: number | null;
   closureReason: string | null;
@@ -211,6 +225,7 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
     select: {
       id: true,
       title: true,
+      company: true,
       description: true,
       deadline: true,
       applyUrl: true,
@@ -218,9 +233,18 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
       lastConfirmedAliveAt: true,
       deadSignalAt: true,
       sourceMappings: {
-        where: { removedAt: null, isPrimary: true },
-        select: { sourceUrl: true },
-        take: 1,
+        select: {
+          sourceName: true,
+          sourceUrl: true,
+          isPrimary: true,
+          removedAt: true,
+        },
+        orderBy: [
+          { removedAt: "asc" },
+          { isPrimary: "desc" },
+          { lastSeenAt: "desc" },
+        ],
+        take: 8,
       },
     },
   });
@@ -229,12 +253,17 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
     throw new Error(`Job ${canonicalJobId} not found for URL health check.`);
   }
 
-  const detailUrl = job.sourceMappings[0]?.sourceUrl ?? null;
+  const primaryActiveMapping =
+    job.sourceMappings.find((sourceMapping) => sourceMapping.removedAt === null && sourceMapping.isPrimary) ??
+    job.sourceMappings.find((sourceMapping) => sourceMapping.removedAt === null) ??
+    null;
+  const detailUrl = primaryActiveMapping?.sourceUrl ?? null;
   const applyHealth = await checkUrlHealth({
     url: job.applyUrl,
     urlType: "APPLY",
     deadline: job.deadline,
     title: job.title,
+    company: job.company,
     description: job.description,
     now,
   });
@@ -245,6 +274,7 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
           urlType: "DETAIL",
           deadline: job.deadline,
           title: job.title,
+          company: job.company,
           description: job.description,
           now,
         })
@@ -258,15 +288,22 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
   const strongestDead = [applyHealth, detailHealth]
     .filter((entry): entry is UrlHealthOutcome => Boolean(entry))
     .find((entry) => entry.result === "DEAD");
-  const aliveSignal = [applyHealth, detailHealth]
-    .filter((entry): entry is UrlHealthOutcome => Boolean(entry))
-    .find((entry) => entry.result === "ALIVE");
+  const aliveSignal = strongestDead
+    ? null
+    : [applyHealth, detailHealth]
+        .filter((entry): entry is UrlHealthOutcome => Boolean(entry))
+        .find((entry) => entry.result === "ALIVE");
 
   await prisma.jobCanonical.update({
     where: { id: job.id },
     data: {
       lastApplyCheckAt: applyHealth.checkedAt,
       lastConfirmedAliveAt: aliveSignal ? now : job.lastConfirmedAliveAt,
+      applyUrlValidatedAt: applyHealth.checkedAt,
+      applyUrlValidationStatus: applyHealth.validationStatus,
+      applyUrlValidationReason: applyHealth.validationReason ?? applyHealth.closureReason,
+      finalResolvedApplyUrl: applyHealth.finalUrl,
+      applyUrlRedirectDepth: applyHealth.redirectDepth,
       deadSignalAt: strongestDead ? now : aliveSignal ? null : job.deadSignalAt,
       deadSignalReason: strongestDead
         ? strongestDead.closureReason
@@ -276,6 +313,11 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
             ? null
             : undefined,
     },
+  });
+  await recordSourceApplyQualitySignal({
+    sourceNames: job.sourceMappings.map((sourceMapping) => sourceMapping.sourceName),
+    outcome: applyHealth,
+    checkedAt: now,
   });
 
   return {
@@ -403,15 +445,23 @@ async function recordHealthCheck(
       responseTimeMs: outcome.responseTimeMs,
       closureReason: outcome.closureReason,
       responseSnippet: outcome.responseSnippet,
+      metadataJson: {
+        validationStatus: outcome.validationStatus,
+        validationReason: outcome.validationReason,
+        redirectDepth: outcome.redirectDepth,
+        redirectChain: outcome.redirectChain,
+        contentMatch: outcome.contentMatch,
+      } satisfies Prisma.InputJsonValue,
     },
   });
 }
 
-async function checkUrlHealth(input: {
+export async function checkUrlHealth(input: {
   url: string;
   urlType: JobUrlHealthUrlType;
   deadline: Date | null;
   title: string;
+  company: string;
   description: string;
   now: Date;
 }): Promise<UrlHealthOutcome> {
@@ -424,6 +474,11 @@ async function checkUrlHealth(input: {
       finalUrl: null,
       checkedAt,
       responseTimeMs: null,
+      redirectDepth: 0,
+      redirectChain: [],
+      validationStatus: APPLY_LINK_VALIDATION_STATUS.BROKEN_APPLY_LINK,
+      validationReason: "URL is missing or not absolute.",
+      contentMatch: null,
       closureReason: "URL is missing or not absolute.",
       responseSnippet: null,
     };
@@ -434,17 +489,50 @@ async function checkUrlHealth(input: {
   const timeout = setTimeout(() => controller.abort(), URL_HEALTH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(input.url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-health-check/1.0)",
-      },
-    });
+    const redirectResult = await fetchWithRedirectChain(input.url, controller.signal);
     const responseTimeMs = Date.now() - startedAt;
+    const response = redirectResult.response;
+
+    if (!response) {
+      const finalUrl = redirectResult.finalUrl ?? input.url;
+      const quality = classifyApplyLinkQuality({
+        requestedUrl: input.url,
+        finalUrl,
+        statusCode: redirectResult.statusCode,
+        bodyText: "",
+        title: input.title,
+        company: input.company,
+        redirectDepth: redirectResult.redirectChain.length,
+        maxRedirectsReached: true,
+      });
+      return {
+        result: "DEAD",
+        statusCode: redirectResult.statusCode,
+        finalUrl,
+        checkedAt,
+        responseTimeMs,
+        redirectDepth: redirectResult.redirectChain.length,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
+        closureReason: quality.reason,
+        responseSnippet: null,
+      };
+    }
+
     const bodyText = await maybeReadText(response);
     const snippet = sanitizeSnippet(bodyText);
+    const quality = classifyApplyLinkQuality({
+      requestedUrl: input.url,
+      finalUrl: redirectResult.finalUrl,
+      statusCode: response.status,
+      bodyText,
+      title: input.title,
+      company: input.company,
+      redirectDepth: redirectResult.redirectDepth,
+      maxRedirectsReached: false,
+    });
 
     const deadSignal = detectDeadSignal({
       title: input.title,
@@ -453,15 +541,20 @@ async function checkUrlHealth(input: {
       fetchedAt: input.now,
     });
 
-    if ([404, 410, 451].includes(response.status) || deadSignal.detected) {
+    if ([404, 410, 451].includes(response.status) || deadSignal.detected || quality.isBadForFeed) {
       return {
         result: "DEAD",
         statusCode: response.status,
-        finalUrl: response.url,
+        finalUrl: redirectResult.finalUrl,
         checkedAt,
         responseTimeMs,
+        redirectDepth: redirectResult.redirectDepth,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
         closureReason:
-          deadSignal.reason ?? `URL returned terminal dead status ${response.status}.`,
+          deadSignal.reason ?? quality.reason ?? `URL returned terminal dead status ${response.status}.`,
         responseSnippet: snippet,
       };
     }
@@ -470,9 +563,14 @@ async function checkUrlHealth(input: {
       return {
         result: "BLOCKED",
         statusCode: response.status,
-        finalUrl: response.url,
+        finalUrl: redirectResult.finalUrl,
         checkedAt,
         responseTimeMs,
+        redirectDepth: redirectResult.redirectDepth,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
         closureReason: `URL returned blocking status ${response.status}.`,
         responseSnippet: snippet,
       };
@@ -482,9 +580,14 @@ async function checkUrlHealth(input: {
       return {
         result: "ERROR",
         statusCode: response.status,
-        finalUrl: response.url,
+        finalUrl: redirectResult.finalUrl,
         checkedAt,
         responseTimeMs,
+        redirectDepth: redirectResult.redirectDepth,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
         closureReason: `URL returned server error ${response.status}.`,
         responseSnippet: snippet,
       };
@@ -494,22 +597,33 @@ async function checkUrlHealth(input: {
       return {
         result: "SUSPECT",
         statusCode: response.status,
-        finalUrl: response.url,
+        finalUrl: redirectResult.finalUrl,
         checkedAt,
         responseTimeMs,
+        redirectDepth: redirectResult.redirectDepth,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
         closureReason: `URL returned unexpected status ${response.status}.`,
         responseSnippet: snippet,
       };
     }
 
-    if (!snippet || snippet.length < 80) {
+    if (!snippet || snippet.length < 80 || quality.status === APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION) {
       return {
         result: "SUSPECT",
         statusCode: response.status,
-        finalUrl: response.url,
+        finalUrl: redirectResult.finalUrl,
         checkedAt,
         responseTimeMs,
-        closureReason: "Response body was too small to confirm a live posting.",
+        redirectDepth: redirectResult.redirectDepth,
+        redirectChain: redirectResult.redirectChain,
+        validationStatus: quality.status,
+        validationReason: quality.reason,
+        contentMatch: quality.contentMatch,
+        closureReason:
+          quality.reason || "Response body was too small to confirm a live posting.",
         responseSnippet: snippet,
       };
     }
@@ -517,9 +631,14 @@ async function checkUrlHealth(input: {
     return {
       result: "ALIVE",
       statusCode: response.status,
-      finalUrl: response.url,
+      finalUrl: redirectResult.finalUrl,
       checkedAt,
       responseTimeMs,
+      redirectDepth: redirectResult.redirectDepth,
+      redirectChain: redirectResult.redirectChain,
+      validationStatus: quality.status,
+      validationReason: quality.reason,
+      contentMatch: quality.contentMatch,
       closureReason: null,
       responseSnippet: snippet,
     };
@@ -530,12 +649,155 @@ async function checkUrlHealth(input: {
       finalUrl: input.url,
       checkedAt,
       responseTimeMs: Date.now() - startedAt,
+      redirectDepth: 0,
+      redirectChain: [],
+      validationStatus: APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION,
+      validationReason: error instanceof Error ? error.message : String(error),
+      contentMatch: null,
       closureReason: error instanceof Error ? error.message : String(error),
       responseSnippet: null,
     };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchWithRedirectChain(url: string, signal: AbortSignal) {
+  let currentUrl = url;
+  let statusCode: number | null = null;
+  const redirectChain: ApplyLinkRedirectHop[] = [];
+
+  for (let redirectDepth = 0; redirectDepth <= URL_HEALTH_MAX_REDIRECTS; redirectDepth += 1) {
+    const response = await fetch(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-health-check/1.0)",
+      },
+    });
+    statusCode = response.status;
+    const location = response.headers.get("location");
+
+    redirectChain.push({
+      url: currentUrl,
+      statusCode,
+      location,
+    });
+
+    if (response.status >= 300 && response.status < 400 && location) {
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+
+    return {
+      response,
+      finalUrl: currentUrl,
+      statusCode,
+      redirectDepth,
+      redirectChain,
+    };
+  }
+
+  return {
+    response: null,
+    finalUrl: currentUrl,
+    statusCode,
+    redirectDepth: redirectChain.length,
+    redirectChain,
+  };
+}
+
+async function recordSourceApplyQualitySignal(input: {
+  sourceNames: string[];
+  outcome: UrlHealthOutcome;
+  checkedAt: Date;
+}) {
+  const sourceNames = Array.from(new Set(input.sourceNames.filter(Boolean))).slice(0, 8);
+  if (sourceNames.length === 0) return;
+
+  const sources = await prisma.companySource.findMany({
+    where: { sourceName: { in: sourceNames } },
+    select: {
+      id: true,
+      metadataJson: true,
+      sourceQualityScore: true,
+    },
+  });
+
+  for (const source of sources) {
+    const metadata =
+      source.metadataJson && typeof source.metadataJson === "object" && !Array.isArray(source.metadataJson)
+        ? ({ ...(source.metadataJson as Record<string, Prisma.JsonValue>) } as Record<
+            string,
+            Prisma.JsonValue
+          >)
+        : {};
+    const previous =
+      metadata.applyLinkQuality &&
+      typeof metadata.applyLinkQuality === "object" &&
+      !Array.isArray(metadata.applyLinkQuality)
+        ? (metadata.applyLinkQuality as Record<string, Prisma.JsonValue>)
+        : {};
+    const checkedCount = asNumber(previous.checkedCount) + 1;
+    const badCount = asNumber(previous.badCount) + (input.outcome.result === "DEAD" ? 1 : 0);
+    const genericRedirectCount =
+      asNumber(previous.genericRedirectCount) +
+      (input.outcome.validationStatus === APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE ? 1 : 0);
+    const brokenApplyLinkCount =
+      asNumber(previous.brokenApplyLinkCount) +
+      (input.outcome.validationStatus === APPLY_LINK_VALIDATION_STATUS.BROKEN_APPLY_LINK ? 1 : 0);
+    const expiredApplyLinkCount =
+      asNumber(previous.expiredApplyLinkCount) +
+      (input.outcome.validationStatus === APPLY_LINK_VALIDATION_STATUS.EXPIRED ? 1 : 0);
+    const suspectCount =
+      asNumber(previous.suspectCount) + (input.outcome.result === "SUSPECT" ? 1 : 0);
+    const validCount =
+      asNumber(previous.validCount) + (input.outcome.result === "ALIVE" ? 1 : 0);
+    const badRate = checkedCount > 0 ? badCount / checkedCount : 0;
+    const adjustedQualityScore = Math.max(
+      0,
+      Math.min(
+        100,
+        input.outcome.result === "ALIVE"
+          ? source.sourceQualityScore + 0.2
+          : source.sourceQualityScore - Math.min(3, 0.5 + badRate * 2)
+      )
+    );
+
+    metadata.applyLinkQuality = {
+      ...previous,
+      checkedCount,
+      validCount,
+      suspectCount,
+      badCount,
+      genericRedirectCount,
+      brokenApplyLinkCount,
+      expiredApplyLinkCount,
+      badRate,
+      lastValidationStatus: input.outcome.validationStatus,
+      lastValidationReason: input.outcome.validationReason ?? input.outcome.closureReason,
+      lastFinalUrl: input.outcome.finalUrl,
+      lastCheckedAt: input.checkedAt.toISOString(),
+    };
+
+    await prisma.companySource.update({
+      where: { id: source.id },
+      data: {
+        metadataJson: metadata as Prisma.InputJsonValue,
+        sourceQualityScore: adjustedQualityScore,
+        lastValidatedAt: input.checkedAt,
+        validationMessage:
+          input.outcome.result === "ALIVE"
+            ? null
+            : input.outcome.validationReason ?? input.outcome.closureReason,
+      },
+    });
+  }
+}
+
+function asNumber(value: Prisma.JsonValue | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 async function maybeReadText(response: Response) {

@@ -165,6 +165,19 @@ async function validateCompanySiteSource(
   try {
     const inspection = await inspectCompanySiteRoute(source.boardUrl);
     if (inspection.extractionRoute === "UNKNOWN") {
+      if (readMetadataString(inspection.metadata, "notAJobSourceReason")) {
+        return {
+          kind: "INVALID",
+          validationState: "INVALID",
+          pollState: "QUARANTINED",
+          httpStatus: null,
+          jobsFound: 0,
+          message: "Rejected company-site source: URL is a content/resource page, not a careers source.",
+          sourceQualityScore: 0.03,
+          recommendedCooldownMinutes: 1440,
+        };
+      }
+
       return {
         kind: "NEEDS_REDISCOVERY",
         validationState: "NEEDS_REDISCOVERY",

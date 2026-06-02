@@ -753,7 +753,7 @@ async function getJobsFromFeedIndex(input: {
   if (filters.industry) {
     const industries = withoutUnknownFilterValues(
       splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
-      "OTHER_UNKNOWN"
+      "UNKNOWN"
     );
     appendFeedIndexAndCondition(where, {
       normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
@@ -887,6 +887,7 @@ async function getJobsFromFeedIndex(input: {
       in: [...DEFAULT_VISIBLE_JOB_STATUSES],
     };
   }
+  const requireLiveCanonicalJobs = !filters.status || requestedStatus === "LIVE";
   if (Object.keys(canonicalRelationWhere).length > 0) {
     where.canonicalJob = {
       is: canonicalRelationWhere,
@@ -951,7 +952,10 @@ async function getJobsFromFeedIndex(input: {
   }
 
   const jobs = await prisma.jobCanonical.findMany({
-    where: { id: { in: canonicalJobIds } },
+    where: {
+      id: { in: canonicalJobIds },
+      ...(requireLiveCanonicalJobs ? { status: "LIVE" as const } : {}),
+    },
     select: JOB_FEED_CARD_SELECT(viewerProfileId),
   });
   const order = new Map(canonicalJobIds.map((id, index) => [id, index]));
@@ -3306,7 +3310,7 @@ export async function getJobs(
     if (filters.industry) {
       const industries = withoutUnknownFilterValues(
         splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
-        "OTHER_UNKNOWN"
+        "UNKNOWN"
       );
       appendAndCondition(where, {
         normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },

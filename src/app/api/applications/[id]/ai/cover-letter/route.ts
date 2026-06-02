@@ -2,6 +2,7 @@ import { errorResponse, successResponse } from "@/lib/api-utils";
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import type { JobContext } from "@/lib/ai/job-fit";
+import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { UnauthorizedError, requireCurrentAuthUserId, requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
@@ -43,7 +44,7 @@ async function buildTrackedApplicationJobContext(
     canonicalJob?.description?.trim() ||
     [
       "No full job description is available for this tracked application.",
-      "Write the cover letter using the known job title, company, linked job metadata, and the user's selected resume/profile.",
+      "Write the cover letter using the known job title, company, linked job metadata, and the user's saved profile.",
     ].join(" ");
 
   return {
@@ -87,9 +88,14 @@ export async function POST(
     if (!profileCtx) {
       return errorResponse("Profile not found", 404);
     }
+    const profileReadiness = assessProfileForAi(profileCtx);
+    if (!profileReadiness.canUseAi) {
+      return errorResponse(profileReadiness.blockingMessage ?? "Please complete your profile.", 400);
+    }
 
     const { generateCoverLetter } = await import("@/lib/ai/cover-letter");
     const result = await generateCoverLetter(jobCtx, profileCtx);
+    result.profileNotice = profileReadiness.profileNotice;
 
     // Persist the generated cover letter as an AI-generated document. We
     // store it as plain text (UTF-8) so the user can re-open / re-download

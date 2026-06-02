@@ -5,7 +5,13 @@ import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 
 type SignInPageProps = {
-  searchParams: Promise<{ callbackUrl?: string; email?: string; verified?: string }>;
+  searchParams: Promise<{
+    callbackUrl?: string;
+    email?: string;
+    error?: string;
+    google?: string;
+    verified?: string;
+  }>;
 };
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
@@ -20,6 +26,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
     <SignInScreen
       callbackUrl={params.callbackUrl || "/jobs"}
       defaultEmail={params.email ?? ""}
+      googleError={params.google === "error" ? params.error ?? "google_error" : undefined}
       googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true"}
     />

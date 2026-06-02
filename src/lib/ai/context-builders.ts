@@ -46,51 +46,31 @@ export async function buildJobContext(jobId: string): Promise<JobContext | null>
   };
 }
 
-export async function buildProfileContext(options?: {
-  resumeId?: string | null;
-}): Promise<ProfileContext | null> {
+export async function buildProfileContext(): Promise<ProfileContext | null> {
   const userId = await requireCurrentProfileId();
-  const requestedResumeId = options?.resumeId?.trim() || null;
-  const [profile, selectedResume] = await Promise.all([
-    prisma.userProfile.findUnique({
-      where: { id: userId },
-      select: {
-        headline: true,
-        summary: true,
-        contactJson: true,
-        skillsJson: true,
-        skillsText: true,
-        experiencesJson: true,
-        experienceText: true,
-        educationsJson: true,
-        educationText: true,
-        projectsJson: true,
-        projectsText: true,
-        experienceLevel: true,
-        workAuthorization: true,
-        preferredWorkMode: true,
-      },
-    }),
-    requestedResumeId
-      ? prisma.document.findFirst({
-          where: {
-            id: requestedResumeId,
-            userId,
-            type: "RESUME",
-          },
-          select: {
-            title: true,
-            originalFileName: true,
-            extractedText: true,
-          },
-        })
-      : null,
-  ]);
+  const profile = await prisma.userProfile.findUnique({
+    where: { id: userId },
+    select: {
+      headline: true,
+      summary: true,
+      name: true,
+      email: true,
+      contactJson: true,
+      skillsJson: true,
+      skillsText: true,
+      experiencesJson: true,
+      experienceText: true,
+      educationsJson: true,
+      educationText: true,
+      projectsJson: true,
+      projectsText: true,
+      experienceLevel: true,
+      workAuthorization: true,
+      preferredWorkMode: true,
+    },
+  });
 
   if (!profile) return null;
-  if (requestedResumeId && !selectedResume) {
-    throw new Error("Selected resume was not found on your profile.");
-  }
 
   const contact = normalizeContact(profile.contactJson);
   const skills = normalizeSkills(profile.skillsJson).map((entry) => entry.name);
@@ -101,7 +81,8 @@ export async function buildProfileContext(options?: {
   return {
     headline: profile.headline,
     summary: profile.summary,
-    fullName: contact.fullName || null,
+    fullName: contact.fullName || profile.name || null,
+    email: contact.email || profile.email || null,
     location: contact.location || null,
     linkedInUrl: contact.linkedInUrl || null,
     githubUrl: contact.githubUrl || null,
@@ -117,6 +98,6 @@ export async function buildProfileContext(options?: {
     experienceLevel: profile.experienceLevel,
     workAuthorization: profile.workAuthorization,
     preferredWorkMode: profile.preferredWorkMode,
-    selectedResume,
+    selectedResume: null,
   };
 }

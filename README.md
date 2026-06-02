@@ -29,9 +29,9 @@ Current implemented slice:
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Optional | Adzuna job board API credentials |
 | `OPENAI_API_KEY` | Optional | Unlocks AI features — resume parsing, fit analysis, cover letter generation |
-| `OPENAI_STANDARD_MODEL` | Optional | Default model for structured analysis and generation (default: `gpt-4.1-mini`) |
-| `OPENAI_REASONING_MODEL` | Optional | Available for heavier AI tasks if you wire them in later (default: `gpt-5-mini`) |
-| `OPENAI_FAST_MODEL` | Optional | Available for low-latency AI tasks if you wire them in later (default: `gpt-4o-mini`) |
+| `OPENAI_FAST_MODEL` | Optional | Low-latency model for extraction, classification, and cheap background tasks (default: `gpt-5.4-nano`) |
+| `OPENAI_STANDARD_MODEL` | Optional | Default model for structured analysis and generation (default: `gpt-5.4-mini`) |
+| `OPENAI_REASONING_MODEL` | Optional | Higher-quality model for heavier document generation and review tasks (default: `gpt-5.4`) |
 | `OPS_ADMIN_EMAILS` | Required for `/ops/*` access | Comma- or newline-separated email allowlist for ops dashboards |
 | `STORAGE_*` | Optional | S3-compatible storage for uploaded and generated documents |
 

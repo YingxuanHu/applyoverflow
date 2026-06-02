@@ -74,6 +74,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /currentHadValues/);
   assert.match(pageSource, /return "\/jobs\?reset=1"/);
   assert.match(pageSource, /normalizeSearchParamsForHref\(params\)/);
+  assert.match(pageSource, /if \(rawSearch && selectedSearchScope === "title"\)/);
   assert.match(pageSource, /else if \(search\) \{[\s\S]*titleSearch = undefined;[\s\S]*companySearch = undefined;[\s\S]*locationSearch = undefined;/);
   assert.match(pageSource, /splitFilterValues\(filters\.locationSearch\)/);
   assert.match(pageSource, /Clear all/);
@@ -86,7 +87,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /\{ label: "Company name", value: "company" \}/);
   assert.doesNotMatch(pageSource, /\{ label: "Salary", value: "salary" \}/);
   assert.doesNotMatch(pageSource, /\{ label: "Location", value: "location" \}/);
-  assert.match(pageSource, /normalizeSortByParam\(getSearchParam\(searchParams, "sortBy"\)\)/);
+  assert.match(pageSource, /getSearchParam\(searchParams, "sortBy"\) \?\? getSearchParam\(searchParams, "sort"\)/);
   assert.match(pageSource, /href=\{buildJobsHref\(resolvedSearchParams,[\s\S]*sortBy: option\.value/);
   assert.match(pageSource, /<FilterToggleField[\s\S]*name="expiry"[\s\S]*value="soon"/);
   assert.match(pageSource, /className="sm:col-span-2"[\s\S]*name="careerStage"/);
@@ -101,10 +102,10 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(pageSource, /title="Deadline"/);
   assert.match(searchFormSource, /name="searchScope"/);
   assert.match(searchFormSource, /const SEARCH_SCOPE_OPTIONS/);
+  assert.match(searchFormSource, /\{ label: "All", value: "all" \}/);
   assert.match(searchFormSource, /titleSearch/);
   assert.match(searchFormSource, /companySearch/);
   assert.match(searchFormSource, /locationSearch/);
-  assert.doesNotMatch(searchFormSource, /\{ label: "All", value: "all" \}/);
   assert.match(pageSource, /name="employmentType"/);
   assert.match(pageSource, /name="posted"/);
   assert.doesNotMatch(pageSource, /name="source"/);

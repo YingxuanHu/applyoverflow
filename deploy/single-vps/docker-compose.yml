@@ -60,6 +60,7 @@ services:
         condition: service_healthy
     volumes:
       - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   backup-runner:

@@ -2,6 +2,7 @@ import { errorResponse, successResponse } from "@/lib/api-utils";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { formatFitAnalysisForStorage } from "@/lib/ai/fit-analysis-format";
 import type { JobContext } from "@/lib/ai/job-fit";
+import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { UnauthorizedError, requireCurrentAuthUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
@@ -44,7 +45,7 @@ async function buildTrackedApplicationJobContext(
     canonicalJob?.description?.trim() ||
     [
       "No full job description is available for this tracked application.",
-      "Analyze fit using the known job title, company, linked job metadata, and the user's selected resume/profile.",
+      "Analyze fit using the known job title, company, linked job metadata, and the user's saved profile.",
     ].join(" ");
 
   return {
@@ -62,21 +63,11 @@ async function buildTrackedApplicationJobContext(
 }
 
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    let resumeId: string | null = null;
-
-    try {
-      const body = (await request.json()) as { resumeId?: unknown };
-      if (typeof body?.resumeId === "string" && body.resumeId.trim()) {
-        resumeId = body.resumeId.trim();
-      }
-    } catch {
-      // Empty or invalid JSON means "analyze from the saved profile".
-    }
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);
@@ -86,7 +77,7 @@ export async function POST(
 
     const [jobCtx, profileCtx] = await Promise.all([
       buildTrackedApplicationJobContext(id, authUserId),
-      buildProfileContext({ resumeId }),
+      buildProfileContext(),
     ]);
 
     if (!jobCtx) {
@@ -94,6 +85,10 @@ export async function POST(
     }
     if (!profileCtx) {
       return errorResponse("Profile not found", 404);
+    }
+    const profileReadiness = assessProfileForAi(profileCtx);
+    if (!profileReadiness.canUseAi) {
+      return errorResponse(profileReadiness.blockingMessage ?? "Please complete your profile.", 400);
     }
 
     const { analyzeJobFit } = await import("@/lib/ai/job-fit");
@@ -107,18 +102,12 @@ export async function POST(
     });
 
     revalidateApplicationWorkspaceViews(id);
-    return successResponse(result);
+    return successResponse({ ...result, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return errorResponse("Unauthorized", 401);
     }
     console.error("POST /api/applications/[id]/ai/analyze error:", error);
-    if (
-      error instanceof Error &&
-      error.message === "Selected resume was not found on your profile."
-    ) {
-      return errorResponse(error.message, 400);
-    }
     const message = error instanceof Error ? error.message : "Analysis failed";
     return errorResponse(message, 500);
   }

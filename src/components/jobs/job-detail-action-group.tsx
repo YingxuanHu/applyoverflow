@@ -57,14 +57,14 @@ export function JobDetailActionGroup({
   }
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
+    <div className="flex w-full shrink-0 flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
       {isApplied ? (
-        <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">
+        <span className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 text-[13px] font-medium text-emerald-700 dark:text-emerald-300 sm:h-8">
           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
           Applied
         </span>
       ) : (
-        <>
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           <JobCardActions
             key={`${jobId}-${isSaved ? "saved" : "unsaved"}`}
             align="end"
@@ -74,7 +74,7 @@ export function JobDetailActionGroup({
             onSavedChange={setIsSaved}
           />
           <Button
-            className="h-8 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            className="h-10 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-8"
             disabled={isMarkingApplied}
             onClick={markApplied}
             size="sm"
@@ -84,12 +84,12 @@ export function JobDetailActionGroup({
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
             {isMarkingApplied ? "Saving..." : "Mark applied"}
           </Button>
-        </>
+        </div>
       )}
 
       {applyHref ? (
         <Button
-          className="rounded-full px-4"
+          className="h-11 w-full rounded-full px-4 sm:h-8 sm:w-auto"
           render={<a href={applyHref} rel="noreferrer" target="_blank" />}
           size="sm"
         >
@@ -97,7 +97,7 @@ export function JobDetailActionGroup({
           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
       ) : (
-        <Button className="rounded-full px-4" disabled size="sm" type="button">
+        <Button className="h-11 w-full rounded-full px-4 sm:h-8 sm:w-auto" disabled size="sm" type="button">
           Apply unavailable
         </Button>
       )}

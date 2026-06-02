@@ -1,4 +1,8 @@
-{$APP_DOMAIN} {
+www.applyoverflow.com {
+  redir https://applyoverflow.com{uri} permanent
+}
+
+applyoverflow.com {
   encode zstd gzip
   reverse_proxy app:3000
 }

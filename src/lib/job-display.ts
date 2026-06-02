@@ -77,11 +77,18 @@ export function formatPostedAge(
   value: string | Date,
   referenceNow?: string | Date
 ) {
-  if (!referenceNow) {
-    return formatDistanceToNowStrict(toDateValue(value), { addSuffix: true });
+  const postedAt = toDateValue(value);
+  const referenceAt = referenceNow ? toDateValue(referenceNow) : new Date();
+
+  if (!Number.isFinite(postedAt.getTime()) || !Number.isFinite(referenceAt.getTime())) {
+    return "date unavailable";
   }
 
-  return formatDistanceStrict(toDateValue(value), toDateValue(referenceNow), {
+  if (postedAt.getTime() >= referenceAt.getTime()) {
+    return "just now";
+  }
+
+  return formatDistanceStrict(postedAt, referenceAt, {
     addSuffix: true,
   });
 }

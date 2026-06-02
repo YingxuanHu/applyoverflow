@@ -36,15 +36,17 @@ test("auth recovery pages keep duplicate-account guidance clear", () => {
   assert.match(verifyCard, /\/api\/auth\/resend-verification/);
 });
 
-test("auth config enables Google linking, rate limits, and safer session checks", () => {
+test("auth config keeps Google separate from email/password accounts", () => {
   const authSource = readRepoFile("src/lib/auth.ts");
   const proxySource = readRepoFile("src/proxy.ts");
   const currentUserSource = readRepoFile("src/lib/current-user.ts");
 
   assert.match(authSource, /GOOGLE_CLIENT_ID/);
   assert.match(authSource, /socialProviders/);
-  assert.match(authSource, /trustedProviders:\s*\["google"\]/);
-  assert.match(authSource, /allowDifferentEmails:\s*false/);
+  assert.match(authSource, /accountLinking:\s*{/);
+  assert.match(authSource, /enabled:\s*false/);
+  assert.match(authSource, /disableImplicitLinking:\s*true/);
+  assert.doesNotMatch(authSource, /trustedProviders:\s*\["google"\]/);
   assert.match(authSource, /revokeSessionsOnPasswordReset:\s*true/);
   assert.match(authSource, /rateLimit:\s*{/);
   assert.match(authSource, /sendOnSignUp:\s*false/);
@@ -69,15 +71,17 @@ test("app password reset flow stores hashed reset tokens and revokes sessions", 
   assert.doesNotMatch(resetForm, /authClient\.resetPassword/);
 });
 
-test("settings expose account security controls for providers and sessions", () => {
+test("settings expose security controls without account linking", () => {
   const settingsPage = readRepoFile("src/app/settings/page.tsx");
   const securityPanel = readRepoFile("src/components/auth/account-security-panel.tsx");
   const googleButton = readRepoFile("src/components/auth/google-auth-button.tsx");
 
   assert.match(settingsPage, /id="security"/);
   assert.match(settingsPage, /<AccountSecurityPanel/);
-  assert.match(googleButton, /linkSocial/);
-  assert.match(securityPanel, /unlinkAccount/);
+  assert.doesNotMatch(googleButton, /linkSocial/);
+  assert.doesNotMatch(securityPanel, /unlinkAccount/);
+  assert.doesNotMatch(securityPanel, /Connected accounts/);
+  assert.match(securityPanel, /Sign-in method/);
   assert.match(securityPanel, /changePassword/);
   assert.match(securityPanel, /changeEmail/);
   assert.match(securityPanel, /revokeOtherSessions/);

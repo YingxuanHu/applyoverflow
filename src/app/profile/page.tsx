@@ -169,7 +169,7 @@ export default async function ProfilePage({
       </header>
 
       {/* Summary strip */}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}
           label="Profile complete"
@@ -209,26 +209,26 @@ export default async function ProfilePage({
 
       {/* Tabs */}
       <Tabs defaultValue={defaultTab} key={defaultTab} className="w-full">
-        <TabsList className="w-full justify-start" variant="line">
+        <TabsList className="w-full justify-start overflow-x-auto" variant="line">
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="details">Application profile</TabsTrigger>
         </TabsList>
 
         <TabsContent value="documents" className="mt-4" id="documents">
-          <section className="surface-panel p-5 sm:p-6">
+          <section className="surface-panel p-3.5 sm:p-6">
             <header className="flex items-start gap-2">
               <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
               <div>
                 <h2 className="text-sm font-semibold text-foreground">
                   Resume and cover letter library
                 </h2>
-                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
                   Keep uploaded resumes, generation templates, and cover letters organized for review and auto-apply.
                 </p>
               </div>
             </header>
 
-            <div className="mt-5 grid gap-5">
+            <div className="mt-3 grid gap-3 sm:mt-5 sm:gap-5">
               <ResumeManager
                 resumes={resumes.map((resume) => ({
                   id: resume.id,
@@ -273,12 +273,12 @@ export default async function ProfilePage({
 
         <TabsContent value="details" className="mt-4" id="application-profile-tab">
           <div className="grid gap-4">
-            <section className="surface-panel scroll-mt-24 p-5 sm:p-6" id="job-preferences">
+            <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="job-preferences">
               <header className="flex items-center gap-2">
                 <Briefcase className="h-4 w-4 text-muted-foreground" />
                 <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
               </header>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
                 Used for best-match ranking, salary-aware filtering defaults, and auto-apply checks.
               </p>
               <PreferencesForm
@@ -299,12 +299,12 @@ export default async function ProfilePage({
                 }}
               />
             </section>
-            <section className="surface-panel p-5 sm:p-6" id="application-profile">
+            <section className="surface-panel p-3.5 sm:p-6" id="application-profile">
               <header className="flex items-start gap-2">
                 <User2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">Application profile</h2>
-                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                  <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
                     Structured identity, experience, and contact fields used to map application forms safely.
                   </p>
                 </div>
@@ -345,14 +345,14 @@ function SummaryTile({
   progress?: number;
 }) {
   return (
-    <div className="rounded-[16px] border border-border/65 bg-card p-4 shadow-[0_1px_2px_rgba(0,0,0,0.025)]">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <span className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-accent text-primary">
+    <div className="rounded-[16px] border border-border/65 bg-card p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.025)] sm:p-4">
+      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground sm:gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-accent text-primary">
           {icon}
         </span>
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        <span className="hidden truncate text-xs font-medium uppercase tracking-wide sm:inline">{label}</span>
       </div>
-      <p className="mt-3 text-2xl font-semibold text-foreground">{value}</p>
+      <p className="mt-2 text-lg font-semibold text-foreground sm:mt-3 sm:text-2xl">{value}</p>
       {typeof progress === "number" ? (
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
@@ -361,7 +361,7 @@ function SummaryTile({
           />
         </div>
       ) : null}
-      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{hint}</p>
+      <p className="mt-2 hidden line-clamp-2 text-xs text-muted-foreground sm:block">{hint}</p>
     </div>
   );
 }

@@ -29,8 +29,10 @@ function buildOvernightApp(name, args, output, error, extraEnv = {}) {
       NODE_ENV: process.env.NODE_ENV || "production",
       DATABASE_PROCESS_ROLE: "daemon",
       DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "4",
+      DATABASE_POOL_MAX_RECOVERY_POLL:
+        process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
       DATABASE_POOL_CONNECTION_TIMEOUT_MS:
-        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
       INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
       JOOBLE_ENABLED: "false",
       SOURCE_JOOBLE_ENABLED: "false",
@@ -117,31 +119,31 @@ const overnightAccelerationApps = overnightAccelerationEnabled
           DATABASE_PROCESS_ROLE: "recovery_poll",
           INGEST_RECOVERY_MODE: "1",
           RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "900",
+            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "18",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
         }
       ),
       buildOvernightShellApp(
         "ingest-frontier-growth",
-        "-lc 'while true; do node_modules/.bin/tsx -r dotenv/config scripts/run-frontier-growth-pass.ts --cycles=3 --validation-limit=300 --poll-limit=160 --poll-concurrency=8 --max-wall-clock-ms=240000; sleep 300; done'",
+        "-lc 'while true; do node_modules/.bin/tsx -r dotenv/config scripts/run-frontier-growth-pass.ts --cycles=3 --validation-limit=300 --poll-limit=140 --poll-concurrency=6 --max-wall-clock-ms=240000; sleep 300; done'",
         "./logs/frontier-growth-overnight-out.log",
         "./logs/frontier-growth-overnight-err.log",
         {
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "20",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
         }
       ),
       buildOvernightShellApp(
         "ingest-high-yield-source-poll",
-        "-lc 'while true; do timeout 360s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --limit=50 --concurrency=6 --min-age-minutes=120 --max-runtime-ms=150000; sleep 900; done'",
+        "-lc 'while true; do timeout 360s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --limit=45 --concurrency=4 --min-age-minutes=120 --max-runtime-ms=150000; sleep 900; done'",
         "./logs/high-yield-source-poll-overnight-out.log",
         "./logs/high-yield-source-poll-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "12",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
         }
       ),
       buildOvernightShellApp(
@@ -151,7 +153,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/ats-frontier-expansion-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
         }
       ),
       buildOvernightApp(
@@ -167,7 +169,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/feed-index-sync-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
         }
       ),
       buildOvernightApp(
@@ -216,7 +218,7 @@ module.exports = {
         DATABASE_POOL_MAX_DAEMON:
           process.env.DATABASE_POOL_MAX_DAEMON || "4",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
-          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
@@ -227,7 +229,7 @@ module.exports = {
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "32",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "8",
         INGEST_STEADY_DISCOVERY_LIMIT:
           process.env.INGEST_STEADY_DISCOVERY_LIMIT || "25",
         INGEST_STEADY_VALIDATION_LIMIT:
@@ -270,9 +272,9 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
         DATABASE_POOL_MAX_RECOVERY_POLL:
-          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "4",
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
-          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
@@ -283,9 +285,9 @@ module.exports = {
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "24",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "6",
         RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "250",
+          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
         INGEST_STEADY_URL_HEALTH_LIMIT:
           process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "1",
         INGEST_BURST_URL_HEALTH_LIMIT:

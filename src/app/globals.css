@@ -159,11 +159,11 @@
     background: transparent;
   }
   body {
-    @apply min-h-screen bg-background text-foreground antialiased;
+    @apply min-h-dvh overflow-x-hidden bg-background text-foreground antialiased;
     text-rendering: geometricPrecision;
   }
   html {
-    @apply font-sans;
+    @apply overflow-x-hidden font-sans;
   }
   ::selection {
     background: color-mix(in oklab, var(--ring) 24%, transparent);
@@ -248,5 +248,110 @@
 
   .action-pill {
     @apply inline-flex min-w-0 max-w-full items-center justify-center rounded-full border border-border/70 bg-card text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground;
+  }
+}
+
+@media (max-width: 767px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  main,
+  section,
+  article,
+  header,
+  footer,
+  form,
+  fieldset,
+  nav,
+  div {
+    min-width: 0;
+  }
+
+  p,
+  span,
+  a,
+  button,
+  label,
+  input,
+  textarea,
+  select,
+  li {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  input,
+  textarea,
+  select,
+  button,
+  [role="button"],
+  .group\/button {
+    max-width: 100%;
+  }
+
+  .group\/button {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @layer components {
+    .app-page {
+      @apply max-w-full space-y-4 px-3 py-4;
+    }
+
+    .page-header {
+      @apply gap-2 pb-3;
+    }
+
+    .page-title {
+      @apply text-[1.65rem] leading-tight;
+    }
+
+    .page-description {
+      @apply mt-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-5;
+    }
+
+    .surface-panel {
+      @apply rounded-[18px];
+    }
+
+    .toolbar-panel {
+      @apply rounded-[16px] p-2.5;
+    }
+
+    .object-list {
+      @apply rounded-[16px];
+    }
+
+    .object-row {
+      @apply px-3.5 py-3.5;
+    }
+
+    .empty-state {
+      @apply px-4 py-9;
+    }
+
+    .mobile-card-tight {
+      @apply rounded-[16px] p-3.5;
+    }
+
+    .mobile-list-title {
+      @apply line-clamp-2 min-w-0 text-[15px] leading-5;
+    }
+
+    .mobile-meta-line {
+      @apply min-w-0 truncate text-[13px] leading-5;
+    }
+
+    .mobile-action-row {
+      @apply flex min-w-0 flex-wrap items-center gap-2;
+    }
   }
 }

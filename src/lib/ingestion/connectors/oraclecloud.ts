@@ -102,6 +102,7 @@ type OracleCloudConnectorOptions = {
    * site). Some tenants expose CX_2, CX_3 — pass the relevant one.
    */
   site?: string;
+  companyName?: string;
   limitPerPage?: number;
   maxPages?: number;
 };
@@ -124,6 +125,7 @@ export function createOracleCloudConnector(
   }
 
   const site = (options.site ?? "CX").trim();
+  const companyName = options.companyName?.trim() || inferCompanyFromTenant(tenant);
   const tenantKey = tenant.replace(/\.oraclecloud\.com$/i, "");
   const fetchCache = new Map<string, Promise<SourceConnectorFetchResult>>();
 
@@ -145,6 +147,7 @@ export function createOracleCloudConnector(
       const request = fetchOracleCloudJobs({
         tenant,
         site,
+        companyName,
         now: fetchOptions.now ?? new Date(),
         limit: fetchOptions.limit,
         signal: fetchOptions.signal,
@@ -163,6 +166,7 @@ export function createOracleCloudConnector(
 async function fetchOracleCloudJobs(input: {
   tenant: string;
   site: string;
+  companyName: string;
   now: Date;
   limit: number | undefined;
   signal: AbortSignal | undefined;
@@ -237,6 +241,7 @@ async function fetchOracleCloudJobs(input: {
       const mapped = mapOracleCloudJob(item, {
         tenant: input.tenant,
         site: input.site,
+        companyName: input.companyName,
         now: input.now,
       });
       if (!mapped) continue;
@@ -294,7 +299,7 @@ function buildApplyUrl(args: { tenant: string; site: string; jobId: string }) {
 
 function mapOracleCloudJob(
   job: OracleCloudJob,
-  ctx: { tenant: string; site: string; now: Date }
+  ctx: { tenant: string; site: string; companyName: string; now: Date }
 ): SourceConnectorJob | null {
   const sourceId = sanitizeText(job.Id);
   const title = sanitizeText(job.Title);
@@ -316,7 +321,7 @@ function mapOracleCloudJob(
     parseDate(job.PostedDate) ?? parseDate(job.PostingDate);
   const deadline = parseDate(job.PostingEndDate);
   const description = buildDescription(job);
-  const company = inferCompanyFromTenant(ctx.tenant);
+  const company = ctx.companyName || inferCompanyFromTenant(ctx.tenant);
 
   return {
     sourceId: `oraclecloud:${ctx.tenant.replace(/\.oraclecloud\.com$/, "")}:${sourceId}`,

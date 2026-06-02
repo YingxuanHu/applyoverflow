@@ -95,7 +95,12 @@ export function JobCardActions({
       <div
         className={cn(
           "flex flex-col gap-1",
-          align === "end" ? "items-end" : "items-start"
+          compact && "w-full sm:w-auto",
+          align === "end"
+            ? compact
+              ? "items-stretch sm:items-end"
+              : "items-end"
+            : "items-start"
         )}
       >
         <Button

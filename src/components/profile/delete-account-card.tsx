@@ -98,7 +98,7 @@ export function DeleteAccountCard({
               </label>
             ) : (
               <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                You are signed in with a connected provider. A fresh session is required to delete this account.
+                You are signed in with Google. A fresh session is required to delete this account.
               </div>
             )}
 

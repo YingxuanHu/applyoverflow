@@ -305,15 +305,17 @@ export function ApplicationRemindersSummary({
   }
 
   return (
-    <section className="surface-panel p-4 sm:p-5">
+    <section className="surface-panel p-3.5 sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">Reminders</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Upcoming follow-ups from your tracker.</p>
+          <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+            Upcoming follow-ups from your tracker.
+          </p>
         </div>
       </div>
 
-      <div className="mt-3 divide-y divide-border/60">
+      <div className="mt-2 divide-y divide-border/60 sm:mt-3">
         {groups.map((group) => (
           <ApplicationReminderGroupRow group={group} key={group.applicationId} />
         ))}

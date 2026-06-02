@@ -5,6 +5,8 @@ import {
   requireCurrentAuthUserId,
   requireCurrentUserProfile,
 } from "@/lib/current-user";
+import { buildProfileContext } from "@/lib/ai/context-builders";
+import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { prisma } from "@/lib/db";
 import { getOpenAIClient, getOpenAIReadiness, getStandardModel } from "@/lib/openai";
 import {
@@ -107,6 +109,8 @@ function sanitizeHistory(value: unknown): ChatTurn[] {
 }
 
 function formatProfileContext(profile: {
+  name?: string | null;
+  email?: string | null;
   headline: string | null;
   summary: string | null;
   contactJson: unknown;
@@ -128,8 +132,8 @@ function formatProfileContext(profile: {
   const parts: string[] = [];
 
   const contactLine = [
-    contact.fullName,
-    contact.email,
+    contact.fullName || profile.name,
+    contact.email || profile.email,
     contact.phone,
     contact.location,
     contact.linkedInUrl,
@@ -307,6 +311,18 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Question is required." }, { status: 400 });
     }
 
+    const aiProfileContext = await buildProfileContext();
+    if (!aiProfileContext) {
+      return NextResponse.json({ error: "Profile not found." }, { status: 404 });
+    }
+    const profileReadiness = assessProfileForAi(aiProfileContext);
+    if (!profileReadiness.canUseAi) {
+      return NextResponse.json(
+        { error: profileReadiness.blockingMessage ?? "Please complete your profile." },
+        { status: 400 }
+      );
+    }
+
     const { id } = await context.params;
 
     const application = await prisma.trackedApplication.findFirst({
@@ -409,6 +425,9 @@ export async function POST(request: Request, context: RouteContext) {
           };
         }>
       )}`,
+      profileReadiness.profileNotice
+        ? `Profile Guidance:\n${profileReadiness.profileNotice}`
+        : "",
       `Your Profile:\n${formatProfileContext(profile)}`,
       `Uploaded Resume Library:\n${formatResumeLibraryContext(uploadedResumes)}`,
     ]
@@ -438,6 +457,7 @@ What you help with:
 Rules:
 - Ground every answer in the saved context for this application.
 - Use the whole saved profile and uploaded resume library when the user asks resume-choice or profile-based questions.
+- If profile details are incomplete, briefly tell the user what to add for a better answer before giving the best answer possible from available context.
 - If the saved context does not contain enough information, say that clearly.
 - Do not invent company facts, compensation, interview stages, or details about the user's experience.
 - Do not claim to have browsed the web.
@@ -477,7 +497,7 @@ ${applicationContext}`,
       );
     }
 
-    return NextResponse.json({ answer });
+    return NextResponse.json({ answer, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

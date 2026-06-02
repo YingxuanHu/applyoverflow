@@ -99,6 +99,15 @@ const OFFICIAL_CONNECTOR_COMPANY_KEYS = new Map<
       reason: "Apple exposes server-rendered structured search data with stable position IDs.",
     },
   ],
+  [
+    "netflix",
+    {
+      company: "netflix",
+      boardUrl: "https://explore.jobs.netflix.net/careers?domain=netflix.com",
+      reason:
+        "Netflix exposes a first-party apply API and per-job detail endpoint on its official careers host.",
+    },
+  ],
 ]);
 
 const DEFERRED_COMPANY_KEYS = new Map<

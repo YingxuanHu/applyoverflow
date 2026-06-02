@@ -30,6 +30,19 @@ import { supportedResumeAcceptValue, type ResumeImportSummary } from "@/lib/resu
 const SUPPORTED_TEMPLATE_ACCEPT =
   ".tex,.cls,.sty,.typ,.txt,.md,.html,.css,.json,.yaml,.yml,.xml,.rtf";
 
+function formatDocumentKind(mimeType: string, fileName?: string) {
+  const value = mimeType.toLowerCase();
+  const name = (fileName ?? "").toLowerCase();
+  if (value.includes("pdf") || name.endsWith(".pdf")) return "PDF";
+  if (value.includes("word") || name.endsWith(".doc") || name.endsWith(".docx")) return "Word";
+  if (value.includes("text") || name.endsWith(".txt")) return "Text";
+  if (name.endsWith(".tex")) return "LaTeX";
+  if (name.endsWith(".md")) return "Markdown";
+  if (name.endsWith(".html")) return "HTML";
+  if (name.endsWith(".json")) return "JSON";
+  return "File";
+}
+
 type ResumeRecord = {
   id: string;
   title: string;
@@ -180,7 +193,7 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
   const error = primaryState.error ?? deleteState.error ?? renameState.error ?? syncError;
 
   return (
-    <div className="rounded-[14px] border border-border/65 bg-card px-3.5 py-3">
+    <div className="rounded-[14px] border border-border/65 bg-card px-3 py-2.5 sm:px-3.5 sm:py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -207,8 +220,8 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
           <p className="mt-1 truncate text-xs text-muted-foreground">{resume.originalFileName}</p>
         </div>
         {renaming ? null : (
-          <div className="flex items-center gap-2">
-            <Button render={<a href={resume.downloadHref} />} className="h-8 px-3 text-xs" size="sm" variant="secondary">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <Button render={<a href={resume.downloadHref} />} className="h-8 px-2.5 text-xs sm:px-3" size="sm" variant="secondary">
               Download
             </Button>
             <DropdownMenu>
@@ -249,8 +262,8 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
           </div>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>{resume.mimeType}</span>
+      <div className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground sm:gap-x-4">
+        <span>{formatDocumentKind(resume.mimeType, resume.originalFileName)}</span>
         <span>{resume.sizeLabel}</span>
         <span>{resume.createdAtLabel}</span>
       </div>
@@ -336,7 +349,7 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
   const error = primaryState.error ?? deleteState.error ?? renameState.error;
 
   return (
-    <div className="rounded-[14px] border border-border/65 bg-card px-3.5 py-3">
+    <div className="rounded-[14px] border border-border/65 bg-card px-3 py-2.5 sm:px-3.5 sm:py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -363,8 +376,8 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
           <p className="mt-1 truncate text-xs text-muted-foreground">{template.originalFileName}</p>
         </div>
         {renaming ? null : (
-          <div className="flex items-center gap-2">
-            <Button render={<a href={template.downloadHref} />} className="h-8 px-3 text-xs" size="sm" variant="secondary">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <Button render={<a href={template.downloadHref} />} className="h-8 px-2.5 text-xs sm:px-3" size="sm" variant="secondary">
               Download
             </Button>
             <DropdownMenu>
@@ -398,7 +411,9 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
           </div>
         )}
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">{template.mimeType}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {formatDocumentKind(template.mimeType, template.originalFileName)}
+      </p>
       {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
       <ConfirmActionDialog
         confirmLabel="Delete"
@@ -642,7 +657,7 @@ export function ResumeManager({
   const aiResumes = resumes.filter((resume) => resume.isAiGenerated);
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-3 sm:gap-5">
       <DocumentGroup
         count={uploadedResumes.length}
         description="Uploaded resume versions. Keep one primary, then sync any version back into the structured profile."
@@ -692,14 +707,14 @@ export function ResumeManager({
           tailored resume from the workspace. Kept visually distinct via the
           dashed border + label so it can't be confused with uploads. */}
       {aiResumes.length > 0 ? (
-        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-4">
+        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Generated resumes
             </h3>
             <span className="text-xs text-muted-foreground">{aiResumes.length}</span>
           </div>
-          <p className="mb-2 text-xs text-muted-foreground">
+          <p className="mb-2 hidden text-xs text-muted-foreground sm:block">
             Tailored resumes produced by the app from your template + job description.
           </p>
           <div className="grid gap-2">
@@ -759,13 +774,13 @@ function DocumentGroup({
   title: string;
 }) {
   return (
-    <section className="grouped-panel p-4">
+    <section className="grouped-panel p-3 sm:p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
             {title}
           </h3>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
+          <p className="mt-1 hidden text-sm leading-5 text-muted-foreground sm:block">{description}</p>
         </div>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>
       </div>
