@@ -6,9 +6,9 @@ import {
   Check,
   ChevronDown,
   SlidersHorizontal,
-  X,
 } from "lucide-react";
 
+import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chips";
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import {
   JobsFilterDropdownField,
@@ -27,12 +27,12 @@ import {
 } from "@/lib/currency-conversion";
 import { prisma } from "@/lib/db";
 import {
-  NORMALIZED_CAREER_STAGE_OPTIONS,
-  NORMALIZED_EMPLOYMENT_TYPE_OPTIONS,
+  EXPERIENCE_LEVEL_GROUP_OPTIONS,
+  NORMALIZED_EMPLOYMENT_TYPE_GROUP_OPTIONS,
   NORMALIZED_INDUSTRY_OPTIONS,
   NORMALIZED_ROLE_CATEGORY_OPTIONS,
-  normalizeCareerStageFilterValue,
-  normalizeEmploymentTypeFilterValue,
+  normalizeEmploymentTypeGroupFilterValue,
+  normalizeExperienceLevelGroupFilterValue,
   normalizeIndustryFilterValue,
   normalizeRoleCategoryFilterValue,
 } from "@/lib/job-metadata";
@@ -213,6 +213,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       <SearchParamMemory
         basePath="/jobs"
         cookieName={JOBS_SEARCH_STATE_COOKIE}
+        normalizer="jobs"
         persistEndpoint="/api/preferences/jobs-search-state"
         stateParamKeys={JOBS_STATE_PARAM_KEYS}
         storageKey={JOBS_SEARCH_STATE_STORAGE_KEY}
@@ -293,8 +294,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                       <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
                     </summary>
 
-                    <div className="fixed inset-x-2 bottom-3 z-40 max-h-[min(82dvh,36rem)] origin-bottom overflow-hidden rounded-[20px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+0.6rem)] sm:w-[min(36rem,calc(100vw-2rem))] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
-                      <form method="get">
+                    <div className="fixed inset-x-2 bottom-3 z-40 flex max-h-[calc(100dvh-1.5rem)] origin-bottom overflow-hidden rounded-[20px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+0.6rem)] sm:max-h-[min(76dvh,36rem)] sm:w-[min(36rem,calc(100vw-2rem))] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
+                      <form className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,36rem)]" method="get">
                         {buildFilterPanelHiddenFields(filters).map((field) => (
                           <input
                             key={`${field.name}:${field.value}`}
@@ -304,7 +305,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
                         ))}
 
-                        <div className="border-b border-border/60 px-3.5 py-3 sm:px-4">
+                        <div className="shrink-0 border-b border-border/60 px-3.5 py-3 sm:px-4">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <p className="text-sm font-medium text-foreground">Refine jobs</p>
@@ -320,7 +321,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           </div>
                         </div>
 
-                        <div className="grid max-h-[min(68dvh,30rem)] gap-2 overflow-y-auto p-3 sm:grid-cols-2 sm:p-3.5">
+                        <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto p-3 sm:grid-cols-2 sm:p-3.5">
                           <FilterToggleField
                             name="expiry"
                             selected={filters.expiry}
@@ -337,7 +338,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="All levels"
                             name="careerStage"
-                            options={NORMALIZED_CAREER_STAGE_OPTIONS}
+                            options={EXPERIENCE_LEVEL_GROUP_OPTIONS}
                             selected={filters.careerStage}
                             title="Experience level"
                           />
@@ -402,7 +403,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any type"
                             name="employmentType"
-                            options={NORMALIZED_EMPLOYMENT_TYPE_OPTIONS}
+                            options={NORMALIZED_EMPLOYMENT_TYPE_GROUP_OPTIONS}
                             selected={filters.employmentType}
                             title="Employment type"
                           />
@@ -429,7 +430,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
                         </div>
 
-                        <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/45 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                        <div className="flex shrink-0 flex-col gap-3 border-t border-border/60 bg-muted/45 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                           <div className="hidden sm:block">
                             <p className="text-xs font-medium text-foreground">Apply filters</p>
                             <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -485,38 +486,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               </div>
 
               {activeFilterGroups.length > 0 ? (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {activeFilterGroups.map((group) => (
-                      <div
-                        className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border border-border/70 bg-card py-1 pl-3 pr-1.5 text-xs text-muted-foreground"
-                        key={group.key}
-                      >
-                        <span className="font-semibold text-foreground">{group.label}:</span>
-                        {group.items.map((item) => (
-                          <Link
-                            aria-label={`Remove ${group.label}: ${item.label}`}
-                            className="inline-flex h-6 max-w-full items-center gap-1 rounded-full px-1.5 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                            href={item.href}
-                            key={item.key}
-                          >
-                            <span className="min-w-0 truncate">{item.label}</span>
-                            <X className="h-3 w-3 shrink-0" />
-                          </Link>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    className="h-8 shrink-0 rounded-full px-3 text-xs sm:ml-3"
-                    render={<Link href={clearFiltersHref} />}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Clear all
-                  </Button>
-                </div>
+                <JobsActiveFilterChips
+                  clearHref={clearFiltersHref}
+                  groups={activeFilterGroups}
+                />
               ) : null}
             </div>
           </div>
@@ -664,10 +637,9 @@ function parseJobFilters(
   } else if (rawSearch && selectedSearchScope === "location") {
     locationSearch = normalizeTextListParam([locationSearch, rawSearch].filter(Boolean).join(","));
     search = undefined;
-  } else if (search) {
-    titleSearch = undefined;
-    companySearch = undefined;
-    locationSearch = undefined;
+  } else if (rawSearch && selectedSearchScope === "all") {
+    titleSearch = titleSearch ?? rawSearch;
+    search = undefined;
   }
   const effectiveSearchScope = inferEffectiveSearchScope({
     companySearch,
@@ -697,7 +669,9 @@ function parseJobFilters(
     source: normalizeTextParam(getSearchParam(searchParams, "source")),
     region: getMultiSearchParam(searchParams, "region"),
     workMode: getMultiSearchParam(searchParams, "workMode"),
-    employmentType: normalizeEmploymentTypeFilterValue(getMultiSearchParam(searchParams, "employmentType")),
+    employmentType: normalizeEmploymentTypeGroupFilterValue(
+      getMultiSearchParam(searchParams, "employmentType")
+    ),
     industry: normalizeIndustryFilterValue(getMultiSearchParam(searchParams, "industry")),
     roleCategory: normalizeRoleCategoryFilterValue(rawJobFunction),
     roleFamily: normalizeTextParam(getMultiSearchParam(searchParams, "roleFamily")),
@@ -707,7 +681,7 @@ function parseJobFilters(
       normalizeSalaryCurrency(getSearchParam(searchParams, "salaryCurrency")) ??
       defaultSalaryCurrency,
     includeUnknownSalary: normalizeBooleanParam(getSearchParam(searchParams, "includeUnknownSalary")),
-    careerStage: normalizeCareerStageFilterValue(rawCareerStage),
+    careerStage: normalizeExperienceLevelGroupFilterValue(rawCareerStage),
     expiry: getSearchParam(searchParams, "expiry"),
     posted: getSearchParam(searchParams, "posted") ?? getSearchParam(searchParams, "datePosted"),
     submissionCategory: undefined,
@@ -733,7 +707,7 @@ function inferEffectiveSearchScope({
   selectedSearchScope: JobFilterParams["searchScope"];
   titleSearch?: string;
 }) {
-  if (search) return "all";
+  if (search) return "title";
   if (selectedSearchScope && selectedSearchScope !== "all") return selectedSearchScope;
   if (titleSearch) return "title";
   if (companySearch) return "company";
@@ -899,7 +873,7 @@ function normalizeMetadataParamsForHref(
 
   const legacyCareerStage = params.get("experienceLevel");
   if (legacyCareerStage && !params.has("careerStage")) {
-    const normalized = normalizeCareerStageFilterValue(legacyCareerStage);
+    const normalized = normalizeExperienceLevelGroupFilterValue(legacyCareerStage);
     if (normalized) params.set("careerStage", normalized);
     params.delete("experienceLevel");
   }
@@ -925,7 +899,7 @@ function normalizeSearchParamsForHref(params: URLSearchParams) {
       );
       if (locationSearch) params.set("locationSearch", locationSearch);
     } else {
-      params.set("search", aliasQuery);
+      params.set("titleSearch", aliasQuery);
     }
   }
   params.delete("q");
@@ -961,9 +935,10 @@ function normalizeSearchParamsForHref(params: URLSearchParams) {
     return;
   }
 
-  params.delete("titleSearch");
-  params.delete("companySearch");
-  params.delete("locationSearch");
+  if (!normalizeTextParam(params.get("titleSearch") ?? undefined)) {
+    params.set("titleSearch", search);
+  }
+  params.delete("search");
   params.delete("searchScope");
 }
 
@@ -1300,10 +1275,10 @@ function buildActiveFilterGroups(
       { key: "source", label: filters.source, href: removeParamHref("source") },
     ]);
   }
-  addSelectedOptionGroup(groups, currentParams, "careerStage", filters.careerStage, NORMALIZED_CAREER_STAGE_OPTIONS, "Experience");
+  addSelectedOptionGroup(groups, currentParams, "careerStage", filters.careerStage, EXPERIENCE_LEVEL_GROUP_OPTIONS, "Experience");
   addSelectedOptionGroup(groups, currentParams, "jobFunction", filters.roleCategory, NORMALIZED_ROLE_CATEGORY_OPTIONS, "Job Function");
   addSelectedOptionGroup(groups, currentParams, "workMode", filters.workMode, WORK_MODE_OPTIONS, "Work mode");
-  addSelectedOptionGroup(groups, currentParams, "employmentType", filters.employmentType, NORMALIZED_EMPLOYMENT_TYPE_OPTIONS, "Employment type");
+  addSelectedOptionGroup(groups, currentParams, "employmentType", filters.employmentType, NORMALIZED_EMPLOYMENT_TYPE_GROUP_OPTIONS, "Employment type");
   addRawValueGroup(groups, currentParams, "region", filters.region, "Region");
   addSelectedOptionGroup(groups, currentParams, "industry", filters.industry, NORMALIZED_INDUSTRY_OPTIONS, "Company industry");
   addSelectedOptionGroup(groups, currentParams, "posted", filters.posted, POSTED_OPTIONS, "Date posted");

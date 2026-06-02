@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import type { TrackerSearchScope } from "@/lib/queries/tracker";
 
 type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "reminder">;
+type SelectableTrackerSearchScope = Exclude<VisibleTrackerSearchScope, "all">;
 type SearchValues = Record<TrackerSearchScope, string>;
 
-const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleTrackerSearchScope }> = [
-  { label: "All", value: "all" },
+const DEFAULT_SEARCH_SCOPE: SelectableTrackerSearchScope = "title";
+
+const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: SelectableTrackerSearchScope }> = [
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
   { label: "Location", value: "location" },
@@ -40,9 +42,18 @@ export function ApplicationsSearchField({
   initialScope: TrackerSearchScope;
   initialValues: SearchValues;
 }) {
-  const initialVisibleScope = initialScope === "reminder" ? "all" : initialScope;
-  const [scope, setScope] = useState<VisibleTrackerSearchScope>(initialVisibleScope);
-  const [values, setValues] = useState<SearchValues>(initialValues);
+  const initialVisibleScope =
+    initialScope === "reminder" || initialScope === "all"
+      ? DEFAULT_SEARCH_SCOPE
+      : initialScope;
+  const [scope, setScope] = useState<SelectableTrackerSearchScope>(initialVisibleScope);
+  const [values, setValues] = useState<SearchValues>(() => ({
+    ...initialValues,
+    all: "",
+    title:
+      initialValues.title ||
+      (initialScope === "all" ? initialValues.all : ""),
+  }));
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
 
   return (
@@ -51,7 +62,7 @@ export function ApplicationsSearchField({
         Search
       </span>
       <input name="searchScope" type="hidden" value={scope} />
-      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope && option.value !== "all").map((option) => {
+      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
         const value = values[option.value].trim();
         if (!value) return null;
         return (
@@ -72,7 +83,7 @@ export function ApplicationsSearchField({
           <select
             className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
             id="applications-search-scope"
-            onChange={(event) => setScope(event.target.value as VisibleTrackerSearchScope)}
+            onChange={(event) => setScope(event.target.value as SelectableTrackerSearchScope)}
             style={{ textAlignLast: "left" }}
             value={scope}
           >

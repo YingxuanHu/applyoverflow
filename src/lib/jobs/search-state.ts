@@ -40,6 +40,7 @@ export const JOBS_STATE_PARAM_KEYS = [
   "page",
 ] as const;
 
+const DEFAULT_KEYWORD_SEARCH_FIELD = "title" as const;
 const JOBS_STATE_PARAM_KEY_SET = new Set<string>(JOBS_STATE_PARAM_KEYS);
 
 const MULTI_VALUE_KEYS = new Set([
@@ -119,15 +120,33 @@ type LastJobsSearchState = {
 export function hasJobsStateParamsRecord(
   searchParams: Record<string, string | string[] | undefined>
 ) {
+  const hasSearchText = Boolean(
+    normalizeTextValue(firstParamValue(searchParams.q)) ||
+      normalizeTextValue(firstParamValue(searchParams.search)) ||
+      normalizeTextValue(firstParamValue(searchParams.titleSearch)) ||
+      normalizeTextValue(firstParamValue(searchParams.companySearch)) ||
+      normalizeTextValue(firstParamValue(searchParams.locationSearch))
+  );
+
   return Object.entries(searchParams).some(([key, value]) => {
     if (!JOBS_STATE_PARAM_KEY_SET.has(key)) return false;
+    if ((key === "field" || key === "searchScope") && !hasSearchText) return false;
     const normalizedValue = Array.isArray(value) ? value.filter(Boolean).join(",") : value;
     return normalizeTextValue(normalizedValue) !== undefined;
   });
 }
 
 export function hasJobsStateParams(searchParams: URLSearchParams) {
+  const hasSearchText = Boolean(
+    normalizeTextValue(searchParams.get("q") ?? undefined) ||
+      normalizeTextValue(searchParams.get("search") ?? undefined) ||
+      normalizeTextValue(searchParams.get("titleSearch") ?? undefined) ||
+      normalizeTextValue(searchParams.get("companySearch") ?? undefined) ||
+      normalizeTextValue(searchParams.get("locationSearch") ?? undefined)
+  );
+
   for (const key of JOBS_STATE_PARAM_KEYS) {
+    if ((key === "field" || key === "searchScope") && !hasSearchText) continue;
     if (normalizeTextValue(searchParams.get(key) ?? undefined)) return true;
   }
   return false;
@@ -140,6 +159,7 @@ export function normalizeJobsStateQuery(
   const includePage = options.includePage ?? true;
   const source = toURLSearchParams(input);
   applyAliasParams(source);
+  moveBroadSearchToScopedSearch(source);
   if (!source.has("searchScope") && hasSearchValue(source)) {
     const inferredScope = inferSearchScope(source);
     if (inferredScope !== "all") source.set("searchScope", inferredScope);
@@ -279,9 +299,9 @@ function applyAliasParams(params: URLSearchParams) {
       } else if (field === "location") {
         params.set("locationSearch", q);
       } else {
-        params.set("search", q);
+        params.set("titleSearch", q);
       }
-      params.set("searchScope", field);
+      params.set("searchScope", field === "all" ? DEFAULT_KEYWORD_SEARCH_FIELD : field);
     }
   }
 
@@ -299,6 +319,30 @@ function applyAliasParams(params: URLSearchParams) {
   if (datePosted && !params.has("posted")) {
     params.set("posted", datePosted);
   }
+}
+
+function moveBroadSearchToScopedSearch(params: URLSearchParams) {
+  const search = normalizeTextValue(params.get("search") ?? undefined);
+  if (!search) return;
+
+  const scope = normalizeFieldValue(params.get("searchScope") ?? undefined);
+  if (scope === "company") {
+    if (!normalizeTextValue(params.get("companySearch") ?? undefined)) {
+      params.set("companySearch", search);
+    }
+  } else if (scope === "location") {
+    const locationSearch = normalizeListValue(
+      [params.get("locationSearch"), search].filter(Boolean).join(",")
+    );
+    if (locationSearch) params.set("locationSearch", locationSearch);
+  } else {
+    if (!normalizeTextValue(params.get("titleSearch") ?? undefined)) {
+      params.set("titleSearch", search);
+    }
+  }
+
+  params.delete("search");
+  params.delete("searchScope");
 }
 
 function hasSearchValue(params: URLSearchParams) {
@@ -368,6 +412,10 @@ function splitValues(value?: string | null) {
   return values;
 }
 
+function firstParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function parsePositiveInt(value?: string | null) {
   if (!value) return null;
   const parsed = Number.parseInt(value, 10);
@@ -388,7 +436,8 @@ function getPrimarySearchField(params: URLSearchParams): LastJobsSearchState["fi
   if (params.get("titleSearch")) return "title";
   if (params.get("companySearch")) return "company";
   if (params.get("locationSearch")) return "location";
-  return "all";
+  if (params.get("search")) return DEFAULT_KEYWORD_SEARCH_FIELD;
+  return DEFAULT_KEYWORD_SEARCH_FIELD;
 }
 
 function inferSearchScope(params: URLSearchParams) {

@@ -9,7 +9,9 @@ function readRepoFile(path: string) {
 test("jobs filters support scoped search, removable chips, compact filters, and salary range", () => {
   const querySource = readRepoFile("src/lib/queries/jobs.ts");
   const filterContractSource = readRepoFile("src/lib/job-filter-contract.ts");
+  const metadataSource = readRepoFile("src/lib/job-metadata.ts");
   const pageSource = readRepoFile("src/app/jobs/page.tsx");
+  const activeChipsSource = readRepoFile("src/components/jobs/jobs-active-filter-chips.tsx");
   const filterFieldSource = readRepoFile("src/components/jobs/jobs-filter-field.tsx");
   const searchFormSource = readRepoFile("src/components/jobs/jobs-search-form.tsx");
 
@@ -31,11 +33,11 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(querySource, /appendLocationSearchWhere\(where, filters\.locationSearch\)/);
   assert.match(querySource, /return clauses\.length === 1 \? clauses\[0\] : \{ OR: clauses \}/);
   assert.match(querySource, /sourceMappings:\s*\{\s*some:\s*\{[\s\S]*sourceName:\s*\{\s*contains: filters\.source/);
-  assert.match(querySource, /normalizedEmploymentType:\s*employmentTypes\.length > 0/);
-  assert.match(querySource, /normalizedEmploymentTypeConfidence:\s*\{\s*gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD/);
-  assert.match(querySource, /normalizedCareerStage:\s*knownStages\.length > 0/);
+  assert.match(querySource, /employmentTypeGroup:\s*employmentTypeGroups\.length > 0/);
+  assert.match(querySource, /employmentTypeConfidence:\s*\{\s*gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD/);
+  assert.match(querySource, /experienceLevelGroup:\s*knownGroups\.length > 0/);
   assert.match(querySource, /normalizedCareerStageConfidence:\s*\{\s*gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD/);
-  assert.match(querySource, /normalizedIndustry:\s*industries\.length > 0/);
+  assert.match(querySource, /normalizedIndustries:\s*\{\s*hasSome: industries \}/);
   assert.match(querySource, /normalizedIndustryConfidence:\s*\{\s*gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD/);
   assert.match(querySource, /normalizedRoleCategory/);
   assert.match(querySource, /normalizedRoleCategoryConfidence:\s*\{\s*gte: ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD/);
@@ -75,10 +77,13 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /return "\/jobs\?reset=1"/);
   assert.match(pageSource, /normalizeSearchParamsForHref\(params\)/);
   assert.match(pageSource, /if \(rawSearch && selectedSearchScope === "title"\)/);
-  assert.match(pageSource, /else if \(search\) \{[\s\S]*titleSearch = undefined;[\s\S]*companySearch = undefined;[\s\S]*locationSearch = undefined;/);
+  assert.match(pageSource, /else if \(rawSearch && selectedSearchScope === "all"\)/);
+  assert.match(pageSource, /titleSearch = titleSearch \?\? rawSearch/);
   assert.match(pageSource, /splitFilterValues\(filters\.locationSearch\)/);
-  assert.match(pageSource, /Clear all/);
-  assert.equal(pageSource.match(/Clear all/g)?.length, 1);
+  assert.match(pageSource, /JobsActiveFilterChips/);
+  assert.match(activeChipsSource, /Clear all/);
+  assert.match(activeChipsSource, /setPendingItems/);
+  assert.match(activeChipsSource, /group-hover\/filter-chip:text-white/);
   assert.match(pageSource, /name="salaryMax"/);
   assert.match(pageSource, /name="salaryCurrency"/);
   assert.match(pageSource, /name="includeUnknownSalary"/);
@@ -102,11 +107,14 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(pageSource, /title="Deadline"/);
   assert.match(searchFormSource, /name="searchScope"/);
   assert.match(searchFormSource, /const SEARCH_SCOPE_OPTIONS/);
-  assert.match(searchFormSource, /\{ label: "All", value: "all" \}/);
+  assert.doesNotMatch(searchFormSource, /\{ label: "All", value: "all" \}/);
+  assert.match(searchFormSource, /submittedSearchValue/);
   assert.match(searchFormSource, /titleSearch/);
   assert.match(searchFormSource, /companySearch/);
   assert.match(searchFormSource, /locationSearch/);
   assert.match(pageSource, /name="employmentType"/);
+  assert.match(pageSource, /NORMALIZED_EMPLOYMENT_TYPE_GROUP_OPTIONS/);
+  assert.match(metadataSource, /Internship \/ Co-op/);
   assert.match(pageSource, /name="posted"/);
   assert.doesNotMatch(pageSource, /name="source"/);
   assert.doesNotMatch(pageSource, /name="status"/);

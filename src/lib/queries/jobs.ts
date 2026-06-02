@@ -8,6 +8,7 @@ import {
   sanitizeJobTitle,
 } from "@/lib/job-cleanup";
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
 import { inferGeoScope } from "@/lib/geo-scope";
@@ -22,12 +23,12 @@ import {
 } from "@/lib/profile";
 import {
   CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD,
-  EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD,
+  METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD,
   INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
   expandNormalizedRoleCategoryFilterValue,
-  normalizeCareerStageFilterValue,
-  normalizeEmploymentTypeFilterValue,
+  normalizeEmploymentTypeGroupFilterValue,
+  normalizeExperienceLevelGroupFilterValue,
   normalizeIndustryFilterValue,
 } from "@/lib/job-metadata";
 import {
@@ -150,6 +151,9 @@ const inflightJobsQueryStore = new Map<string, Promise<JobsResult>>();
 const JOB_CARD_INCLUDE = (viewerProfileId: string | null) =>
   ({
     eligibility: true,
+    feedIndex: {
+      select: { status: true },
+    },
     sourceMappings: true,
     savedJobs: {
       where: {
@@ -174,6 +178,7 @@ const JOB_FEED_CARD_SELECT = (viewerProfileId: string | null) =>
     normalizedRoleCategory: true,
     normalizedRoleCategoryConfidence: true,
     normalizedIndustry: true,
+    normalizedIndustries: true,
     normalizedIndustryConfidence: true,
     classificationStatus: true,
     experienceLevel: true,
@@ -567,6 +572,7 @@ function logJobFilterDebug(
           normalizedRoleCategory: job.normalizedRoleCategory ?? null,
           normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence ?? null,
           normalizedIndustry: job.normalizedIndustry ?? null,
+          normalizedIndustries: job.normalizedIndustries ?? [],
           normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
           classificationStatus: job.classificationStatus ?? null,
           matchedBy: "base_visible_jobs_and_structured_filters_then_search",
@@ -745,9 +751,12 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.workMode) {
-    where.workMode = {
-      in: filters.workMode.split(",") as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-    };
+    appendFeedIndexAndCondition(where, {
+      workMode: {
+        in: filters.workMode.split(",") as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+      },
+      workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+    });
   }
 
   if (filters.industry) {
@@ -756,7 +765,13 @@ async function getJobsFromFeedIndex(input: {
       "UNKNOWN"
     );
     appendFeedIndexAndCondition(where, {
-      normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+      OR:
+        industries.length > 0
+          ? [
+              { normalizedIndustries: { hasSome: industries } },
+              { normalizedIndustry: { in: industries } },
+            ]
+          : [{ normalizedIndustry: { in: [] } }],
       normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
@@ -801,13 +816,14 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.employmentType) {
-    const employmentTypes = withoutUnknownFilterValues(
-      splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+    const employmentTypeGroups = withoutUnknownFilterValues(
+      splitFilterValues(normalizeEmploymentTypeGroupFilterValue(filters.employmentType)),
       "UNKNOWN"
     );
     appendFeedIndexAndCondition(where, {
-      normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
-      normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
+      employmentTypeGroup:
+        employmentTypeGroups.length > 0 ? { in: employmentTypeGroups } : { in: [] },
+      employmentTypeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
 
@@ -842,12 +858,12 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.careerStage || filters.experienceLevel) {
-    const stages = splitFilterValues(
-      normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+    const groups = splitFilterValues(
+      normalizeExperienceLevelGroupFilterValue(filters.careerStage ?? filters.experienceLevel)
     );
-    const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
+    const knownGroups = withoutUnknownFilterValues(groups, "UNKNOWN");
     appendFeedIndexAndCondition(where, {
-      normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+      experienceLevelGroup: knownGroups.length > 0 ? { in: knownGroups } : { in: [] },
       normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
@@ -3291,19 +3307,23 @@ export async function getJobs(
 
     if (filters.workMode) {
       const modes = filters.workMode.split(",");
-      where.workMode = {
-        in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-      };
+      appendAndCondition(where, {
+        workMode: {
+          in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+        },
+        workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+      });
     }
 
     if (filters.employmentType) {
-      const employmentTypes = withoutUnknownFilterValues(
-        splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+      const employmentTypeGroups = withoutUnknownFilterValues(
+        splitFilterValues(normalizeEmploymentTypeGroupFilterValue(filters.employmentType)),
         "UNKNOWN"
       );
       appendAndCondition(where, {
-        normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
-        normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
+        employmentTypeGroup:
+          employmentTypeGroups.length > 0 ? { in: employmentTypeGroups } : { in: [] },
+        employmentTypeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
 
@@ -3313,7 +3333,13 @@ export async function getJobs(
         "UNKNOWN"
       );
       appendAndCondition(where, {
-        normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+        OR:
+          industries.length > 0
+            ? [
+                { normalizedIndustries: { hasSome: industries } },
+                { normalizedIndustry: { in: industries } },
+              ]
+            : [{ normalizedIndustry: { in: [] } }],
         normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
@@ -3390,12 +3416,12 @@ export async function getJobs(
     }
 
     if (filters.careerStage || filters.experienceLevel) {
-      const stages = splitFilterValues(
-        normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+      const groups = splitFilterValues(
+        normalizeExperienceLevelGroupFilterValue(filters.careerStage ?? filters.experienceLevel)
       );
-      const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
+      const knownGroups = withoutUnknownFilterValues(groups, "UNKNOWN");
       appendAndCondition(where, {
-        normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+        experienceLevelGroup: knownGroups.length > 0 ? { in: knownGroups } : { in: [] },
         normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
@@ -3577,6 +3603,12 @@ export async function getJobById(id: string) {
   });
 
   if (!job) return null;
+  if (
+    job.feedIndex?.status !== "LIVE" ||
+    hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus)
+  ) {
+    return null;
+  }
   if (
     !isClearlyVisibleJobPosting({
       title: job.title,

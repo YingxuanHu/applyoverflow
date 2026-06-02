@@ -29,7 +29,7 @@ test("scoped job search does not preserve stale everything-search terms", () => 
   assert.doesNotMatch(html, /name="search" value="amazon"/);
 });
 
-test("scoped job searches can still combine title, company, and location", () => {
+test("submitting a scoped job search does not carry stale other scoped searches", () => {
   const html = renderToStaticMarkup(
     React.createElement(JobsSearchForm, {
       hiddenFields: [],
@@ -44,12 +44,28 @@ test("scoped job searches can still combine title, company, and location", () =>
   );
 
   assert.match(html, /name="titleSearch"/);
-  assert.match(html, /name="companySearch" value="Amazon"/);
-  assert.match(html, /name="locationSearch" value="Toronto,Montreal"/);
+  assert.doesNotMatch(html, /name="companySearch" value="Amazon"/);
+  assert.doesNotMatch(html, /name="locationSearch" value="Toronto,Montreal"/);
   assert.doesNotMatch(html, /name="search" value="ignored global text"/);
 });
 
-test("all scope submits a global search without stale scoped fields", () => {
+test("location search keeps location OR additions without duplicate values", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(JobsSearchForm, {
+      hiddenFields: [],
+      initialScope: "location",
+      initialValues: {
+        ...emptyValues,
+        location: "Toronto,toronto,Montreal",
+      },
+    })
+  );
+
+  assert.match(html, /name="locationSearch" value="Toronto,Montreal"/);
+  assert.match(html, /name="searchScope" value="location"/);
+});
+
+test("legacy all scope is rendered as title keyword search", () => {
   const html = renderToStaticMarkup(
     React.createElement(JobsSearchForm, {
       hiddenFields: [],
@@ -63,10 +79,10 @@ test("all scope submits a global search without stale scoped fields", () => {
     })
   );
 
-  assert.match(html, /name="search"/);
-  assert.match(html, />All</);
-  assert.doesNotMatch(html, />Everything</);
-  assert.doesNotMatch(html, /name="titleSearch"/);
+  assert.match(html, /name="titleSearch"/);
+  assert.match(html, /Search job title by keyword/);
+  assert.doesNotMatch(html, />All</);
+  assert.doesNotMatch(html, /name="search" value="amazon"/);
   assert.doesNotMatch(html, /name="companySearch"/);
   assert.doesNotMatch(html, /name="locationSearch"/);
 });

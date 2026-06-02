@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,11 @@ type HiddenField = {
 };
 
 type SearchValues = Record<JobSearchScope, string>;
+type VisibleJobSearchScope = Exclude<JobSearchScope, "all">;
 
-const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: JobSearchScope }> = [
-  { label: "All", value: "all" },
+const DEFAULT_SEARCH_SCOPE: VisibleJobSearchScope = "title";
+
+const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: VisibleJobSearchScope }> = [
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
   { label: "Location", value: "location" },
@@ -40,7 +42,7 @@ const SEARCH_FIELD_PARAM_NAMES = new Set([
 
 const PLACEHOLDER_BY_SCOPE: Record<JobSearchScope, string> = {
   all: "Search jobs",
-  title: "Search job titles",
+  title: "Search job title by keyword",
   company: "Search companies",
   location: "Search locations",
 };
@@ -70,13 +72,42 @@ export function JobsSearchForm({
   initialScope: JobSearchScope;
   initialValues: SearchValues;
 }) {
-  const [scope, setScope] = useState<JobSearchScope>(initialScope);
-  const [values, setValues] = useState<SearchValues>(initialValues);
+  const initialVisibleScope =
+    initialScope === "all" ? DEFAULT_SEARCH_SCOPE : initialScope;
+  const normalizedInitialValues = useMemo(
+    () => ({
+      all: "",
+      title:
+        initialValues.title ||
+        (initialScope === "all" ? initialValues.all : ""),
+      company: initialValues.company,
+      location: initialValues.location,
+    }),
+    [
+      initialScope,
+      initialValues.all,
+      initialValues.company,
+      initialValues.location,
+      initialValues.title,
+    ]
+  );
+  const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
+  const [values, setValues] = useState<SearchValues>(() => normalizedInitialValues);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
   const existingLocationSearch = initialValues.location.trim();
   const pendingLocationSearch = normalizeSearchList(
     [existingLocationSearch, values.location.trim()].filter(Boolean).join(",")
   );
+  const submittedSearchValue =
+    scope === "location" ? pendingLocationSearch : values[scope].trim();
+
+  useEffect(() => {
+    setScope(initialVisibleScope);
+  }, [initialVisibleScope]);
+
+  useEffect(() => {
+    setValues(normalizedInitialValues);
+  }, [normalizedInitialValues]);
 
   return (
     <form className="flex min-w-0 flex-1 items-center gap-2" method="get">
@@ -90,28 +121,11 @@ export function JobsSearchForm({
             value={field.value}
           />
         ))}
-      <input name="searchScope" type="hidden" value={scope} />
-      {scope !== "all"
-        ? SEARCH_SCOPE_OPTIONS.filter(
-            (option) => option.value !== scope && option.value !== "all"
-          ).map((option) => {
-            const value =
-              option.value === "location"
-                ? pendingLocationSearch
-                : values[option.value].trim();
-            if (!value) return null;
-            return (
-              <input
-                key={option.value}
-                name={SEARCH_PARAM_BY_SCOPE[option.value]}
-                type="hidden"
-                value={value}
-              />
-            );
-          })
-        : null}
-      {scope === "location" && pendingLocationSearch ? (
-        <input name="locationSearch" type="hidden" value={pendingLocationSearch} />
+      {submittedSearchValue ? (
+        <>
+          <input name="searchScope" type="hidden" value={scope} />
+          <input name={inputName} type="hidden" value={submittedSearchValue} />
+        </>
       ) : null}
 
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
@@ -122,7 +136,7 @@ export function JobsSearchForm({
           <select
             className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
             id="jobs-search-scope"
-            onChange={(event) => setScope(event.target.value as JobSearchScope)}
+            onChange={(event) => setScope(event.target.value as VisibleJobSearchScope)}
             style={{ textAlignLast: "left" }}
             value={scope}
           >
@@ -139,7 +153,6 @@ export function JobsSearchForm({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-10 rounded-none border-0 bg-transparent pl-9 pr-2 text-sm focus-visible:border-transparent focus-visible:ring-0 sm:pr-3"
-            name={scope === "location" ? undefined : inputName}
             onChange={(event) =>
               setValues((current) => ({
                 ...current,

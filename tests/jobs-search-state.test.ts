@@ -12,12 +12,25 @@ import {
 test("jobs URL params are detected and normalized for restore", () => {
   assert.equal(hasJobsStateParamsRecord({ titleSearch: "backend" }), true);
   assert.equal(hasJobsStateParamsRecord({ reset: "1" }), false);
+  assert.equal(hasJobsStateParamsRecord({ searchScope: "title" }), false);
+  assert.equal(hasJobsStateParamsRecord({ field: "company" }), false);
 
   assert.equal(
     normalizeJobsStateQuery(
       "q=backend&field=title&page=3&sort=best&function=software_engineering&datePosted=7d"
     ),
     "searchScope=title&titleSearch=backend&jobFunction=software_engineering&posted=7d&page=3"
+  );
+});
+
+test("legacy broad search state restores as title keyword search", () => {
+  assert.equal(
+    normalizeJobsStateQuery("search=thank%20you&searchScope=all&page=2"),
+    "searchScope=title&titleSearch=thank+you&page=2"
+  );
+  assert.equal(
+    normalizeJobsStateQuery("q=amazon&field=all"),
+    "searchScope=title&titleSearch=amazon"
   );
 });
 
