@@ -1,5 +1,6 @@
 import type { Prisma, TrackedApplicationDocumentSlot, TrackedApplicationEventType, TrackedApplicationStatus } from "@/generated/prisma/client";
 
+import type { FlowApplication } from "@/lib/application-flow";
 import { prisma } from "@/lib/db";
 import {
   formatJobDescriptionText,
@@ -32,8 +33,10 @@ const TRACKED_SEARCH_STATUS_LABELS: Array<{
   { status: "SCREEN", labels: ["screen", "screening"] },
   { status: "INTERVIEW", labels: ["interview"] },
   { status: "OFFER", labels: ["offer"] },
+  { status: "ACCEPTED", labels: ["accepted"] },
   { status: "REJECTED", labels: ["rejected"] },
-  { status: "WITHDRAWN", labels: ["withdrawn"] },
+  { status: "DECLINED", labels: ["declined"] },
+  { status: "WITHDRAWN", labels: ["closed", "withdrawn"] },
 ];
 
 function startOfUtcDay(value: Date) {
@@ -90,8 +93,12 @@ function statusToEventType(status: TrackedApplicationStatus): TrackedApplication
       return "INTERVIEW";
     case "OFFER":
       return "OFFER";
+    case "ACCEPTED":
+      return "ACCEPTED";
     case "REJECTED":
       return "REJECTED";
+    case "DECLINED":
+      return "DECLINED";
     case "PREPARING":
     case "WISHLIST":
     case "WITHDRAWN":
@@ -512,6 +519,38 @@ export async function getTrackedDashboardData(input: {
   };
 }
 
+// Full dataset for the Application Flow chart. Intentionally independent from
+// the list view's search/status/sort/tag filters so the funnel always
+// summarizes the user's complete application history (the chart's own time
+// range control narrows it). WISHLIST/PREPARING never enter the funnel, so we
+// drop them at the query level; the chart builder also excludes them defensively.
+export async function getTrackedApplicationFlowApplications(): Promise<FlowApplication[]> {
+  const userId = await requireCurrentAuthUserId();
+
+  return prisma.trackedApplication.findMany({
+    where: {
+      userId,
+      status: { notIn: ["WISHLIST", "PREPARING"] },
+    },
+    select: {
+      id: true,
+      company: true,
+      roleTitle: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      events: {
+        orderBy: { timestamp: "asc" },
+        select: {
+          type: true,
+          timestamp: true,
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
 export async function getTrackedApplicationWorkspace(id: string) {
   const [authUserId, profileId] = await Promise.all([
     requireCurrentAuthUserId(),
@@ -830,7 +869,7 @@ export async function createTrackedApplication(input: {
       note:
         status === "WISHLIST"
           ? "Application created."
-          : `Application created with status ${status.toLowerCase()}.`,
+          : `Application created with status ${TRACKED_STATUS_NOTE[status]}.`,
     },
   });
 
@@ -856,8 +895,10 @@ const TRACKED_STATUS_NOTE: Record<TrackedApplicationStatus, string> = {
   SCREEN: "screen",
   INTERVIEW: "interview",
   OFFER: "offer",
+  ACCEPTED: "accepted",
   REJECTED: "rejected",
-  WITHDRAWN: "withdrawn",
+  DECLINED: "declined",
+  WITHDRAWN: "closed",
 };
 
 export async function upsertTrackedApplicationFromJob(input: {
@@ -1120,7 +1161,9 @@ export async function addTrackedApplicationEvent(input: {
     SCREEN: "SCREEN",
     INTERVIEW: "INTERVIEW",
     OFFER: "OFFER",
+    ACCEPTED: "ACCEPTED",
     REJECTED: "REJECTED",
+    DECLINED: "DECLINED",
   };
 
   await prisma.$transaction([
@@ -1800,7 +1843,7 @@ export async function syncTrackedApplicationLifecycleFromSubmission(input: {
           data: {
             trackedApplicationId: existing.id,
             type: "NOTE",
-            note: "Withdrawn from the jobs apply flow.",
+            note: "Closed from the jobs apply flow.",
           },
         }),
       ]);

@@ -1,7 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useFormStatus } from "react-dom";
 import {
   Bell,
@@ -50,7 +57,7 @@ import { useNotifications } from "@/components/ui/notification-provider";
 import type { DocumentType, TrackedApplicationEventType, TrackedApplicationStatus } from "@/generated/prisma/client";
 import { parseStoredFitAnalysis } from "@/lib/ai/fit-analysis-format";
 import { getJobDescriptionSummaryBlocks } from "@/lib/job-description-format";
-import { TRACKED_STATUS_LABEL } from "@/lib/tracker-ui";
+import { TRACKED_STATUS_LABEL, trackedStatusClass } from "@/lib/tracker-ui";
 
 type ActionState = {
   error: string | null;
@@ -138,27 +145,20 @@ type WorkspaceClientProps = {
 
 const statusOptions = [
   { value: "WISHLIST", label: "Wishlist" },
-  { value: "PREPARING", label: "Preparing" },
   { value: "APPLIED", label: "Applied" },
   { value: "SCREEN", label: "Screen" },
   { value: "INTERVIEW", label: "Interview" },
   { value: "OFFER", label: "Offer" },
+  { value: "ACCEPTED", label: "Accepted" },
   { value: "REJECTED", label: "Rejected" },
-  { value: "WITHDRAWN", label: "Withdrawn" },
+  { value: "DECLINED", label: "Declined" },
+  { value: "WITHDRAWN", label: "Closed" },
 ] as const satisfies ReadonlyArray<{
   value: TrackedApplicationStatus;
   label: string;
 }>;
 
 const statusBadgeClass: Record<string, string> = {
-  WISHLIST: "border-border/70 bg-background text-muted-foreground",
-  PREPARING: "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  APPLIED: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  SCREEN: "border-cyan-500/20 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-  INTERVIEW: "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-  OFFER: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  REJECTED: "border-destructive/20 bg-destructive/10 text-destructive",
-  WITHDRAWN: "border-border/70 bg-muted text-muted-foreground",
   REMINDER: "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300",
   NOTE: "border-border/70 bg-background text-muted-foreground",
 };
@@ -166,6 +166,15 @@ const statusBadgeClass: Record<string, string> = {
 const ACCEPT_RESUME = ".pdf,.doc,.docx,.txt,.rtf,.png,.jpg,.jpeg,.webp";
 const ACCEPT_COVER_LETTER = ".pdf,.doc,.docx,.txt,.rtf";
 const WORKSPACE_FIELD_TITLE_CLASS = "text-[0.95rem] font-semibold tracking-tight text-foreground";
+const TIMELINE_STATUS_EVENT_TYPES = new Set<TrackedApplicationEventType>([
+  "APPLIED",
+  "SCREEN",
+  "INTERVIEW",
+  "OFFER",
+  "ACCEPTED",
+  "REJECTED",
+  "DECLINED",
+]);
 const INITIAL_ACTION_STATE: ActionState = {
   error: null,
   success: null,
@@ -251,16 +260,19 @@ function formatDateTime(date: Date) {
 function isGeneratedStatusNote(event: TimelineEvent) {
   if (!event.note) return false;
   if (event.type === "NOTE") {
-    return event.note === `Status updated to ${TRACKED_STATUS_LABEL.PREPARING}.`;
+    return (
+      event.note === "Status updated to Preparing." ||
+      event.note === `Status updated to ${TRACKED_STATUS_LABEL.PREPARING}.`
+    );
   }
 
-  if (!["APPLIED", "SCREEN", "INTERVIEW", "OFFER", "REJECTED"].includes(event.type)) {
+  if (!["APPLIED", "SCREEN", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "DECLINED"].includes(event.type)) {
     return false;
   }
 
   const eventStatus = event.type as Extract<
     TrackedApplicationEventType,
-    "APPLIED" | "SCREEN" | "INTERVIEW" | "OFFER" | "REJECTED"
+    "APPLIED" | "SCREEN" | "INTERVIEW" | "OFFER" | "ACCEPTED" | "REJECTED" | "DECLINED"
   >;
 
   return event.note === `Status updated to ${TRACKED_STATUS_LABEL[eventStatus]}.`;
@@ -279,6 +291,14 @@ function isCreationEvent(event: TimelineEvent) {
     event.note.startsWith("Application added to tracker from the jobs feed as ") ||
     event.note.startsWith("Application created from the jobs feed as ")
   );
+}
+
+function timelineEventBadgeClass(eventType: TrackedApplicationEventType) {
+  if (TIMELINE_STATUS_EVENT_TYPES.has(eventType)) {
+    return `border-transparent ${trackedStatusClass(eventType as TrackedApplicationStatus)}`;
+  }
+
+  return statusBadgeClass[eventType] ?? statusBadgeClass.NOTE;
 }
 
 function useActionNotifications(state: ActionState) {
@@ -655,24 +675,27 @@ function StatusSelector({
   return (
     <form action={formAction} className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
       <input name="applicationId" type="hidden" value={applicationId} />
-      <select
-        className="h-10 w-full min-w-0 rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 sm:min-w-[140px]"
-        defaultValue={currentStatus}
-        key={currentStatus}
-        name="status"
-        onChange={(event) => {
-          const form = event.target.closest("form");
-          if (form) {
-            form.requestSubmit();
-          }
-        }}
-      >
-        {statusOptions.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div className="relative w-full min-w-0 sm:w-auto">
+        <select
+          className="h-10 w-full min-w-0 appearance-none rounded-[12px] border border-input bg-card py-0 pl-3.5 pr-12 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 sm:min-w-[156px]"
+          defaultValue={currentStatus}
+          key={currentStatus}
+          name="status"
+          onChange={(event) => {
+            const form = event.target.closest("form");
+            if (form) {
+              form.requestSubmit();
+            }
+          }}
+        >
+          {statusOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      </div>
     </form>
   );
 }
@@ -1028,6 +1051,14 @@ function toDateTimeLocalInputValue(date: Date | null) {
   return local.toISOString().slice(0, 16);
 }
 
+function useBrowserTimeZone() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    () => ""
+  );
+}
+
 function compareReminderEvents(left: TimelineEvent, right: TimelineEvent) {
   const leftTime = left.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
   const rightTime = right.reminderAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
@@ -1048,6 +1079,7 @@ function ReminderRow({
   const [timeDraft, setTimeDraft] = useState(toDateTimeLocalInputValue(reminder.reminderAt));
   const [updateState, updateAction] = useActionState(updateTimelineEvent, INITIAL_ACTION_STATE);
   const [deleteState, deleteAction] = useActionState(deleteTimelineEvent, INITIAL_ACTION_STATE);
+  const browserTimeZone = useBrowserTimeZone();
   useActionNotifications(updateState);
   useActionNotifications(deleteState);
 
@@ -1077,6 +1109,7 @@ function ReminderRow({
         <input name="applicationId" type="hidden" value={applicationId} />
         <input name="eventId" type="hidden" value={reminder.id} />
         <input name="type" type="hidden" value="REMINDER" />
+        <input name="timeZone" type="hidden" value={browserTimeZone} />
         <div className="grid gap-2">
           <Textarea
             className="min-h-[78px] resize-y text-sm"
@@ -1191,6 +1224,7 @@ function RemindersSection({
   const [noteDraft, setNoteDraft] = useState("");
   const [timeDraft, setTimeDraft] = useState("");
   const [state, formAction] = useActionState(addTimelineEvent, INITIAL_ACTION_STATE);
+  const browserTimeZone = useBrowserTimeZone();
   useActionNotifications(state);
   const sortedReminders = [...reminders].sort(compareReminderEvents);
 
@@ -1226,6 +1260,7 @@ function RemindersSection({
         >
           <input name="applicationId" type="hidden" value={applicationId} />
           <input name="type" type="hidden" value="REMINDER" />
+          <input name="timeZone" type="hidden" value={browserTimeZone} />
           <Textarea
             className="min-h-[82px] resize-y text-sm"
             name="note"
@@ -1314,7 +1349,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
         >
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span
-              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${statusBadgeClass[event.type] ?? statusBadgeClass.NOTE}`}
+              className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${timelineEventBadgeClass(event.type)}`}
             >
               {typeLabel}
             </span>

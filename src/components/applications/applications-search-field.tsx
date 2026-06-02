@@ -29,10 +29,10 @@ const SEARCH_PARAM_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
 
 const PLACEHOLDER_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
   all: "Search applications",
-  title: "Search application titles",
-  company: "Search companies",
-  location: "Search locations",
-  tag: "Search tags",
+  title: "Search application titles by keyword",
+  company: "Search companies by keyword",
+  location: "Search locations by keyword",
+  tag: "Search tags by keyword",
 };
 
 export function ApplicationsSearchField({
@@ -81,7 +81,7 @@ export function ApplicationsSearchField({
         </label>
         <div className="relative w-[5.85rem] shrink-0 border-r border-border/60 sm:w-28">
           <select
-            className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
+            className="h-10 w-full appearance-none bg-transparent pl-3 pr-9 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
             id="applications-search-scope"
             onChange={(event) => setScope(event.target.value as SelectableTrackerSearchScope)}
             style={{ textAlignLast: "left" }}
@@ -93,7 +93,7 @@ export function ApplicationsSearchField({
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:right-2.5" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:right-3.5" />
         </div>
 
         <div className="relative min-w-0 flex-1">

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   getStartOfTodayInTimeZone,
   normalizeUserTimeZone,
+  parseDateTimeLocalInTimeZone,
 } from "@/lib/time-zone";
 
 test("start of today uses the requested user's local timezone", () => {
@@ -32,4 +33,15 @@ test("invalid timezones fall back to the app default", () => {
       process.env.APP_TIME_ZONE = previousAppTimeZone;
     }
   }
+});
+
+test("datetime-local values are parsed as wall time in the user's timezone", () => {
+  const parsed = parseDateTimeLocalInTimeZone("2026-06-15T09:30", "America/Toronto");
+
+  assert.equal(parsed?.toISOString(), "2026-06-15T13:30:00.000Z");
+});
+
+test("datetime-local parser rejects impossible local times", () => {
+  assert.equal(parseDateTimeLocalInTimeZone("2026-02-31T09:30", "America/Toronto"), null);
+  assert.equal(parseDateTimeLocalInTimeZone("not-a-date", "America/Toronto"), null);
 });

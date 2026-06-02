@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -106,20 +107,24 @@ export function CreateTrackedApplicationForm() {
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Status
           </span>
-          <select
-            name="status"
-            defaultValue="APPLIED"
-            className="h-9 rounded-lg border border-input/80 bg-background/70 px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <option value="WISHLIST">Wishlist</option>
-            <option value="PREPARING">Preparing</option>
-            <option value="APPLIED">Applied</option>
-            <option value="SCREEN">Screen</option>
-            <option value="INTERVIEW">Interview</option>
-            <option value="OFFER">Offer</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="WITHDRAWN">Withdrawn</option>
-          </select>
+          <div className="relative min-w-0">
+            <select
+              name="status"
+              defaultValue="APPLIED"
+              className="h-9 w-full appearance-none rounded-lg border border-input/80 bg-background/70 py-0 pl-3 pr-11 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="WISHLIST">Wishlist</option>
+              <option value="APPLIED">Applied</option>
+              <option value="SCREEN">Screen</option>
+              <option value="INTERVIEW">Interview</option>
+              <option value="OFFER">Offer</option>
+              <option value="ACCEPTED">Accepted</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="DECLINED">Declined</option>
+              <option value="WITHDRAWN">Closed</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
         </label>
       </div>
 

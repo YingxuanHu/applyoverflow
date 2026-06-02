@@ -8,12 +8,13 @@ import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 
 const statusOptions = new Set<TrackedApplicationStatus>([
   "WISHLIST",
-  "PREPARING",
   "APPLIED",
   "SCREEN",
   "INTERVIEW",
   "OFFER",
+  "ACCEPTED",
   "REJECTED",
+  "DECLINED",
   "WITHDRAWN",
 ]);
 

@@ -278,7 +278,9 @@ enum TrackedApplicationStatus {
   SCREEN
   INTERVIEW
   OFFER
+  ACCEPTED
   REJECTED
+  DECLINED
   WITHDRAWN
 }
 
@@ -287,7 +289,9 @@ enum TrackedApplicationEventType {
   SCREEN
   INTERVIEW
   OFFER
+  ACCEPTED
   REJECTED
+  DECLINED
   NOTE
   REMINDER
 }

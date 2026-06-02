@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { CalendarClock, ChevronDown, Pencil, Trash2 } from "lucide-react";
 
 import {
@@ -58,6 +64,14 @@ function toDateTimeLocalInputValue(date: Date | null) {
   return local.toISOString().slice(0, 16);
 }
 
+function useBrowserTimeZone() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    () => ""
+  );
+}
+
 function useActionToast(state: ActionState, successTitle: string) {
   const { notify } = useNotifications();
 
@@ -89,6 +103,7 @@ function ReminderSummaryItem({
     deleteTimelineEvent,
     INITIAL_STATE
   );
+  const browserTimeZone = useBrowserTimeZone();
   useActionToast(updateState, "Reminder saved");
   useActionToast(deleteState, "Reminder deleted");
 
@@ -112,6 +127,7 @@ function ReminderSummaryItem({
         <input name="applicationId" type="hidden" value={applicationId} />
         <input name="eventId" type="hidden" value={reminder.id} />
         <input name="type" type="hidden" value="REMINDER" />
+        <input name="timeZone" type="hidden" value={browserTimeZone} />
         <Textarea
           className="min-h-[64px] resize-y text-sm"
           name="note"
