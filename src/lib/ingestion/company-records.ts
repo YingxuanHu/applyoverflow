@@ -87,23 +87,40 @@ export async function ensureCompanyRecord(input: {
       discoveryConfidence: true,
       metadataJson: true,
       normalizedIndustry: true,
+      normalizedIndustries: true,
       normalizedIndustryConfidence: true,
       normalizedIndustrySource: true,
     },
   });
 
   if (existing) {
-    const nextName = chooseBetterCompanyName(existing.name, input.companyName);
+    const preserveVerifiedCompanyRecord =
+      existing.normalizedIndustrySource === "company_verified_csv";
+    const nextName = preserveVerifiedCompanyRecord
+      ? existing.name
+      : chooseBetterCompanyName(existing.name, input.companyName);
     const nextDomain = existing.domain ?? domain;
     const nextMetadata = mergeMetadataJson(
       existing.metadataJson as Record<string, unknown> | null,
       input.metadataJson
     );
-    const industry = resolveCompanyIndustry({
+    const resolvedIndustry = resolveCompanyIndustry({
       companyName: nextName,
       domain: nextDomain,
       metadataJson: nextMetadata,
     });
+    const preserveVerifiedIndustry =
+      preserveVerifiedCompanyRecord &&
+      existing.normalizedIndustries.length > 0;
+    const industry = preserveVerifiedIndustry
+      ? {
+          normalizedIndustry:
+            existing.normalizedIndustry ?? existing.normalizedIndustries[0] ?? "UNKNOWN",
+          normalizedIndustries: existing.normalizedIndustries,
+          confidence: existing.normalizedIndustryConfidence ?? 0.99,
+          source: "company_verified_csv" as const,
+        }
+      : resolvedIndustry;
     return prisma.company.update({
       where: { companyKey: input.companyKey },
       data: {
@@ -120,6 +137,7 @@ export async function ensureCompanyRecord(input: {
         metadataJson:
           ((nextMetadata as Prisma.InputJsonValue | null) ?? Prisma.DbNull),
         normalizedIndustry: industry.normalizedIndustry,
+        normalizedIndustries: industry.normalizedIndustries,
         normalizedIndustryConfidence: industry.confidence,
         normalizedIndustrySource: industry.source,
         normalizedIndustryUpdatedAt: new Date(),
@@ -148,6 +166,7 @@ export async function ensureCompanyRecord(input: {
           ? (input.metadataJson as Prisma.InputJsonValue)
           : Prisma.DbNull,
       normalizedIndustry: industry.normalizedIndustry,
+      normalizedIndustries: industry.normalizedIndustries,
       normalizedIndustryConfidence: industry.confidence,
       normalizedIndustrySource: industry.source,
       normalizedIndustryUpdatedAt: new Date(),

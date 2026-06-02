@@ -13,6 +13,7 @@ type Args = {
   companiesOnly: boolean;
   jobsOnly: boolean;
   safeOnly: boolean;
+  includeVerified: boolean;
 };
 
 type CompanyForIndustryBackfill = {
@@ -22,6 +23,7 @@ type CompanyForIndustryBackfill = {
   domain: string | null;
   metadataJson: Prisma.JsonValue | null;
   normalizedIndustry: string | null;
+  normalizedIndustries: string[];
   normalizedIndustryConfidence: number | null;
   normalizedIndustrySource: string | null;
 };
@@ -34,6 +36,7 @@ type ResolvedCompanyIndustry = {
 type JobIndustryRow = {
   id: string;
   normalizedIndustry: string;
+  normalizedIndustries: string[];
   normalizedIndustryConfidence: number;
 };
 
@@ -46,6 +49,7 @@ function parseArgs(argv: string[]): Args {
     companiesOnly: false,
     jobsOnly: false,
     safeOnly: false,
+    includeVerified: false,
   };
 
   for (const arg of argv) {
@@ -63,6 +67,8 @@ function parseArgs(argv: string[]): Args {
       args.jobsOnly = true;
     } else if (arg === "--safe-only") {
       args.safeOnly = true;
+    } else if (arg === "--include-verified") {
+      args.includeVerified = true;
     }
   }
 
@@ -72,9 +78,21 @@ function parseArgs(argv: string[]): Args {
 function differs(company: CompanyForIndustryBackfill, industry: CompanyIndustryResolution) {
   return (
     company.normalizedIndustry !== industry.normalizedIndustry ||
+    !sameStringArray(company.normalizedIndustries, industry.normalizedIndustries) ||
     company.normalizedIndustryConfidence !== industry.confidence ||
     company.normalizedIndustrySource !== industry.source
   );
+}
+
+function sameStringArray(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
+}
+
+function sqlTextArray(values: string[]) {
+  if (values.length === 0) return Prisma.sql`ARRAY[]::text[]`;
+  return Prisma.sql`ARRAY[${Prisma.join(values.map((value) => Prisma.sql`${value}::text`))}]::text[]`;
 }
 
 function increment(map: Map<string, number>, key: string) {
@@ -95,6 +113,7 @@ async function updateCompanyIndustryBatch(items: ResolvedCompanyIndustry[]) {
     items.map(({ company, industry }) => Prisma.sql`(
       ${company.id}::text,
       ${industry.normalizedIndustry}::text,
+      ${sqlTextArray(industry.normalizedIndustries)},
       ${industry.confidence}::double precision,
       ${industry.source}::text
     )`)
@@ -104,18 +123,21 @@ async function updateCompanyIndustryBatch(items: ResolvedCompanyIndustry[]) {
     UPDATE "Company" c
     SET
       "normalizedIndustry" = values.normalized_industry,
+      "normalizedIndustries" = values.normalized_industries,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence,
       "normalizedIndustrySource" = values.normalized_industry_source,
       "normalizedIndustryUpdatedAt" = NOW()
     FROM (VALUES ${values}) AS values(
       id,
       normalized_industry,
+      normalized_industries,
       normalized_industry_confidence,
       normalized_industry_source
     )
     WHERE c.id = values.id
       AND (
         c."normalizedIndustry" IS DISTINCT FROM values.normalized_industry
+        OR c."normalizedIndustries" IS DISTINCT FROM values.normalized_industries
         OR c."normalizedIndustryConfidence" IS DISTINCT FROM values.normalized_industry_confidence
         OR c."normalizedIndustrySource" IS DISTINCT FROM values.normalized_industry_source
       )
@@ -130,12 +152,14 @@ async function updateJobIndustryBatch(items: ResolvedCompanyIndustry[]) {
     UPDATE "JobCanonical" jc
     SET
       "normalizedIndustry" = c."normalizedIndustry",
+      "normalizedIndustries" = c."normalizedIndustries",
       "normalizedIndustryConfidence" = c."normalizedIndustryConfidence"
     FROM "Company" c
     WHERE c.id IN (${companyIds})
       AND jc."companyId" = c.id
       AND (
         jc."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
+        OR jc."normalizedIndustries" IS DISTINCT FROM c."normalizedIndustries"
         OR jc."normalizedIndustryConfidence" IS DISTINCT FROM c."normalizedIndustryConfidence"
       )
   `);
@@ -144,6 +168,7 @@ async function updateJobIndustryBatch(items: ResolvedCompanyIndustry[]) {
     UPDATE "JobFeedIndex" jfi
     SET
       "normalizedIndustry" = c."normalizedIndustry",
+      "normalizedIndustries" = c."normalizedIndustries",
       "normalizedIndustryConfidence" = c."normalizedIndustryConfidence",
       "indexedAt" = NOW()
     FROM "JobCanonical" jc
@@ -152,6 +177,7 @@ async function updateJobIndustryBatch(items: ResolvedCompanyIndustry[]) {
       AND c.id IN (${companyIds})
       AND (
         jfi."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
+        OR jfi."normalizedIndustries" IS DISTINCT FROM c."normalizedIndustries"
         OR jfi."normalizedIndustryConfidence" IS DISTINCT FROM c."normalizedIndustryConfidence"
       )
   `);
@@ -164,6 +190,7 @@ function buildJobIndustryValues(rows: JobIndustryRow[]) {
     rows.map((row) => Prisma.sql`(
       ${row.id}::text,
       ${row.normalizedIndustry}::text,
+      ${sqlTextArray(row.normalizedIndustries)},
       ${row.normalizedIndustryConfidence}::double precision
     )`)
   );
@@ -176,15 +203,18 @@ async function updateCanonicalJobIndustryRows(rows: JobIndustryRow[]) {
     UPDATE "JobCanonical" jc
     SET
       "normalizedIndustry" = values.normalized_industry,
+      "normalizedIndustries" = values.normalized_industries,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence
     FROM (VALUES ${values}) AS values(
       id,
       normalized_industry,
+      normalized_industries,
       normalized_industry_confidence
     )
     WHERE jc.id = values.id
       AND (
         jc."normalizedIndustry" IS DISTINCT FROM values.normalized_industry
+        OR jc."normalizedIndustries" IS DISTINCT FROM values.normalized_industries
         OR jc."normalizedIndustryConfidence" IS DISTINCT FROM values.normalized_industry_confidence
       )
   `);
@@ -197,16 +227,19 @@ async function updateFeedJobIndustryRows(rows: JobIndustryRow[]) {
     UPDATE "JobFeedIndex" jfi
     SET
       "normalizedIndustry" = values.normalized_industry,
+      "normalizedIndustries" = values.normalized_industries,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence,
       "indexedAt" = NOW()
     FROM (VALUES ${values}) AS values(
       id,
       normalized_industry,
+      normalized_industries,
       normalized_industry_confidence
     )
     WHERE jfi."canonicalJobId" = values.id
       AND (
         jfi."normalizedIndustry" IS DISTINCT FROM values.normalized_industry
+        OR jfi."normalizedIndustries" IS DISTINCT FROM values.normalized_industries
         OR jfi."normalizedIndustryConfidence" IS DISTINCT FROM values.normalized_industry_confidence
       )
   `);
@@ -217,6 +250,7 @@ async function selectCanonicalJobIndustryRows(take: number, safeOnly: boolean) {
     SELECT
       jc.id,
       c."normalizedIndustry",
+      c."normalizedIndustries",
       c."normalizedIndustryConfidence"
     FROM "JobCanonical" jc
     JOIN "Company" c ON jc."companyId" = c.id
@@ -228,6 +262,7 @@ async function selectCanonicalJobIndustryRows(take: number, safeOnly: boolean) {
       ))
       AND (
         jc."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
+        OR jc."normalizedIndustries" IS DISTINCT FROM c."normalizedIndustries"
         OR jc."normalizedIndustryConfidence" IS DISTINCT FROM c."normalizedIndustryConfidence"
       )
     ORDER BY jc.id
@@ -240,6 +275,7 @@ async function selectFeedJobIndustryRows(take: number, safeOnly: boolean) {
     SELECT
       jfi."canonicalJobId" AS id,
       c."normalizedIndustry",
+      c."normalizedIndustries",
       c."normalizedIndustryConfidence"
     FROM "JobFeedIndex" jfi
     JOIN "JobCanonical" jc ON jfi."canonicalJobId" = jc.id
@@ -252,6 +288,7 @@ async function selectFeedJobIndustryRows(take: number, safeOnly: boolean) {
       ))
       AND (
         jfi."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
+        OR jfi."normalizedIndustries" IS DISTINCT FROM c."normalizedIndustries"
         OR jfi."normalizedIndustryConfidence" IS DISTINCT FROM c."normalizedIndustryConfidence"
       )
     ORDER BY jfi."canonicalJobId"
@@ -305,7 +342,7 @@ async function main() {
   const industryCounts = new Map<string, number>();
 
   console.log(
-    `[company-industry] mode=${args.apply ? "apply" : "dry-run"} batchSize=${args.batchSize} limit=${args.limit ?? "all"} companiesOnly=${args.companiesOnly} jobsOnly=${args.jobsOnly} safeOnly=${args.safeOnly}`
+    `[company-industry] mode=${args.apply ? "apply" : "dry-run"} batchSize=${args.batchSize} limit=${args.limit ?? "all"} companiesOnly=${args.companiesOnly} jobsOnly=${args.jobsOnly} safeOnly=${args.safeOnly} includeVerified=${args.includeVerified}`
   );
 
   if (args.jobsOnly) {
@@ -321,12 +358,21 @@ async function main() {
     const companies = await prisma.company.findMany({
       where: args.company
         ? {
-            OR: [
-              { name: { contains: args.company, mode: "insensitive" } },
-              { companyKey: { contains: args.company.toLowerCase().replace(/[^a-z0-9]+/g, ""), mode: "insensitive" } },
+            AND: [
+              args.includeVerified
+                ? {}
+                : { normalizedIndustrySource: { not: "company_verified_csv" } },
+              {
+                OR: [
+                  { name: { contains: args.company, mode: "insensitive" } },
+                  { companyKey: { contains: args.company.toLowerCase().replace(/[^a-z0-9]+/g, ""), mode: "insensitive" } },
+                ],
+              },
             ],
           }
-        : undefined,
+        : args.includeVerified
+          ? undefined
+          : { normalizedIndustrySource: { not: "company_verified_csv" } },
       orderBy: { id: "asc" },
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       take,
@@ -337,6 +383,7 @@ async function main() {
         domain: true,
         metadataJson: true,
         normalizedIndustry: true,
+        normalizedIndustries: true,
         normalizedIndustryConfidence: true,
         normalizedIndustrySource: true,
       },
@@ -352,7 +399,11 @@ async function main() {
         metadataJson: company.metadataJson,
       });
       increment(sourceCounts, industry.source);
-      increment(industryCounts, industry.normalizedIndustry);
+      for (const label of industry.normalizedIndustries.length > 0
+        ? industry.normalizedIndustries
+        : [industry.normalizedIndustry]) {
+        increment(industryCounts, label);
+      }
 
       if (differs(company, industry)) changedCompanies += 1;
       resolvedBatch.push({ company, industry });
@@ -366,7 +417,7 @@ async function main() {
         const jobBatch = args.safeOnly
             ? resolvedBatch.filter(
               ({ industry }) =>
-                industry.normalizedIndustry !== "UNKNOWN" &&
+                industry.normalizedIndustries.length > 0 &&
                 industry.confidence >= 0.9
             )
           : resolvedBatch;

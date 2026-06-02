@@ -7,86 +7,106 @@ import {
   resolveCompanyIndustry,
 } from "../src/lib/company-industry";
 
-test("resolves company industry from explicit company profile metadata", () => {
+test("resolves company industry only from verified registry metadata", () => {
   const result = resolveCompanyIndustry({
     companyName: "Example Bank",
     metadataJson: {
-      companyIndustry: "Financial Services",
+      verifiedIndustryCodes: ["FINANCIAL_SERVICES"],
+      primaryIndustryCode: "FINANCIAL_SERVICES",
     },
   });
 
   assert.equal(result.normalizedIndustry, "FINANCIAL_SERVICES");
-  assert.equal(result.source, "company_profile");
+  assert.deepEqual(result.normalizedIndustries, ["FINANCIAL_SERVICES"]);
+  assert.equal(result.source, "company_verified_csv");
   assert.ok(result.confidence >= COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD);
   assert.equal(isFilterSafeCompanyIndustry(result), true);
 });
 
-test("resolves company industry from company sector metadata", () => {
+test("supports multiple verified company industry labels", () => {
   const result = resolveCompanyIndustry({
-    companyName: "Databricks",
+    companyName: "Example Streaming AI",
     metadataJson: {
-      sectors: ["data", "ai", "cloud"],
+      verified_industry_codes_semicolon_separated:
+        "MEDIA_ENTERTAINMENT;TECHNOLOGY",
+      primary_industry_code: "MEDIA_ENTERTAINMENT",
     },
   });
 
-  assert.equal(result.normalizedIndustry, "TECHNOLOGY");
-  assert.equal(result.source, "company_sector_metadata");
-  assert.ok(result.confidence >= COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD);
+  assert.equal(result.normalizedIndustry, "MEDIA_ENTERTAINMENT");
+  assert.deepEqual(result.normalizedIndustries, [
+    "MEDIA_ENTERTAINMENT",
+    "TECHNOLOGY",
+  ]);
+  assert.equal(result.source, "company_verified_csv");
+  assert.equal(isFilterSafeCompanyIndustry(result), true);
 });
 
-test("ignores ATS vendor strings as company industry", () => {
-  const result = resolveCompanyIndustry({
-    companyName: "LifeStance",
-    metadataJson: {
-      industry: "lever",
-    },
-  });
-
-  assert.equal(result.normalizedIndustry, "HEALTHCARE_LIFE_SCIENCES");
-  assert.equal(result.source, "company_name_alias");
-  assert.ok(result.confidence >= COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD);
-});
-
-test("maps legacy and merged industry labels to the current taxonomy", () => {
+test("maps legacy labels only when they come from verified registry fields", () => {
   assert.equal(
     resolveCompanyIndustry({
       companyName: "Allstate",
-      metadataJson: { companyIndustry: "Insurance" },
+      metadataJson: {
+        verifiedIndustryCodes: "Insurance",
+        primaryIndustryCode: "Insurance",
+      },
     }).normalizedIndustry,
     "FINANCIAL_SERVICES"
   );
   assert.equal(
     resolveCompanyIndustry({
       companyName: "Tesla",
-      metadataJson: { companyIndustry: "Automotive" },
+      metadataJson: {
+        verifiedIndustryCodes: "Automotive",
+        primaryIndustryCode: "Automotive",
+      },
     }).normalizedIndustry,
     "MANUFACTURING_AUTOMOTIVE"
   );
   assert.equal(
     resolveCompanyIndustry({
       companyName: "Example Energy",
-      metadataJson: { companyIndustry: "Energy, Utilities & Natural Resources" },
+      metadataJson: {
+        verifiedIndustryCodes: "Energy, Utilities & Natural Resources",
+        primaryIndustryCode: "Energy, Utilities & Natural Resources",
+      },
     }).normalizedIndustry,
     "ENERGY_UTILITIES_NATURAL_RESOURCES"
   );
   assert.equal(
     resolveCompanyIndustry({
       companyName: "Example Law",
-      metadataJson: { companyIndustry: "Legal Services" },
+      metadataJson: {
+        verifiedIndustryCodes: "Legal Services",
+        primaryIndustryCode: "Legal Services",
+      },
     }).normalizedIndustry,
     "LEGAL_SERVICES"
   );
 });
 
-test("does not guess on ambiguous multi-industry sector metadata", () => {
-  const result = resolveCompanyIndustry({
-    companyName: "Example Hybrid Company",
+test("does not infer company industry from source metadata, sectors, domain, or name", () => {
+  const sourceMetadata = resolveCompanyIndustry({
+    companyName: "Example Bank",
+    domain: "jpmorganchase.com",
     metadataJson: {
-      sectors: ["software", "banking"],
+      companyIndustry: "Financial Services",
+      industry: "banking",
+      sectors: ["data", "ai", "cloud"],
+      industries: ["technology"],
     },
   });
 
-  assert.equal(result.normalizedIndustry, "UNKNOWN");
-  assert.equal(result.source, "ambiguous_company_metadata");
-  assert.equal(isFilterSafeCompanyIndustry(result), false);
+  assert.equal(sourceMetadata.normalizedIndustry, "UNKNOWN");
+  assert.deepEqual(sourceMetadata.normalizedIndustries, []);
+  assert.equal(sourceMetadata.source, "unknown_company_industry");
+  assert.equal(isFilterSafeCompanyIndustry(sourceMetadata), false);
+
+  const nameAlias = resolveCompanyIndustry({
+    companyName: "LifeStance",
+  });
+
+  assert.equal(nameAlias.normalizedIndustry, "UNKNOWN");
+  assert.deepEqual(nameAlias.normalizedIndustries, []);
+  assert.equal(nameAlias.source, "unknown_company_industry");
 });
