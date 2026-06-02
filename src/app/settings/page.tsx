@@ -147,7 +147,8 @@ export default async function SettingsPage() {
           <h2 className="text-sm font-semibold text-foreground">Security</h2>
         </header>
         <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-          Manage your sign-in method, email changes, password, and active sessions.
+          Manage your sign-in method, email changes, password, and active sessions. Sensitive
+          actions require a recent sign-in.
         </p>
         <AccountSecurityPanel
           accounts={security.accounts}

@@ -1,8 +1,14 @@
-import { UnauthorizedError, requireCurrentUserIds } from "@/lib/current-user";
+import {
+  ReauthenticationRequiredError,
+  UnauthorizedError,
+  requireCurrentUserIds,
+  requireFreshSensitiveSession,
+} from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
   try {
+    await requireFreshSensitiveSession();
     const { authUserId, profileId } = await requireCurrentUserIds();
 
     const [
@@ -262,6 +268,10 @@ export async function GET() {
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return Response.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    if (error instanceof ReauthenticationRequiredError) {
+      return Response.json({ error: error.message }, { status: 401 });
     }
 
     console.error("[settings.export] Failed to build data export", error);

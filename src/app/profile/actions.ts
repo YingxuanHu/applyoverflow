@@ -1,7 +1,12 @@
 "use server";
 
 import { Prisma } from "@/generated/prisma/client";
-import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
+import {
+  ReauthenticationRequiredError,
+  requireCurrentUserProfile,
+  requireFreshSensitiveSession,
+  UnauthorizedError,
+} from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import {
@@ -53,6 +58,26 @@ async function requireProfileForAction() {
     if (error instanceof UnauthorizedError) {
       return null;
     }
+    throw error;
+  }
+}
+
+async function requireFreshSessionForDestructiveProfileAction(): Promise<ProfileActionState | null> {
+  try {
+    await requireFreshSensitiveSession();
+    return null;
+  } catch (error) {
+    if (error instanceof ReauthenticationRequiredError) {
+      return {
+        error: "For security, sign in again before deleting profile documents.",
+        success: null,
+      };
+    }
+
+    if (error instanceof UnauthorizedError) {
+      return { error: "Your session has expired. Sign in again.", success: null };
+    }
+
     throw error;
   }
 }
@@ -443,6 +468,11 @@ export async function deleteProfileCoverLetter(
   _prevState: ProfileActionState,
   formData: FormData
 ): Promise<ProfileActionState> {
+  const freshSessionError = await requireFreshSessionForDestructiveProfileAction();
+  if (freshSessionError) {
+    return freshSessionError;
+  }
+
   const user = await requireProfileForAction();
   if (!user) {
     return {
@@ -505,6 +535,11 @@ export async function deleteProfileResume(
   _prevState: ProfileActionState,
   formData: FormData
 ): Promise<ProfileActionState> {
+  const freshSessionError = await requireFreshSessionForDestructiveProfileAction();
+  if (freshSessionError) {
+    return freshSessionError;
+  }
+
   const user = await requireProfileForAction();
   if (!user) {
     return {
@@ -783,6 +818,11 @@ export async function deleteTemplate(
   _prevState: ProfileActionState,
   formData: FormData
 ): Promise<ProfileActionState> {
+  const freshSessionError = await requireFreshSessionForDestructiveProfileAction();
+  if (freshSessionError) {
+    return freshSessionError;
+  }
+
   const user = await requireProfileForAction();
   if (!user) {
     return { error: "Sign in required.", success: null };

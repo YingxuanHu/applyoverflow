@@ -2,6 +2,11 @@ import { prismaAdapter } from "@better-auth/prisma-adapter";
 import { betterAuth } from "better-auth";
 
 import { deliverVerificationEmail } from "@/lib/auth-verification";
+import {
+  SENSITIVE_ACTION_REAUTH_SECONDS,
+  SESSION_MAX_LIFETIME_SECONDS,
+  SESSION_REFRESH_INTERVAL_SECONDS,
+} from "@/lib/auth-session-policy";
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { buildRuntimeTrustedOrigins } from "@/lib/runtime-origin";
@@ -62,6 +67,11 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
+  session: {
+    expiresIn: SESSION_MAX_LIFETIME_SECONDS,
+    updateAge: SESSION_REFRESH_INTERVAL_SECONDS,
+    freshAge: SENSITIVE_ACTION_REAUTH_SECONDS,
+  },
   databaseHooks: {
     user: {
       create: {
