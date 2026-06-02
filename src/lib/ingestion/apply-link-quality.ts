@@ -154,15 +154,10 @@ export function classifyApplyLinkQuality(input: {
     );
   }
 
-  const hasSpecificJobEvidence =
-    contentMatch.jobIdMatched ||
-    contentMatch.titleMatchRatio >= 0.55 ||
-    contentMatch.matchedTitleTokens.length >= 3;
-
-  const hasGenericEvidence =
+  const hasGenericDestinationEvidence =
     contentMatch.genericUrlSignals.length > 0 || contentMatch.genericPageSignals.length >= 2;
 
-  if (hasGenericEvidence && !hasSpecificJobEvidence) {
+  if (hasGenericDestinationEvidence && !contentMatch.jobIdMatched) {
     return bad(
       APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE,
       buildGenericReason(contentMatch),
@@ -176,6 +171,11 @@ export function classifyApplyLinkQuality(input: {
       contentMatch
     );
   }
+
+  const hasSpecificJobEvidence =
+    contentMatch.jobIdMatched ||
+    (!hasGenericDestinationEvidence &&
+      (contentMatch.titleMatchRatio >= 0.55 || contentMatch.matchedTitleTokens.length >= 3));
 
   if (hasSpecificJobEvidence) {
     return {

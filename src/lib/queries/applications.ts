@@ -7,6 +7,7 @@ import {
 } from "@/lib/current-user";
 import { formatDisplayLabel, formatSalary } from "@/lib/job-display";
 import { serializeJobDetailData } from "@/lib/job-serialization";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
 import { recordAction } from "@/lib/queries/behavior";
 import {
   syncTrackedApplicationFromSubmission,
@@ -90,6 +91,9 @@ export async function getApplicationReviewData(
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
           where: { userId, status: "ACTIVE" },
@@ -410,6 +414,9 @@ async function getMutableApplicationContext(jobId: string) {
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
           where: { userId, status: "ACTIVE" },
@@ -468,9 +475,13 @@ function isReadyToApplyJob(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
 }) {
   return (
     job.status === "LIVE" &&
+    job.feedIndex?.status === "LIVE" &&
+    !hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) &&
     /^https?:\/\//i.test(job.applyUrl) &&
     job.deadSignalAt === null &&
     (!job.deadline || job.deadline.getTime() >= Date.now())
@@ -482,10 +493,14 @@ function isUnavailableForJobDetail(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
 }) {
   return (
     job.status === "REMOVED" ||
     job.status === "EXPIRED" ||
+    job.feedIndex?.status !== "LIVE" ||
+    hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) ||
     !/^https?:\/\//i.test(job.applyUrl) ||
     job.deadSignalAt !== null ||
     (job.deadline !== null && job.deadline.getTime() < Date.now())
@@ -730,6 +745,7 @@ function serializeApplicationHistoryItem(job: {
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries?: string[];
   normalizedIndustryConfidence: number | null;
   classificationStatus: string | null;
   applyUrl: string;
@@ -787,6 +803,7 @@ function serializeApplicationHistoryItem(job: {
       normalizedRoleCategory: job.normalizedRoleCategory,
       normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence,
       normalizedIndustry: job.normalizedIndustry,
+      normalizedIndustries: job.normalizedIndustries ?? [],
       normalizedIndustryConfidence: job.normalizedIndustryConfidence,
       classificationStatus: job.classificationStatus,
       applyUrl: job.applyUrl,
