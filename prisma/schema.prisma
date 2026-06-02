@@ -395,6 +395,7 @@ model Company {
   domain               String?
   careersUrl           String?
   normalizedIndustry   String?
+  normalizedIndustries String[]               @default([])
   normalizedIndustryConfidence Float?
   normalizedIndustrySource     String?
   normalizedIndustryUpdatedAt  DateTime?
@@ -509,21 +510,54 @@ model JobCanonical {
   id                       String                   @id @default(cuid())
   companyId                String?
   title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleCandidatesJson      Json?
+  titleRejectedFragmentsJson Json?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
   company                  String
   companyKey               String                   @default("")
   titleKey                 String                   @default("")
   titleCoreKey             String                   @default("")
   descriptionFingerprint   String                   @default("")
   location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
+  locationCandidatesJson   Json?
   locationKey              String                   @default("")
   region                   Region?
   workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
+  workModeCandidatesJson   Json?
   salaryMin                Int?
   salaryMax                Int?
   salaryCurrency           String?                  @default("USD")
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
   employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
+  employmentTypeCandidatesJson Json?
   experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
   description              String
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
   searchVector             Unsupported("tsvector")?
   shortSummary             String
   industry                 Industry?
@@ -533,14 +567,29 @@ model JobCanonical {
   normalizedCareerStage    String?
   normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustries     String[]                  @default([])
   normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
   normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
+  normalizedRoleCategoryCandidatesJson Json?
+  normalizedRoleCategoryEvidenceJson Json?
+  normalizedRoleCategoryWarningsJson Json?
   classificationStatus     String?
   applyUrl                 String
   applyUrlKey              String?
   postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
   deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
   status                   JobStatus                @default(LIVE)
   duplicateClusterId       String?
   firstSeenAt              DateTime                 @default(now())
@@ -562,6 +611,9 @@ model JobCanonical {
   staleAt                  DateTime?
   expiredAt                DateTime?
   removedAt                DateTime?
+  extractionWarnings       Json?
+  extractionRejectionReasons Json?
+  metadataExtractionWarnings Json?
   createdAt                DateTime                 @default(now())
   updatedAt                DateTime                 @updatedAt
 
@@ -593,9 +645,12 @@ model JobCanonical {
   // Role family filter: status + roleFamily + postedAt
   @@index([status, roleFamily, postedAt(sort: Desc)])
   @@index([status, normalizedEmploymentType, postedAt(sort: Desc)])
+  @@index([status, employmentTypeGroup, postedAt(sort: Desc)])
   @@index([status, normalizedCareerStage, postedAt(sort: Desc)])
+  @@index([status, experienceLevelGroup, postedAt(sort: Desc)])
   @@index([status, normalizedIndustry, postedAt(sort: Desc)])
   @@index([status, normalizedRoleCategory, postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategoryGroup, postedAt(sort: Desc)])
   // Work mode filter: status + workMode + postedAt
   @@index([status, workMode, postedAt(sort: Desc)])
   // Experience level filter: status + experienceLevel + postedAt
@@ -1006,21 +1061,54 @@ model NormalizedJobRecord {
   trustScore               Float                     @default(0)
   freshnessScore           Float                     @default(0)
   title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleCandidatesJson      Json?
+  titleRejectedFragmentsJson Json?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
   company                  String
   companyKey               String                    @default("")
   titleKey                 String                    @default("")
   titleCoreKey             String                    @default("")
   descriptionFingerprint   String                    @default("")
   location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
+  locationCandidatesJson   Json?
   locationKey              String                    @default("")
   region                   Region?
   workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
+  workModeCandidatesJson   Json?
   salaryMin                Int?
   salaryMax                Int?
   salaryCurrency           String?                   @default("USD")
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
   employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
+  employmentTypeCandidatesJson Json?
   experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
   description              String
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
   shortSummary             String
   industry                 Industry?
   roleFamily               String
@@ -1029,17 +1117,35 @@ model NormalizedJobRecord {
   normalizedCareerStage    String?
   normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustries     String[]                   @default([])
   normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
   normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
+  normalizedRoleCategoryCandidatesJson Json?
+  normalizedRoleCategoryEvidenceJson Json?
+  normalizedRoleCategoryWarningsJson Json?
   classificationStatus     String?
   applyUrl                 String
   applyUrlKey              String?
   postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
   deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
   duplicateClusterId       String
   metadataJson             Json?
   warningsJson             Json?
+  extractionWarnings       Json?
+  extractionRejectionReasons Json?
+  metadataExtractionWarnings Json?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
 
@@ -1052,8 +1158,10 @@ model NormalizedJobRecord {
   @@index([canonicalJobId])
   @@index([normalizedEmploymentType])
   @@index([normalizedCareerStage])
+  @@index([experienceLevelGroup])
   @@index([normalizedIndustry])
   @@index([normalizedRoleCategory])
+  @@index([normalizedRoleCategoryGroup])
 }
 
 model PipelineTask {
@@ -1084,12 +1192,32 @@ model JobFeedIndex {
   status                   JobStatus
   submissionCategory       SubmissionCategory?
   title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
   company                  String
   location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
   region                   Region?
   workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
   employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
   experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
   industry                 Industry?
   roleFamily               String
   normalizedEmploymentType String?
@@ -1097,15 +1225,35 @@ model JobFeedIndex {
   normalizedCareerStage    String?
   normalizedCareerStageConfidence    Float?
   normalizedIndustry       String?
+  normalizedIndustries     String[]             @default([])
   normalizedIndustryConfidence       Float?
   normalizedRoleCategory   String?
   normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
   classificationStatus     String?
   salaryMin                Int?
   salaryMax                Int?
   salaryCurrency           String?
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
   postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
   deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
   qualityScore             Float               @default(0)
   trustScore               Float               @default(0)
   freshnessScore           Float               @default(0)
@@ -1114,6 +1262,8 @@ model JobFeedIndex {
   applyUrl                 String
   searchText               String
   metadataJson             Json?
+  extractionWarnings       Json?
+  metadataExtractionWarnings Json?
   indexedAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt
 
@@ -1125,14 +1275,20 @@ model JobFeedIndex {
   @@index([region, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([roleFamily, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([employmentTypeGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([experienceLevelGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedRoleCategoryGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([status, workMode, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([status, normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, employmentTypeGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([status, normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, experienceLevelGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([status, normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([status, normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategoryGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
   @@index([submissionCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
 }
 

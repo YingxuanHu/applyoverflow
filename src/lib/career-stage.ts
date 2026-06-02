@@ -1,4 +1,5 @@
 import type { EmploymentType, ExperienceLevel } from "@/generated/prisma/client";
+import { extractExperienceLevel } from "@/lib/experience-level";
 
 export type CareerStageFilter =
   | "INTERNSHIP"
@@ -134,27 +135,6 @@ const ADMIN_SUPPORT_DESCRIPTION_KEYWORDS = [
   "office administration",
 ];
 
-const EXECUTIVE_TITLE_KEYWORDS = [
-  "chief",
-  "vice president",
-  "vp ",
-  " vp",
-  "president",
-  "head of",
-  "director",
-];
-
-const LEAD_TITLE_KEYWORDS = [
-  "staff",
-  "principal",
-  "lead",
-  "manager",
-  "supervisor",
-];
-
-const SENIOR_TITLE_KEYWORDS = ["senior", "sr.", " sr "];
-const MID_TITLE_KEYWORDS = ["mid", "mid-level", "mid level", "intermediate"];
-
 export const CAREER_STAGE_DEFINITIONS: Record<CareerStageFilter, StageDefinition> = {
   INTERNSHIP: {
     titleKeywords: INTERNSHIP_KEYWORDS,
@@ -288,50 +268,11 @@ export function inferExperienceLevel(
   employmentType?: EmploymentType | null,
   roleFamily?: string | null
 ): ExperienceLevel {
-  const normalizedTitle = normalizeText(title);
-  const normalizedDescription = normalizeText(description);
-  const signals = {
+  return extractExperienceLevel({
     title,
+    company: null,
     description,
     employmentType,
     roleFamily,
-  } satisfies CareerStageSignals;
-
-  if (matchesCareerStage("INTERNSHIP", signals)) {
-    return "ENTRY";
-  }
-
-  if (
-    includesAny(normalizedTitle, EXECUTIVE_TITLE_KEYWORDS) ||
-    includesAny(normalizedDescription, ["executive leadership", "director-level"])
-  ) {
-    return "EXECUTIVE";
-  }
-
-  if (
-    includesAny(normalizedTitle, LEAD_TITLE_KEYWORDS) ||
-    includesAny(normalizedDescription, ["people management", "management experience"])
-  ) {
-    return "LEAD";
-  }
-
-  if (includesAny(normalizedTitle, SENIOR_TITLE_KEYWORDS)) {
-    return "SENIOR";
-  }
-
-  if (
-    matchesCareerStage("ENTRY_LEVEL", signals) ||
-    matchesCareerStage("ASSOCIATE", signals)
-  ) {
-    return "ENTRY";
-  }
-
-  if (
-    includesAny(normalizedTitle, MID_TITLE_KEYWORDS) ||
-    includesAny(normalizedDescription, ["mid-level", "mid level", "intermediate level"])
-  ) {
-    return "MID";
-  }
-
-  return "UNKNOWN";
+  }).experienceLevel;
 }

@@ -26,6 +26,7 @@ type JobSerializationInput = {
   normalizedRoleCategory?: string | null;
   normalizedRoleCategoryConfidence?: number | null;
   normalizedIndustry?: string | null;
+  normalizedIndustries?: string[] | null;
   normalizedIndustryConfidence?: number | null;
   classificationStatus?: string | null;
   experienceLevel: JobCardData["experienceLevel"];
@@ -87,6 +88,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     normalizedRoleCategory: job.normalizedRoleCategory ?? null,
     normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence ?? null,
     normalizedIndustry: job.normalizedIndustry ?? null,
+    normalizedIndustries: job.normalizedIndustries ?? [],
     normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
     classificationStatus: job.classificationStatus ?? null,
     experienceLevel: job.experienceLevel,

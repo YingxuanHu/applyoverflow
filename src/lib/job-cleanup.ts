@@ -2,6 +2,10 @@ import {
   decodeHtmlEntitiesFull,
   trimDescriptionPollution,
 } from "@/lib/ingestion/html-description";
+import {
+  extractAndScoreJobTitle,
+  extractTitleFromUrl,
+} from "@/lib/ingestion/extraction/title-extractor";
 
 const TITLE_ROLE_HINT_RE =
   /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|leader|partner|recruiter|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|marketer|operations|lighter|trainer|tutor|student|co-?op|executive|head|counsel|compliance|clerk|inspector|operator|strategist|electrician|bricklayer|welder|welding|fabrication)\b/i;
@@ -73,64 +77,6 @@ const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
   { company: "successfactors", hostPattern: /successfactors\.com/i },
   { company: "teamtailor", hostPattern: /teamtailor\.com/i },
 ];
-
-const URL_TITLE_MARKER_SEGMENTS = new Set([
-  "career",
-  "careers",
-  "job",
-  "jobs",
-  "opening",
-  "openings",
-  "opportunity",
-  "opportunities",
-  "position",
-  "positions",
-  "requisition",
-  "requisitions",
-  "role",
-  "roles",
-  "vacancy",
-  "vacancies",
-]);
-
-const URL_TITLE_IGNORED_SEGMENTS = new Set([
-  "",
-  "about",
-  "about-us",
-  "ai-guidelines",
-  "apply",
-  "blog",
-  "candidate",
-  "candidate-experience",
-  "company",
-  "details",
-  "en",
-  "en-us",
-  "external",
-  "faq",
-  "faqs",
-  "guide",
-  "guides",
-  "home",
-  "copy of careers",
-  "copy-of-careers",
-  "copy-of-careers-1",
-  "jobdescription",
-  "jobdetails",
-  "jobposting",
-  "news",
-  "newsroom",
-  "partners",
-  "people-ops",
-  "products",
-  "resources",
-  "search",
-  "search-results",
-  "sites",
-  "support",
-  "us",
-  "videos",
-]);
 
 const CHROME_LINE_PATTERNS = [
   /^skip to main content$/i,
@@ -217,64 +163,28 @@ export function selectBestJobTitle(
     urls?: Array<string | null | undefined>;
   }
 ) {
-  const sanitized = sanitizeJobTitle(value);
-  const derived = deriveJobTitleFromUrls(options?.urls ?? []);
-  if (!derived) return sanitized;
-  if (!sanitized) return derived;
-
-  if (shouldPreferUrlDerivedTitle(sanitized, derived, options?.company ?? null)) {
-    return derived;
+  const extracted = extractAndScoreJobTitle(
+    {
+      title: asText(value),
+      applyUrl: compactWhitespace(options?.urls?.[0] ?? ""),
+      sourceUrl: options?.urls?.[1] ?? null,
+      metadata: {},
+    },
+    {
+      company: options?.company ?? null,
+      urls: options?.urls ?? [],
+    }
+  );
+  if (extracted.value && !["missing", "rejected"].includes(extracted.status)) {
+    return extracted.value;
   }
-
-  return sanitized;
+  return deriveJobTitleFromUrls(options?.urls ?? []) ?? "";
 }
 
 export function deriveJobTitleFromUrls(urls: Array<string | null | undefined>) {
   for (const value of urls) {
-    if (!value) continue;
-    let parsed: URL;
-    try {
-      parsed = new URL(value);
-    } catch {
-      continue;
-    }
-
-    const segments = parsed.pathname
-      .split("/")
-      .map((segment) => normalizeUrlTitleSegment(segment))
-      .filter((segment) => segment !== null) as string[];
-
-    const candidates: string[] = [];
-    for (let index = 0; index < segments.length; index += 1) {
-      const segment = segments[index];
-      if (!segment) continue;
-
-      const normalizedSegment = segment.toLowerCase();
-      const previousSegment = segments[index - 1]?.toLowerCase() ?? "";
-      const nextSegment = segments[index + 1] ?? "";
-
-      if (
-        URL_TITLE_MARKER_SEGMENTS.has(previousSegment) ||
-        URL_TITLE_MARKER_SEGMENTS.has(normalizedSegment) ||
-        looksLikeTitleSlug(segment)
-      ) {
-        const candidate = URL_TITLE_MARKER_SEGMENTS.has(normalizedSegment)
-          ? nextSegment
-          : segment;
-        if (candidate) candidates.push(candidate);
-      }
-    }
-
-    const best = candidates
-      .map((candidate) => sanitizeJobTitle(candidate))
-      .filter((candidate) => candidate && isUsableUrlTitleCandidate(candidate))
-      .sort((left, right) => {
-        const scoreDelta = scoreTitleCandidate(right) - scoreTitleCandidate(left);
-        if (scoreDelta !== 0) return scoreDelta;
-        return left.length - right.length;
-      })[0];
-
-    if (best) return best;
+    const title = extractTitleFromUrl(value);
+    if (title) return title;
   }
 
   return null;
@@ -431,113 +341,6 @@ function scoreTitleCandidate(candidate: string) {
   if (/\?$/.test(candidate)) score -= 4;
   if (/^[a-z]/.test(candidate)) score -= 1;
   return score;
-}
-
-function shouldPreferUrlDerivedTitle(
-  sanitizedTitle: string,
-  derivedTitle: string,
-  company: string | null
-) {
-  if (!derivedTitle || derivedTitle === sanitizedTitle) return false;
-  if (isSuspiciousJobTitle(sanitizedTitle, company)) return true;
-
-  const sanitizedScore = scoreTitleCandidate(sanitizedTitle);
-  const derivedScore = scoreTitleCandidate(derivedTitle);
-  return derivedScore >= sanitizedScore + 4;
-}
-
-function normalizeUrlTitleSegment(segment: string) {
-  if (looksLikeIdentifierSegment(segment)) return null;
-
-  const decoded = safeDecodeURIComponent(segment)
-    .replace(/\.[a-z0-9]{2,5}$/i, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!decoded) return null;
-
-  const withoutIds = decoded
-    .replace(/\b(?:job|req|requisition|posting)?\s*#?\d{4,}\b/gi, " ")
-    .replace(/\b\d{4,}(?: [a-z]{2}(?: [a-z]{2})?)?\b/gi, " ")
-    .replace(/\b[a-f0-9]{8,}\b/gi, " ")
-    .replace(/\s+\b(?:[a-f0-9]{4,}\s*){2,}$/i, " ")
-    .replace(/\b(?:jid|jr|req|requisition|r)\b\s*$/i, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const normalized = withoutIds.toLowerCase();
-  if (!withoutIds || URL_TITLE_IGNORED_SEGMENTS.has(normalized)) return null;
-  if (normalized.includes("copy of careers")) return null;
-  if (looksLikeIdentifierSegment(withoutIds)) return null;
-  if (/^[a-z]{2}(?:-[a-z]{2})?$/i.test(withoutIds)) return null;
-  if (!/[a-z]/i.test(withoutIds)) return null;
-  return formatUrlTitleCandidate(withoutIds);
-}
-
-function looksLikeTitleSlug(segment: string) {
-  const normalized = segment.toLowerCase();
-  if (URL_TITLE_IGNORED_SEGMENTS.has(normalized)) return false;
-  if (TITLE_BAD_MARKER_RE.test(segment)) return false;
-  if (TITLE_LOCATION_ONLY_RE.test(segment.replace(/[()]/g, "").trim())) return false;
-  return TITLE_ROLE_HINT_RE.test(segment) || segment.split(/\s+/).length >= 3;
-}
-
-function isUsableUrlTitleCandidate(candidate: string) {
-  if (!candidate) return false;
-  if (candidate.length < 4 || candidate.length > 110) return false;
-  if (TITLE_BAD_MARKER_RE.test(candidate)) return false;
-  if (/copy of careers/i.test(candidate)) return false;
-  if (TITLE_LOCATION_ONLY_RE.test(candidate.replace(/[()]/g, "").trim())) return false;
-  if (/^(?:req|requisition|job)\s*#?\s*\d+$/i.test(candidate)) return false;
-  if (looksLikeIdentifierSegment(candidate)) return false;
-  return TITLE_ROLE_HINT_RE.test(candidate);
-}
-
-function looksLikeIdentifierSegment(value: string) {
-  const normalized = value.trim();
-  if (!normalized) return true;
-  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(normalized)) {
-    return true;
-  }
-  if (/^[a-f0-9]{8,}$/i.test(normalized)) return true;
-  if (/^(?:[a-f0-9]{4,}\s+){2,}[a-f0-9]{4,}$/i.test(normalized)) return true;
-  if (/^\d+[_-]?(?:en|fr|de|es|us|ca)(?:[_-]?[a-z]{2})?$/i.test(normalized)) return true;
-  return false;
-}
-
-function safeDecodeURIComponent(value: string) {
-  try {
-    return decodeURIComponent(value.replace(/\+/g, " "));
-  } catch {
-    return value;
-  }
-}
-
-function formatUrlTitleCandidate(value: string) {
-  const lowerCaseWords = new Set(["a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to", "with"]);
-  const forcedCase = new Map([
-    ["api", "API"],
-    ["apac", "APAC"],
-    ["aws", "AWS"],
-    ["bi", "BI"],
-    ["ios", "iOS"],
-    ["it", "IT"],
-    ["ml", "ML"],
-    ["qa", "QA"],
-    ["sre", "SRE"],
-    ["ui", "UI"],
-    ["ux", "UX"],
-  ]);
-
-  return value
-    .split(/\s+/)
-    .map((word, index) => {
-      const normalized = word.toLowerCase();
-      const forced = forcedCase.get(normalized);
-      if (forced) return forced;
-      if (index > 0 && lowerCaseWords.has(normalized)) return normalized;
-      return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-    })
-    .join(" ");
 }
 
 function stripTrailingLocationQualifier(value: string) {

@@ -27,9 +27,32 @@ export function computeNormalizedQualityScore(job: NormalizedJobInput) {
   if (job.postedAt) score += 8;
   if (job.salaryMin != null || job.salaryMax != null) score += 6;
   if (job.experienceLevel && job.experienceLevel !== "UNKNOWN") score += 4;
-  if (job.employmentType !== "UNKNOWN") score += 3;
-  if (job.workMode !== "UNKNOWN") score += 3;
+  if (job.employmentType !== "UNKNOWN") {
+    score += (job.employmentTypeConfidence ?? 0) >= 0.6 ? 3 : 1;
+  }
+  if (job.workMode !== "UNKNOWN") {
+    score += (job.workModeConfidence ?? 0) >= 0.6 ? 3 : 1;
+  }
   if (job.region) score += 2;
+  if (job.titleStatus === "verified") score += 6;
+  else if (job.titleStatus === "confident") score += 4;
+  else if (job.titleStatus === "usable_review") score -= 3;
+  else if (job.titleStatus === "quarantine" || job.titleStatus === "rejected") score -= 18;
+
+  if (job.titleConfidence != null && job.titleConfidence < 0.6) score -= 12;
+  if (job.descriptionStatus === "strong") score += 4;
+  else if (job.descriptionStatus === "page_chrome") score -= 10;
+  else if (job.descriptionStatus === "missing") score -= 3;
+  if (job.workModeStatus === "quarantine" || job.workModeStatus === "rejected") score -= 2;
+  if (
+    job.employmentTypeStatus === "quarantine" ||
+    job.employmentTypeStatus === "rejected"
+  ) {
+    score -= 2;
+  }
+  if (job.datePostedStatus === "verified" || job.datePostedStatus === "confident") score += 2;
+  else if (job.datePostedStatus === "invalid") score -= 4;
+  if (job.applicationDeadlineStatus === "invalid") score -= 4;
 
   return clampScore(score);
 }

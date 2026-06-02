@@ -14,6 +14,7 @@ import {
   upsertEligibility,
   upsertSourceMapping,
 } from "@/lib/ingestion/pipeline";
+import { Prisma } from "@/generated/prisma/client";
 import {
   inferFreshnessModeFromSourceName,
   parseSourceConnectorJobFromRawPayload,
@@ -21,6 +22,7 @@ import {
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
 import {
   classifyJobMetadata,
+  coerceExperienceLevelGroup,
   coerceNormalizedCareerStage,
   coerceNormalizedEmploymentType,
   coerceNormalizedIndustry,
@@ -70,12 +72,17 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
   const missingClassification =
     normalized.normalizedEmploymentTypeConfidence == null ||
     normalized.normalizedCareerStageConfidence == null ||
+    normalized.experienceLevelGroup == null ||
     normalized.normalizedIndustryConfidence == null ||
     normalized.normalizedRoleCategoryConfidence == null ||
+    normalized.normalizedRoleCategoryGroup == null ||
+    normalized.normalizedRoleCategoryStatus == null ||
+    normalized.normalizedRoleCategorySource == null ||
     normalized.classificationStatus == null;
   const fallbackMetadata = missingClassification
     ? classifyJobMetadata({
         title: normalized.title,
+        rawTitle: sourceJob.title,
         company: normalized.company,
         description: normalized.description,
         location: normalized.location,
@@ -84,26 +91,78 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
         inferredEmploymentType: normalized.employmentType,
         sourceEmploymentType: null,
         workMode: normalized.workMode,
+        sourceMetadata: normalized.metadataJson,
+        applyUrl: normalized.applyUrl,
+        sourceUrl: sourceJob.sourceUrl,
       })
     : null;
 
   const normalizedJob = {
     title: normalized.title,
+    titleConfidence: normalized.titleConfidence,
+    titleStatus: normalized.titleStatus,
+    titleSource: normalized.titleSource,
+    titleCandidatesJson: asInputJson(normalized.titleCandidatesJson, []),
+    displayTitle: normalized.displayTitle,
+    titleRejectedFragmentsJson: asInputJson(normalized.titleRejectedFragmentsJson, []),
+    titleExtractionWarnings: asInputJson(normalized.titleExtractionWarnings, []),
+    jobPageType: normalized.jobPageType,
     company: normalized.company,
     companyKey: normalized.companyKey,
     titleKey: normalized.titleKey,
     titleCoreKey: normalized.titleCoreKey,
     descriptionFingerprint: normalized.descriptionFingerprint,
     location: normalized.location,
+    locationConfidence: normalized.locationConfidence,
+    locationStatus: normalized.locationStatus,
+    locationSource: normalized.locationSource,
+    locationCandidatesJson: asInputJson(normalized.locationCandidatesJson, []),
     locationKey: normalized.locationKey,
     region: normalized.region,
     workMode: normalized.workMode,
+    workModeConfidence: normalized.workModeConfidence,
+    workModeStatus: normalized.workModeStatus,
+    workModeSource: normalized.workModeSource,
+    workModeCandidatesJson: asInputJson(normalized.workModeCandidatesJson, []),
     salaryMin: normalized.salaryMin,
     salaryMax: normalized.salaryMax,
     salaryCurrency: normalized.salaryCurrency,
+    salaryStatus: normalized.salaryStatus,
+    salaryPeriod: normalized.salaryPeriod,
+    salaryRawText: normalized.salaryRawText,
+    salaryConfidence: normalized.salaryConfidence,
+    salarySource: normalized.salarySource,
     employmentType: normalized.employmentType,
-    experienceLevel: normalized.experienceLevel ?? "UNKNOWN",
+    employmentTypeGroup: normalized.employmentTypeGroup,
+    employmentTypeConfidence: normalized.employmentTypeConfidence,
+    employmentTypeStatus: normalized.employmentTypeStatus,
+    employmentTypeSource: normalized.employmentTypeSource,
+    employmentTypeCandidatesJson: asInputJson(normalized.employmentTypeCandidatesJson, []),
+    experienceLevel: fallbackMetadata?.experienceLevel ?? normalized.experienceLevel ?? "UNKNOWN",
+    experienceLevelGroup:
+      fallbackMetadata?.experienceLevelGroup ??
+      coerceExperienceLevelGroup(normalized.experienceLevelGroup),
+    experienceLevelSource:
+      fallbackMetadata?.experienceLevelSource ?? normalized.experienceLevelSource,
+    experienceLevelEvidenceJson: fallbackMetadata
+      ? (fallbackMetadata.experienceLevelEvidence as unknown as Prisma.InputJsonValue)
+      : asInputJson(normalized.experienceLevelEvidenceJson, []),
+    experienceLevelWarningsJson: fallbackMetadata
+      ? (fallbackMetadata.experienceLevelWarnings as unknown as Prisma.InputJsonValue)
+      : asInputJson(normalized.experienceLevelWarningsJson, []),
     description: normalized.description,
+    descriptionStatus: normalized.descriptionStatus,
+    descriptionConfidence: normalized.descriptionConfidence,
+    descriptionWordCount: normalized.descriptionWordCount,
+    datePostedConfidence: normalized.datePostedConfidence,
+    datePostedStatus: normalized.datePostedStatus,
+    datePostedSource: normalized.datePostedSource,
+    datePostedRawText: normalized.datePostedRawText,
+    applicationDeadlineConfidence: normalized.applicationDeadlineConfidence,
+    applicationDeadlineStatus: normalized.applicationDeadlineStatus,
+    applicationDeadlineSource: normalized.applicationDeadlineSource,
+    applicationDeadlineRawText: normalized.applicationDeadlineRawText,
+    metadataExtractionWarnings: asInputJson(normalized.metadataExtractionWarnings, []),
     shortSummary: normalized.shortSummary,
     industry: normalized.industry,
     roleFamily: normalized.roleFamily,
@@ -123,6 +182,9 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
       0.2,
     normalizedIndustry:
       fallbackMetadata?.normalizedIndustry ?? coerceNormalizedIndustry(normalized.normalizedIndustry),
+    normalizedIndustries:
+      fallbackMetadata?.normalizedIndustries ??
+      normalizeNormalizedIndustries(normalized.normalizedIndustries, normalized.normalizedIndustry),
     normalizedIndustryConfidence:
       fallbackMetadata?.confidence.industry ?? normalized.normalizedIndustryConfidence ?? 0.2,
     normalizedRoleCategory:
@@ -132,6 +194,27 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
       fallbackMetadata?.confidence.roleCategory ??
       normalized.normalizedRoleCategoryConfidence ??
       0.2,
+    normalizedRoleCategoryGroup:
+      fallbackMetadata?.normalizedRoleCategoryGroup ??
+      normalized.normalizedRoleCategoryGroup ??
+      null,
+    normalizedRoleCategoryStatus:
+      fallbackMetadata?.normalizedRoleCategoryStatus ??
+      normalized.normalizedRoleCategoryStatus ??
+      null,
+    normalizedRoleCategorySource:
+      fallbackMetadata?.normalizedRoleCategorySource ??
+      normalized.normalizedRoleCategorySource ??
+      null,
+    normalizedRoleCategoryCandidatesJson: fallbackMetadata
+      ? (fallbackMetadata.normalizedRoleCategoryCandidates as unknown as Prisma.InputJsonValue)
+      : asInputJson(normalized.normalizedRoleCategoryCandidatesJson, []),
+    normalizedRoleCategoryEvidenceJson: fallbackMetadata
+      ? (fallbackMetadata.normalizedRoleCategoryEvidence as unknown as Prisma.InputJsonValue)
+      : asInputJson(normalized.normalizedRoleCategoryEvidenceJson, []),
+    normalizedRoleCategoryWarningsJson: fallbackMetadata
+      ? (fallbackMetadata.normalizedRoleCategoryWarnings as unknown as Prisma.InputJsonValue)
+      : asInputJson(normalized.normalizedRoleCategoryWarningsJson, []),
     classificationStatus:
       fallbackMetadata?.classificationStatus ??
       (normalized.classificationStatus as NormalizedJobInput["classificationStatus"] | null) ??
@@ -141,6 +224,8 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     postedAt: normalized.postedAt,
     deadline: normalized.deadline,
     duplicateClusterId: normalized.duplicateClusterId,
+    extractionWarnings: asInputJson(normalized.extractionWarnings, []),
+    extractionRejectionReasons: asInputJson(normalized.extractionRejectionReasons, []),
   } satisfies NormalizedJobInput;
 
   const mappedCanonical = await findMappedCanonical(normalized.rawJob.id);
@@ -208,4 +293,23 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     canonicalJobId: canonicalResult.id,
     status: canonicalResult.created ? ("CREATED" as const) : ("UPDATED" as const),
   };
+}
+
+function normalizeNormalizedIndustries(values: string[], primary: string | null) {
+  const seen = new Set<string>();
+  const industries: NormalizedJobInput["normalizedIndustries"] = [];
+  for (const value of [...values, primary ?? ""]) {
+    const industry = coerceNormalizedIndustry(value);
+    if (industry === "UNKNOWN" || seen.has(industry)) continue;
+    seen.add(industry);
+    industries.push(industry);
+  }
+  return industries;
+}
+
+function asInputJson(
+  value: Prisma.JsonValue | null | undefined,
+  fallback: Prisma.InputJsonValue
+) {
+  return value == null ? fallback : (value as Prisma.InputJsonValue);
 }

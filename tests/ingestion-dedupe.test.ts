@@ -60,6 +60,7 @@ function buildNormalizedJob(
     normalizedCareerStage: overrides.normalizedCareerStage ?? "UNKNOWN",
     normalizedCareerStageConfidence: overrides.normalizedCareerStageConfidence ?? 0.2,
     normalizedIndustry: overrides.normalizedIndustry ?? "TECHNOLOGY",
+    normalizedIndustries: overrides.normalizedIndustries ?? [overrides.normalizedIndustry ?? "TECHNOLOGY"],
     normalizedIndustryConfidence: overrides.normalizedIndustryConfidence ?? 0.8,
     normalizedRoleCategory: overrides.normalizedRoleCategory ?? "SOFTWARE_ENGINEERING",
     normalizedRoleCategoryConfidence: overrides.normalizedRoleCategoryConfidence ?? 0.9,

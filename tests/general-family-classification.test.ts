@@ -1,17 +1,16 @@
 /**
  * Tests for the per-family GENERAL classifier.
  *
- * The product is expanding from TECH/FINANCE only to all white-collar
- * (Industry: GENERAL) coverage. This means our new Jooble per-family shards
+ * The product is expanding from tech/finance only to all white-collar
+ * role-family coverage. This means our new Jooble per-family shards
  * (marketing-na, sales-na, hr-na, legal-na, ops-admin-na, supply-chain-na,
  * consulting-na, communications-na, customer-success-na, biz-dev-na) need
- * to produce jobs that the normalizer classifies into the right roleFamily
- * with industry=GENERAL.
+ * to produce jobs that the normalizer classifies into the right roleFamily.
  *
  * If any of these regress (e.g. a future title pattern unintentionally
- * captures a marketing/sales role into TECH), the supply we worked hard to
- * grow will silently drop out of the GENERAL pool. This test pins the
- * routing.
+ * captures a marketing/sales role into a technical family), the supply we
+ * worked hard to grow will silently drop out of the right pool. This test
+ * pins the routing.
  */
 import { describe, it } from "node:test";
 import { strictEqual } from "node:assert";
@@ -25,110 +24,105 @@ const { EXCLUDED_TITLE_PATTERNS, inferRoleProfile } = require(
 ) as typeof import("../src/lib/ingestion/normalize");
 
 describe("inferRoleProfile — GENERAL family routing", () => {
-  const cases: Array<{ title: string; industry: string; family: string }> = [
+  const cases: Array<{ title: string; family: string }> = [
     // Marketing
-    { title: "Marketing Manager", industry: "GENERAL", family: "Marketing" },
-    { title: "Brand Manager", industry: "GENERAL", family: "Marketing" },
-    { title: "Growth Marketing Lead", industry: "GENERAL", family: "Marketing" },
-    { title: "Demand Generation Specialist", industry: "GENERAL", family: "Marketing" },
-    { title: "Content Strategist", industry: "GENERAL", family: "Marketing" },
+    { title: "Marketing Manager", family: "Marketing" },
+    { title: "Brand Manager", family: "Marketing" },
+    { title: "Growth Marketing Lead", family: "Marketing" },
+    { title: "Demand Generation Specialist", family: "Marketing" },
+    { title: "Content Strategist", family: "Marketing" },
     // Sales
-    { title: "Account Executive", industry: "GENERAL", family: "Sales" },
-    { title: "Sales Development Representative", industry: "GENERAL", family: "Sales" },
-    { title: "Inside Sales Manager", industry: "GENERAL", family: "Sales" },
-    { title: "Enterprise Sales Director", industry: "GENERAL", family: "Sales" },
+    { title: "Account Executive", family: "Sales" },
+    { title: "Sales Development Representative", family: "Sales" },
+    { title: "Inside Sales Manager", family: "Sales" },
+    { title: "Enterprise Sales Director", family: "Sales" },
     // HR
-    { title: "HR Business Partner", industry: "GENERAL", family: "HR / People" },
-    { title: "People Operations Manager", industry: "GENERAL", family: "HR / People" },
-    { title: "Talent Acquisition Lead", industry: "GENERAL", family: "HR / People" },
-    { title: "Compensation Analyst", industry: "GENERAL", family: "HR / People" },
+    { title: "HR Business Partner", family: "HR / People" },
+    { title: "People Operations Manager", family: "HR / People" },
+    { title: "Talent Acquisition Lead", family: "HR / People" },
+    { title: "Compensation Analyst", family: "HR / People" },
     // Legal
-    { title: "Corporate Counsel", industry: "GENERAL", family: "Legal" },
-    { title: "Paralegal", industry: "GENERAL", family: "Legal" },
-    { title: "Contracts Manager", industry: "GENERAL", family: "Legal" },
+    { title: "Corporate Counsel", family: "Legal" },
+    { title: "Paralegal", family: "Legal" },
+    { title: "Contracts Manager", family: "Legal" },
     // Consulting
-    { title: "Management Consultant", industry: "GENERAL", family: "Consulting" },
-    { title: "Strategy Consultant", industry: "GENERAL", family: "Consulting" },
-    { title: "Engagement Manager", industry: "GENERAL", family: "Consulting" },
+    { title: "Management Consultant", family: "Consulting" },
+    { title: "Strategy Consultant", family: "Consulting" },
+    { title: "Engagement Manager", family: "Consulting" },
     // Supply Chain
-    { title: "Supply Chain Analyst", industry: "GENERAL", family: "Supply Chain" },
-    { title: "Procurement Manager", industry: "GENERAL", family: "Supply Chain" },
-    { title: "Logistics Analyst", industry: "GENERAL", family: "Supply Chain" },
+    { title: "Supply Chain Analyst", family: "Supply Chain" },
+    { title: "Procurement Manager", family: "Supply Chain" },
+    { title: "Logistics Analyst", family: "Supply Chain" },
     // Communications
-    { title: "Communications Manager", industry: "GENERAL", family: "Communications" },
-    { title: "Investor Relations Director", industry: "GENERAL", family: "Communications" },
+    { title: "Communications Manager", family: "Communications" },
+    { title: "Investor Relations Director", family: "Communications" },
     // Business Development
-    { title: "Business Development Manager", industry: "GENERAL", family: "Business Development" },
-    { title: "Strategic Partnerships Lead", industry: "GENERAL", family: "Business Development" },
+    { title: "Business Development Manager", family: "Business Development" },
+    { title: "Strategic Partnerships Lead", family: "Business Development" },
     // HR shorthand + payroll (newly added)
-    { title: "Senior HRBP", industry: "GENERAL", family: "HR / People" },
-    { title: "Payroll Manager", industry: "GENERAL", family: "HR / People" },
-    { title: "Payroll Specialist", industry: "GENERAL", family: "HR / People" },
+    { title: "Senior HRBP", family: "HR / People" },
+    { title: "Payroll Manager", family: "HR / People" },
+    { title: "Payroll Specialist", family: "HR / People" },
     // Sales variants (newly added)
-    { title: "Sales Advisor", industry: "GENERAL", family: "Sales" },
-    { title: "Membership Sales Advisor", industry: "GENERAL", family: "Sales" },
-    { title: "Account Manager", industry: "GENERAL", family: "Sales" },
+    { title: "Sales Advisor", family: "Sales" },
+    { title: "Membership Sales Advisor", family: "Sales" },
+    { title: "Account Manager", family: "Sales" },
     // Insurance (new family)
-    { title: "Senior Underwriter", industry: "GENERAL", family: "Insurance" },
-    { title: "Claims Adjuster", industry: "GENERAL", family: "Insurance" },
-    { title: "Insurance Broker", industry: "GENERAL", family: "Insurance" },
-    { title: "General Liability Claim Rep", industry: "GENERAL", family: "Insurance" },
+    { title: "Senior Underwriter", family: "Insurance" },
+    { title: "Claims Adjuster", family: "Insurance" },
+    { title: "Insurance Broker", family: "Insurance" },
+    { title: "General Liability Claim Rep", family: "Insurance" },
     // Healthcare Admin (new family). "Practice Manager" alone is too
     // ambiguous (medical vs consulting) and "Medical Office Manager"
     // collides with the broader Administrative pattern's "office manager"
     // — using more specific titles that only one family can match.
-    { title: "Hospital Administrator", industry: "GENERAL", family: "Healthcare Admin" },
-    { title: "Medical Biller", industry: "GENERAL", family: "Healthcare Admin" },
-    { title: "Medical Coding Specialist", industry: "GENERAL", family: "Healthcare Admin" },
-    { title: "Revenue Cycle Analyst", industry: "GENERAL", family: "Healthcare Admin" },
+    { title: "Hospital Administrator", family: "Healthcare Admin" },
+    { title: "Medical Biller", family: "Healthcare Admin" },
+    { title: "Medical Coding Specialist", family: "Healthcare Admin" },
+    { title: "Revenue Cycle Analyst", family: "Healthcare Admin" },
     // Real Estate (new family)
-    { title: "Real Estate Analyst", industry: "GENERAL", family: "Real Estate" },
-    { title: "Leasing Manager", industry: "GENERAL", family: "Real Estate" },
-    { title: "Property Manager", industry: "GENERAL", family: "Real Estate" },
+    { title: "Real Estate Analyst", family: "Real Estate" },
+    { title: "Leasing Manager", family: "Real Estate" },
+    { title: "Property Manager", family: "Real Estate" },
     // Hospitality Mgmt (new family)
-    { title: "Hotel Manager", industry: "GENERAL", family: "Hospitality Management" },
-    { title: "Events Manager", industry: "GENERAL", family: "Hospitality Management" },
+    { title: "Hotel Manager", family: "Hospitality Management" },
+    { title: "Events Manager", family: "Hospitality Management" },
     // Government (new family)
-    { title: "Policy Analyst", industry: "GENERAL", family: "Government" },
-    { title: "Program Officer", industry: "GENERAL", family: "Government" },
-    { title: "Legislative Analyst", industry: "GENERAL", family: "Government" },
+    { title: "Policy Analyst", family: "Government" },
+    { title: "Program Officer", family: "Government" },
+    { title: "Legislative Analyst", family: "Government" },
     // Editorial (new family)
-    { title: "Managing Editor", industry: "GENERAL", family: "Editorial" },
-    { title: "Senior Copy Editor", industry: "GENERAL", family: "Editorial" },
-    { title: "Video Producer", industry: "GENERAL", family: "Editorial" },
+    { title: "Managing Editor", family: "Editorial" },
+    { title: "Senior Copy Editor", family: "Editorial" },
+    { title: "Video Producer", family: "Editorial" },
     // Education Admin (new family)
-    { title: "University Registrar", industry: "GENERAL", family: "Education Admin" },
-    { title: "Admissions Counselor", industry: "GENERAL", family: "Education Admin" },
-    { title: "Academic Advisor", industry: "GENERAL", family: "Education Admin" },
+    { title: "University Registrar", family: "Education Admin" },
+    { title: "Admissions Counselor", family: "Education Admin" },
+    { title: "Academic Advisor", family: "Education Admin" },
     // FINANCE/Accounting expansion
-    { title: "Tax Preparer", industry: "FINANCE", family: "Accounting" },
-    { title: "Bookkeeping Manager", industry: "FINANCE", family: "Accounting" },
+    { title: "Tax Preparer", family: "Accounting" },
+    { title: "Bookkeeping Manager", family: "Accounting" },
     // TECH/Engineering (non-software) — newly added family for the
     // 12-priority "Engineering" expansion.
-    { title: "Mechanical Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Civil Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Electrical Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Chemical Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Biomedical Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Aerospace Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Manufacturing Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Industrial Engineer", industry: "TECH", family: "Engineering" },
-    { title: "Environmental Engineer", industry: "TECH", family: "Engineering" },
+    { title: "Mechanical Engineer", family: "Engineering" },
+    { title: "Civil Engineer", family: "Engineering" },
+    { title: "Electrical Engineer", family: "Engineering" },
+    { title: "Chemical Engineer", family: "Engineering" },
+    { title: "Biomedical Engineer", family: "Engineering" },
+    { title: "Aerospace Engineer", family: "Engineering" },
+    { title: "Manufacturing Engineer", family: "Engineering" },
+    { title: "Industrial Engineer", family: "Engineering" },
+    { title: "Environmental Engineer", family: "Engineering" },
     // HR deep
-    { title: "Technical Recruiter", industry: "GENERAL", family: "HR / People" },
+    { title: "Technical Recruiter", family: "HR / People" },
     // Accounting deep
-    { title: "Forensic Accountant", industry: "FINANCE", family: "Accounting" },
-    { title: "AP Specialist", industry: "FINANCE", family: "Accounting" },
+    { title: "Forensic Accountant", family: "Accounting" },
+    { title: "AP Specialist", family: "Accounting" },
   ];
 
-  for (const { title, industry, family } of cases) {
-    it(`routes "${title}" → ${industry} / ${family}`, () => {
+  for (const { title, family } of cases) {
+    it(`routes "${title}" → ${family}`, () => {
       const profile = inferRoleProfile(title);
-      strictEqual(
-        profile?.industry,
-        industry,
-        `expected industry=${industry} for "${title}", got ${profile?.industry ?? "null"}`
-      );
       strictEqual(
         profile?.roleFamily,
         family,
@@ -137,14 +131,14 @@ describe("inferRoleProfile — GENERAL family routing", () => {
     });
   }
 
-  it("still routes a clear TECH title to TECH", () => {
+  it("still routes a clear software title to SWE", () => {
     const profile = inferRoleProfile("Senior Software Engineer");
-    strictEqual(profile?.industry, "TECH");
+    strictEqual(profile?.roleFamily, "SWE");
   });
 
-  it("still routes a clear FINANCE title to FINANCE", () => {
+  it("still routes a clear finance title to Financial Analyst", () => {
     const profile = inferRoleProfile("Financial Analyst");
-    strictEqual(profile?.industry, "FINANCE");
+    strictEqual(profile?.roleFamily, "Financial Analyst");
   });
 });
 
