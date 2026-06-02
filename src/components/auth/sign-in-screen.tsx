@@ -9,6 +9,7 @@ type SignInScreenProps = {
   googleError?: string;
   justVerified?: boolean;
   googleEnabled?: boolean;
+  mobileMode?: "landing" | "form";
 };
 
 export function SignInScreen({
@@ -17,6 +18,7 @@ export function SignInScreen({
   googleError,
   justVerified = false,
   googleEnabled = false,
+  mobileMode = "form",
 }: SignInScreenProps) {
   return (
     <AuthShell
@@ -30,6 +32,7 @@ export function SignInScreen({
         </>
       }
       contextDescription="A cleaner feed, fresher openings, and personalized help from first look to final follow-up."
+      mobileMode={mobileMode}
     >
       <SignInForm
         callbackUrl={callbackUrl}

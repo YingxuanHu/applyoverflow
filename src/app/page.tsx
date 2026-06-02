@@ -22,6 +22,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       callbackUrl={params.callbackUrl || "/jobs"}
       googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true"}
+      mobileMode="landing"
     />
   );
 }

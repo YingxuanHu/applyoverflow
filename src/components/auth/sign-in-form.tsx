@@ -77,7 +77,7 @@ export function SignInForm({
         <p className="section-label">Welcome back</p>
         <CardTitle className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Sign in</CardTitle>
         <CardDescription className="max-w-sm leading-6">
-          Continue to your job feed, applications, and saved materials.
+          Continue to your job workspace.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 sm:px-6">
