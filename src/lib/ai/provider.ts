@@ -42,7 +42,7 @@ export async function aiComplete(opts: AICompletionOptions): Promise<string> {
         : []),
       ...opts.messages,
     ],
-    max_tokens: opts.maxTokens ?? 4096,
+    max_completion_tokens: opts.maxTokens ?? 4096,
     temperature: opts.temperature ?? 0,
   });
 
