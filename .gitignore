@@ -23,7 +23,6 @@
 # misc
 .DS_Store
 *.pem
-.claude
 
 # debug
 npm-debug.log*
@@ -50,3 +49,4 @@ data/automation-screenshots/
 migration-counts-*.json
 certs/digitalocean-ca.crt
 scripts/_daemon-*.ts
+AGENTS.md

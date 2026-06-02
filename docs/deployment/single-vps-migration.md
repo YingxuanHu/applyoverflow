@@ -228,13 +228,25 @@ CONFIRM_RESTORE=autoapplication \
 deploy/single-vps/restore-from-storage.sh latest
 ```
 
-5. Start all services:
+5. Rebuild and start all services:
 
 ```bash
-docker compose \
-  --env-file deploy/single-vps/.env.production \
-  -f deploy/single-vps/docker-compose.yml \
-  up -d --build
+npm run deploy:single-vps
+```
+
+The deploy helper syncs the checkout to the VPS, rebuilds `app` and `worker`,
+recreates those containers, then prunes safe Docker build/image cache. By
+default it keeps build cache from the last 24 hours and never prunes Docker
+volumes, so the Postgres data volume is not touched.
+
+Useful overrides:
+
+```bash
+# Prune all unused build cache after a successful rebuild.
+DOCKER_BUILD_CACHE_MAX_AGE=0 npm run deploy:single-vps
+
+# Keep unused old images for rollback debugging, but still prune build cache.
+PRUNE_UNUSED_IMAGES=0 npm run deploy:single-vps
 ```
 
 6. Verify login, `/jobs`, `/applications`, document download, AI actions, and
