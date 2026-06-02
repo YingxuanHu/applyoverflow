@@ -29,6 +29,18 @@ const forceMode = args.includes("--force");
 const BATCH_LIMIT = limitArg ? parseInt(limitArg.split("=")[1], 10) : 100_000;
 const BATCH_SIZE = 500;
 
+function normalizeIndustryList(values: string[] | null | undefined, primary: string | null) {
+  const seen = new Set<string>();
+  const industries: NormalizedJobInput["normalizedIndustries"] = [];
+  for (const value of [...(values ?? []), primary ?? ""]) {
+    const industry = coerceNormalizedIndustry(value);
+    if (industry === "UNKNOWN" || seen.has(industry)) continue;
+    seen.add(industry);
+    industries.push(industry);
+  }
+  return industries;
+}
+
 async function main() {
   console.log(
     `Classifying eligibility (limit: ${BATCH_LIMIT}, force: ${forceMode})`
@@ -103,6 +115,7 @@ async function main() {
         normalizedCareerStage: coerceNormalizedCareerStage(job.normalizedCareerStage),
         normalizedCareerStageConfidence: 0.2,
         normalizedIndustry: coerceNormalizedIndustry(job.normalizedIndustry),
+        normalizedIndustries: normalizeIndustryList(job.normalizedIndustries, job.normalizedIndustry),
         normalizedIndustryConfidence: 0.2,
         normalizedRoleCategory: coerceNormalizedRoleCategory(job.normalizedRoleCategory),
         normalizedRoleCategoryConfidence: 0.2,

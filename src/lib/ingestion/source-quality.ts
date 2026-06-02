@@ -7,8 +7,6 @@ const FIRST_PARTY_COMPANY_PREFIXES = new Set([
 ]);
 
 const DIRECT_COMPANY_PREFIXES = new Set([
-  "CompanyHtml",
-  "CompanyJson",
   "Ashby",
   "BreezyHR",
   "Greenhouse",
@@ -186,6 +184,7 @@ export function deriveSourceIdentitySnapshot(input: {
     sourceName: input.sourceName,
     sourceUrl: input.sourceUrl,
     applyUrl: input.applyUrl,
+    metadata: input.metadata,
   });
   const applyUrlKey = normalizeUrlIdentityKey(input.applyUrl);
   const sourceUrlKey = normalizeUrlIdentityKey(input.sourceUrl);
@@ -213,10 +212,12 @@ export function getSourceQualitySnapshot(input: {
   sourceName: string;
   sourceUrl: string | null;
   applyUrl: string | null;
+  metadata?: Prisma.InputJsonValue | Prisma.JsonValue | null;
 }) {
   const prefix = input.sourceName.split(":")[0] ?? input.sourceName;
   const sourceHost = getHost(input.sourceUrl);
   const applyHost = getHost(input.applyUrl);
+  const companySiteRoute = getCompanySiteRoute(input.metadata);
   const isAggregatorSource =
     AGGREGATOR_PREFIXES.has(prefix) ||
     hasHostSuffix(sourceHost, AGGREGATOR_HOST_HINTS);
@@ -225,8 +226,18 @@ export function getSourceQualitySnapshot(input: {
 
   if (prefix === "CompanyHtml") {
     base = {
-      kind: "STRUCTURED_BOARD",
-      rank: 430,
+      kind: "WEAK_SCRAPED_COPY",
+      rank: 120,
+    };
+  } else if (prefix === "CompanyJson" && companySiteRoute === "html") {
+    base = {
+      kind: "WEAK_SCRAPED_COPY",
+      rank: 140,
+    };
+  } else if (prefix === "CompanyJson") {
+    base = {
+      kind: "DIRECT_COMPANY",
+      rank: 700,
     };
   } else if (
     !isAggregatorSource &&
@@ -311,38 +322,47 @@ export function deriveSourceLifecycleSnapshot(input: {
   sourceUrl: string | null;
   applyUrl: string | null;
   freshnessMode: ConnectorFreshnessMode;
+  metadata?: Prisma.InputJsonValue | Prisma.JsonValue | null;
 }) {
   const sourceFamily = getSourceFamily(input.sourceName);
   const sourceHost = getHost(input.sourceUrl);
   const applyHost = getHost(input.applyUrl);
+  const prefix = input.sourceName.split(":")[0] ?? input.sourceName;
+  const companySiteRoute = getCompanySiteRoute(input.metadata);
   const normalizedPollPattern = input.freshnessMode;
 
   let sourceType: SourceLifecycleType = "COMPANY_HTML";
   let sourceReliability = 0.7;
 
-  if (
-    FIRST_PARTY_COMPANY_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
+  if (prefix === "CompanyHtml") {
+    sourceType = "COMPANY_HTML";
+    sourceReliability = 0.62;
+  } else if (prefix === "CompanyJson") {
+    sourceType = "COMPANY_JSON";
+    sourceReliability = companySiteRoute === "html" ? 0.62 : 0.85;
+  } else if (
+    FIRST_PARTY_COMPANY_PREFIXES.has(prefix) ||
     hasHostSuffix(sourceHost, FIRST_PARTY_COMPANY_HOST_HINTS) ||
     hasHostSuffix(applyHost, FIRST_PARTY_COMPANY_HOST_HINTS)
   ) {
     sourceType = "COMPANY_JSON";
     sourceReliability = 0.97;
   } else if (
-    DIRECT_COMPANY_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
+    DIRECT_COMPANY_PREFIXES.has(prefix) ||
     hasHostSuffix(sourceHost, DIRECT_HOST_HINTS) ||
     hasHostSuffix(applyHost, DIRECT_HOST_HINTS)
   ) {
     sourceType = "ATS";
     sourceReliability = 0.95;
   } else if (
-    STRUCTURED_BOARD_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
+    STRUCTURED_BOARD_PREFIXES.has(prefix) ||
     hasHostSuffix(sourceHost, STRUCTURED_BOARD_HOST_HINTS) ||
     hasHostSuffix(applyHost, STRUCTURED_BOARD_HOST_HINTS)
   ) {
     sourceType = "BOARD";
     sourceReliability = 0.82;
   } else if (
-    AGGREGATOR_PREFIXES.has(input.sourceName.split(":")[0] ?? input.sourceName) ||
+    AGGREGATOR_PREFIXES.has(prefix) ||
     hasHostSuffix(sourceHost, AGGREGATOR_HOST_HINTS) ||
     hasHostSuffix(applyHost, AGGREGATOR_HOST_HINTS)
   ) {
@@ -385,6 +405,7 @@ export function deriveSourceProvenanceMetadata(input: {
     sourceUrl: input.sourceUrl,
     applyUrl: input.applyUrl,
     freshnessMode: input.freshnessMode,
+    metadata: input.metadata,
   });
 
   return {
@@ -743,6 +764,15 @@ function looksLikeStableIdentifier(value: string) {
 
 export function getSourceFamily(sourceName: string) {
   return (sourceName.split(":")[0] ?? sourceName).trim().toLowerCase();
+}
+
+function getCompanySiteRoute(metadata: Prisma.InputJsonValue | Prisma.JsonValue | null | undefined) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  const route = (metadata as Record<string, unknown>).route;
+  return typeof route === "string" ? route.trim().toLowerCase() : null;
 }
 
 function guessFamilyFromHost(host: string) {

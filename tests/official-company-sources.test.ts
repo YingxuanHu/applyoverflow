@@ -43,15 +43,30 @@ test("official company source quality outranks ATS/direct board and aggregators"
     sourceUrl: "https://example.com/careers/jobs/456",
     applyUrl: "https://example.com/careers/jobs/456",
   });
+  const companyJsonHtmlFallback = getSourceQualitySnapshot({
+    sourceName: "CompanyJson:example",
+    sourceUrl: "https://example.com/careers/article-about-jobs",
+    applyUrl: "https://example.com/careers/article-about-jobs",
+    metadata: { source: "company-site", route: "html" },
+  });
+  const companyJsonStructured = getSourceQualitySnapshot({
+    sourceName: "CompanyJson:example",
+    sourceUrl: "https://example.com/careers/jobs/456",
+    applyUrl: "https://example.com/careers/jobs/456",
+    metadata: { source: "company-site", route: "structured" },
+  });
 
   assert.equal(official.kind, "FIRST_PARTY_COMPANY");
   assert.equal(ats.kind, "DIRECT_COMPANY");
   assert.equal(aggregator.kind, "AGGREGATOR_REDIRECT");
   assert.equal(aggregatorWithDirectApplyUrl.kind, "AGGREGATOR_REDIRECT");
-  assert.equal(companyHtml.kind, "DIRECT_COMPANY");
+  assert.equal(companyHtml.kind, "WEAK_SCRAPED_COPY");
+  assert.equal(companyJsonHtmlFallback.kind, "WEAK_SCRAPED_COPY");
+  assert.equal(companyJsonStructured.kind, "DIRECT_COMPANY");
   assert.ok(official.rank > ats.rank);
   assert.ok(ats.rank > aggregator.rank);
-  assert.ok(companyHtml.rank > aggregatorWithDirectApplyUrl.rank);
+  assert.ok(companyJsonStructured.rank > companyJsonHtmlFallback.rank);
+  assert.ok(companyHtml.rank > aggregator.rank);
 });
 
 test("official company token parser supports company and market", () => {
