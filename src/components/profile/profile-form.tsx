@@ -25,7 +25,6 @@ type ProfileFormProps = {
     headline: string;
     summary: string;
     location: string;
-    workAuthorization: string;
     contact: ProfileContact;
     skills: ProfileSkill[];
     educations: ProfileEducation[];
@@ -140,15 +139,11 @@ function formatCountBadge(count: number, singular: string, plural?: string) {
   return `${count} ${pluralize(count, singular, plural)}`;
 }
 
-function hasApplicationDetailGaps(input: {
-  workAuthorization: string;
-  contact: ProfileContact;
-}) {
+function hasApplicationDetailGaps(input: { contact: ProfileContact }) {
   return (
     !input.contact.phone.trim() ||
     !input.contact.linkedInUrl.trim() ||
-    !input.contact.portfolioUrl.trim() ||
-    !input.workAuthorization.trim()
+    !input.contact.portfolioUrl.trim()
   );
 }
 
@@ -284,7 +279,6 @@ function serializeProfileSnapshot(input: {
   headline: string;
   summary: string;
   location: string;
-  workAuthorization: string;
   contact: ProfileContact;
   skills: ProfileSkill[];
   educations: ProfileEducation[];
@@ -295,7 +289,6 @@ function serializeProfileSnapshot(input: {
     headline: trimmed(input.headline),
     summary: input.summary.trim(),
     location: trimmed(input.location),
-    workAuthorization: trimmed(input.workAuthorization),
     contact: normalizeContactSnapshot(input.contact),
     skills: normalizeSkillsSnapshot(input.skills),
     educations: normalizeEducationsSnapshot(input.educations),
@@ -312,7 +305,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   const [activeSection, setActiveSection] = useState<ProfileSectionId | null>(() =>
     hasApplicationDetailGaps({
       contact: initialValues.contact ?? makeEmptyContact(),
-      workAuthorization: initialValues.workAuthorization,
     })
       ? "contact"
       : "overview"
@@ -320,7 +312,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   const [headline, setHeadline] = useState(initialValues.headline);
   const [summary, setSummary] = useState(initialValues.summary);
   const [location, setLocation] = useState(initialValues.location);
-  const [workAuthorization, setWorkAuthorization] = useState(initialValues.workAuthorization);
   const [contact, setContact] = useState<ProfileContact>(initialValues.contact ?? makeEmptyContact());
   const [skills, setSkills] = useState<ProfileSkill[]>(
     initialValues.skills.length > 0 ? initialValues.skills : [makeEmptySkill()]
@@ -346,21 +337,19 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         headline,
         summary,
         location,
-        workAuthorization,
         contact,
         skills,
         educations,
         experiences,
         projects,
       }),
-    [contact, educations, experiences, headline, location, projects, skills, summary, workAuthorization]
+    [contact, educations, experiences, headline, location, projects, skills, summary]
   );
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
     serializeProfileSnapshot({
       headline: initialValues.headline,
       summary: initialValues.summary,
       location: initialValues.location,
-      workAuthorization: initialValues.workAuthorization,
       contact: initialValues.contact ?? makeEmptyContact(),
       skills: initialValues.skills.length > 0 ? initialValues.skills : [makeEmptySkill()],
       educations:
@@ -435,7 +424,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
     formData.set("headline", headline);
     formData.set("summary", summary);
     formData.set("location", location);
-    formData.set("workAuthorization", workAuthorization);
     formData.set("contactJson", contactJson);
     formData.set("skillsJson", skillsJson);
     formData.set("educationsJson", educationsJson);
@@ -502,10 +490,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
 
       <ProfileSection
         activeSection={activeSection}
-        badge={formatCountBadge(
-          countFilledContactFields(contact) + (workAuthorization.trim() ? 1 : 0),
-          "field"
-        )}
+        badge={formatCountBadge(countFilledContactFields(contact), "field")}
         id="contact"
         setActiveSection={setActiveSection}
         title="Personal info and links"
@@ -579,16 +564,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               placeholder="https://your-portfolio-url"
               type="url"
               value={contact.portfolioUrl}
-            />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <FieldLabel htmlFor="work-authorization">Work authorization</FieldLabel>
-            <Input
-              id="work-authorization"
-              onChange={(event) => setWorkAuthorization(event.target.value)}
-              placeholder="Canadian PR, US citizen, H-1B, etc."
-              type="text"
-              value={workAuthorization}
             />
           </div>
         </div>

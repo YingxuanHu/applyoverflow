@@ -93,10 +93,6 @@ export async function savePreferencesSettings(
         typeof formData.get("location") === "string"
           ? String(formData.get("location"))
           : undefined,
-      workAuthorization:
-        typeof formData.get("workAuthorization") === "string"
-          ? String(formData.get("workAuthorization"))
-          : undefined,
     });
     revalidatePaths(["/settings", "/profile", "/jobs"]);
     return { error: null, success: "Job preferences saved." };

@@ -190,7 +190,6 @@ export async function saveProfile(
   const headline = String(formData.get("headline") ?? "").trim();
   const summary = String(formData.get("summary") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
-  const workAuthorization = String(formData.get("workAuthorization") ?? "").trim();
   const legacyEducationText = String(formData.get("educationText") ?? "").trim();
   const contact = normalizeContact(parseJsonPayload(formData.get("contactJson")));
   const skills = normalizeSkills(parseJsonPayload(formData.get("skillsJson")));
@@ -248,7 +247,6 @@ export async function saveProfile(
       linkedinUrl: contactColumns.linkedinUrl,
       githubUrl: contactColumns.githubUrl,
       portfolioUrl: contactColumns.portfolioUrl,
-      workAuthorization: workAuthorization || null,
     },
   });
 

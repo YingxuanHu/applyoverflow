@@ -42,9 +42,9 @@ const SEARCH_FIELD_PARAM_NAMES = new Set([
 
 const PLACEHOLDER_BY_SCOPE: Record<JobSearchScope, string> = {
   all: "Search jobs",
-  title: "Search job title by keyword",
-  company: "Search companies",
-  location: "Search locations",
+  title: "Search job titles by keyword",
+  company: "Search companies by keyword",
+  location: "Search locations by keyword",
 };
 
 function normalizeSearchList(value: string) {
