@@ -205,17 +205,45 @@ function sqlTextArray(values: string[]) {
   return Prisma.sql`ARRAY[${Prisma.join(values.map((value) => Prisma.sql`${value}::text`))}]::text[]`;
 }
 
-async function propagateCompanyIndustriesToJobs() {
+async function propagateCompanyIndustriesToJobs(items: ImportItem[]) {
+  if (items.length === 0) {
+    return { canonicalUpdated: 0, feedUpdated: 0, normalizedUpdated: 0 };
+  }
+
+  const selectors = Prisma.join(
+    items.map(({ row }) => Prisma.sql`(
+      ${row.companyId}::text,
+      ${row.companyKey}::text,
+      ${row.domain}::text
+    )`)
+  );
+
   const canonicalUpdated = Number(await prisma.$executeRaw`
+    WITH target_companies AS MATERIALIZED (
+      SELECT DISTINCT
+        c.id,
+        c."companyKey",
+        c."name",
+        c."normalizedIndustry",
+        c."normalizedIndustries",
+        c."normalizedIndustryConfidence"
+      FROM "Company" c
+      JOIN (VALUES ${selectors}) AS input(company_id, company_key, domain)
+        ON (
+          (input.company_id IS NOT NULL AND c.id = input.company_id)
+          OR (input.company_id IS NULL AND input.company_key <> '' AND c."companyKey" = input.company_key)
+          OR (input.company_id IS NULL AND input.company_key = '' AND input.domain IS NOT NULL AND c.domain = input.domain)
+        )
+      WHERE c."normalizedIndustrySource" = 'company_verified_csv'
+    )
     UPDATE "JobCanonical" jc
     SET
       "company" = c."name",
       "normalizedIndustry" = c."normalizedIndustry",
       "normalizedIndustries" = c."normalizedIndustries",
       "normalizedIndustryConfidence" = c."normalizedIndustryConfidence"
-    FROM "Company" c
+    FROM target_companies c
     WHERE jc."companyId" = c.id
-      AND c."normalizedIndustrySource" = 'company_verified_csv'
       AND (
         jc."company" IS DISTINCT FROM c."name"
         OR jc."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
@@ -225,6 +253,22 @@ async function propagateCompanyIndustriesToJobs() {
   `);
 
   const feedUpdated = Number(await prisma.$executeRaw`
+    WITH target_companies AS MATERIALIZED (
+      SELECT DISTINCT
+        c.id,
+        c."name",
+        c."normalizedIndustry",
+        c."normalizedIndustries",
+        c."normalizedIndustryConfidence"
+      FROM "Company" c
+      JOIN (VALUES ${selectors}) AS input(company_id, company_key, domain)
+        ON (
+          (input.company_id IS NOT NULL AND c.id = input.company_id)
+          OR (input.company_id IS NULL AND input.company_key <> '' AND c."companyKey" = input.company_key)
+          OR (input.company_id IS NULL AND input.company_key = '' AND input.domain IS NOT NULL AND c.domain = input.domain)
+        )
+      WHERE c."normalizedIndustrySource" = 'company_verified_csv'
+    )
     UPDATE "JobFeedIndex" jfi
     SET
       "company" = c."name",
@@ -233,9 +277,8 @@ async function propagateCompanyIndustriesToJobs() {
       "normalizedIndustryConfidence" = c."normalizedIndustryConfidence",
       "indexedAt" = NOW()
     FROM "JobCanonical" jc
-    JOIN "Company" c ON jc."companyId" = c.id
+    JOIN target_companies c ON jc."companyId" = c.id
     WHERE jfi."canonicalJobId" = jc.id
-      AND c."normalizedIndustrySource" = 'company_verified_csv'
       AND (
         jfi."company" IS DISTINCT FROM c."name"
         OR jfi."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
@@ -245,15 +288,30 @@ async function propagateCompanyIndustriesToJobs() {
   `);
 
   const normalizedUpdated = Number(await prisma.$executeRaw`
+    WITH target_companies AS MATERIALIZED (
+      SELECT DISTINCT
+        c."companyKey",
+        c."name",
+        c."normalizedIndustry",
+        c."normalizedIndustries",
+        c."normalizedIndustryConfidence"
+      FROM "Company" c
+      JOIN (VALUES ${selectors}) AS input(company_id, company_key, domain)
+        ON (
+          (input.company_id IS NOT NULL AND c.id = input.company_id)
+          OR (input.company_id IS NULL AND input.company_key <> '' AND c."companyKey" = input.company_key)
+          OR (input.company_id IS NULL AND input.company_key = '' AND input.domain IS NOT NULL AND c.domain = input.domain)
+        )
+      WHERE c."normalizedIndustrySource" = 'company_verified_csv'
+    )
     UPDATE "NormalizedJobRecord" njr
     SET
       "company" = c."name",
       "normalizedIndustry" = c."normalizedIndustry",
       "normalizedIndustries" = c."normalizedIndustries",
       "normalizedIndustryConfidence" = c."normalizedIndustryConfidence"
-    FROM "Company" c
+    FROM target_companies c
     WHERE njr."companyKey" = c."companyKey"
-      AND c."normalizedIndustrySource" = 'company_verified_csv'
       AND (
         njr."company" IS DISTINCT FROM c."name"
         OR njr."normalizedIndustry" IS DISTINCT FROM c."normalizedIndustry"
@@ -314,7 +372,7 @@ async function main() {
   for (let start = 0; start < items.length; start += args.batchSize) {
     companyUpdated += await updateCompanyBatch(items.slice(start, start + args.batchSize));
   }
-  const propagated = await propagateCompanyIndustriesToJobs();
+  const propagated = await propagateCompanyIndustriesToJobs(items);
 
   console.log(
     `[company-industry-import] companyUpdated=${companyUpdated.toLocaleString()} canonicalUpdated=${propagated.canonicalUpdated.toLocaleString()} feedUpdated=${propagated.feedUpdated.toLocaleString()} normalizedUpdated=${propagated.normalizedUpdated.toLocaleString()}`
