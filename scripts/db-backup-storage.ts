@@ -4,10 +4,14 @@ import { mkdir, stat, unlink } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
   type _Object,
 } from "@aws-sdk/client-s3";
 
@@ -28,6 +32,8 @@ type StorageConfig = {
 };
 
 const DEFAULT_BACKUP_IMAGE = "postgres:18-bookworm";
+const MULTIPART_UPLOAD_THRESHOLD_BYTES = 100 * 1024 * 1024;
+const MULTIPART_PART_SIZE_BYTES = 64 * 1024 * 1024;
 
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
@@ -188,6 +194,17 @@ async function uploadBackup(input: {
   const client = createStorageClient(input.config);
   const fileStat = await stat(input.filePath);
 
+  if (fileStat.size > MULTIPART_UPLOAD_THRESHOLD_BYTES) {
+    await uploadBackupMultipart({
+      client,
+      filePath: input.filePath,
+      fileSize: fileStat.size,
+      key: input.key,
+      config: input.config,
+    });
+    return;
+  }
+
   await client.send(
     new PutObjectCommand({
       Bucket: input.config.bucket,
@@ -200,6 +217,82 @@ async function uploadBackup(input: {
       },
     })
   );
+}
+
+async function uploadBackupMultipart(input: {
+  client: S3Client;
+  filePath: string;
+  fileSize: number;
+  key: string;
+  config: StorageConfig;
+}) {
+  const createResult = await input.client.send(
+    new CreateMultipartUploadCommand({
+      Bucket: input.config.bucket,
+      Key: input.key,
+      ContentType: "application/octet-stream",
+      Metadata: {
+        createdBy: "applyoverflow-db-backup",
+      },
+    })
+  );
+  const uploadId = createResult.UploadId;
+  if (!uploadId) {
+    throw new Error("Storage provider did not return a multipart upload id.");
+  }
+
+  const totalParts = Math.ceil(input.fileSize / MULTIPART_PART_SIZE_BYTES);
+  const parts: Array<{ ETag: string; PartNumber: number }> = [];
+
+  try {
+    for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+      const start = (partNumber - 1) * MULTIPART_PART_SIZE_BYTES;
+      const end = Math.min(start + MULTIPART_PART_SIZE_BYTES, input.fileSize) - 1;
+      const contentLength = end - start + 1;
+
+      const result = await input.client.send(
+        new UploadPartCommand({
+          Bucket: input.config.bucket,
+          Key: input.key,
+          UploadId: uploadId,
+          PartNumber: partNumber,
+          Body: createReadStream(input.filePath, { start, end }),
+          ContentLength: contentLength,
+        })
+      );
+
+      if (!result.ETag) {
+        throw new Error(`Storage provider did not return an ETag for part ${partNumber}.`);
+      }
+
+      parts.push({ ETag: result.ETag, PartNumber: partNumber });
+      if (partNumber === 1 || partNumber === totalParts || partNumber % 10 === 0) {
+        const uploadedMb = Math.ceil(Math.min(end + 1, input.fileSize) / 1024 / 1024);
+        const totalMb = Math.ceil(input.fileSize / 1024 / 1024);
+        console.log(`Uploaded multipart backup part ${partNumber}/${totalParts} (${uploadedMb}/${totalMb} MB).`);
+      }
+    }
+
+    await input.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: input.config.bucket,
+        Key: input.key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts,
+        },
+      })
+    );
+  } catch (error) {
+    await input.client.send(
+      new AbortMultipartUploadCommand({
+        Bucket: input.config.bucket,
+        Key: input.key,
+        UploadId: uploadId,
+      })
+    ).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function listBackupObjects(input: {

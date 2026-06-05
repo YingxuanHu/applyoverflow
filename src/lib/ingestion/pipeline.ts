@@ -1576,7 +1576,11 @@ export async function upsertCanonicalJob({
     companyKey: normalizedJob.companyKey,
     urls: [sourceUrl, rawApplyUrl, normalizedJob.applyUrl],
   });
-  normalizedJob = applyCompanyIndustryToNormalizedJob(normalizedJob, companyRecord);
+  const companyDisplayName = companyRecord.name.trim() || normalizedJob.company;
+  normalizedJob = applyCompanyIndustryToNormalizedJob(
+    { ...normalizedJob, company: companyDisplayName },
+    companyRecord
+  );
 
   if (!currentCanonicalId) {
     const canonicalJob = await prisma.jobCanonical.create({
@@ -1725,6 +1729,9 @@ export async function upsertCanonicalJob({
   );
   const shouldReplaceGenericCompany =
     currentCompanyIsGeneric && !incomingCompanyIsGeneric;
+  const shouldUseCompanyRecordName =
+    companyDisplayName.length > 0 &&
+    currentCanonical.company !== companyDisplayName;
   const incomingHasSalary =
     normalizedJob.salaryMin != null || normalizedJob.salaryMax != null;
   const currentHasSalary =
@@ -1887,7 +1894,10 @@ export async function upsertCanonicalJob({
       company: chooseCanonicalStringValue({
         currentValue: currentCanonical.company,
         nextValue: normalizedJob.company,
-        preferNext: preferIncomingSource || shouldReplaceGenericCompany,
+        preferNext:
+          shouldUseCompanyRecordName ||
+          preferIncomingSource ||
+          shouldReplaceGenericCompany,
         unknownValues: GENERIC_ATS_COMPANY_UNKNOWN_VALUES,
       }),
       companyKey: chooseCanonicalStringValue({

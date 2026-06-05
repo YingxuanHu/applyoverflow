@@ -29,9 +29,11 @@ const MAX_SITEMAP_FILES = 8;
 const MAX_SITEMAP_JOB_URLS = 250;
 const JOB_LINK_RE =
   /(job|career|position|opening|opportunit|vacanc|posting|requisition|role)/i;
+const CAREER_NAVIGATION_LINK_RE =
+  /\b(?:careers?|jobs?|job board|all jobs|all roles|all open roles|explore(?: all)? jobs|explore roles?|explore opportunities|find a job|find jobs|find roles?|find your role|find your next role|search jobs|search roles?|search openings?|browse jobs|browse roles?|browse openings?|see jobs|see roles?|see openings?|view jobs|view roles?|view openings?|view positions?|current jobs|current roles?|current openings?|current opportunities|available jobs|available roles?|available positions?|available opportunities|opportunit(?:y|ies)|career opportunities|join(?: us| our team| the team)|work(?: with us| for us| here)|employment|talent|hiring|now hiring|openings?|open roles?|open positions?|open jobs?|open opportunities|vacanc(?:y|ies))\b/i;
 const PAGINATION_RE = /(next|more|older|page \d+)/i;
 const JOB_DETAIL_SEGMENT_RE =
-  /^(?:job|jobs|career|careers|position|positions|opening|openings|open-position|open-positions|job-opening|job-openings|vacancy|vacancies|requisition|requisitions|job_detail|job-detail)$/i;
+  /^(?:job|jobs|career|careers|role|roles|position|positions|opportunity|opportunities|opening|openings|open-position|open-positions|job-opening|job-openings|vacancy|vacancies|requisition|requisitions|job_detail|job-detail)$/i;
 const GENERIC_DETAIL_TRAILING_SEGMENT_RE =
   /^(?:search|results?|all|listings?|departments?|offices?|locations?|categories?|job-alerts?|alerts?|login|signin|sign-in|apply|application|interview-prep|resources?)$/i;
 const JOB_DETAIL_QUERY_PARAM_NAMES = [
@@ -361,7 +363,10 @@ async function crawlListingPages(url: string, signal?: AbortSignal) {
     const page = await fetchHtml(nextUrl, signal);
     pages.push(page);
 
-    for (const link of extractPaginationLinks(page.html, page.url)) {
+    for (const link of [
+      ...extractPaginationLinks(page.html, page.url),
+      ...extractListingNavigationLinks(page.html, page.url),
+    ]) {
       if (!visited.has(link.href) && queue.length < MAX_LISTING_PAGES) {
         queue.push(link.href);
       }
@@ -711,7 +716,8 @@ function extractCandidateJobLinksFromScripts(html: string, pageUrl: string) {
   const seen = new Set<string>();
   const links: ParsedLink[] = [];
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
-  const directUrlMatches = /https?:\/\/[^"'`\s<>]+|\/(?:jobs?|careers?|positions?|openings?)[^"'`\s<>]*/gi;
+  const directUrlMatches =
+    /https?:\/\/[^"'`\s<>]+|\/(?:jobs?|careers?|roles?|positions?|openings?|open-roles?|open-positions?|open-opportunities|current-openings?|current-opportunities|available-roles?|available-positions?|available-opportunities|all-jobs|all-roles|all-open-roles|explore-jobs|explore-all-jobs|explore-roles|explore-opportunities|find-a-job|find-jobs|find-roles|find-your-role|find-your-next-role|search-jobs|search-roles|browse-jobs|browse-roles|view-jobs|view-roles|opportunities|job-board|vacancies|join-us|join-our-team|join-the-team|work-with-us|work-for-us|work-here)[^"'`\s<>]*/gi;
 
   for (const match of scripts) {
     const script = decodeHtmlEntities(match[1] ?? "");
@@ -813,6 +819,15 @@ function extractPaginationLinks(html: string, pageUrl: string) {
   return extractLinks(html, pageUrl).filter((link) => PAGINATION_RE.test(link.text));
 }
 
+function extractListingNavigationLinks(html: string, pageUrl: string) {
+  return extractLinks(html, pageUrl).filter((link) => {
+    if (PAGINATION_RE.test(link.text)) return false;
+    if (looksLikePotentialJobDetailUrl(link.href)) return false;
+    if (isClearlyNonJobContentUrl(link.href)) return false;
+    return CAREER_NAVIGATION_LINK_RE.test(`${link.text} ${link.href}`);
+  });
+}
+
 function extractLinks(html: string, pageUrl: string) {
   const base = new URL(pageUrl);
   const links: ParsedLink[] = [];
@@ -846,14 +861,51 @@ function looksLikeCareerSurface(html: string, pageUrl: string) {
 
   const positiveSignals = [
     /\bcareers?\b/,
+    /\bjob board\b/,
+    /\ball jobs\b/,
+    /\ball roles\b/,
+    /\ball open roles\b/,
+    /\bexplore (?:all )?jobs\b/,
+    /\bexplore roles?\b/,
+    /\bexplore opportunities\b/,
+    /\bfind a job\b/,
+    /\bfind jobs\b/,
+    /\bfind roles?\b/,
+    /\bfind your role\b/,
+    /\bfind your next role\b/,
+    /\bsearch jobs\b/,
+    /\bsearch roles?\b/,
+    /\bsearch openings?\b/,
+    /\bbrowse jobs\b/,
+    /\bbrowse roles?\b/,
+    /\bbrowse openings?\b/,
+    /\bsee jobs\b/,
+    /\bsee roles?\b/,
+    /\bsee openings?\b/,
+    /\bview jobs\b/,
+    /\bview roles?\b/,
+    /\bview openings?\b/,
+    /\bview positions?\b/,
     /\bopen roles?\b/,
     /\bopen positions?\b/,
+    /\bopen jobs?\b/,
+    /\bopen opportunities\b/,
+    /\bavailable roles?\b/,
+    /\bavailable positions?\b/,
+    /\bavailable opportunities\b/,
+    /\bcurrent roles?\b/,
     /\bjob openings?\b/,
     /\bjoin (our )?team\b/,
+    /\bjoin us\b/,
     /\bwork with us\b/,
-    /\bsearch jobs\b/,
-    /\bview jobs\b/,
+    /\bwork for us\b/,
+    /\bwork here\b/,
+    /\bemployment\b/,
+    /\btalent\b/,
+    /\bhiring\b/,
     /\bcurrent openings\b/,
+    /\bcurrent opportunities\b/,
+    /\bvacanc(?:y|ies)\b/,
     /\bopportunities\b/,
   ];
 

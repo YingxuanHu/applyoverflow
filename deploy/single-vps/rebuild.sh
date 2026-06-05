@@ -14,11 +14,13 @@ ENV_FILE="${SINGLE_VPS_ENV_FILE:-deploy/single-vps/.env.production}"
 COMPOSE_FILE="${SINGLE_VPS_COMPOSE_FILE:-deploy/single-vps/docker-compose.yml}"
 SERVICES="${SINGLE_VPS_SERVICES:-app worker}"
 
-# Keep recent cache for fast back-to-back rebuilds, but remove old cache so the
-# server does not fill up. Set DOCKER_BUILD_CACHE_MAX_AGE=0 to prune all unused
-# build cache after a successful rebuild.
-DOCKER_BUILD_CACHE_MAX_AGE="${DOCKER_BUILD_CACHE_MAX_AGE:-24h}"
-PRUNE_UNUSED_IMAGES="${PRUNE_UNUSED_IMAGES:-1}"
+# Remove unused Docker build cache after each successful rebuild so the single
+# VPS does not slowly fill up. Set DOCKER_BUILD_CACHE_MAX_AGE=24h if you want to
+# keep a small recent cache for repeated rebuilds.
+DOCKER_BUILD_CACHE_MAX_AGE="${DOCKER_BUILD_CACHE_MAX_AGE:-0}"
+# Keep disabled by default because ops-profile images like backup-runner are not
+# running services, but cron still depends on them being available.
+PRUNE_UNUSED_IMAGES="${PRUNE_UNUSED_IMAGES:-0}"
 
 RSYNC_EXCLUDES=(
   --exclude='.git'

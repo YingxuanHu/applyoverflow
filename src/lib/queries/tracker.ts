@@ -12,6 +12,7 @@ import {
 } from "@/lib/current-user";
 import { checkSingleTrackedApplicationReminder } from "@/lib/reminders";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
+import { startOfUtcDay } from "@/lib/time-zone";
 
 export type TrackerDeadlineFilter = "ALL" | "UPCOMING" | "OVERDUE" | "NO_DEADLINE";
 export type TrackerSortFilter =
@@ -38,12 +39,6 @@ const TRACKED_SEARCH_STATUS_LABELS: Array<{
   { status: "DECLINED", labels: ["declined"] },
   { status: "WITHDRAWN", labels: ["closed", "withdrawn"] },
 ];
-
-function startOfUtcDay(value: Date) {
-  const date = new Date(value);
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-}
 
 function normalizeOptionalUrl(value: string | null | undefined) {
   const trimmed = String(value ?? "").trim();

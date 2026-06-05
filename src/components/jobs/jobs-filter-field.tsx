@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import { splitFilterValues } from "@/lib/filter-values";
 
 type FilterOption = {
   label: string;
@@ -12,7 +13,6 @@ type FilterOption = {
 
 type JobsFilterDropdownFieldProps = {
   className?: string;
-  clearHref?: string;
   columnsClassName?: string;
   emptyLabel: string;
   name: string;
@@ -186,21 +186,4 @@ function getFilterSummaryText(selectedLabels: string[], emptyLabel: string) {
   if (selectedLabels.length === 0) return emptyLabel;
   if (selectedLabels.length <= 2) return selectedLabels.join(", ");
   return `${selectedLabels[0]}, ${selectedLabels[1]} +${selectedLabels.length - 2}`;
-}
-
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
 }

@@ -194,10 +194,11 @@ export function sanitizeCompanyName(
   value: unknown,
   options?: { urls?: Array<string | null | undefined> }
 ) {
+  const urls = options?.urls ?? [];
   const normalized = compactWhitespace(
     decodeHtmlEntitiesFull(asText(value)).replace(/[®™]/g, "")
   );
-  const hostCandidate = deriveCompanyNameFromUrls(options?.urls ?? []);
+  const hostCandidate = deriveCompanyNameFromUrls(urls);
   if (!normalized) {
     return hostCandidate ?? "";
   }
@@ -209,7 +210,7 @@ export function sanitizeCompanyName(
     .filter(Boolean)) {
     candidates.add(segment);
   }
-  if (hostCandidate) {
+  if (hostCandidate && shouldUseHostCompanyCandidate(normalized, hostCandidate, urls)) {
     candidates.add(hostCandidate);
   }
 
@@ -225,6 +226,32 @@ export function sanitizeCompanyName(
   }
 
   return best;
+}
+
+function shouldUseHostCompanyCandidate(
+  normalized: string,
+  hostCandidate: string,
+  urls: Array<string | null | undefined>
+) {
+  const normalizedCompany = normalizeComparable(normalized);
+  const normalizedHost = normalizeComparable(hostCandidate);
+
+  if (!normalizedCompany) return true;
+  if (UNKNOWN_COMPANY_NAMES.has(normalizedCompany)) return true;
+  if (COMPANY_BAD_MARKER_RE.test(normalized)) return true;
+  if (
+    urls.some((url) =>
+      typeof url === "string" && hasUnresolvedGenericCompanyName(normalized, url)
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    normalizedCompany === normalizedHost ||
+    normalizedCompany.includes(normalizedHost) ||
+    normalizedHost.includes(normalizedCompany)
+  );
 }
 
 export function sanitizeJobDescriptionText(

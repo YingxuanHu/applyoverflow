@@ -1,13 +1,27 @@
-import { errorResponse, successResponse } from "@/lib/api-utils";
-import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
+import {
+  errorResponse,
+  isUnauthorizedApiError,
+  rateLimitResponse,
+  successResponse,
+  unauthorizedResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { requireCurrentUserProfile } from "@/lib/current-user";
 import { syncStoredResumeForProfile } from "@/lib/profile-resume-service";
 import { revalidateProfileViews } from "@/lib/revalidation";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "document:resume-sync",
+      API_RATE_LIMITS.documentSync
+    );
+    if (rateLimited) return rateLimited;
+
     const user = await requireCurrentUserProfile();
     const { id } = await params;
 
@@ -19,9 +33,7 @@ export async function POST(
     revalidateProfileViews();
     return successResponse({ message: result.message });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
+    if (isUnauthorizedApiError(error)) return unauthorizedResponse();
     return errorResponse(
       error instanceof Error ? error.message : "Resume extraction failed.",
       400

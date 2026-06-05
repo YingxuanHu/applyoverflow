@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { rateLimitResponse, unauthorizedResponse } from "@/lib/api-utils";
 import {
   UnauthorizedError,
   requireCurrentAuthUserId,
@@ -292,6 +294,13 @@ function formatDocumentContext(
 
 export async function POST(request: Request, context: RouteContext) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:application-assistant",
+      API_RATE_LIMITS.aiAssistant
+    );
+    if (rateLimited) return rateLimited;
+
     const [authUserId, profile] = await Promise.all([
       requireCurrentAuthUserId(),
       requireCurrentUserProfile(),
@@ -500,7 +509,7 @@ ${applicationContext}`,
     return NextResponse.json({ answer, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorizedResponse();
     }
 
     const message = error instanceof Error ? error.message : "Unknown error";

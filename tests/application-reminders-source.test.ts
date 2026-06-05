@@ -24,6 +24,9 @@ test("application reminders are editable first-class workspace items", () => {
 test("applications dashboard search includes reminders, tags, and job fields", () => {
   const trackerSource = readRepoFile("src/lib/queries/tracker.ts");
   const pageSource = readRepoFile("src/app/applications/page.tsx");
+  const pageClientSource = readRepoFile(
+    "src/components/applications/applications-page-client.tsx"
+  );
   const searchFieldSource = readRepoFile(
     "src/components/applications/applications-search-field.tsx"
   );
@@ -43,17 +46,18 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(trackerSource, /buildScopedTrackedSearchWhere/);
   assert.match(trackerSource, /events:\s*\{\s*some:\s*\{\s*type: "REMINDER"/);
   assert.match(trackerSource, /tags:\s*\{\s*some:/);
-  assert.match(pageSource, /ApplicationsSearchField/);
+  assert.match(pageSource, /ApplicationsPageClient/);
+  assert.match(pageClientSource, /ApplicationsSearchField/);
   assert.match(pageSource, /buildActiveApplicationSearchChips/);
   assert.match(searchFieldSource, /name="searchScope"/);
   assert.match(searchFieldSource, /titleSearch/);
   assert.match(searchFieldSource, /companySearch/);
   assert.match(searchFieldSource, /locationSearch/);
   assert.match(searchFieldSource, /tagSearch/);
-  assert.match(searchFieldSource, /\{ label: "All", value: "all" \}/);
+  assert.doesNotMatch(searchFieldSource, /\{ label: "All", value: "all" \}/);
   assert.doesNotMatch(searchFieldSource, /label: "Reminder"/);
   assert.doesNotMatch(searchFieldSource, /reminder: "reminderSearch"/);
-  assert.match(pageSource, /ApplicationRemindersSummary/);
+  assert.match(pageClientSource, /ApplicationRemindersSummary/);
   assert.match(summarySource, /line-clamp-2/);
   assert.match(summarySource, /updateTimelineEvent/);
   assert.match(summarySource, /deleteTimelineEvent/);

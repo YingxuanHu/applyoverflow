@@ -17,6 +17,7 @@ import {
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
+import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import {
   SALARY_COMPARISON_CURRENCIES,
 } from "@/lib/currency-conversion";
 import { prisma } from "@/lib/db";
+import { normalizeTextParam, splitFilterValues } from "@/lib/filter-values";
 import {
   EXPERIENCE_LEVEL_GROUP_OPTIONS,
   NORMALIZED_EMPLOYMENT_TYPE_GROUP_OPTIONS,
@@ -45,6 +47,7 @@ import {
   JOBS_STATE_PARAM_KEYS,
   resolveJobsStateSource,
 } from "@/lib/jobs/search-state";
+import { formatJobResultCount } from "@/lib/jobs/result-count";
 import { serializeJobCardData } from "@/lib/job-serialization";
 import { getIngestionStatus } from "@/lib/queries/ingestion";
 import {
@@ -182,19 +185,15 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const activeFilterCount = countActiveFilters(filters);
   const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
-  const visibleResultFloor = Math.max(
-    jobsResult.data.length,
-    (jobsResult.page - 1) * jobsResult.pageSize + jobsResult.data.length
-  );
-  const headlineCountLabel =
-    hasScopedResults &&
-    jobsResult.hasNextPage &&
-    (jobsResult.total === null || jobsResult.total <= visibleResultFloor)
-      ? `${visibleResultFloor.toLocaleString()}+`
-      : (hasScopedResults
-          ? (jobsResult.total ?? jobsResult.data.length)
-          : jobsResult.summary.liveJobCount
-        ).toLocaleString();
+  const headlineCountLabel = formatJobResultCount({
+    hasScopedResults,
+    total: jobsResult.total,
+    dataLength: jobsResult.data.length,
+    page: jobsResult.page,
+    pageSize: jobsResult.pageSize,
+    hasNextPage: jobsResult.hasNextPage,
+    liveJobCount: jobsResult.summary.liveJobCount,
+  }).label;
   const activeFilterGroups = buildActiveFilterGroups(filters, resolvedSearchParams);
   const currentSortLabel = getSortLabel(filters.sortBy);
   const currentPage = jobsResult.page;
@@ -218,6 +217,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         stateParamKeys={JOBS_STATE_PARAM_KEYS}
         storageKey={JOBS_SEARCH_STATE_STORAGE_KEY}
       />
+      <ScrollPositionMemory storageKeyPrefix="autoapplication.jobs.scroll" />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
       <header className="page-header">
@@ -329,11 +329,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              careerStage: undefined,
-                              experienceLevel: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="All levels"
@@ -344,11 +339,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              jobFunction: undefined,
-                              roleCategory: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any job function"
@@ -367,10 +357,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              industry: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any company industry"
@@ -381,10 +367,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              workMode: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any work mode"
@@ -395,10 +377,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              employmentType: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any type"
@@ -409,10 +387,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           />
 
                           <JobsFilterDropdownField
-                            clearHref={buildJobsHref(resolvedSearchParams, {
-                              page: undefined,
-                              posted: undefined,
-                            })}
                             className="sm:col-span-2"
                             columnsClassName="sm:grid-cols-2"
                             emptyLabel="Any posted date"
@@ -715,11 +689,6 @@ function inferEffectiveSearchScope({
   return "all";
 }
 
-function normalizeTextParam(value?: string) {
-  const trimmed = String(value ?? "").trim();
-  return trimmed ? trimmed.slice(0, 120) : undefined;
-}
-
 function normalizeTextListParam(value?: string) {
   const values = splitFilterValues(value)
     .map((entry) => entry.slice(0, 80))
@@ -1008,58 +977,53 @@ function buildSearchFormInitialValues(filters: JobFilterParams): Record<JobSearc
   };
 }
 
+type HiddenField = { name: string; value: string };
+type HiddenFieldInput = readonly [name: string, value: string | number | undefined];
+
+function buildHiddenFields(entries: HiddenFieldInput[]): HiddenField[] {
+  return entries.flatMap(([name, value]) =>
+    value !== undefined && value !== "" ? [{ name, value: String(value) }] : []
+  );
+}
+
 function buildSearchFormHiddenFields(filters: JobFilterParams) {
-  const fields: Array<{ name: string; value: string }> = [];
-  const add = (name: string, value: string | number | undefined) => {
-    if (value !== undefined && value !== "") {
-      fields.push({ name, value: String(value) });
-    }
-  };
+  const includeSalaryFields = filters.salaryMin || filters.salaryMax;
 
-  add("status", filters.status);
-  add("sortBy", filters.sortBy);
-  add("location", filters.location);
-  add("source", filters.source);
-  add("jobFunction", filters.roleCategory);
-  add("careerStage", filters.careerStage);
-  add("workMode", filters.workMode);
-  add("employmentType", filters.employmentType);
-  add("region", filters.region);
-  add("industry", filters.industry);
-  add("salaryMin", filters.salaryMin);
-  add("salaryMax", filters.salaryMax);
-  if (filters.salaryMin || filters.salaryMax) {
-    add("salaryCurrency", filters.salaryCurrency);
-    if (filters.includeUnknownSalary) add("includeUnknownSalary", "1");
-  }
-  add("expiry", filters.expiry);
-  add("posted", filters.posted);
-
-  return fields;
+  return buildHiddenFields([
+    ["status", filters.status],
+    ["sortBy", filters.sortBy],
+    ["location", filters.location],
+    ["source", filters.source],
+    ["jobFunction", filters.roleCategory],
+    ["careerStage", filters.careerStage],
+    ["workMode", filters.workMode],
+    ["employmentType", filters.employmentType],
+    ["region", filters.region],
+    ["industry", filters.industry],
+    ["salaryMin", filters.salaryMin],
+    ["salaryMax", filters.salaryMax],
+    ["salaryCurrency", includeSalaryFields ? filters.salaryCurrency : undefined],
+    ["includeUnknownSalary", includeSalaryFields && filters.includeUnknownSalary ? "1" : undefined],
+    ["expiry", filters.expiry],
+    ["posted", filters.posted],
+  ]);
 }
 
 function buildFilterPanelHiddenFields(filters: JobFilterParams) {
-  const fields: Array<{ name: string; value: string }> = [];
-  const add = (name: string, value: string | number | undefined) => {
-    if (value !== undefined && value !== "") {
-      fields.push({ name, value: String(value) });
-    }
-  };
-
-  add("sortBy", filters.sortBy);
-  add("search", filters.search);
-  add("titleSearch", filters.titleSearch);
-  add("companySearch", filters.companySearch);
-  if (hasActiveSearch(filters)) add("searchScope", filters.searchScope);
-
-  // Preserve legacy/admin params if someone arrived with a shared URL, but
-  // do not expose these as primary user-facing filter controls.
-  add("location", filters.location);
-  add("source", filters.source);
-  add("status", filters.status);
-  add("region", filters.region);
-
-  return fields;
+  return buildHiddenFields([
+    ["sortBy", filters.sortBy],
+    ["search", filters.search],
+    ["titleSearch", filters.titleSearch],
+    ["companySearch", filters.companySearch],
+    ["locationSearch", filters.locationSearch],
+    ["searchScope", hasActiveSearch(filters) ? filters.searchScope : undefined],
+    // Preserve legacy/admin params from shared URLs without exposing them as
+    // primary user-facing filter controls.
+    ["location", filters.location],
+    ["source", filters.source],
+    ["status", filters.status],
+    ["region", filters.region],
+  ]);
 }
 
 function FilterFieldLabel({ children }: { children: React.ReactNode }) {
@@ -1443,21 +1407,4 @@ function buildRemoveFilterValueHref(
   }
 
   return buildJobsHref(currentParams, overrides);
-}
-
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
 }

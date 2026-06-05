@@ -16,6 +16,7 @@ import {
 } from "@/lib/ingestion/pipeline";
 import { Prisma } from "@/generated/prisma/client";
 import {
+  applyVerifiedCompanyDisplayName,
   inferFreshnessModeFromSourceName,
   parseSourceConnectorJobFromRawPayload,
 } from "@/lib/ingestion/normalized-records";
@@ -69,6 +70,10 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     applyUrl: sourceJob.applyUrl,
     freshnessMode: connector.freshnessMode,
   });
+  const verifiedCompany = await applyVerifiedCompanyDisplayName({
+    company: normalized.company,
+    companyKey: normalized.companyKey,
+  });
   const missingClassification =
     normalized.normalizedEmploymentTypeConfidence == null ||
     normalized.normalizedCareerStageConfidence == null ||
@@ -83,7 +88,7 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     ? classifyJobMetadata({
         title: normalized.title,
         rawTitle: sourceJob.title,
-        company: normalized.company,
+        company: verifiedCompany.company,
         description: normalized.description,
         location: normalized.location,
         roleFamily: normalized.roleFamily,
@@ -107,7 +112,7 @@ export async function canonicalizeNormalizedJobRecord(normalizedJobRecordId: str
     titleRejectedFragmentsJson: asInputJson(normalized.titleRejectedFragmentsJson, []),
     titleExtractionWarnings: asInputJson(normalized.titleExtractionWarnings, []),
     jobPageType: normalized.jobPageType,
-    company: normalized.company,
+    company: verifiedCompany.company,
     companyKey: normalized.companyKey,
     titleKey: normalized.titleKey,
     titleCoreKey: normalized.titleCoreKey,

@@ -210,20 +210,6 @@ const NON_JOB_TITLE_PATTERNS = [
 const LOCATION_ONLY_TITLE_RE =
   /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore|apac|emea|latam|europe|asia|africa|middle east|united kingdom|uk|india|australia)(?:\s+(?:office|area|region|centre|center|city))?$/i;
 
-const GENERIC_CAREER_LANDING_TITLE_PATTERNS = [
-  /^careers?(?: at .+)?$/i,
-  /^jobs?(?: at .+)?$/i,
-  /^open positions?$/i,
-  /^current opportunities$/i,
-  /^work (?:at|with|for) .+$/i,
-  /^join (?:us|our team|the team)\b/i,
-  /^join .+\b/i,
-  /^come work with us\b/i,
-  /^build your career\b/i,
-  /^grow your career\b/i,
-  /^help us\b/i,
-] satisfies RegExp[];
-
 const DEPARTMENT_BUCKET_TITLE_RE =
   /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i;
 

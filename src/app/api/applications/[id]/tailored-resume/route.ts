@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { zodResponseFormat } from "openai/helpers/zod";
 
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { rateLimitResponse } from "@/lib/api-utils";
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
@@ -368,8 +370,15 @@ ${JSON.stringify(resumeData, null, 2)}`,
   return filledTemplate ? stripCodeFences(filledTemplate) : null;
 }
 
-export async function POST(_request: Request, { params }: RouteParams) {
+export async function POST(request: Request, { params }: RouteParams) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:tailored-resume",
+      API_RATE_LIMITS.aiTailoredResume
+    );
+    if (rateLimited) return rateLimited;
+
     const [authUserId, profile] = await Promise.all([
       requireCurrentAuthUserId(),
       requireCurrentUserProfile(),

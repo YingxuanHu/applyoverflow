@@ -29,7 +29,7 @@ test("scoped job search does not preserve stale everything-search terms", () => 
   assert.doesNotMatch(html, /name="search" value="amazon"/);
 });
 
-test("submitting a scoped job search does not carry stale other scoped searches", () => {
+test("submitting a scoped job search preserves other active scoped searches", () => {
   const html = renderToStaticMarkup(
     React.createElement(JobsSearchForm, {
       hiddenFields: [],
@@ -44,8 +44,8 @@ test("submitting a scoped job search does not carry stale other scoped searches"
   );
 
   assert.match(html, /name="titleSearch"/);
-  assert.doesNotMatch(html, /name="companySearch" value="Amazon"/);
-  assert.doesNotMatch(html, /name="locationSearch" value="Toronto,Montreal"/);
+  assert.match(html, /name="companySearch" value="Amazon"/);
+  assert.match(html, /name="locationSearch" value="Toronto,Montreal"/);
   assert.doesNotMatch(html, /name="search" value="ignored global text"/);
 });
 
@@ -80,9 +80,26 @@ test("legacy all scope is rendered as title keyword search", () => {
   );
 
   assert.match(html, /name="titleSearch"/);
-  assert.match(html, /Search job title by keyword/);
+  assert.match(html, /Search job titles by keyword/);
   assert.doesNotMatch(html, />All</);
   assert.doesNotMatch(html, /name="search" value="amazon"/);
   assert.doesNotMatch(html, /name="companySearch"/);
   assert.doesNotMatch(html, /name="locationSearch"/);
+});
+
+test("submitting a new company search keeps the existing title search as a second filter", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(JobsSearchForm, {
+      hiddenFields: [],
+      initialScope: "company",
+      initialValues: {
+        ...emptyValues,
+        title: "backend",
+        company: "OpenAI",
+      },
+    })
+  );
+
+  assert.match(html, /name="companySearch" value="OpenAI"/);
+  assert.match(html, /name="titleSearch" value="backend"/);
 });

@@ -2,12 +2,19 @@ import { type NextRequest } from "next/server";
 import { runAutoApply } from "@/lib/automation/engine";
 import { resolveATSFiller } from "@/lib/automation/fillers";
 import { buildAutoApplyReviewSummary } from "@/lib/automation/review";
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import {
+  errorResponse,
+  isUnauthorizedApiError,
+  rateLimitResponse,
+  successResponse,
+  unauthorizedResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { prepareAutoApplyPackage } from "@/lib/queries/applications";
 import { recordAction } from "@/lib/queries/behavior";
 import { saveJob } from "@/lib/queries/saved-jobs";
 import { syncTrackedApplicationFromSubmission } from "@/lib/queries/tracker";
-import { requireCurrentProfileId, UnauthorizedError } from "@/lib/current-user";
+import { requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import type { AutomationRunMode } from "@/lib/automation/types";
 
@@ -42,15 +49,20 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:auto-apply",
+      API_RATE_LIMITS.autoApply
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
     let userId: string;
 
     try {
       userId = await requireCurrentProfileId();
     } catch (error) {
-      if (error instanceof UnauthorizedError) {
-        return errorResponse("Unauthorized", 401);
-      }
+      if (isUnauthorizedApiError(error)) return unauthorizedResponse();
       throw error;
     }
 
@@ -157,9 +169,7 @@ export async function POST(
         savedAnswers: answers,
       });
     } catch (error) {
-      if (error instanceof UnauthorizedError) {
-        return errorResponse("Unauthorized", 401);
-      }
+      if (isUnauthorizedApiError(error)) return unauthorizedResponse();
       const msg = error instanceof Error ? error.message : "Could not prepare package";
       return errorResponse(msg, 400);
     }

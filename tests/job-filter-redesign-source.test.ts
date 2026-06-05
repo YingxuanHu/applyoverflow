@@ -11,6 +11,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   const filterContractSource = readRepoFile("src/lib/job-filter-contract.ts");
   const metadataSource = readRepoFile("src/lib/job-metadata.ts");
   const pageSource = readRepoFile("src/app/jobs/page.tsx");
+  const resultCountSource = readRepoFile("src/lib/jobs/result-count.ts");
   const activeChipsSource = readRepoFile("src/components/jobs/jobs-active-filter-chips.tsx");
   const filterFieldSource = readRepoFile("src/components/jobs/jobs-filter-field.tsx");
   const searchFormSource = readRepoFile("src/components/jobs/jobs-search-form.tsx");
@@ -70,8 +71,9 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(querySource, /filters\.sortBy === "location"/);
 
   assert.match(pageSource, /buildActiveFilterGroups\(filters, resolvedSearchParams\)/);
-  assert.match(pageSource, /visibleResultFloor/);
-  assert.match(pageSource, /jobsResult\.hasNextPage[\s\S]*jobsResult\.total === null/);
+  assert.match(pageSource, /formatJobResultCount/);
+  assert.match(resultCountSource, /const floor = Math\.max/);
+  assert.match(resultCountSource, /input\.hasNextPage/);
   assert.match(pageSource, /buildLocationSearchRemoveHref/);
   assert.match(pageSource, /currentHadValues/);
   assert.match(pageSource, /return "\/jobs\?reset=1"/);
@@ -82,7 +84,8 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /splitFilterValues\(filters\.locationSearch\)/);
   assert.match(pageSource, /JobsActiveFilterChips/);
   assert.match(activeChipsSource, /Clear all/);
-  assert.match(activeChipsSource, /setPendingItems/);
+  assert.match(activeChipsSource, /setOptimisticState/);
+  assert.match(activeChipsSource, /stateSignature/);
   assert.match(activeChipsSource, /group-hover\/filter-chip:text-white/);
   assert.match(pageSource, /name="salaryMax"/);
   assert.match(pageSource, /name="salaryCurrency"/);

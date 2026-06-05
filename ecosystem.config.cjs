@@ -30,13 +30,16 @@ function buildOvernightApp(name, args, output, error, extraEnv = {}) {
       DATABASE_PROCESS_ROLE: "daemon",
       DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "4",
       DATABASE_POOL_MAX_RECOVERY_POLL:
-        process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+        process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
       DATABASE_POOL_CONNECTION_TIMEOUT_MS:
         process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
       INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
       JOOBLE_ENABLED: "false",
       SOURCE_JOOBLE_ENABLED: "false",
       INGEST_JOOBLE_ENABLED: "false",
+      ADZUNA_ENABLED: "false",
+      SOURCE_ADZUNA_ENABLED: "false",
+      INGEST_ADZUNA_ENABLED: "false",
       INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
         process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
       ...extraEnv,
@@ -70,6 +73,9 @@ function buildOvernightShellApp(name, args, output, error, extraEnv = {}) {
       JOOBLE_ENABLED: "false",
       SOURCE_JOOBLE_ENABLED: "false",
       INGEST_JOOBLE_ENABLED: "false",
+      ADZUNA_ENABLED: "false",
+      SOURCE_ADZUNA_ENABLED: "false",
+      INGEST_ADZUNA_ENABLED: "false",
       INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
         process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
       ...extraEnv,
@@ -119,9 +125,9 @@ const overnightAccelerationApps = overnightAccelerationEnabled
           DATABASE_PROCESS_ROLE: "recovery_poll",
           INGEST_RECOVERY_MODE: "1",
           RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
+            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "80",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -131,7 +137,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/frontier-growth-overnight-err.log",
         {
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -141,9 +147,9 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/high-yield-source-poll-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -153,7 +159,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/ats-frontier-expansion-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         }
       ),
       buildOvernightApp(
@@ -169,7 +175,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/feed-index-sync-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         }
       ),
       buildOvernightApp(
@@ -198,7 +204,7 @@ module.exports = {
     {
       name: "ingest-daemon",
       script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-daemon.ts --interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 5} --force`,
+      args: `-r dotenv/config scripts/ingest-daemon.ts --interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15} --force`,
       cwd: __dirname,
       // Restart policy
       autorestart: true,
@@ -216,38 +222,41 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "daemon",
         DATABASE_POOL_MAX_DAEMON:
-          process.env.DATABASE_POOL_MAX_DAEMON || "4",
+          process.env.DATABASE_POOL_MAX_DAEMON || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS:
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "8",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "3",
         INGEST_STEADY_DISCOVERY_LIMIT:
-          process.env.INGEST_STEADY_DISCOVERY_LIMIT || "25",
+          process.env.INGEST_STEADY_DISCOVERY_LIMIT || "10",
         INGEST_STEADY_VALIDATION_LIMIT:
-          process.env.INGEST_STEADY_VALIDATION_LIMIT || "50",
+          process.env.INGEST_STEADY_VALIDATION_LIMIT || "20",
         INGEST_STEADY_SOURCE_POLL_LIMIT:
-          process.env.INGEST_STEADY_SOURCE_POLL_LIMIT || "100",
+          process.env.INGEST_STEADY_SOURCE_POLL_LIMIT || "35",
         INGEST_STEADY_REDISCOVERY_LIMIT:
-          process.env.INGEST_STEADY_REDISCOVERY_LIMIT || "10",
+          process.env.INGEST_STEADY_REDISCOVERY_LIMIT || "5",
         INGEST_STEADY_URL_HEALTH_LIMIT:
           process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "1",
         INGEST_BURST_DISCOVERY_LIMIT:
-          process.env.INGEST_BURST_DISCOVERY_LIMIT || "25",
+          process.env.INGEST_BURST_DISCOVERY_LIMIT || "10",
         INGEST_BURST_VALIDATION_LIMIT:
-          process.env.INGEST_BURST_VALIDATION_LIMIT || "50",
+          process.env.INGEST_BURST_VALIDATION_LIMIT || "20",
         INGEST_BURST_SOURCE_POLL_LIMIT:
-          process.env.INGEST_BURST_SOURCE_POLL_LIMIT || "100",
+          process.env.INGEST_BURST_SOURCE_POLL_LIMIT || "35",
         INGEST_BURST_REDISCOVERY_LIMIT:
-          process.env.INGEST_BURST_REDISCOVERY_LIMIT || "10",
+          process.env.INGEST_BURST_REDISCOVERY_LIMIT || "5",
         INGEST_BURST_URL_HEALTH_LIMIT:
           process.env.INGEST_BURST_URL_HEALTH_LIMIT || "1",
       },
@@ -257,7 +266,7 @@ module.exports = {
     {
       name: "ingest-poll-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=5",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=${process.env.INGEST_POLL_WORKER_INTERVAL_SECONDS || 60}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -272,22 +281,25 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
         DATABASE_POOL_MAX_RECOVERY_POLL:
-          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS:
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "6",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "2",
         RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
+          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "80",
         INGEST_STEADY_URL_HEALTH_LIMIT:
           process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "1",
         INGEST_BURST_URL_HEALTH_LIMIT:
@@ -298,7 +310,7 @@ module.exports = {
     {
       name: "ingest-validation-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=10",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=${process.env.INGEST_VALIDATION_WORKER_INTERVAL_SECONDS || 120}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -318,13 +330,16 @@ module.exports = {
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY:
-          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "12",
+          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "3",
         RECOVERY_WORKER_VALIDATION_LIMIT:
-          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "250",
+          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "80",
         DATABASE_POOL_MAX_RECOVERY_VALIDATION:
           process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
       },
@@ -333,7 +348,7 @@ module.exports = {
     {
       name: "ingest-discovery-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=15",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 180}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -353,15 +368,18 @@ module.exports = {
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_DISCOVERY_QUEUE_CONCURRENCY:
-          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "6",
+          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "2",
         RECOVERY_WORKER_DISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "80",
+          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "30",
         RECOVERY_WORKER_REDISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "50",
+          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "15",
         DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
           process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "2",
       },

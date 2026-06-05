@@ -2,6 +2,13 @@ const FALLBACK_TIME_ZONE = "America/Toronto";
 
 export const USER_TIME_ZONE_COOKIE = "autoapplication.timeZone";
 
+/** Midnight (00:00:00.000) UTC of the given date's UTC calendar day. */
+export function startOfUtcDay(value: Date): Date {
+  const date = new Date(value);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
 export function normalizeUserTimeZone(value?: string | null) {
   const candidate = value?.trim();
   const configuredFallback =

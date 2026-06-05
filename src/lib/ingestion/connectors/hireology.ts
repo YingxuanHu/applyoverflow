@@ -14,7 +14,7 @@
  *   https://www.hireology.com/careers/{slug}/{job-id}
  */
 import type { Prisma } from "@/generated/prisma/client";
-import type { EmploymentType, WorkMode } from "@/generated/prisma/client";
+import type { EmploymentType } from "@/generated/prisma/client";
 
 import { throwIfAborted } from "@/lib/ingestion/runtime-control";
 import type {

@@ -1,18 +1,25 @@
 import { type NextRequest } from "next/server";
-import { UnauthorizedError } from "@/lib/current-user";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { saveJob, unsaveJob } from "@/lib/queries/saved-jobs";
 import { recordAction } from "@/lib/queries/behavior";
 import {
   removeTrackedWishlistFromJob,
   upsertTrackedApplicationFromJob,
 } from "@/lib/queries/tracker";
-import { successResponse, errorResponse } from "@/lib/api-utils";
+import { handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:save",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
     const [tracked] = await Promise.all([
       upsertTrackedApplicationFromJob({
@@ -37,30 +44,34 @@ export async function POST(
       tracked.created ? 201 : 200
     );
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/jobs/[id]/save error:", error);
-    return errorResponse("Failed to add job to wishlist", 500);
+    return handleApiRouteError(
+      error,
+      "POST /api/jobs/[id]/save",
+      "Failed to add job to wishlist"
+    );
   }
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:unsave",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
-    await Promise.all([
-      unsaveJob(id),
-      removeTrackedWishlistFromJob(id),
-    ]);
+    await Promise.all([unsaveJob(id), removeTrackedWishlistFromJob(id)]);
     return successResponse({ success: true });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("DELETE /api/jobs/[id]/save error:", error);
-    return errorResponse("Failed to remove job from wishlist", 500);
+    return handleApiRouteError(
+      error,
+      "DELETE /api/jobs/[id]/save",
+      "Failed to remove job from wishlist"
+    );
   }
 }

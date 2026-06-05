@@ -58,6 +58,17 @@ test("session state restores before saved preferences when URL is empty", () => 
   assert.equal(resolved.query, "searchScope=location&locationSearch=Toronto&page=2");
 });
 
+test("reset URL clears session and saved jobs state", () => {
+  const saved = jobsPreferenceValueFromQueryString("companySearch=Amazon&sortBy=company");
+  const resolved = resolveJobsStateSource({
+    savedPreferenceValue: saved,
+    sessionQuery: "titleSearch=backend&page=2",
+    urlParams: { reset: "1" },
+  });
+
+  assert.deepEqual(resolved, { source: "default", query: "" });
+});
+
 test("saved jobs preference restores without old page number", () => {
   const saved = jobsPreferenceValueFromQueryString(
     "titleSearch=engineer&jobFunction=Software%20Engineering,AI%20%2F%20Machine%20Learning&industry=Finance%20%26%20Banking&page=7&sortBy=newest"

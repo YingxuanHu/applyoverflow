@@ -5,6 +5,7 @@ import { ChevronDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { normalizeFilterValueList } from "@/lib/filter-values";
 import type { JobSearchScope } from "@/lib/queries/jobs";
 
 type HiddenField = {
@@ -48,19 +49,12 @@ const PLACEHOLDER_BY_SCOPE: Record<JobSearchScope, string> = {
 };
 
 function normalizeSearchList(value: string) {
-  const seen = new Set<string>();
-  const values: string[] = [];
+  return normalizeFilterValueList(value) ?? "";
+}
 
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values.join(",");
+function getSubmittedValue(scope: VisibleJobSearchScope, values: SearchValues) {
+  const value = values[scope].trim();
+  return scope === "location" ? normalizeSearchList(value) : value;
 }
 
 export function JobsSearchForm({
@@ -94,12 +88,7 @@ export function JobsSearchForm({
   const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
   const [values, setValues] = useState<SearchValues>(() => normalizedInitialValues);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
-  const existingLocationSearch = initialValues.location.trim();
-  const pendingLocationSearch = normalizeSearchList(
-    [existingLocationSearch, values.location.trim()].filter(Boolean).join(",")
-  );
-  const submittedSearchValue =
-    scope === "location" ? pendingLocationSearch : values[scope].trim();
+  const submittedSearchValue = getSubmittedValue(scope, values);
 
   useEffect(() => {
     setScope(initialVisibleScope);
@@ -127,6 +116,18 @@ export function JobsSearchForm({
           <input name={inputName} type="hidden" value={submittedSearchValue} />
         </>
       ) : null}
+      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
+        const value = getSubmittedValue(option.value, values);
+        if (!value) return null;
+        return (
+          <input
+            key={option.value}
+            name={SEARCH_PARAM_BY_SCOPE[option.value]}
+            type="hidden"
+            value={value}
+          />
+        );
+      })}
 
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         <label className="sr-only" htmlFor="jobs-search-scope">

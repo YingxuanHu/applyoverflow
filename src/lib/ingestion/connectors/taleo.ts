@@ -23,10 +23,7 @@
  */
 import type { Prisma } from "@/generated/prisma/client";
 import type { EmploymentType, WorkMode } from "@/generated/prisma/client";
-import {
-  sleepWithAbort,
-  throwIfAborted,
-} from "@/lib/ingestion/runtime-control";
+import { throwIfAborted } from "@/lib/ingestion/runtime-control";
 import type {
   SourceConnector,
   SourceConnectorFetchOptions,
@@ -258,7 +255,7 @@ async function tryRestApiFetch(
     if (restJobs.length === 0) return null;
 
     const jobs = restJobs.map((row) =>
-      restRowToSourceJob(target, row, fallbackCompanyName, now)
+      restRowToSourceJob(target, row, fallbackCompanyName)
     );
 
     return {
@@ -413,8 +410,7 @@ async function fetchRestJobs(
 function restRowToSourceJob(
   target: TaleoTarget,
   row: TaleoRestJobRow,
-  fallbackCompanyName: string,
-  now: Date
+  fallbackCompanyName: string
 ): SourceConnectorJob {
   const jobId = row.contestNo;
   const description = [row.description, row.qualifications, row.additionalInfo]
@@ -731,12 +727,6 @@ function parseTaleoDate(raw: string | null): Date | null {
   return isNaN(date.getTime()) ? null : date;
 }
 
-function extractText(html: string, pattern: RegExp): string | null {
-  const match = html.match(pattern);
-  if (!match?.[1]) return null;
-  return stripHtml(match[1]).trim() || null;
-}
-
 /**
  * Extract job title from Taleo rendered page.
  * Priority: <title> tag (format: "Job Description - Title (ID)"), then
@@ -877,78 +867,6 @@ function extractCompanyFromHtml(html: string): string | null {
   }
 
   return null;
-}
-
-function extractLocationFromHtml(html: string): string | null {
-  // Try JSON-LD
-  const jsonLdMatch = html.match(
-    /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i
-  );
-  if (jsonLdMatch?.[1]) {
-    try {
-      const ld = JSON.parse(jsonLdMatch[1]);
-      const loc = ld.jobLocation;
-      if (loc?.address) {
-        const addr = loc.address;
-        const parts = [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean);
-        if (parts.length > 0) return parts.join(", ");
-      }
-    } catch {}
-  }
-
-  // Try common Taleo patterns
-  const patterns = [
-    /location\s*[:]\s*<[^>]*>([^<]+)</i,
-    /class\s*=\s*["'][^"']*location[^"']*["'][^>]*>([^<]+)</i,
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match?.[1]) return stripHtml(match[1]).trim() || null;
-  }
-
-  return null;
-}
-
-function extractDescriptionFromHtml(html: string): string | null {
-  // Try JSON-LD first
-  const jsonLdMatch = html.match(
-    /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i
-  );
-  if (jsonLdMatch?.[1]) {
-    try {
-      const ld = JSON.parse(jsonLdMatch[1]);
-      if (ld.description) return stripHtml(ld.description);
-    } catch {}
-  }
-
-  // Try to find the main description container
-  const descPatterns = [
-    /class\s*=\s*["'][^"']*jobdescription[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /class\s*=\s*["'][^"']*job-description[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /id\s*=\s*["']jobDescriptionText["'][^>]*>([\s\S]*?)<\/div>/i,
-    /class\s*=\s*["'][^"']*requisitionDescription[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-  ];
-  for (const pattern of descPatterns) {
-    const match = html.match(pattern);
-    if (match?.[1] && match[1].length > 50) {
-      return stripHtml(match[1]);
-    }
-  }
-
-  // Fallback: grab all text between the title and apply button
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (bodyMatch?.[1]) {
-    const text = stripHtml(bodyMatch[1]);
-    if (text.length > 200) return text.slice(0, 5000);
-  }
-
-  return null;
-}
-
-function extractDateFromHtml(html: string, pattern: RegExp): Date | null {
-  const match = html.match(pattern);
-  if (!match?.[1]) return null;
-  return parseTaleoDate(match[1]);
 }
 
 function inferEmploymentType(html: string): EmploymentType | null {

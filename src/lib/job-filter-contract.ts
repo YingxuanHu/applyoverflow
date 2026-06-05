@@ -6,23 +6,7 @@ import {
   normalizeExperienceLevelGroupFilterValue,
   normalizeIndustryFilterValue,
 } from "@/lib/job-metadata";
-
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
-}
+import { splitFilterValues } from "@/lib/filter-values";
 
 function withoutUnknownFilterValues(values: string[], unknownValue: string) {
   return values.filter((value) => value !== unknownValue);

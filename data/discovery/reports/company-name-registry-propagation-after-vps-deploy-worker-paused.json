@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-06-04T06:55:45.241Z",
+  "mode": "apply",
+  "batchSize": 200,
+  "maxBatches": 50,
+  "sleepMs": 100,
+  "before": {
+    "canonical": 0,
+    "feed": 55,
+    "normalized": 110
+  },
+  "staged": {
+    "feed": 55,
+    "normalized": 110
+  },
+  "canonical": {
+    "updated": 0,
+    "batches": 1
+  },
+  "feed": {
+    "updated": 55,
+    "batches": 1
+  },
+  "normalized": {
+    "updated": 110,
+    "batches": 1
+  },
+  "after": {
+    "canonical": 0,
+    "feed": 0,
+    "normalized": 0
+  }
+}

@@ -285,7 +285,7 @@ async function fetchUsaJobsJobs({
       const sourceId = `usajobs:${pos.PositionID}`;
       if (seenIds.has(sourceId)) continue;
       seenIds.add(sourceId);
-      allJobs.push(mapUsaJobsPosition(pos, now));
+      allJobs.push(mapUsaJobsPosition(pos));
     }
 
     if (items.length < USAJOBS_PAGE_SIZE) break;
@@ -311,10 +311,7 @@ async function fetchUsaJobsJobs({
   };
 }
 
-function mapUsaJobsPosition(
-  pos: UsaJobsPosition,
-  now: Date
-): SourceConnectorJob {
+function mapUsaJobsPosition(pos: UsaJobsPosition): SourceConnectorJob {
   const id = pos.PositionID ?? "";
   const title = (pos.PositionTitle ?? "").trim();
   const company = buildOrgName(pos);
@@ -419,4 +416,3 @@ function inferWorkMode(pos: UsaJobsPosition, location: string): WorkMode | null 
   if (/\btelework\b/.test(lower)) return "HYBRID";
   return null;
 }
-

@@ -1,5 +1,6 @@
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { getScheduledConnectorSnapshot } from "@/lib/ingestion/registry";
+import { startOfUtcDay } from "@/lib/time-zone";
 import type {
   IngestionOverview,
   IngestionRunListItem,
@@ -1009,10 +1010,6 @@ function serializeLifecycleEvidence(
     recentlySeenVisibleCount: toInteger(row?.recentlySeenVisibleCount),
     recentlyConfirmedVisibleCount: toInteger(row?.recentlyConfirmedVisibleCount),
   };
-}
-
-function startOfUtcDay(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function addUtcDays(date: Date, days: number) {

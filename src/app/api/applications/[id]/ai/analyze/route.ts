@@ -1,9 +1,10 @@
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { formatFitAnalysisForStorage } from "@/lib/ai/fit-analysis-format";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
-import { UnauthorizedError, requireCurrentAuthUserId } from "@/lib/current-user";
+import { requireCurrentAuthUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
 
@@ -63,10 +64,17 @@ async function buildTrackedApplicationJobContext(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:application-fit",
+      API_RATE_LIMITS.aiAnalyze
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
 
     if (!process.env.OPENAI_API_KEY) {
@@ -104,11 +112,7 @@ export async function POST(
     revalidateApplicationWorkspaceViews(id);
     return successResponse({ ...result, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/applications/[id]/ai/analyze error:", error);
     const message = error instanceof Error ? error.message : "Analysis failed";
-    return errorResponse(message, 500);
+    return handleApiRouteError(error, "POST /api/applications/[id]/ai/analyze", message);
   }
 }

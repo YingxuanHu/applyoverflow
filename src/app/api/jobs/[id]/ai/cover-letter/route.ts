@@ -1,16 +1,24 @@
-import { successResponse, errorResponse } from "@/lib/api-utils";
+import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
-import { UnauthorizedError, requireCurrentUserProfile } from "@/lib/current-user";
+import { requireCurrentUserProfile } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { prisma } from "@/lib/db";
 import { buildDocumentStorageKey, saveFile } from "@/lib/storage";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:job-cover-letter",
+      API_RATE_LIMITS.aiCoverLetter
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
 
     if (!process.env.OPENAI_API_KEY) {
@@ -74,11 +82,7 @@ export async function POST(
 
     return successResponse({ ...result, documentId: savedDocumentId });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/jobs/[id]/ai/cover-letter error:", error);
     const message = error instanceof Error ? error.message : "Cover letter generation failed";
-    return errorResponse(message, 500);
+    return handleApiRouteError(error, "POST /api/jobs/[id]/ai/cover-letter", message);
   }
 }

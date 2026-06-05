@@ -53,6 +53,41 @@ function readEnumValue<T extends string>(
   return allowed.includes(normalized as T) ? (normalized as T) : null;
 }
 
+function hasSourceRegistryImport(metadataJson: Prisma.JsonValue | null | undefined) {
+  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) {
+    return false;
+  }
+
+  return "sourceRegistryImport" in metadataJson;
+}
+
+export async function applyVerifiedCompanyDisplayName<T extends { company: string; companyKey: string }>(
+  job: T
+): Promise<T> {
+  if (!job.companyKey) return job;
+
+  const company = await prisma.company.findUnique({
+    where: { companyKey: job.companyKey },
+    select: {
+      name: true,
+      metadataJson: true,
+      normalizedIndustrySource: true,
+    },
+  });
+
+  const hasVerifiedRegistryName =
+    company != null &&
+    company.name.trim().length > 0 &&
+    (company.normalizedIndustrySource === "company_verified_csv" ||
+      hasSourceRegistryImport(company.metadataJson));
+
+  if (!hasVerifiedRegistryName || company.name === job.company) {
+    return job;
+  }
+
+  return { ...job, company: company.name };
+}
+
 export function inferFreshnessModeFromSourceName(sourceName: string) {
   const prefix = sourceName.split(":")[0] ?? sourceName;
   return INCREMENTAL_SOURCE_PREFIXES.has(prefix) ? "INCREMENTAL" : "FULL_SNAPSHOT";
@@ -277,10 +312,8 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
   });
 
   if (normalizationResult.kind === "rejected") {
-    const rejected = buildRejectedNormalizedRecordData(
-      sourceJob,
-      input.fetchedAt,
-      input.rawSourceName
+    const rejected = await applyVerifiedCompanyDisplayName(
+      buildRejectedNormalizedRecordData(sourceJob, input.fetchedAt, input.rawSourceName)
     );
     const trustScore = computeTrustScore({
       sourceReliability: sourceLifecycle.sourceReliability,
@@ -330,16 +363,18 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
     sourceCount: 1,
   });
 
+  const normalizedJob = await applyVerifiedCompanyDisplayName(normalizationResult.job);
+
   return prisma.normalizedJobRecord.upsert({
     where: { rawJobId: input.rawJobId },
     create: {
       rawJobId: input.rawJobId,
       status: "VALIDATED",
       normalizationVersion: "v2-staged",
-      qualityScore: computeNormalizedQualityScore(normalizationResult.job),
+      qualityScore: computeNormalizedQualityScore(normalizedJob),
       trustScore,
       freshnessScore: 100,
-      ...normalizationResult.job,
+      ...normalizedJob,
       metadataJson:
         sourceJob.metadata != null
           ? (sourceJob.metadata as Prisma.InputJsonValue)
@@ -350,10 +385,10 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
       normalizationVersion: "v2-staged",
       rejectionReason: null,
       integrityReason: null,
-      qualityScore: computeNormalizedQualityScore(normalizationResult.job),
+      qualityScore: computeNormalizedQualityScore(normalizedJob),
       trustScore,
       freshnessScore: 100,
-      ...normalizationResult.job,
+      ...normalizedJob,
       metadataJson:
         sourceJob.metadata != null
           ? (sourceJob.metadata as Prisma.InputJsonValue)

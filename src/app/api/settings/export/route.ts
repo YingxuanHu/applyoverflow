@@ -1,3 +1,5 @@
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { rateLimitResponse } from "@/lib/api-utils";
 import {
   ReauthenticationRequiredError,
   UnauthorizedError,
@@ -6,8 +8,15 @@ import {
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "settings:data-export",
+      API_RATE_LIMITS.dataExport
+    );
+    if (rateLimited) return rateLimited;
+
     await requireFreshSensitiveSession();
     const { authUserId, profileId } = await requireCurrentUserIds();
 

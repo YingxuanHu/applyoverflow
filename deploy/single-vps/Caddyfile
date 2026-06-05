@@ -1,8 +1,29 @@
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-X-Powered-By
+		-Server
+	}
+}
+
 www.applyoverflow.com {
-  redir https://applyoverflow.com{uri} permanent
+	import security_headers
+	redir https://applyoverflow.com{uri} permanent
 }
 
 applyoverflow.com {
-  encode zstd gzip
-  reverse_proxy app:3000
+	import security_headers
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy app:3000
 }

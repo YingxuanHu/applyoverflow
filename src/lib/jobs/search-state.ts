@@ -194,6 +194,10 @@ export function resolveJobsStateSource(input: {
   sessionQuery?: string | null;
   savedPreferenceValue?: string | null;
 }) {
+  if (firstParamValue(input.urlParams.reset) === "1") {
+    return { source: "default" as const, query: "" };
+  }
+
   if (hasJobsStateParamsRecord(input.urlParams)) {
     return {
       source: "url" as const,

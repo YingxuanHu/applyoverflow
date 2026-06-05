@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { getJobs, normalizeJobSortBy } from "@/lib/queries/jobs";
-import { paginatedResponse, errorResponse, parseIntParam } from "@/lib/api-utils";
+import { handleApiRouteError, paginatedResponse, parseIntParam, rateLimitResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
 import {
   normalizeUserTimeZone,
@@ -9,6 +10,13 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:list",
+      API_RATE_LIMITS.publicRead
+    );
+    if (rateLimited) return rateLimited;
+
     const sp = request.nextUrl.searchParams;
     const searchScope = sp.get("searchScope");
     const result = await getJobs(
@@ -59,7 +67,6 @@ export async function GET(request: NextRequest) {
       result.hasNextPage
     );
   } catch (error) {
-    console.error("GET /api/jobs error:", error);
-    return errorResponse("Failed to fetch jobs", 500);
+    return handleApiRouteError(error, "GET /api/jobs", "Failed to fetch jobs");
   }
 }

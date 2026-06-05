@@ -263,6 +263,13 @@ const CONNECTOR_POLL_RUNTIME_BATCH_CAPS: Record<string, number> = {
   ),
 };
 
+function getRuntimeCycleExhaustedConnectorNames(connectorCounts: Map<string, number>) {
+  return Object.entries(CONNECTOR_POLL_RUNTIME_CYCLE_CAPS)
+    .filter(([, cap]) => cap !== Number.MAX_SAFE_INTEGER)
+    .filter(([connectorName, cap]) => (connectorCounts.get(connectorName) ?? 0) >= cap)
+    .map(([connectorName]) => connectorName);
+}
+
 const CONNECTOR_POLL_BATCH_OVERFLOW_RETRY_MS = 90 * 1000;
 const CONNECTOR_POLL_CYCLE_OVERFLOW_RETRY_MS = 15 * 60 * 1000;
 // Per-source connector runtime cap (passed to ingestConnector).
@@ -355,6 +362,14 @@ const GROWTH_SOURCE_QUERY_MULTIPLIER = Math.max(
 const OFFICIAL_COMPANY_SOURCE_POLL_LIMIT = Math.max(
   100,
   readNonNegativeIntegerEnv("OFFICIAL_COMPANY_SOURCE_POLL_LIMIT") ?? 500
+);
+const BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT = Math.max(
+  50,
+  readNonNegativeIntegerEnv("BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT") ?? 100
+);
+const EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT = Math.max(
+  50,
+  readNonNegativeIntegerEnv("EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT") ?? 100
 );
 const FRONTIER_POLL_SLICE_CONCURRENCY = Math.max(
   1,
@@ -3314,11 +3329,27 @@ export async function runCompanySourcePollQueue(options: {
       )
     );
     const batchNow = new Date();
+    const excludedConnectorNames =
+      getRuntimeCycleExhaustedConnectorNames(runtimeConnectorCounts);
+    const excludedConnectorWhere =
+      excludedConnectorNames.length > 0
+        ? {
+            OR: [
+              { companySourceId: null },
+              {
+                companySource: {
+                  connectorName: { notIn: excludedConnectorNames },
+                },
+              },
+            ],
+          } satisfies Prisma.SourceTaskWhereInput
+        : {};
     const previewTasks = await prisma.sourceTask.findMany({
       where: {
         kind: "CONNECTOR_POLL",
         status: "PENDING",
         notBeforeAt: { lte: batchNow },
+        ...excludedConnectorWhere,
         ...(options.companySourceIds && options.companySourceIds.length > 0
           ? { companySourceId: { in: options.companySourceIds } }
           : {}),
@@ -3349,7 +3380,7 @@ export async function runCompanySourcePollQueue(options: {
       "CONNECTOR_POLL",
       claimLimit,
       batchNow,
-      { companySourceIds: options.companySourceIds }
+      { companySourceIds: options.companySourceIds, excludedConnectorNames }
     );
 
     if (tasks.length === 0) {
@@ -4259,7 +4290,9 @@ async function runSourceValidation(companySourceId: string, now: Date) {
   if (
     result.kind === "INVALID" ||
     result.kind === "NEEDS_REDISCOVERY" ||
-    (result.kind === "SUSPECT" && nextFailureCount >= HARD_FAILURE_REDISCOVERY_THRESHOLD)
+    (result.kind === "SUSPECT" &&
+      nextFailureCount >= HARD_FAILURE_REDISCOVERY_THRESHOLD &&
+      !result.softDiscoveryMiss)
   ) {
     await prisma.companySource.update({
       where: { id: source.id },
@@ -4279,6 +4312,24 @@ async function runSourceValidation(companySourceId: string, now: Date) {
       notBeforeAt: now,
     });
   }
+}
+
+function resolveCompanySourceConnectorPollLimit(source: {
+  connectorName: string;
+  token: string | null;
+}) {
+  if (source.connectorName !== "official-company") return undefined;
+  if (source.token?.toLowerCase().startsWith("bankofamerica")) {
+    return BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT;
+  }
+  if (
+    source.token?.toLowerCase().startsWith("microsoft") ||
+    source.token?.toLowerCase().startsWith("nvidia") ||
+    source.token?.toLowerCase().startsWith("starbucks")
+  ) {
+    return EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT;
+  }
+  return OFFICIAL_COMPANY_SOURCE_POLL_LIMIT;
 }
 
 async function pollCompanySource(
@@ -4328,9 +4379,7 @@ async function pollCompanySource(
     now,
     runMode: "SCHEDULED",
     limit:
-      source.connectorName === "official-company"
-        ? OFFICIAL_COMPANY_SOURCE_POLL_LIMIT
-        : undefined,
+      resolveCompanySourceConnectorPollLimit(source),
     maxRuntimeMs: effectiveMaxRuntimeMs,
     triggerLabel: `company-source:${source.id}`,
     scheduleCadenceMinutes: source.pollingCadenceMinutes,
@@ -4678,7 +4727,7 @@ async function handleCompanySourcePollFailure(
       ? "INVALID"
       : hardFailure
       ? shouldRediscover
-        ? "INVALID"
+        ? "NEEDS_REDISCOVERY"
         : "SUSPECT"
       : (blockedFailure || workdayBlockedFailure)
         ? "BLOCKED"

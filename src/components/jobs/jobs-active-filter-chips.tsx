@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 
 type ActiveFilterGroup = {
@@ -21,8 +21,33 @@ export function JobsActiveFilterChips({
   clearHref: string;
   groups: ActiveFilterGroup[];
 }) {
-  const [pendingItems, setPendingItems] = useState<Set<string>>(() => new Set());
-  const [clearingAll, setClearingAll] = useState(false);
+  const groupsSignature = useMemo(
+    () =>
+      JSON.stringify(
+        groups.map((group) => ({
+          key: group.key,
+          items: group.items.map((item) => ({
+            key: item.key,
+            href: item.href,
+            label: item.label,
+          })),
+        }))
+    ),
+    [groups]
+  );
+  const stateSignature = `${clearHref}:${groupsSignature}`;
+  const [optimisticState, setOptimisticState] = useState<{
+    clearingAll: boolean;
+    pendingItems: Set<string>;
+    signature: string;
+  }>(() => ({
+    clearingAll: false,
+    pendingItems: new Set(),
+    signature: "",
+  }));
+  const optimisticStateMatches = optimisticState.signature === stateSignature;
+  const pendingItems = optimisticStateMatches ? optimisticState.pendingItems : new Set<string>();
+  const clearingAll = optimisticStateMatches ? optimisticState.clearingAll : false;
 
   const visibleGroups = clearingAll
     ? []
@@ -51,10 +76,16 @@ export function JobsActiveFilterChips({
                 href={item.href}
                 key={item.key}
                 onClick={() => {
-                  setPendingItems((current) => {
-                    const next = new Set(current);
+                  setOptimisticState((current) => {
+                    const next = new Set(
+                      current.signature === stateSignature ? current.pendingItems : undefined
+                    );
                     next.add(itemKey(group.key, item.key));
-                    return next;
+                    return {
+                      clearingAll: false,
+                      pendingItems: next,
+                      signature: stateSignature,
+                    };
                   });
                 }}
               >
@@ -68,7 +99,13 @@ export function JobsActiveFilterChips({
       <Link
         className="group/filter-chip inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-input/80 bg-background/70 px-3 text-xs font-medium text-foreground transition hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 sm:ml-3"
         href={clearHref}
-        onClick={() => setClearingAll(true)}
+        onClick={() =>
+          setOptimisticState({
+            clearingAll: true,
+            pendingItems: new Set(),
+            signature: stateSignature,
+          })
+        }
       >
         <X className="h-3.5 w-3.5 transition-colors group-hover/filter-chip:text-white" />
         Clear all

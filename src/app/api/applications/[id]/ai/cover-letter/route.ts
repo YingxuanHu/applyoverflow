@@ -1,9 +1,10 @@
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
-import { UnauthorizedError, requireCurrentAuthUserId, requireCurrentUserProfile } from "@/lib/current-user";
+import { requireCurrentAuthUserId, requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
 
@@ -62,10 +63,17 @@ async function buildTrackedApplicationJobContext(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:application-cover-letter",
+      API_RATE_LIMITS.aiCoverLetter
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
 
     if (!process.env.OPENAI_API_KEY) {
@@ -163,11 +171,7 @@ export async function POST(
 
     return successResponse({ ...result, documentId: savedDocumentId });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/applications/[id]/ai/cover-letter error:", error);
     const message = error instanceof Error ? error.message : "Cover letter generation failed";
-    return errorResponse(message, 500);
+    return handleApiRouteError(error, "POST /api/applications/[id]/ai/cover-letter", message);
   }
 }

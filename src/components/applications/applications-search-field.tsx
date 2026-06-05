@@ -74,6 +74,9 @@ export function ApplicationsSearchField({
           />
         );
       })}
+      {values.reminder.trim() ? (
+        <input name="reminderSearch" type="hidden" value={values.reminder.trim()} />
+      ) : null}
 
       <div className="flex min-w-0 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         <label className="sr-only" htmlFor="applications-search-scope">

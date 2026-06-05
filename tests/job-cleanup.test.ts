@@ -173,3 +173,15 @@ test("derives tenant company from Teamtailor domains", () => {
     "Synthesized"
   );
 });
+
+test("does not let generic Workday tenant hosts override trusted company names", () => {
+  assert.equal(
+    sanitizeCompanyName("Bank of America", {
+      urls: [
+        "https://ghr.wd1.myworkdayjobs.com/Lateral-US/job/Jacksonville/ACS--Bilingual-Spanish-Call-Center-Telephone-Banker--Jacksonville--FL_26015661-2",
+        "https://careers.bankofamerica.com/en-us/job-detail/26015661/acs-bilingual-spanish-call-center-telephone-banker-jacksonville-fl-jacksonville-florida-united-states",
+      ],
+    }),
+    "Bank of America"
+  );
+});

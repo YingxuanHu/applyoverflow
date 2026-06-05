@@ -83,12 +83,39 @@ const OFFICIAL_CONNECTOR_COMPANY_KEYS = new Map<
     },
   ],
   [
+    "bankofamerica",
+    {
+      company: "bankofamerica",
+      boardUrl: "https://careers.bankofamerica.com/en-us/job-search",
+      reason:
+        "Bank of America exposes a first-party careers search servlet and job detail pages with stable requisition IDs and Workday apply URLs.",
+    },
+  ],
+  [
     "google",
     {
       company: "google",
       boardUrl: "https://www.google.com/about/careers/applications/jobs/results/",
       reason:
         "Google exposes server-rendered official careers payloads with stable job IDs, locations, and apply URLs.",
+    },
+  ],
+  [
+    "homedepot",
+    {
+      company: "homedepot",
+      boardUrl: "https://careers.homedepot.com/job-search-results/",
+      reason:
+        "Home Depot exposes an official CWS jobs API; the connector pulls the corporate/office subset to preserve the app's white-collar scope.",
+    },
+  ],
+  [
+    "starbucks",
+    {
+      company: "starbucks",
+      boardUrl: "https://apply.starbucks.com/careers?domain=starbucks.com",
+      reason:
+        "Starbucks exposes a first-party Eightfold PCSX API; the connector shards office job categories and excludes retail/store postings.",
     },
   ],
   [
@@ -301,6 +328,7 @@ function cleanCompanyName(input: string) {
 }
 
 function officialCompanyDisplayName(company: OfficialCompanyKey) {
+  if (company === "bankofamerica") return "Bank of America";
   if (company === "nvidia") return "NVIDIA";
   return company.charAt(0).toUpperCase() + company.slice(1);
 }

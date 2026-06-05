@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { PAGE_SIZE } from "@/lib/constants";
 import { Prisma, type Prisma as PrismaTypes } from "@/generated/prisma/client";
+import { splitFilterValues } from "@/lib/filter-values";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
 import {
   sanitizeCompanyName,
@@ -107,6 +108,16 @@ const HOT_FEED_QUERY_TTL_MS = 300_000;
 const JOB_COUNT_TIMEOUT_MS = 1_200;
 const JOB_FEED_INDEX_COUNT_TIMEOUT_MS = 5_000;
 const FEED_INDEX_SEARCH_MATCH_ID_LIMIT = 10_000;
+// A sole title/company search for a SELECTIVE term (few matches relative to the
+// pool) is pathologically slow on the default feed path: Postgres scans the
+// rankingScore-ordered index and filters the text per-row, discarding hundreds
+// of thousands of non-matching rows before it finds one page (e.g. company
+// "google" → ~21s, scanning 228k rows). When the match set is small we can
+// instead pull the matching ids via the trigram index (bitmap, milliseconds)
+// and constrain the feed query to them, which makes ranking, pagination, AND
+// the exact count fast. Broad/dense terms (e.g. "engineer") keep the existing
+// path — there the rank-ordered scan finds a page almost immediately.
+const SELECTIVE_SCOPED_SEARCH_THRESHOLD = 8_000;
 const TIMED_CACHE_MAX_ENTRIES = 128;
 const DIVERSIFICATION_OVERSCAN = 80;
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
@@ -468,23 +479,6 @@ function buildSearchLikePatternGroups(raw: string | undefined) {
   );
 }
 
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
-}
-
 function getPostedAfterDate(value?: string, now: Date = new Date()) {
   const days =
     value === "1d"
@@ -695,15 +689,16 @@ async function getJobsFromFeedIndex(input: {
       filters.posted ||
       filters.submissionCategory
   );
-  const canUseDirectSearchPrefilter =
-    Boolean(filters.search) &&
+  // Direct in-app pagination (slicing the prefiltered id list) is valid only
+  // when nothing else narrows the set further — then the id list IS the full
+  // ordered result and we can paginate it without re-querying the index.
+  const canSlicePrefilterIds =
     !hasStructuredFeedFilters &&
-    !filters.titleSearch &&
-    !filters.companySearch &&
-    !filters.locationSearch &&
     !filters.status &&
     !useSqlDemoVisibilityFilter &&
     (!filters.sortBy || filters.sortBy === "relevance");
+  let useDirectPrefilterSlice = false;
+
   if (filters.search && (!filters.status || normalizeJobStatusFilter(filters.status) === "LIVE")) {
     const searchPrefilterLimit = hasStructuredFeedFilters
       ? FEED_INDEX_SEARCH_MATCH_ID_LIMIT
@@ -716,7 +711,49 @@ async function getJobsFromFeedIndex(input: {
       searchScope,
       searchPrefilterLimit
     );
+    if (searchPrefilterIds !== null) {
+      useDirectPrefilterSlice =
+        canSlicePrefilterIds &&
+        !filters.titleSearch &&
+        !filters.companySearch &&
+        !filters.locationSearch;
+    }
   }
+
+  // Accelerate a single SELECTIVE scoped title/company search. The default
+  // rank-ordered scan is pathological for selective terms — it discards
+  // hundreds of thousands of high-rank non-matching rows per page (e.g.
+  // company "google" → ~21s). When the term is selective we pull its full
+  // ordered match set through the trigram index and paginate it in app, which
+  // is fast and yields an exact total. Gated to the sole-text-search,
+  // no-structured-filter case so the id list IS the whole ordered result.
+  let acceleratedScopedField: "title" | "company" | null = null;
+  if (
+    searchPrefilterIds === null &&
+    !filters.search &&
+    !filters.locationSearch &&
+    canSlicePrefilterIds
+  ) {
+    const soleScopedSearch =
+      filters.titleSearch && !filters.companySearch
+        ? ({ field: "title", query: filters.titleSearch } as const)
+        : filters.companySearch && !filters.titleSearch
+          ? ({ field: "company", query: filters.companySearch } as const)
+          : null;
+    if (soleScopedSearch) {
+      const orderedIds = await getSelectiveScopedSearchIds(
+        soleScopedSearch.field,
+        soleScopedSearch.query,
+        SELECTIVE_SCOPED_SEARCH_THRESHOLD
+      );
+      if (orderedIds !== null) {
+        searchPrefilterIds = orderedIds;
+        acceleratedScopedField = soleScopedSearch.field;
+        useDirectPrefilterSlice = true;
+      }
+    }
+  }
+
   if (searchPrefilterIds !== null) {
     if (searchPrefilterIds.length === 0) {
       return {
@@ -729,7 +766,7 @@ async function getJobsFromFeedIndex(input: {
       } satisfies JobsResult;
     }
     where.canonicalJobId = { in: searchPrefilterIds };
-  } else {
+  } else if (filters.search) {
     appendFeedIndexTextSearchWhere(
       where,
       searchScope === "title"
@@ -742,8 +779,13 @@ async function getJobsFromFeedIndex(input: {
       filters.search
     );
   }
-  appendFeedIndexTextSearchWhere(where, "title", filters.titleSearch);
-  appendFeedIndexTextSearchWhere(where, "company", filters.companySearch);
+
+  if (acceleratedScopedField !== "title") {
+    appendFeedIndexTextSearchWhere(where, "title", filters.titleSearch);
+  }
+  if (acceleratedScopedField !== "company") {
+    appendFeedIndexTextSearchWhere(where, "company", filters.companySearch);
+  }
   appendFeedIndexLocationSearchWhere(where, filters.locationSearch);
 
   if (filters.region) {
@@ -937,7 +979,7 @@ async function getJobsFromFeedIndex(input: {
     : Promise.resolve(null);
 
   const indexedRows =
-    canUseDirectSearchPrefilter && searchPrefilterIds !== null
+    useDirectPrefilterSlice && searchPrefilterIds !== null
       ? searchPrefilterIds
           .slice(skip, skip + PAGE_SIZE + 1)
           .map((canonicalJobId) => ({ canonicalJobId }))
@@ -1419,6 +1461,62 @@ async function searchJobFeedIndexExactCompanyIds(query: string, limit: number) {
     limit
   );
 
+  return rows.map((row) => row.canonicalJobId);
+}
+
+/**
+ * Cheap selectivity probe for a single scoped title/company search.
+ *
+ * Runs the same substring match the feed `contains` filter uses, but with NO
+ * ordering and a hard `LIMIT threshold + 1`, so the trigram bitmap can stop
+ * early. Returns:
+ *  - `null` when the term is broad (more than `threshold` matches) — the caller
+ *    should keep the default rank-ordered path, which is fast for dense terms.
+ *  - the full list of matching canonical job ids when the term is selective.
+ *    The caller constrains the feed query to these ids (a primary-key lookup),
+ *    so ranking/pagination/count are all fast and the total is exact.
+ */
+async function getSelectiveScopedSearchIds(
+  field: "title" | "company",
+  query: string | undefined,
+  threshold: number
+): Promise<string[] | null> {
+  const likePatternGroups = buildSearchLikePatternGroups(query);
+  if (likePatternGroups.length === 0) return null;
+
+  const column = field === "title" ? `"title"` : `"company"`;
+  const params: string[] = [];
+  const whereSql = likePatternGroups
+    .map((patterns) => {
+      const variantSql = patterns.map((pattern) => {
+        params.push(pattern);
+        return `${column} ILIKE $${params.length} ESCAPE '\\'`;
+      });
+      return `(${variantSql.join(" OR ")})`;
+    })
+    .join(" AND ");
+  const limitParam = params.length + 1;
+
+  // No ORDER BY here: the trigram bitmap can stop early at the LIMIT, so the
+  // probe is fast even for broad terms (which we then reject). For selective
+  // terms we get the full match set and order it in app by the same key the
+  // feed uses (rankingScore desc, postedAt desc) — cheap for <= threshold rows.
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ canonicalJobId: string; rankingScore: number; postedAt: Date }>
+  >(
+    `SELECT "canonicalJobId", "rankingScore", "postedAt" FROM "JobFeedIndex"
+     WHERE status = 'LIVE' AND ${whereSql}
+     LIMIT $${limitParam}`,
+    ...params,
+    threshold + 1
+  );
+
+  if (rows.length > threshold) return null;
+  rows.sort(
+    (left, right) =>
+      right.rankingScore - left.rankingScore ||
+      right.postedAt.getTime() - left.postedAt.getTime()
+  );
   return rows.map((row) => row.canonicalJobId);
 }
 

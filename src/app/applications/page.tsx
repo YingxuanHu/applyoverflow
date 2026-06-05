@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 
 import { type ApplicationReminderGroup } from "@/components/applications/application-reminders-summary";
 import { ApplicationsPageClient } from "@/components/applications/applications-page-client";
+import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { normalizeTextParam } from "@/lib/filter-values";
 import {
   getTrackedApplicationFlowApplications,
   getTrackedDashboardData,
@@ -73,11 +75,6 @@ const APPLICATION_STATE_PARAM_KEYS = [
   "searchScope",
   ...APPLICATION_SEARCH_PARAM_KEYS,
 ] as const;
-
-function normalizeTextParam(value?: string) {
-  const trimmed = String(value ?? "").trim();
-  return trimmed ? trimmed.slice(0, 120) : undefined;
-}
 
 function parseSearchScope(rawValue?: string): TrackerSearchScope {
   if (
@@ -338,6 +335,7 @@ export default async function ApplicationsPage({
         stateParamKeys={APPLICATION_STATE_PARAM_KEYS}
         storageKey="autoapplication.applications.filters"
       />
+      <ScrollPositionMemory storageKeyPrefix="autoapplication.applications.scroll" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Applications</h1>
@@ -362,6 +360,7 @@ export default async function ApplicationsPage({
         }}
         key={clientStateKey}
         reminderGroups={reminderGroups}
+        stateKey={clientStateKey}
         totalApplicationCount={data.totalApplicationCount}
       />
     </div>

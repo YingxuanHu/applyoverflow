@@ -56,6 +56,9 @@ test("first-party seed classifier promotes only implemented official connectors"
   assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("nvidia")!).kind, "official_connector");
   assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("google")!).kind, "official_connector");
   assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("netflix")!).kind, "official_connector");
+  assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("bankofamerica")!).kind, "official_connector");
+  assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("homedepot")!).kind, "official_connector");
+  assert.equal(classifyFirstPartyCompanySeed(seedsByKey.get("starbucks")!).kind, "official_connector");
 
   const meta = classifyFirstPartyCompanySeed(seedsByKey.get("meta")!);
   assert.equal(meta.kind, "deferred");

@@ -12,10 +12,8 @@ import type {
 } from "../src/generated/prisma/client";
 import { promoteDiscoveredAtsCompanySource } from "../src/lib/ingestion/company-discovery";
 import {
-  buildDiscoveredSourceName,
   discoverSourceCandidatesFromPageUrls,
   discoverSourceCandidatesFromUrls,
-  extractSourceCandidateFromUrl,
   type DiscoveredSourceCandidate,
 } from "../src/lib/ingestion/discovery/sources";
 import { validateCompanySource } from "../src/lib/ingestion/source-validator";

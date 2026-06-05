@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { ApplicationFlowSection } from "@/components/applications/application-flow-section";
@@ -45,6 +45,7 @@ type ApplicationsPageClientProps = {
   applications: ApplicationListItem[];
   flowApplications: FlowApplication[];
   reminderGroups: ApplicationReminderGroup[];
+  stateKey: string;
   totalApplicationCount: number;
   filters: {
     status: TrackedApplicationStatus | "ALL";
@@ -70,10 +71,12 @@ export function ApplicationsPageClient({
   applications,
   flowApplications,
   reminderGroups,
+  stateKey,
   totalApplicationCount,
   filters,
 }: ApplicationsPageClientProps) {
-  const [currentPage, setCurrentPage] = useState(1);
+  const pageStorageKey = `autoapplication.applications.page:${stateKey}`;
+  const [currentPage, setCurrentPage] = useState(() => readStoredPage(pageStorageKey));
   const [showFlow, setShowFlow] = useState(false);
   const [flowRange, setFlowRange] = useState<ApplicationFlowRange>("all");
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlow | null>(null);
@@ -100,6 +103,10 @@ export function ApplicationsPageClient({
     const start = (safeCurrentPage - 1) * APPLICATIONS_PAGE_SIZE;
     return displayedApplications.slice(start, start + APPLICATIONS_PAGE_SIZE);
   }, [displayedApplications, safeCurrentPage]);
+
+  useEffect(() => {
+    sessionStorage.setItem(pageStorageKey, String(safeCurrentPage));
+  }, [pageStorageKey, safeCurrentPage]);
 
   function handleFlowRangeChange(range: ApplicationFlowRange) {
     setFlowRange(range);
@@ -339,6 +346,12 @@ export function ApplicationsPageClient({
       </section>
     </>
   );
+}
+
+function readStoredPage(storageKey: string) {
+  if (typeof window === "undefined") return 1;
+  const page = Number(sessionStorage.getItem(storageKey));
+  return Number.isInteger(page) && page > 0 ? page : 1;
 }
 
 function CountStat({

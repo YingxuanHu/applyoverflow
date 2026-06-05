@@ -1,8 +1,8 @@
 import { type NextRequest } from "next/server";
 
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
-import { errorResponse, successResponse } from "@/lib/api-utils";
-import { UnauthorizedError } from "@/lib/current-user";
+import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { createTrackedApplication } from "@/lib/queries/tracker";
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 
@@ -32,6 +32,13 @@ function parseDateValue(rawValue: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "applications:create",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const body = (await request.json()) as Record<string, unknown>;
     const company = String(body.company ?? "").trim();
     const roleTitle = String(body.roleTitle ?? "").trim();
@@ -65,14 +72,10 @@ export async function POST(request: NextRequest) {
       201
     );
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-
-    console.error("POST /api/applications error:", error);
-    return errorResponse(
-      error instanceof Error ? error.message : "Could not add application.",
-      500
+    return handleApiRouteError(
+      error,
+      "POST /api/applications",
+      error instanceof Error ? error.message : "Could not add application."
     );
   }
 }

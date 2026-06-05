@@ -31,7 +31,6 @@ type CliArgs = {
 };
 
 const DEFAULT_LIMIT = 5_000;
-const VISIBLE_STATUSES = ["LIVE", "AGING", "STALE"] as const;
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));

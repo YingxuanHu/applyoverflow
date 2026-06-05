@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
@@ -15,6 +15,10 @@ export function JobsFeedList({
   referenceNow: string;
 }) {
   const [jobs, setJobs] = useState(initialJobs);
+
+  useEffect(() => {
+    setJobs(initialJobs);
+  }, [initialJobs]);
 
   const handleSavedChange = useCallback((jobId: string, saved: boolean) => {
     setJobs((current) =>

@@ -70,10 +70,13 @@ export { createHiringCafeConnector } from "./hiringcafe";
 export {
   buildAmazonSearchUrl,
   buildAppleSearchUrl,
+  buildBankOfAmericaSearchUrl,
+  buildHomeDepotSearchUrl,
   buildGoogleSearchUrl,
   buildNetflixDetailUrl,
   buildNetflixSearchUrl,
   createOfficialCompanyConnector,
+  extractBankOfAmericaJobDetailFromHtml,
   extractAppleJobsFromHydration,
   extractGoogleJobsFromHtml,
   extractGoogleTotalRecords,
