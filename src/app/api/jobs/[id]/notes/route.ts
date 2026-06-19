@@ -1,4 +1,11 @@
-import { handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { prisma } from "@/lib/db";
 import { requireCurrentProfileId } from "@/lib/current-user";
@@ -15,6 +22,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Job notes request"
+    );
+    if (tooLarge) return tooLarge;
+
     const rateLimited = await rateLimitResponse(
       request,
       "jobs:notes",
@@ -25,7 +39,13 @@ export async function PATCH(
     const userId = await requireCurrentProfileId();
     const { id: jobId } = await params;
     const body = await request.json().catch(() => null);
-    const notes: string = typeof body?.notes === "string" ? body.notes.slice(0, 4000) : "";
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
+    const notes: string = typeof body?.notes === "string" ? body.notes : "";
+    if (notes.length > 4000) {
+      return errorResponse("Notes are too long (max 4000 chars).", 400);
+    }
 
     // Find existing package or create a stub
     const existing = await prisma.applicationPackage.findFirst({

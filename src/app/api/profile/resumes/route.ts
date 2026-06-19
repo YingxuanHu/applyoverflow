@@ -1,9 +1,11 @@
 import { type NextRequest } from "next/server";
 
 import {
+  API_BODY_LIMITS,
   errorResponse,
   isUnauthorizedApiError,
   rateLimitResponse,
+  requestSizeLimitResponse,
   successResponse,
   unauthorizedResponse,
 } from "@/lib/api-utils";
@@ -43,6 +45,13 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.resumeUpload,
+      "Resume upload"
+    );
+    if (tooLarge) return tooLarge;
+
     const rateLimited = await rateLimitResponse(
       request,
       "document:resume-upload",

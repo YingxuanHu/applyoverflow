@@ -9,6 +9,7 @@ type AuthRateLimitBucket = {
 };
 
 const buckets = new Map<string, AuthRateLimitBucket>();
+const MAX_AUTH_RATE_LIMIT_BUCKETS = 10000;
 
 function getClientIp(request: Request) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -26,6 +27,8 @@ export function consumeAuthRateLimit(
   rule: AuthRateLimitRule
 ) {
   const now = Date.now();
+  cleanupExpiredBuckets(now);
+
   const key = `${action}:${getClientIp(request)}`;
   const current = buckets.get(key);
 
@@ -44,13 +47,31 @@ export function consumeAuthRateLimit(
   current.count += 1;
   buckets.set(key, current);
 
-  if (buckets.size > 5000) {
-    for (const [bucketKey, bucket] of buckets) {
-      if (bucket.resetAt <= now) {
-        buckets.delete(bucketKey);
-      }
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
+function cleanupExpiredBuckets(now: number) {
+  if (buckets.size < MAX_AUTH_RATE_LIMIT_BUCKETS) {
+    return;
+  }
+
+  for (const [bucketKey, bucket] of buckets) {
+    if (bucket.resetAt <= now) {
+      buckets.delete(bucketKey);
     }
   }
 
-  return { allowed: true, retryAfterSeconds: 0 };
+  if (buckets.size < MAX_AUTH_RATE_LIMIT_BUCKETS) {
+    return;
+  }
+
+  const overflow = buckets.size - MAX_AUTH_RATE_LIMIT_BUCKETS;
+  let deleted = 0;
+  for (const bucketKey of buckets.keys()) {
+    buckets.delete(bucketKey);
+    deleted += 1;
+    if (deleted >= overflow) {
+      break;
+    }
+  }
 }

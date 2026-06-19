@@ -4,7 +4,14 @@ import {
   submitApplicationReview,
   updateApplicationSubmissionStatus,
 } from "@/lib/queries/applications";
-import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 
 const SUBMISSION_STATUS_BY_INTENT = {
@@ -19,6 +26,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application request"
+    );
+    if (tooLarge) return tooLarge;
+
     const rateLimited = await rateLimitResponse(
       request,
       "jobs:apply",
@@ -27,7 +41,10 @@ export async function POST(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
-    const body = await request.json();
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
     const intent = typeof body?.intent === "string" ? body.intent : null;
 
     if (intent === "prepare") {
@@ -56,6 +73,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application status request"
+    );
+    if (tooLarge) return tooLarge;
+
     const rateLimited = await rateLimitResponse(
       request,
       "jobs:apply-status",
@@ -64,7 +88,10 @@ export async function PATCH(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
-    const body = await request.json();
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
     const patchIntent = typeof body?.intent === "string" ? body.intent : null;
 
     if (!patchIntent || !(patchIntent in SUBMISSION_STATUS_BY_INTENT)) {

@@ -18,13 +18,14 @@ import {
   normalizeSkills,
   parseJsonPayload,
 } from "@/lib/profile";
-import { revalidateProfileViews } from "@/lib/revalidation";
+import { revalidatePaths, revalidateProfileViews } from "@/lib/revalidation";
 import {
   buildDocumentStorageKey,
   deleteFile,
   getStorageReadiness,
   saveFile,
 } from "@/lib/storage";
+import { invalidateTopPicksForUser } from "@/lib/top-picks/service";
 
 type ProfileActionState = {
   error: string | null;
@@ -249,8 +250,10 @@ export async function saveProfile(
       portfolioUrl: contactColumns.portfolioUrl,
     },
   });
+  await invalidateTopPicksForUser(user.id);
 
   revalidateProfileViews();
+  revalidatePaths(["/jobs", "/jobs/top-picks"]);
 
   return {
     error: null,
@@ -319,8 +322,10 @@ export async function updateAutoApplyContactAction(
       workAuthorization: workAuthorization || null,
     },
   });
+  await invalidateTopPicksForUser(user.id);
 
   revalidateProfileViews();
+  revalidatePaths(["/jobs", "/jobs/top-picks"]);
 
   return { error: null, success: "Details updated." };
 }
