@@ -1593,6 +1593,7 @@ function WorkspaceAISection({
           documentId: latestGeneratedCoverLetter.id,
           title: latestGeneratedCoverLetter.title,
           downloadHref: `/api/profile/documents/${latestGeneratedCoverLetter.id}/download`,
+          downloadLabel: "Download .doc",
         }
       : null;
 

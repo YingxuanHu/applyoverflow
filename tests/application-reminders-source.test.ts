@@ -61,4 +61,6 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(summarySource, /line-clamp-2/);
   assert.match(summarySource, /updateTimelineEvent/);
   assert.match(summarySource, /deleteTimelineEvent/);
+  assert.match(summarySource, /function ReminderDeleteButton/);
+  assert.match(summarySource, /label="Delete shown reminder"/);
 });

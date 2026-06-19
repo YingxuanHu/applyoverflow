@@ -11,6 +11,7 @@ import {
   requireCurrentProfileId,
 } from "@/lib/current-user";
 import { checkSingleTrackedApplicationReminder } from "@/lib/reminders";
+import { invalidateTopPickForUserJob } from "@/lib/top-picks/invalidation";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
 import { startOfUtcDay } from "@/lib/time-zone";
 
@@ -55,6 +56,26 @@ function normalizeOptionalUrl(value: string | null | undefined) {
 function queueReminderCheck(applicationId: string) {
   void checkSingleTrackedApplicationReminder(applicationId).catch((error) => {
     console.error("Tracked application reminder check failed:", error);
+  });
+}
+
+function shouldExcludeStatusFromTopPicks(status: TrackedApplicationStatus) {
+  return status !== "WISHLIST" && status !== "PREPARING";
+}
+
+async function invalidateAppliedTopPick(input: {
+  profileId: string;
+  canonicalJobId: string | null | undefined;
+  status: TrackedApplicationStatus;
+}) {
+  if (!input.canonicalJobId || !shouldExcludeStatusFromTopPicks(input.status)) {
+    return;
+  }
+
+  await invalidateTopPickForUserJob({
+    userId: input.profileId,
+    jobId: input.canonicalJobId,
+    reason: "application_status_changed",
   });
 }
 
@@ -1002,6 +1023,11 @@ export async function upsertTrackedApplicationFromJob(input: {
     documentId: resumeDocumentId,
   });
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: job.id,
+    status: nextStatus,
+  });
   queueReminderCheck(tracked.id);
   return {
     applicationId: tracked.id,
@@ -1091,7 +1117,10 @@ export async function updateTrackedApplicationStatus(input: {
   applicationId: string;
   status: TrackedApplicationStatus;
 }) {
-  const userId = await requireCurrentAuthUserId();
+  const [userId, profileId] = await Promise.all([
+    requireCurrentAuthUserId(),
+    requireCurrentProfileId(),
+  ]);
   const existing = await prisma.trackedApplication.findFirst({
     where: {
       id: input.applicationId,
@@ -1100,6 +1129,7 @@ export async function updateTrackedApplicationStatus(input: {
     select: {
       id: true,
       status: true,
+      canonicalJobId: true,
     },
   });
 
@@ -1108,6 +1138,11 @@ export async function updateTrackedApplicationStatus(input: {
   }
 
   if (existing.status === input.status) {
+    await invalidateAppliedTopPick({
+      profileId,
+      canonicalJobId: existing.canonicalJobId,
+      status: input.status,
+    });
     return { changed: false };
   }
 
@@ -1128,6 +1163,11 @@ export async function updateTrackedApplicationStatus(input: {
     }),
   ]);
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: existing.canonicalJobId,
+    status: input.status,
+  });
   queueReminderCheck(input.applicationId);
   return { changed: true };
 }
@@ -1801,6 +1841,11 @@ export async function syncTrackedApplicationFromSubmission(canonicalJobId: strin
     documentId: resumeDocumentId,
   });
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: job.id,
+    status: nextStatus,
+  });
   queueReminderCheck(tracked.id);
   return tracked;
 }

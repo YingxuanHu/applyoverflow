@@ -8,6 +8,11 @@ import {
 import { formatDisplayLabel, formatSalary } from "@/lib/job-display";
 import { serializeJobDetailData } from "@/lib/job-serialization";
 import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
+import {
+  JOB_BOARD_MIN_AVAILABILITY_SCORE,
+  RECENT_ALIVE_EVIDENCE_MAX_AGE_MS,
+  RECENT_SOURCE_EVIDENCE_MAX_AGE_MS,
+} from "@/lib/jobs/visibility";
 import { recordAction } from "@/lib/queries/behavior";
 import {
   syncTrackedApplicationFromSubmission,
@@ -475,12 +480,17 @@ function isReadyToApplyJob(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
   applyUrlValidationStatus?: string | null;
   feedIndex?: { status: string } | null;
 }) {
   return (
     job.status === "LIVE" &&
     job.feedIndex?.status === "LIVE" &&
+    (job.availabilityScore ?? 0) >= JOB_BOARD_MIN_AVAILABILITY_SCORE &&
+    hasRecentLiveEvidence(job) &&
     !hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) &&
     /^https?:\/\//i.test(job.applyUrl) &&
     job.deadSignalAt === null &&
@@ -493,6 +503,9 @@ function isUnavailableForJobDetail(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
   applyUrlValidationStatus?: string | null;
   feedIndex?: { status: string } | null;
 }) {
@@ -500,10 +513,25 @@ function isUnavailableForJobDetail(job: {
     job.status === "REMOVED" ||
     job.status === "EXPIRED" ||
     job.feedIndex?.status !== "LIVE" ||
+    (job.availabilityScore ?? 0) < JOB_BOARD_MIN_AVAILABILITY_SCORE ||
+    !hasRecentLiveEvidence(job) ||
     hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) ||
     !/^https?:\/\//i.test(job.applyUrl) ||
     job.deadSignalAt !== null ||
     (job.deadline !== null && job.deadline.getTime() < Date.now())
+  );
+}
+
+function hasRecentLiveEvidence(job: {
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+}) {
+  const now = Date.now();
+  return Boolean(
+    (job.lastSourceSeenAt &&
+      now - job.lastSourceSeenAt.getTime() <= RECENT_SOURCE_EVIDENCE_MAX_AGE_MS) ||
+      (job.lastConfirmedAliveAt &&
+        now - job.lastConfirmedAliveAt.getTime() <= RECENT_ALIVE_EVIDENCE_MAX_AGE_MS)
   );
 }
 
