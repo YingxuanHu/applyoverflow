@@ -8,8 +8,15 @@ import {
   ChevronUp,
   ClipboardCopy,
   Check,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  buildCoverLetterDocFileName,
+  buildCoverLetterDocHtml,
+  COVER_LETTER_WORD_MIME_TYPE,
+} from "@/lib/ai/cover-letter-doc-html";
 import { parseStoredFitAnalysis } from "@/lib/ai/fit-analysis-format";
 import type { CoverLetterResult, FitAnalysis } from "@/lib/ai/types";
 
@@ -25,6 +32,7 @@ type CoverLetterState = CoverLetterResult & {
   documentId?: string | null;
   title?: string | null;
   downloadHref?: string | null;
+  downloadLabel?: string | null;
 };
 
 type Props = {
@@ -80,6 +88,7 @@ export function AIWorkspace({
   const [clLoading, setClLoading] = useState(false);
   const [clError, setClError] = useState<string | null>(null);
   const [clCopied, setClCopied] = useState(false);
+  const [clPrompt, setClPrompt] = useState("");
 
   const resolvedFitEndpoint = fitAnalysisEndpoint ?? (jobId ? `/api/jobs/${jobId}/ai/analyze` : null);
   const resolvedCoverLetterEndpoint =
@@ -114,16 +123,27 @@ export function AIWorkspace({
     }
   }
 
-  async function runCoverLetter() {
+  async function runCoverLetter(instruction?: string) {
     if (!resolvedCoverLetterEndpoint) {
       setClError("Cover letter generation is unavailable for this job.");
       return;
     }
 
+    const requestedChange = instruction?.trim();
     setClLoading(true);
     setClError(null);
     try {
-      const res = await fetch(resolvedCoverLetterEndpoint, { method: "POST" });
+      const res = await fetch(resolvedCoverLetterEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          requestedChange && clData
+            ? { instruction: requestedChange, currentText: clData.text }
+            : requestedChange
+              ? { instruction: requestedChange }
+              : {}
+        ),
+      });
       if (!res.ok) {
         const d = await res.json().catch(() => null);
         throw new Error(d?.error ?? "Generation failed");
@@ -135,6 +155,9 @@ export function AIWorkspace({
           ? `/api/profile/documents/${data.documentId}/download`
           : data.downloadHref,
       });
+      if (requestedChange) {
+        setClPrompt("");
+      }
     } catch (e) {
       setClError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -148,6 +171,19 @@ export function AIWorkspace({
       setClCopied(true);
       setTimeout(() => setClCopied(false), 2000);
     });
+  }
+
+  function updateCoverLetterText(text: string) {
+    setClData((current) =>
+      current
+        ? {
+            ...current,
+            text,
+            wordCount: countWords(text),
+            downloadLabel: "Download .doc",
+          }
+        : current
+    );
   }
 
   return (
@@ -231,7 +267,7 @@ export function AIWorkspace({
             <Button
               variant="outline"
               size="sm"
-              onClick={runCoverLetter}
+              onClick={() => runCoverLetter()}
               disabled={clLoading}
             >
               {clLoading ? (
@@ -253,6 +289,13 @@ export function AIWorkspace({
             copied={clCopied}
             onCopy={copyToClipboard}
             onRerun={() => { setClData(null); runCoverLetter(); }}
+            prompt={clPrompt}
+            loading={clLoading}
+            error={clError}
+            onTextChange={updateCoverLetterText}
+            onPromptChange={setClPrompt}
+            onDownload={() => downloadCoverLetterDoc(clData, jobTitle, company)}
+            onRevise={() => runCoverLetter(clPrompt)}
           />
         )}
       </Collapsible>
@@ -440,6 +483,13 @@ function CoverLetterResult({
   copied,
   onCopy,
   onRerun,
+  prompt,
+  loading,
+  error,
+  onTextChange,
+  onPromptChange,
+  onDownload,
+  onRevise,
 }: {
   data: CoverLetterState;
   jobTitle: string;
@@ -447,7 +497,16 @@ function CoverLetterResult({
   copied: boolean;
   onCopy: () => void;
   onRerun: () => void;
+  prompt: string;
+  loading: boolean;
+  error: string | null;
+  onTextChange: (value: string) => void;
+  onPromptChange: (value: string) => void;
+  onDownload: () => void;
+  onRevise: () => void;
 }) {
+  const hasEditableText = data.text.trim().length > 0;
+
   return (
     <div className="space-y-3">
       {data.profileNotice ? <ProfileNotice message={data.profileNotice} /> : null}
@@ -457,13 +516,24 @@ function CoverLetterResult({
           {jobTitle} · {company} · {data.wordCount} words
         </p>
         <div className="flex items-center gap-2">
-          {data.downloadHref ? (
-            <a
-              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-              href={data.downloadHref}
+          {hasEditableText ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onDownload}
             >
+              <Download className="h-3.5 w-3.5" />
+              {data.downloadLabel ?? "Download .doc"}
+            </Button>
+          ) : data.downloadHref ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              render={<a href={data.downloadHref} />}
+            >
+              <Download className="h-3.5 w-3.5" />
               Download
-            </a>
+            </Button>
           ) : null}
           <button
             type="button"
@@ -488,18 +558,73 @@ function CoverLetterResult({
       </div>
 
       {data.text.trim() ? (
-        <div className="rounded-md border border-border/60 bg-muted/30 p-3">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {data.text}
-          </p>
-        </div>
+        <Textarea
+          value={data.text}
+          onChange={(event) => onTextChange(event.target.value)}
+          className="min-h-64 resize-y whitespace-pre-wrap bg-muted/30 text-sm leading-relaxed"
+          disabled={loading}
+          aria-label="Generated cover letter"
+        />
       ) : (
         <p className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
           Tailored cover letter is saved for this application.
         </p>
       )}
+
+      <div className="rounded-md border border-border/60 bg-card p-3">
+        <Textarea
+          value={prompt}
+          onChange={(event) => onPromptChange(event.target.value)}
+          className="min-h-16 resize-none text-sm"
+          placeholder="Ask AI to adjust tone, length, or emphasis"
+          disabled={loading}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRevise}
+            disabled={loading || prompt.trim().length === 0}
+          >
+            {loading ? (
+              <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {loading ? "Updating…" : "Update cover letter"}
+          </Button>
+          {error ? <span className="text-xs text-destructive">{error}</span> : null}
+        </div>
+      </div>
     </div>
   );
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function downloadCoverLetterDoc(
+  data: CoverLetterState | null,
+  jobTitle: string,
+  company: string
+) {
+  if (!data?.text.trim()) {
+    return;
+  }
+
+  const title = data.title ?? `Cover letter ${company} ${jobTitle}`;
+  const blob = new Blob([buildCoverLetterDocHtml(data.text)], {
+    type: COVER_LETTER_WORD_MIME_TYPE,
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = buildCoverLetterDocFileName(title);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function ProfileNotice({ message }: { message: string }) {

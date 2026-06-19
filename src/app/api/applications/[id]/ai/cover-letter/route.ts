@@ -1,12 +1,12 @@
 import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
-import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { buildProfileContext } from "@/lib/ai/context-builders";
+import { readCoverLetterRequestOptions } from "@/lib/ai/cover-letter-request";
+import { persistGeneratedCoverLetterDocument } from "@/lib/ai/generated-cover-letter-document";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 import { requireCurrentAuthUserId, requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
-import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
 
 async function buildTrackedApplicationJobContext(
   applicationId: string,
@@ -81,6 +81,7 @@ export async function POST(
     }
 
     const authUserId = await requireCurrentAuthUserId();
+    const coverLetterOptions = await readCoverLetterRequestOptions(request);
 
     const [jobCtx, profileCtx] = await Promise.all([
       buildTrackedApplicationJobContext(id, authUserId),
@@ -102,69 +103,20 @@ export async function POST(
     }
 
     const { generateCoverLetter } = await import("@/lib/ai/cover-letter");
-    const result = await generateCoverLetter(jobCtx, profileCtx);
+    const result = await generateCoverLetter(jobCtx, profileCtx, coverLetterOptions);
     result.profileNotice = profileReadiness.profileNotice;
 
-    // Persist the generated cover letter as an AI-generated document. We
-    // store it as plain text (UTF-8) so the user can re-open / re-download
-    // it from the Documents tab. Best-effort: any storage / DB failure is
-    // swallowed so the user still gets the text back inline.
+    // Best-effort persistence: storage / DB failures should not block inline text.
     let savedDocumentId: string | null = null;
     try {
       const profile = await requireCurrentUserProfile();
-      const title = buildAiGeneratedDocumentTitle({
-        kind: "COVER_LETTER",
-        company: jobCtx.company,
-        roleTitle: jobCtx.title,
-      });
-      const buffer = Buffer.from(result.text, "utf-8");
-      const fileName = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "")}.txt`;
-      const storageKey = buildDocumentStorageKey({
+      const savedDoc = await persistGeneratedCoverLetterDocument({
         userId: profile.id,
-        title,
-        extension: ".txt",
-        type: "COVER_LETTER",
-      });
-      await saveFile(storageKey, buffer, { contentType: "text/plain; charset=utf-8" });
-      const savedDoc = await prisma.document.create({
-        data: {
-          userId: profile.id,
-          type: "COVER_LETTER",
-          title,
-          originalFileName: fileName,
-          filename: fileName,
-          mimeType: "text/plain; charset=utf-8",
-          sizeBytes: buffer.byteLength,
-          storageKey,
-          isPrimary: false,
-          isAiGenerated: true,
-          sourceApplicationId: id,
-          extractedText: result.text,
-          extractedAt: new Date(),
-        },
-        select: { id: true, title: true },
+        job: jobCtx,
+        text: result.text,
+        sourceApplicationId: id,
       });
       savedDocumentId = savedDoc.id;
-
-      const olderGeneratedDocs = await prisma.document.findMany({
-        where: {
-          userId: profile.id,
-          type: "COVER_LETTER",
-          isAiGenerated: true,
-          sourceApplicationId: id,
-          id: { not: savedDoc.id },
-          trackedApplicationLinks: { none: {} },
-        },
-        select: { id: true, storageKey: true },
-      });
-      if (olderGeneratedDocs.length > 0) {
-        await prisma.document.deleteMany({
-          where: { id: { in: olderGeneratedDocs.map((document) => document.id) } },
-        });
-        await Promise.allSettled(
-          olderGeneratedDocs.map((document) => deleteFile(document.storageKey))
-        );
-      }
     } catch (persistError) {
       console.error("Failed to persist AI-generated cover letter:", persistError);
     }

@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { type ApiRateLimitRule, enforceApiRateLimit } from "@/lib/api-rate-limit";
 import { UnauthorizedError } from "@/lib/current-user";
 
+export const API_BODY_LIMITS = {
+  smallJson: 16 * 1024,
+  mediumJson: 64 * 1024,
+  resumeUpload: 12 * 1024 * 1024,
+} as const;
+
 export function successResponse<T>(
   data: T,
   status = 200,
@@ -29,6 +35,30 @@ export async function rateLimitResponse(
   rule: ApiRateLimitRule
 ) {
   return enforceApiRateLimit(request, action, rule);
+}
+
+export function requestSizeLimitResponse(
+  request: Request,
+  maxBytes: number,
+  label = "Request"
+) {
+  const rawLength = request.headers.get("content-length");
+  if (!rawLength) {
+    return null;
+  }
+
+  const contentLength = Number.parseInt(rawLength, 10);
+  if (!Number.isFinite(contentLength) || contentLength <= maxBytes) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error: `${label} is too large.`,
+      maxBytes,
+    },
+    { status: 413 }
+  );
 }
 
 export function handleApiRouteError(
@@ -71,4 +101,16 @@ export function parseIntParam(
   if (!value) return defaultValue;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
+}
+
+export function parseBoundedIntParam(
+  value: string | null,
+  defaultValue: number,
+  options: { min?: number; max?: number } = {}
+): number {
+  const parsed = parseIntParam(value, defaultValue);
+  const min = options.min ?? Number.NEGATIVE_INFINITY;
+  const max = options.max ?? Number.POSITIVE_INFINITY;
+
+  return Math.min(Math.max(parsed, min), max);
 }
