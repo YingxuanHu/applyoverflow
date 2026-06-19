@@ -60,6 +60,8 @@ test("treats generic Workable /j apply URLs as unresolved company names", () => 
 });
 
 test("treats generic ATS and public-board host slugs as unresolved company names", () => {
+  assert.equal(hasUnresolvedGenericCompanyName("0"), true);
+  assert.equal(hasUnresolvedGenericCompanyName("N/A"), true);
   assert.equal(
     hasUnresolvedGenericCompanyName(
       "Oraclecloud",

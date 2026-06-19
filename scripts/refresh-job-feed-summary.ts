@@ -13,6 +13,7 @@ import "dotenv/config";
 
 import process from "node:process";
 import { prisma } from "@/lib/db";
+import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
 import {
   getStartOfTodayInTimeZone,
   normalizeUserTimeZone,
@@ -26,12 +27,12 @@ async function main() {
   const now = new Date();
   const timeZone = normalizeUserTimeZone(process.env.JOB_FEED_SUMMARY_TIME_ZONE);
   const startOfToday = getStartOfTodayInTimeZone(timeZone, now);
+  const visibleCanonicalWhere = buildDefaultCanonicalVisibilityWhere(now);
 
   const visibleWhere: Prisma.JobFeedIndexWhereInput = {
     status: "LIVE",
     canonicalJob: {
-      status: "LIVE",
-      OR: [{ deadline: null }, { deadline: { gte: now } }],
+      is: visibleCanonicalWhere,
     },
   };
 
@@ -44,13 +45,11 @@ async function main() {
     prisma.jobFeedIndex.count({ where: visibleWhere }),
     prisma.jobFeedIndex.count({
       where: {
-        ...visibleWhere,
+        status: "LIVE",
         canonicalJob: {
-          AND: [
-            { status: "LIVE" },
-            { firstSeenAt: { gte: startOfToday } },
-            { OR: [{ deadline: null }, { deadline: { gte: now } }] },
-          ],
+          is: {
+            AND: [visibleCanonicalWhere, { firstSeenAt: { gte: startOfToday } }],
+          },
         },
       },
     }),

@@ -12,7 +12,8 @@ REMOTE_HOST="${SINGLE_VPS_HOST:-root@5.78.195.237}"
 REMOTE_APP_DIR="${SINGLE_VPS_APP_DIR:-/opt/autoapplication}"
 ENV_FILE="${SINGLE_VPS_ENV_FILE:-deploy/single-vps/.env.production}"
 COMPOSE_FILE="${SINGLE_VPS_COMPOSE_FILE:-deploy/single-vps/docker-compose.yml}"
-SERVICES="${SINGLE_VPS_SERVICES:-app worker}"
+SERVICES="${SINGLE_VPS_SERVICES:-app worker-ingestion worker-source-workers worker-maintenance}"
+LEGACY_SERVICES="${SINGLE_VPS_LEGACY_SERVICES:-worker}"
 
 # Remove unused Docker build cache after each successful rebuild so the single
 # VPS does not slowly fill up. Set DOCKER_BUILD_CACHE_MAX_AGE=24h if you want to
@@ -53,8 +54,18 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 echo "Building: $SERVICES"
 "${COMPOSE[@]}" build $SERVICES
 
+echo "Applying database migrations"
+"${COMPOSE[@]}" run --rm app npx prisma migrate deploy
+
 echo "Restarting: $SERVICES"
 "${COMPOSE[@]}" up -d --force-recreate $SERVICES
+
+if [[ -n "$LEGACY_SERVICES" ]]; then
+  echo
+  echo "Stopping legacy services if present: $LEGACY_SERVICES"
+  "${COMPOSE[@]}" stop $LEGACY_SERVICES || true
+  "${COMPOSE[@]}" rm -f $LEGACY_SERVICES || true
+fi
 
 echo
 echo "Pruning Docker build cache..."
@@ -86,9 +97,10 @@ printf -v quoted_remote_app_dir "%q" "$REMOTE_APP_DIR"
 printf -v quoted_env_file "%q" "$ENV_FILE"
 printf -v quoted_compose_file "%q" "$COMPOSE_FILE"
 printf -v quoted_services "%q" "$SERVICES"
+printf -v quoted_legacy_services "%q" "$LEGACY_SERVICES"
 printf -v quoted_cache_max_age "%q" "$DOCKER_BUILD_CACHE_MAX_AGE"
 printf -v quoted_prune_images "%q" "$PRUNE_UNUSED_IMAGES"
 
 ssh "$REMOTE_HOST" \
-  "REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file SERVICES=$quoted_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
+  "REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file SERVICES=$quoted_services LEGACY_SERVICES=$quoted_legacy_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
   <<< "$remote_script"

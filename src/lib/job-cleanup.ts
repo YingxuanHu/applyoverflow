@@ -44,6 +44,16 @@ const COMPANY_HOST_BLOCKLIST = new Set([
 
 const UNKNOWN_COMPANY_NAMES = new Set([
   "",
+  "0",
+  "00",
+  "000",
+  "n/a",
+  "n a",
+  "na",
+  "not applicable",
+  "none",
+  "not available",
+  "not specified",
   "unknown",
   "unknown company",
   "yourcompany",

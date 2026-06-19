@@ -10,6 +10,8 @@ import { runCompanySourcePollSlice } from "@/lib/ingestion/company-discovery";
 import { acquireRuntimeLock } from "./_runtime-lock";
 
 const VISIBLE_STATUSES = ["LIVE", "AGING"] as const;
+const RECENT_BLOCKED_WORKDAY_STATUSES = [401, 403, 429, 500, 502, 503, 504] as const;
+const INCLUDE_WORKDAY_IN_HIGH_YIELD = process.env.HIGH_YIELD_INCLUDE_WORKDAY === "1";
 
 type ParsedArgs = {
   limit: number;
@@ -77,13 +79,30 @@ function connectorBonus(connectorName: string, sourceType: string | null) {
 
 async function selectSources(args: ParsedArgs, now: Date) {
   const minAgeCutoff = new Date(now.getTime() - args.minAgeMinutes * 60_000);
+  const recentWorkdayBlockCutoff = new Date(now.getTime() - 24 * 60 * 60_000);
   const candidates = await prisma.companySource.findMany({
     where: {
-      connectorName: { notIn: ["smartrecruiters"] },
+      connectorName: {
+        notIn: INCLUDE_WORKDAY_IN_HIGH_YIELD
+          ? ["smartrecruiters"]
+          : ["smartrecruiters", "workday"],
+      },
       status: { in: ["ACTIVE", "DEGRADED"] },
       validationState: "VALIDATED",
       pollState: "READY",
       sourceQualityScore: { gte: 0.5 },
+      NOT: [
+        {
+          connectorName: "workday",
+          OR: [
+            {
+              lastHttpStatus: { in: [...RECENT_BLOCKED_WORKDAY_STATUSES] },
+              lastFailureAt: { gte: recentWorkdayBlockCutoff },
+            },
+            { consecutiveFailures: { gt: 0 } },
+          ],
+        },
+      ],
       AND: [
         { OR: [{ cooldownUntil: null }, { cooldownUntil: { lte: now } }] },
         {

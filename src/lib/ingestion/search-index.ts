@@ -175,6 +175,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
     qualityScore,
     trustScore,
     freshnessScore,
+    availabilityScore: canonical.availabilityScore,
     sourceCount,
     submissionCategory: canonical.eligibility?.submissionCategory ?? null,
   });

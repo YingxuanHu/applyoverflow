@@ -189,7 +189,10 @@ function getCycleQueueProfile(isFirstCycle: boolean): CycleQueueProfile {
       Math.round(baseProfile.sourcePollLimit * 1.75)
     ),
     rediscoveryLimit: Math.max(20, Math.floor(baseProfile.rediscoveryLimit * 0.3)),
-    urlHealthLimit: Math.max(0, Math.floor(baseProfile.urlHealthLimit * 0.15)),
+    urlHealthLimit:
+      baseProfile.urlHealthLimit <= 0
+        ? 0
+        : Math.max(500, Math.floor(baseProfile.urlHealthLimit * 0.25)),
     legacyBudgetMs: Math.max(baseProfile.legacyBudgetMs, 8 * 60 * 1000),
     legacyMaxRuns: Math.max(baseProfile.legacyMaxRuns, 96),
   };

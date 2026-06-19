@@ -116,13 +116,19 @@ export function computeRankingScore(input: {
   qualityScore: number;
   trustScore: number;
   freshnessScore: number;
+  availabilityScore?: number | null;
   sourceCount?: number;
   submissionCategory?: SubmissionCategory | null;
 }) {
+  const availabilityScore =
+    input.availabilityScore == null
+      ? input.qualityScore
+      : clampScore(input.availabilityScore);
   let score =
-    input.qualityScore * 0.35 +
+    input.qualityScore * 0.3 +
     input.trustScore * 0.25 +
-    input.freshnessScore * 0.4;
+    input.freshnessScore * 0.35 +
+    availabilityScore * 0.1;
 
   if ((input.sourceCount ?? 0) >= 2) score += 4;
   if ((input.sourceCount ?? 0) >= 3) score += 2;

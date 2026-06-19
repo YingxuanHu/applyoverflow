@@ -28,6 +28,13 @@ function readIntArg(name: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function readPositiveIntEnv(name: string, fallback: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -75,42 +82,54 @@ async function drainPipelineQueue(options: {
 }
 
 function getQueueWorkerConfig(queueName: PipelineQueueName, requestedLimit: number) {
+  const envKey = queueName.replace(/[^A-Z0-9]+/g, "_");
+  const withEnvOverrides = (defaults: { claimLimit: number; concurrency: number }) => ({
+    claimLimit: Math.min(
+      requestedLimit,
+      readPositiveIntEnv(`PIPELINE_${envKey}_CLAIM_LIMIT`, defaults.claimLimit)
+    ),
+    concurrency: readPositiveIntEnv(
+      `PIPELINE_${envKey}_CONCURRENCY`,
+      defaults.concurrency
+    ),
+  });
+
   switch (queueName) {
     case "SOURCE_DISCOVERY":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 200),
         concurrency: 8,
-      };
+      });
     case "SOURCE_VALIDATION":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 100),
         concurrency: 4,
-      };
+      });
     case "RAW_PARSE":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 250),
         concurrency: 8,
-      };
+      });
     case "DEDUPE":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 100),
         concurrency: 4,
-      };
+      });
     case "SEARCH_INDEX":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 500),
         concurrency: 12,
-      };
+      });
     case "LIFECYCLE":
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 250),
         concurrency: 6,
-      };
+      });
     default:
-      return {
+      return withEnvOverrides({
         claimLimit: Math.min(requestedLimit, 100),
         concurrency: 4,
-      };
+      });
   }
 }
 

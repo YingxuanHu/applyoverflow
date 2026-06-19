@@ -290,6 +290,25 @@ export async function claimSourceTasks(
         )
       `
       : Prisma.empty;
+  const connectorPollSourceReadinessFilter =
+    kind === "CONNECTOR_POLL"
+      ? Prisma.sql`
+        AND (
+          st."companySourceId" IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM "CompanySource" cs
+            WHERE
+              cs."id" = st."companySourceId"
+              AND cs."status" IN ('PROVISIONED', 'ACTIVE', 'DEGRADED')
+              AND cs."validationState" = 'VALIDATED'
+              AND cs."pollState" <> 'QUARANTINED'
+              AND cs."pollState" <> 'DISABLED'
+              AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+          )
+        )
+      `
+      : Prisma.empty;
 
   const claimCandidates = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     WITH next_tasks AS (
@@ -301,6 +320,7 @@ export async function claimSourceTasks(
         AND st."notBeforeAt" <= ${now}
         ${companySourceFilter}
         ${excludedConnectorFilter}
+        ${connectorPollSourceReadinessFilter}
       ORDER BY st."priorityScore" DESC, st."createdAt" ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

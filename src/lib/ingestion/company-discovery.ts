@@ -307,6 +307,22 @@ const COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS = Math.max(
   2,
   readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_COOLDOWN_HOURS") ?? 12
 );
+const COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS") ?? 6
+);
+const COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS = Math.max(
+  COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS") ?? 12
+);
+const COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD = Math.max(
+  10,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD") ?? 25
+);
+const COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD = Math.max(
+  COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD") ?? 100
+);
 const COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNS = Math.max(
   2,
   readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_MIN_RUNS") ?? 2
@@ -4222,6 +4238,12 @@ async function runSourceValidation(companySourceId: string, now: Date) {
     retainedLiveJobCount: source.retainedLiveJobCount,
     overlapRatio: source.overlapRatio,
   });
+  const recommendedCooldownUntil =
+    result.recommendedCooldownMinutes > 0
+      ? new Date(now.getTime() + result.recommendedCooldownMinutes * 60 * 1000)
+      : null;
+  const preservedFutureCooldownUntil =
+    source.cooldownUntil && source.cooldownUntil > now ? source.cooldownUntil : null;
 
   await prisma.companySource.update({
     where: { id: source.id },
@@ -4232,10 +4254,7 @@ async function runSourceValidation(companySourceId: string, now: Date) {
       lastValidatedAt: now,
       lastFailureAt: result.kind === "VALIDATED" ? null : now,
       lastHttpStatus: result.httpStatus,
-      cooldownUntil:
-        result.recommendedCooldownMinutes > 0
-          ? new Date(now.getTime() + result.recommendedCooldownMinutes * 60 * 1000)
-          : null,
+      cooldownUntil: recommendedCooldownUntil ?? preservedFutureCooldownUntil,
       validationAttemptCount: nextValidationAttemptCount,
       validationSuccessCount: nextValidationSuccessCount,
       consecutiveFailures: nextFailureCount,
@@ -4674,6 +4693,13 @@ async function handleCompanySourcePollFailure(
   const timeoutUpdatedCount = latestTimeoutRun?.canonicalUpdatedCount ?? 0;
   const timeoutMadeProgress =
     timeoutCreatedCount > 0 || timeoutAcceptedCount > 0 || timeoutUpdatedCount > 0;
+  const timeoutZeroCreateRefresh =
+    timeoutFailure &&
+    timeoutCreatedCount === 0 &&
+    timeoutAcceptedCount >= COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD;
+  const timeoutHeavyZeroCreateRefresh =
+    timeoutZeroCreateRefresh &&
+    timeoutAcceptedCount >= COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD;
   // Workday returns 500/502/503/504 and text/html as bot-detection responses,
   // not as genuine server errors. Treat all of these as blocked failures so they
   // get the 12h/24h/36h cooldown ladder rather than the 1h generic ladder.
@@ -4746,6 +4772,8 @@ async function handleCompanySourcePollFailure(
     ? Math.max(0.45, source.sourceQualityScore * 0.88)
     : infrastructureFailure
       ? Math.max(0.5, source.sourceQualityScore * 0.98)
+    : timeoutZeroCreateRefresh
+      ? Math.max(0.22, source.sourceQualityScore * 0.82)
     : timeoutFailure
       ? Math.max(0.28, source.sourceQualityScore * 0.9)
     : Math.max(0.02, source.failureStreak > 0 ? 0.12 : 0.2);
@@ -4766,6 +4794,11 @@ async function handleCompanySourcePollFailure(
   });
 
   const timeoutCooldownMinutes =
+    timeoutZeroCreateRefresh
+      ? (timeoutHeavyZeroCreateRefresh
+          ? COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS
+          : COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS) * 60
+    :
     transientRuntimeFailure && GROWTH_MODE_ENABLED
       ? timeoutCreatedCount >= 25
         ? 8
@@ -4876,6 +4909,8 @@ async function handleCompanySourcePollFailure(
         ? `High-value Workday source blocked; preserved with slower retry window. ${errorMessage}`
         : infrastructureFailure
           ? `INFRASTRUCTURE_FAILURE: ingestion infrastructure had a transient database/runtime failure; source quality preserved and retry scheduled. ${errorMessage}`
+        : timeoutZeroCreateRefresh
+          ? `TIME_BUDGET_LOW_NOVELTY: poll accepted ${timeoutAcceptedCount} known jobs but created 0 new canonicals before timing out; source cooled down to protect ingestion throughput. ${errorMessage}`
         : timeoutFailure
           ? `TIME_BUDGET_EXCEEDED: poll exceeded runtime budget after partial progress (${timeoutAcceptedCount} accepted, ${timeoutCreatedCount} created); retry scheduled on a short growth-mode cooldown. ${errorMessage}`
         : workdayBlockedFailure && workdayHost
