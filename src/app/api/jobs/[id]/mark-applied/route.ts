@@ -30,7 +30,7 @@ export async function POST(
     ]);
 
     revalidateTrackerOverviewViews();
-    revalidatePaths(["/jobs", `/jobs/${id}`]);
+    revalidatePaths(["/jobs", "/jobs/top-picks", `/jobs/${id}`]);
 
     return successResponse(
       {

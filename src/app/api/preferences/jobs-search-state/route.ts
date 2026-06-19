@@ -1,4 +1,10 @@
-import { errorResponse, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
@@ -10,6 +16,13 @@ import {
 } from "@/lib/jobs/search-state";
 
 export async function POST(request: Request) {
+  const tooLarge = requestSizeLimitResponse(
+    request,
+    API_BODY_LIMITS.smallJson,
+    "Jobs search state request"
+  );
+  if (tooLarge) return tooLarge;
+
   const rateLimited = await rateLimitResponse(
     request,
     "preferences:jobs-search-state",

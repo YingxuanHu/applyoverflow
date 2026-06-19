@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobSummaryCard } from "@/components/jobs/job-summary-card";
@@ -14,6 +15,10 @@ export function JobsFeedList({
   initialJobs: JobCardData[];
   referenceNow: string;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const sourceHref = search ? `${pathname}?${search}` : pathname;
   const [jobs, setJobs] = useState(initialJobs);
 
   useEffect(() => {
@@ -56,6 +61,7 @@ export function JobsFeedList({
             }
             job={job}
             referenceNow={referenceNow}
+            sourceHref={sourceHref}
           />
         </li>
       ))}

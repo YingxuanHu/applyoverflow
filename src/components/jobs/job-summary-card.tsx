@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   BriefcaseBusiness,
   Building2,
+  Check,
   CircleDollarSign,
   ExternalLink,
   MapPin,
@@ -17,6 +18,7 @@ import {
   getNormalizedRoleCategoryLabel,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "@/lib/job-metadata";
+import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
@@ -24,12 +26,14 @@ type JobSummaryCardProps = {
   job: JobCardData;
   referenceNow?: string;
   footerActions?: React.ReactNode;
+  sourceHref?: string;
 };
 
 export function JobSummaryCard({
   job,
   referenceNow,
   footerActions,
+  sourceHref,
 }: JobSummaryCardProps) {
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const expiringSoon = getExpiringSoonMetaAt(job.deadline, referenceNow);
@@ -57,7 +61,7 @@ export function JobSummaryCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href={`/jobs/${job.id}`}
+            href={buildJobDetailHref(job.id, sourceHref)}
             className="mobile-list-title inline-block max-w-full text-base font-semibold text-foreground transition hover:underline sm:truncate"
           >
             {job.title}
@@ -65,6 +69,12 @@ export function JobSummaryCard({
           {lifecycleCue ? (
             <span className={`text-xs font-medium ${lifecycleCue.color}`}>
               {lifecycleCue.label}
+            </span>
+          ) : null}
+          {job.hasApplied ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <Check className="h-3 w-3" aria-hidden="true" />
+              Applied
             </span>
           ) : null}
           {expiringSoon ? (

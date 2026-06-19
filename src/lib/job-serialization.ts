@@ -45,6 +45,7 @@ type JobSerializationInput = {
     isPrimary: boolean;
   }>;
   isSaved: boolean;
+  hasApplied?: boolean;
 };
 
 export function serializeJobCardData(job: JobSerializationInput): JobCardData {
@@ -101,6 +102,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     postedAt: job.postedAt.toISOString(),
     deadline: job.deadline?.toISOString() ?? null,
     isSaved: job.isSaved,
+    hasApplied: Boolean(job.hasApplied),
     eligibility: job.eligibility,
     sourceMappings,
     primaryExternalLink,

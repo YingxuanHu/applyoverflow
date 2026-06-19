@@ -8,7 +8,7 @@ type ScrollPositionMemoryProps = {
   includeSearchParams?: boolean;
 };
 
-const RESTORE_ATTEMPTS = [0, 16, 80, 180, 360];
+const RESTORE_ATTEMPTS = [0, 16, 80, 180, 360, 720, 1200];
 
 export function ScrollPositionMemory({
   storageKeyPrefix,

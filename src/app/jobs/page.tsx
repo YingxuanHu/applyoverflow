@@ -16,12 +16,13 @@ import {
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
+import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getOptionalCurrentProfileId } from "@/lib/current-user";
+import { getOptionalCurrentUserProfile } from "@/lib/current-user";
 import {
   normalizeSalaryCurrency,
   SALARY_COMPARISON_CURRENCIES,
@@ -93,10 +94,10 @@ const EXPIRY_OPTIONS: Array<{ label: string; value: string }> = [
 ];
 
 const SORT_OPTIONS: Array<{ label: string; value: JobSortBy | undefined }> = [
-  { label: "Best match", value: undefined },
+  { label: "Recommended", value: undefined },
   { label: "Newest", value: "newest" },
-  { label: "Expiry date", value: "deadline" },
-  { label: "Company name", value: "company" },
+  { label: "Expiring soon", value: "deadline" },
+  { label: "Company A-Z", value: "company" },
 ];
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
@@ -105,10 +106,12 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   // added a second opt-out marker that confused the runtime's cache
   // heuristics. Dropping it lets the in-process TTL caches in getJobs /
   // getIngestionStatus do their job on repeat tab/filter navigation.
-  const viewerProfileId = await getOptionalCurrentProfileId();
-  if (!viewerProfileId) {
+  const currentProfile = await getOptionalCurrentUserProfile();
+  if (!currentProfile) {
     redirect("/sign-in");
   }
+  const viewerProfileId = currentProfile.id;
+  const authUserId = currentProfile.authUserId;
 
   const resolvedSearchParams = await searchParams;
   const isResetRequest = getSearchParam(resolvedSearchParams, "reset") === "1";
@@ -163,7 +166,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const filters = parseJobFilters(resolvedSearchParams, defaultSalaryCurrency);
 
   const [jobsResult, ingestionStatus] = await Promise.all([
-    getJobs(filters, { viewerProfileId, userTimeZone }),
+    getJobs(filters, { viewerProfileId, authUserId, userTimeZone }),
     getIngestionStatus(),
   ]);
   const renderReferenceNow = new Date().toISOString();
@@ -180,6 +183,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         : null,
       description: job.description,
       isSaved: job.isSaved,
+      hasApplied: job.hasApplied,
     })
   );
 
@@ -228,6 +232,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </p>
         </div>
       </header>
+
+      <JobsSectionTabs active="jobs" />
 
       <section className="surface-panel p-3.5 sm:p-6">
         <div>
@@ -1132,9 +1138,9 @@ function hasFilterValue(current: string | undefined, optionValue: string) {
 
 function getSortLabel(sortBy?: string) {
   if (sortBy === "newest") return "Newest";
-  if (sortBy === "deadline") return "Expiry date";
-  if (sortBy === "company") return "Company name";
-  return "Best match";
+  if (sortBy === "deadline") return "Expiring soon";
+  if (sortBy === "company") return "Company A-Z";
+  return "Recommended";
 }
 
 function normalizeSortByParam(value?: string) {

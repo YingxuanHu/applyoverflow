@@ -91,8 +91,9 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /name="salaryCurrency"/);
   assert.match(pageSource, /name="includeUnknownSalary"/);
   assert.match(pageSource, /SALARY_COMPARISON_CURRENCIES\.map/);
-  assert.match(pageSource, /\{ label: "Expiry date", value: "deadline" \}/);
-  assert.match(pageSource, /\{ label: "Company name", value: "company" \}/);
+  assert.match(pageSource, /\{ label: "Recommended", value: undefined \}/);
+  assert.match(pageSource, /\{ label: "Expiring soon", value: "deadline" \}/);
+  assert.match(pageSource, /\{ label: "Company A-Z", value: "company" \}/);
   assert.doesNotMatch(pageSource, /\{ label: "Salary", value: "salary" \}/);
   assert.doesNotMatch(pageSource, /\{ label: "Location", value: "location" \}/);
   assert.match(pageSource, /getSearchParam\(searchParams, "sortBy"\) \?\? getSearchParam\(searchParams, "sort"\)/);

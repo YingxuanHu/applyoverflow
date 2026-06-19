@@ -68,6 +68,7 @@ export type JobCardData = {
   postedAt: string;
   deadline: string | null;
   isSaved: boolean;
+  hasApplied: boolean;
   eligibility: JobCardEligibility;
   sourceMappings: JobCardSource[];
   primaryExternalLink: JobResolvedLink | null;
