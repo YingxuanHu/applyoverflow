@@ -26,6 +26,7 @@ type JobSerializationInput = {
   normalizedRoleCategory?: string | null;
   normalizedRoleCategoryConfidence?: number | null;
   normalizedIndustry?: string | null;
+  normalizedIndustries?: string[] | null;
   normalizedIndustryConfidence?: number | null;
   classificationStatus?: string | null;
   experienceLevel: JobCardData["experienceLevel"];
@@ -44,6 +45,7 @@ type JobSerializationInput = {
     isPrimary: boolean;
   }>;
   isSaved: boolean;
+  hasApplied?: boolean;
 };
 
 export function serializeJobCardData(job: JobSerializationInput): JobCardData {
@@ -87,6 +89,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     normalizedRoleCategory: job.normalizedRoleCategory ?? null,
     normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence ?? null,
     normalizedIndustry: job.normalizedIndustry ?? null,
+    normalizedIndustries: job.normalizedIndustries ?? [],
     normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
     classificationStatus: job.classificationStatus ?? null,
     experienceLevel: job.experienceLevel,
@@ -99,6 +102,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     postedAt: job.postedAt.toISOString(),
     deadline: job.deadline?.toISOString() ?? null,
     isSaved: job.isSaved,
+    hasApplied: Boolean(job.hasApplied),
     eligibility: job.eligibility,
     sourceMappings,
     primaryExternalLink,

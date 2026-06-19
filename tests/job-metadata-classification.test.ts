@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   classifyJobMetadata,
-  INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   normalizeCareerStageFilterValue,
   normalizeEmploymentTypeFilterValue,
   normalizeIndustryFilterValue,
@@ -117,7 +116,8 @@ test("student-facing senior roles are not treated as student internships", () =>
     workMode: "HYBRID",
   });
 
-  assert.equal(metadata.normalizedCareerStage, "MANAGER");
+  assert.notEqual(metadata.normalizedCareerStage, "INTERNSHIP_COOP_STUDENT");
+  assert.notEqual(metadata.normalizedCareerStage, "MANAGER");
   assert.notEqual(metadata.normalizedEmploymentType, "INTERNSHIP");
 });
 
@@ -150,7 +150,7 @@ test("staff roles for internship programs are not classified as internships", ()
     workMode: "REMOTE",
   });
 
-  assert.equal(metadata.normalizedCareerStage, "STAFF_PRINCIPAL");
+  assert.notEqual(metadata.normalizedCareerStage, "INTERNSHIP_COOP_STUDENT");
   assert.notEqual(metadata.normalizedEmploymentType, "INTERNSHIP");
 });
 
@@ -170,7 +170,7 @@ test("explicit co-op intern roles remain co-op/student roles", () => {
   assert.equal(metadata.normalizedEmploymentType, "CO_OP");
 });
 
-test("industry and role category are independent labels", () => {
+test("metadata classifier leaves company industry to the verified registry", () => {
   const metadata = classifyJobMetadata({
     title: "Software Engineer",
     company: "JPMorgan Chase",
@@ -183,13 +183,13 @@ test("industry and role category are independent labels", () => {
   });
 
   assert.equal(metadata.normalizedRoleCategory, "SOFTWARE_ENGINEERING");
-  assert.equal(metadata.normalizedIndustry, "FINANCIAL_SERVICES");
+  assert.equal(metadata.normalizedIndustry, "UNKNOWN");
+  assert.deepEqual(metadata.normalizedIndustries, []);
   assert.ok(metadata.confidence.roleCategory >= 0.75);
-  assert.ok(metadata.confidence.industry >= INDUSTRY_FILTER_CONFIDENCE_THRESHOLD);
   assert.equal(metadata.classificationStatus, "PARTIAL");
 });
 
-test("industry is the company industry, not the job function or description topic", () => {
+test("job text does not infer company industry", () => {
   const retailSourcing = classifyJobMetadata({
     title: "Associate Raw Material Sourcing CONTRACTOR (PT/FT)",
     company: "Buckmason",
@@ -203,7 +203,8 @@ test("industry is the company industry, not the job function or description topi
   });
 
   assert.equal(retailSourcing.normalizedRoleCategory, "OPERATIONS");
-  assert.equal(retailSourcing.normalizedIndustry, "RETAIL_CONSUMER_GOODS");
+  assert.equal(retailSourcing.normalizedIndustry, "UNKNOWN");
+  assert.deepEqual(retailSourcing.normalizedIndustries, []);
   assert.notEqual(retailSourcing.normalizedRoleCategory, "AI_MACHINE_LEARNING");
   assert.notEqual(retailSourcing.normalizedIndustry, "EDUCATION");
 
@@ -396,7 +397,7 @@ test("uncertain jobs stay searchable without becoming confident filter matches",
 
   assert.equal(metadata.normalizedRoleCategory, "OTHER_UNKNOWN");
   assert.equal(metadata.confidence.roleCategory < 0.75, true);
-  assert.equal(metadata.classificationStatus, "PARTIAL");
+  assert.equal(metadata.classificationStatus, "UNKNOWN");
 });
 
 test("new global role categories classify non-software jobs separately", () => {

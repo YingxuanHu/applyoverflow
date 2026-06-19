@@ -103,7 +103,7 @@ const JOOBLE_OPERATIONS_KEYWORDS = [
   "marketing analyst",
 ];
 
-// ── White-collar (Industry: GENERAL) keyword clusters ────────────────────────
+// ── White-collar keyword clusters ────────────────────────────────────────────
 //
 // Sharded by role family so each Jooble profile can paginate fully under the
 // adaptive runtime budget. The previous "whitecollar-na" lump cycled 93

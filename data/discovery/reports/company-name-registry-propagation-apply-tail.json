@@ -1,0 +1,34 @@
+{
+  "generatedAt": "2026-06-04T06:19:00.327Z",
+  "mode": "apply",
+  "batchSize": 500,
+  "maxBatches": 10,
+  "sleepMs": 100,
+  "before": {
+    "canonical": 1239,
+    "feed": 795,
+    "normalized": 565
+  },
+  "staged": {
+    "canonical": 1239,
+    "feed": 795,
+    "normalized": 565
+  },
+  "canonical": {
+    "updated": 1239,
+    "batches": 3
+  },
+  "feed": {
+    "updated": 795,
+    "batches": 2
+  },
+  "normalized": {
+    "updated": 565,
+    "batches": 2
+  },
+  "after": {
+    "canonical": 0,
+    "feed": 0,
+    "normalized": 4
+  }
+}

@@ -7,6 +7,12 @@ import {
 } from "@/lib/current-user";
 import { formatDisplayLabel, formatSalary } from "@/lib/job-display";
 import { serializeJobDetailData } from "@/lib/job-serialization";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
+import {
+  JOB_BOARD_MIN_AVAILABILITY_SCORE,
+  RECENT_ALIVE_EVIDENCE_MAX_AGE_MS,
+  RECENT_SOURCE_EVIDENCE_MAX_AGE_MS,
+} from "@/lib/jobs/visibility";
 import { recordAction } from "@/lib/queries/behavior";
 import {
   syncTrackedApplicationFromSubmission,
@@ -90,6 +96,9 @@ export async function getApplicationReviewData(
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
           where: { userId, status: "ACTIVE" },
@@ -410,6 +419,9 @@ async function getMutableApplicationContext(jobId: string) {
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
           where: { userId, status: "ACTIVE" },
@@ -468,9 +480,18 @@ function isReadyToApplyJob(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
 }) {
   return (
     job.status === "LIVE" &&
+    job.feedIndex?.status === "LIVE" &&
+    (job.availabilityScore ?? 0) >= JOB_BOARD_MIN_AVAILABILITY_SCORE &&
+    hasRecentLiveEvidence(job) &&
+    !hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) &&
     /^https?:\/\//i.test(job.applyUrl) &&
     job.deadSignalAt === null &&
     (!job.deadline || job.deadline.getTime() >= Date.now())
@@ -482,13 +503,35 @@ function isUnavailableForJobDetail(job: {
   applyUrl: string;
   deadline: Date | null;
   deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
 }) {
   return (
     job.status === "REMOVED" ||
     job.status === "EXPIRED" ||
+    job.feedIndex?.status !== "LIVE" ||
+    (job.availabilityScore ?? 0) < JOB_BOARD_MIN_AVAILABILITY_SCORE ||
+    !hasRecentLiveEvidence(job) ||
+    hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) ||
     !/^https?:\/\//i.test(job.applyUrl) ||
     job.deadSignalAt !== null ||
     (job.deadline !== null && job.deadline.getTime() < Date.now())
+  );
+}
+
+function hasRecentLiveEvidence(job: {
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+}) {
+  const now = Date.now();
+  return Boolean(
+    (job.lastSourceSeenAt &&
+      now - job.lastSourceSeenAt.getTime() <= RECENT_SOURCE_EVIDENCE_MAX_AGE_MS) ||
+      (job.lastConfirmedAliveAt &&
+        now - job.lastConfirmedAliveAt.getTime() <= RECENT_ALIVE_EVIDENCE_MAX_AGE_MS)
   );
 }
 
@@ -730,6 +773,7 @@ function serializeApplicationHistoryItem(job: {
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries?: string[];
   normalizedIndustryConfidence: number | null;
   classificationStatus: string | null;
   applyUrl: string;
@@ -787,6 +831,7 @@ function serializeApplicationHistoryItem(job: {
       normalizedRoleCategory: job.normalizedRoleCategory,
       normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence,
       normalizedIndustry: job.normalizedIndustry,
+      normalizedIndustries: job.normalizedIndustries ?? [],
       normalizedIndustryConfidence: job.normalizedIndustryConfidence,
       classificationStatus: job.classificationStatus,
       applyUrl: job.applyUrl,

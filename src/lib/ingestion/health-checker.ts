@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { normalizeApplyUrlKey } from "@/lib/ingestion/dedupe";
 import {
   APPLY_LINK_VALIDATION_STATUS,
   classifyApplyLinkQuality,
@@ -279,31 +280,44 @@ export async function runJobHealthCheck(canonicalJobId: string, now: Date = new 
           now,
         })
       : null;
+  const shouldPromoteDetailUrl =
+    Boolean(detailUrl) &&
+    detailUrl !== job.applyUrl &&
+    applyHealth.validationStatus === APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE &&
+    detailHealth?.result === "ALIVE" &&
+    detailHealth.validationStatus === APPLY_LINK_VALIDATION_STATUS.ACTIVE;
+  const effectiveApplyHealth =
+    shouldPromoteDetailUrl && detailHealth ? detailHealth : applyHealth;
 
   await recordHealthCheck(job.id, job.applyUrl, "APPLY", applyHealth);
   if (detailHealth && detailUrl) {
     await recordHealthCheck(job.id, detailUrl, "DETAIL", detailHealth);
   }
 
-  const strongestDead = [applyHealth, detailHealth]
+  const strongestDead = [effectiveApplyHealth, shouldPromoteDetailUrl ? null : detailHealth]
     .filter((entry): entry is UrlHealthOutcome => Boolean(entry))
     .find((entry) => entry.result === "DEAD");
   const aliveSignal = strongestDead
     ? null
-    : [applyHealth, detailHealth]
+    : [effectiveApplyHealth, detailHealth]
         .filter((entry): entry is UrlHealthOutcome => Boolean(entry))
         .find((entry) => entry.result === "ALIVE");
 
   await prisma.jobCanonical.update({
     where: { id: job.id },
     data: {
-      lastApplyCheckAt: applyHealth.checkedAt,
+      applyUrl: shouldPromoteDetailUrl && detailUrl ? detailUrl : undefined,
+      applyUrlKey:
+        shouldPromoteDetailUrl && detailUrl ? normalizeApplyUrlKey(detailUrl) : undefined,
+      lastApplyCheckAt: effectiveApplyHealth.checkedAt,
       lastConfirmedAliveAt: aliveSignal ? now : job.lastConfirmedAliveAt,
-      applyUrlValidatedAt: applyHealth.checkedAt,
-      applyUrlValidationStatus: applyHealth.validationStatus,
-      applyUrlValidationReason: applyHealth.validationReason ?? applyHealth.closureReason,
-      finalResolvedApplyUrl: applyHealth.finalUrl,
-      applyUrlRedirectDepth: applyHealth.redirectDepth,
+      applyUrlValidatedAt: effectiveApplyHealth.checkedAt,
+      applyUrlValidationStatus: effectiveApplyHealth.validationStatus,
+      applyUrlValidationReason: shouldPromoteDetailUrl
+        ? "Generic apply URL replaced with the job-specific source detail URL."
+        : effectiveApplyHealth.validationReason ?? effectiveApplyHealth.closureReason,
+      finalResolvedApplyUrl: effectiveApplyHealth.finalUrl,
+      applyUrlRedirectDepth: effectiveApplyHealth.redirectDepth,
       deadSignalAt: strongestDead ? now : aliveSignal ? null : job.deadSignalAt,
       deadSignalReason: strongestDead
         ? strongestDead.closureReason

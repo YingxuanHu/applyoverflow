@@ -26,12 +26,10 @@ export async function saveJob(
 
 export async function unsaveJob(canonicalJobId: string) {
   const userId = await requireCurrentProfileId();
-  return prisma.savedJob.delete({
+  return prisma.savedJob.deleteMany({
     where: {
-      userId_canonicalJobId: {
-        userId,
-        canonicalJobId,
-      },
+      userId,
+      canonicalJobId,
     },
   });
 }

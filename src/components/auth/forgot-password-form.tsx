@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,11 +16,6 @@ export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProp
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -97,12 +92,10 @@ export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProp
           ) : null}
           <Button
             className="h-11 w-full rounded-full"
-            disabled={pending || !isHydrated}
+            disabled={pending}
             type="submit"
           >
-            {!isHydrated ? (
-              "Loading..."
-            ) : pending ? (
+            {pending ? (
               <>
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 Sending...

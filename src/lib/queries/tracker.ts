@@ -1,5 +1,6 @@
 import type { Prisma, TrackedApplicationDocumentSlot, TrackedApplicationEventType, TrackedApplicationStatus } from "@/generated/prisma/client";
 
+import type { FlowApplication } from "@/lib/application-flow";
 import { prisma } from "@/lib/db";
 import {
   formatJobDescriptionText,
@@ -10,7 +11,9 @@ import {
   requireCurrentProfileId,
 } from "@/lib/current-user";
 import { checkSingleTrackedApplicationReminder } from "@/lib/reminders";
+import { invalidateTopPickForUserJob } from "@/lib/top-picks/invalidation";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
+import { startOfUtcDay } from "@/lib/time-zone";
 
 export type TrackerDeadlineFilter = "ALL" | "UPCOMING" | "OVERDUE" | "NO_DEADLINE";
 export type TrackerSortFilter =
@@ -32,15 +35,11 @@ const TRACKED_SEARCH_STATUS_LABELS: Array<{
   { status: "SCREEN", labels: ["screen", "screening"] },
   { status: "INTERVIEW", labels: ["interview"] },
   { status: "OFFER", labels: ["offer"] },
+  { status: "ACCEPTED", labels: ["accepted"] },
   { status: "REJECTED", labels: ["rejected"] },
-  { status: "WITHDRAWN", labels: ["withdrawn"] },
+  { status: "DECLINED", labels: ["declined"] },
+  { status: "WITHDRAWN", labels: ["closed", "withdrawn"] },
 ];
-
-function startOfUtcDay(value: Date) {
-  const date = new Date(value);
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-}
 
 function normalizeOptionalUrl(value: string | null | undefined) {
   const trimmed = String(value ?? "").trim();
@@ -57,6 +56,26 @@ function normalizeOptionalUrl(value: string | null | undefined) {
 function queueReminderCheck(applicationId: string) {
   void checkSingleTrackedApplicationReminder(applicationId).catch((error) => {
     console.error("Tracked application reminder check failed:", error);
+  });
+}
+
+function shouldExcludeStatusFromTopPicks(status: TrackedApplicationStatus) {
+  return status !== "WISHLIST" && status !== "PREPARING";
+}
+
+async function invalidateAppliedTopPick(input: {
+  profileId: string;
+  canonicalJobId: string | null | undefined;
+  status: TrackedApplicationStatus;
+}) {
+  if (!input.canonicalJobId || !shouldExcludeStatusFromTopPicks(input.status)) {
+    return;
+  }
+
+  await invalidateTopPickForUserJob({
+    userId: input.profileId,
+    jobId: input.canonicalJobId,
+    reason: "application_status_changed",
   });
 }
 
@@ -90,8 +109,12 @@ function statusToEventType(status: TrackedApplicationStatus): TrackedApplication
       return "INTERVIEW";
     case "OFFER":
       return "OFFER";
+    case "ACCEPTED":
+      return "ACCEPTED";
     case "REJECTED":
       return "REJECTED";
+    case "DECLINED":
+      return "DECLINED";
     case "PREPARING":
     case "WISHLIST":
     case "WITHDRAWN":
@@ -512,6 +535,38 @@ export async function getTrackedDashboardData(input: {
   };
 }
 
+// Full dataset for the Application Flow chart. Intentionally independent from
+// the list view's search/status/sort/tag filters so the funnel always
+// summarizes the user's complete application history (the chart's own time
+// range control narrows it). WISHLIST/PREPARING never enter the funnel, so we
+// drop them at the query level; the chart builder also excludes them defensively.
+export async function getTrackedApplicationFlowApplications(): Promise<FlowApplication[]> {
+  const userId = await requireCurrentAuthUserId();
+
+  return prisma.trackedApplication.findMany({
+    where: {
+      userId,
+      status: { notIn: ["WISHLIST", "PREPARING"] },
+    },
+    select: {
+      id: true,
+      company: true,
+      roleTitle: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      events: {
+        orderBy: { timestamp: "asc" },
+        select: {
+          type: true,
+          timestamp: true,
+        },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
 export async function getTrackedApplicationWorkspace(id: string) {
   const [authUserId, profileId] = await Promise.all([
     requireCurrentAuthUserId(),
@@ -830,7 +885,7 @@ export async function createTrackedApplication(input: {
       note:
         status === "WISHLIST"
           ? "Application created."
-          : `Application created with status ${status.toLowerCase()}.`,
+          : `Application created with status ${TRACKED_STATUS_NOTE[status]}.`,
     },
   });
 
@@ -856,8 +911,10 @@ const TRACKED_STATUS_NOTE: Record<TrackedApplicationStatus, string> = {
   SCREEN: "screen",
   INTERVIEW: "interview",
   OFFER: "offer",
+  ACCEPTED: "accepted",
   REJECTED: "rejected",
-  WITHDRAWN: "withdrawn",
+  DECLINED: "declined",
+  WITHDRAWN: "closed",
 };
 
 export async function upsertTrackedApplicationFromJob(input: {
@@ -966,6 +1023,11 @@ export async function upsertTrackedApplicationFromJob(input: {
     documentId: resumeDocumentId,
   });
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: job.id,
+    status: nextStatus,
+  });
   queueReminderCheck(tracked.id);
   return {
     applicationId: tracked.id,
@@ -1055,7 +1117,10 @@ export async function updateTrackedApplicationStatus(input: {
   applicationId: string;
   status: TrackedApplicationStatus;
 }) {
-  const userId = await requireCurrentAuthUserId();
+  const [userId, profileId] = await Promise.all([
+    requireCurrentAuthUserId(),
+    requireCurrentProfileId(),
+  ]);
   const existing = await prisma.trackedApplication.findFirst({
     where: {
       id: input.applicationId,
@@ -1064,6 +1129,7 @@ export async function updateTrackedApplicationStatus(input: {
     select: {
       id: true,
       status: true,
+      canonicalJobId: true,
     },
   });
 
@@ -1072,6 +1138,11 @@ export async function updateTrackedApplicationStatus(input: {
   }
 
   if (existing.status === input.status) {
+    await invalidateAppliedTopPick({
+      profileId,
+      canonicalJobId: existing.canonicalJobId,
+      status: input.status,
+    });
     return { changed: false };
   }
 
@@ -1092,6 +1163,11 @@ export async function updateTrackedApplicationStatus(input: {
     }),
   ]);
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: existing.canonicalJobId,
+    status: input.status,
+  });
   queueReminderCheck(input.applicationId);
   return { changed: true };
 }
@@ -1120,7 +1196,9 @@ export async function addTrackedApplicationEvent(input: {
     SCREEN: "SCREEN",
     INTERVIEW: "INTERVIEW",
     OFFER: "OFFER",
+    ACCEPTED: "ACCEPTED",
     REJECTED: "REJECTED",
+    DECLINED: "DECLINED",
   };
 
   await prisma.$transaction([
@@ -1763,6 +1841,11 @@ export async function syncTrackedApplicationFromSubmission(canonicalJobId: strin
     documentId: resumeDocumentId,
   });
 
+  await invalidateAppliedTopPick({
+    profileId,
+    canonicalJobId: job.id,
+    status: nextStatus,
+  });
   queueReminderCheck(tracked.id);
   return tracked;
 }
@@ -1800,7 +1883,7 @@ export async function syncTrackedApplicationLifecycleFromSubmission(input: {
           data: {
             trackedApplicationId: existing.id,
             type: "NOTE",
-            note: "Withdrawn from the jobs apply flow.",
+            note: "Closed from the jobs apply flow.",
           },
         }),
       ]);

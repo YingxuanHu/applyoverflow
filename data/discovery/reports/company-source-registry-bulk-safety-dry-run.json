@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-06-04T05:26:42.283Z",
+  "mode": "dry-run",
+  "file": "/Users/alvinhu/projects/autoapplication/data/applyoverflow-source-registry-2026-06-04.csv",
+  "rowsRead": 5,
+  "validUrlRows": 5,
+  "markedRows": 0,
+  "companyIndustryRows": 5,
+  "sourceInputs": 5,
+  "countsByConnector": {
+    "greenhouse": 1,
+    "recruitee": 1,
+    "lever": 1,
+    "workday": 2
+  },
+  "countsByMarker": {},
+  "skipTasks": false,
+  "validationTaskLimit": 500,
+  "discoveryTaskLimit": 200,
+  "propagateJobs": false,
+  "companiesCreated": 0,
+  "companiesUpdated": 0,
+  "sourcesCreated": 0,
+  "sourcesUpdated": 0,
+  "markerSourcesDisabled": 0,
+  "markerSourcesQuarantined": 0,
+  "validationTasksQueued": 0,
+  "discoveryTasksQueued": 0,
+  "canonicalJobsUpdated": 0,
+  "feedRowsUpdated": 0,
+  "normalizedRowsUpdated": 0
+}

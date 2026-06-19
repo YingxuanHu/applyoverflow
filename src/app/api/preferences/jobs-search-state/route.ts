@@ -1,5 +1,11 @@
-import { NextResponse } from "next/server";
-
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import {
@@ -10,9 +16,23 @@ import {
 } from "@/lib/jobs/search-state";
 
 export async function POST(request: Request) {
+  const tooLarge = requestSizeLimitResponse(
+    request,
+    API_BODY_LIMITS.smallJson,
+    "Jobs search state request"
+  );
+  if (tooLarge) return tooLarge;
+
+  const rateLimited = await rateLimitResponse(
+    request,
+    "preferences:jobs-search-state",
+    API_RATE_LIMITS.authenticatedWrite
+  );
+  if (rateLimited) return rateLimited;
+
   const profileId = await getOptionalCurrentProfileId();
   if (!profileId) {
-    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    return errorResponse("Authentication required", 401);
   }
 
   const body = (await request.json().catch(() => null)) as { query?: unknown } | null;
@@ -23,7 +43,7 @@ export async function POST(request: Request) {
 
   if (isDefaultJobsStateQuery(query)) {
     await deleteSavedJobsSearchState(profileId);
-    return NextResponse.json({ ok: true, state: "default" });
+    return successResponse({ ok: true, state: "default" });
   }
 
   await withPrismaConnectionRetry(() =>
@@ -45,17 +65,17 @@ export async function POST(request: Request) {
     })
   );
 
-  return NextResponse.json({ ok: true, state: "saved" });
+  return successResponse({ ok: true, state: "saved" });
 }
 
 export async function DELETE() {
   const profileId = await getOptionalCurrentProfileId();
   if (!profileId) {
-    return NextResponse.json({ ok: true });
+    return successResponse({ ok: true });
   }
 
   await deleteSavedJobsSearchState(profileId);
-  return NextResponse.json({ ok: true });
+  return successResponse({ ok: true });
 }
 
 async function deleteSavedJobsSearchState(profileId: string) {

@@ -1,13 +1,20 @@
-import { successResponse, errorResponse } from "@/lib/api-utils";
-import { UnauthorizedError } from "@/lib/current-user";
+import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:job-fit",
+      API_RATE_LIMITS.aiAnalyze
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
 
     if (!process.env.OPENAI_API_KEY) {
@@ -32,11 +39,7 @@ export async function POST(
 
     return successResponse({ ...result, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/jobs/[id]/ai/analyze error:", error);
     const message = error instanceof Error ? error.message : "Analysis failed";
-    return errorResponse(message, 500);
+    return handleApiRouteError(error, "POST /api/jobs/[id]/ai/analyze", message);
   }
 }

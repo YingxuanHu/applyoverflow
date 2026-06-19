@@ -2,6 +2,13 @@ const FALLBACK_TIME_ZONE = "America/Toronto";
 
 export const USER_TIME_ZONE_COOKIE = "autoapplication.timeZone";
 
+/** Midnight (00:00:00.000) UTC of the given date's UTC calendar day. */
+export function startOfUtcDay(value: Date): Date {
+  const date = new Date(value);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
 export function normalizeUserTimeZone(value?: string | null) {
   const candidate = value?.trim();
   const configuredFallback =
@@ -119,4 +126,55 @@ function zonedLocalTimeToUtc(
   }
 
   return new Date(utcMs);
+}
+
+export function parseDateTimeLocalInTimeZone(
+  value: string,
+  timeZone?: string | null
+) {
+  const match = value
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+
+  if (!match) return null;
+
+  const localTime = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6] ?? 0),
+  };
+
+  if (
+    localTime.month < 1 ||
+    localTime.month > 12 ||
+    localTime.day < 1 ||
+    localTime.day > 31 ||
+    localTime.hour < 0 ||
+    localTime.hour > 23 ||
+    localTime.minute < 0 ||
+    localTime.minute > 59 ||
+    localTime.second < 0 ||
+    localTime.second > 59
+  ) {
+    return null;
+  }
+
+  const utcDate = zonedLocalTimeToUtc(localTime, normalizeUserTimeZone(timeZone));
+  const parts = getZonedDateTimeParts(utcDate, normalizeUserTimeZone(timeZone));
+
+  if (
+    parts.year !== localTime.year ||
+    parts.month !== localTime.month ||
+    parts.day !== localTime.day ||
+    parts.hour !== localTime.hour ||
+    parts.minute !== localTime.minute ||
+    parts.second !== localTime.second
+  ) {
+    return null;
+  }
+
+  return utcDate;
 }

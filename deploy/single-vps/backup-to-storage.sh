@@ -30,6 +30,11 @@ mkdir -p "$BACKUP_DIR"
 
 cd "$REPO_ROOT"
 
+if ! docker image inspect single-vps-backup-runner:latest >/dev/null 2>&1; then
+  echo "Backup runner image missing; building backup-runner"
+  "${COMPOSE[@]}" build backup-runner
+fi
+
 echo "Dumping $POSTGRES_DB to $BACKUP_FILE"
 "${COMPOSE[@]}" exec -T postgres pg_dump \
   -U "$POSTGRES_USER" \

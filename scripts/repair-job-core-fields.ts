@@ -29,7 +29,6 @@ type Sample = {
   applyUrl: string;
 };
 
-const VISIBLE_STATUSES = ["LIVE", "AGING", "STALE"] as const;
 type CandidateRow = {
   id: string;
   title: string;

@@ -22,11 +22,6 @@ type FamilyRunRow = {
   dedupedCount: bigint | number;
 };
 
-type FamilyCountRow = {
-  sourceFamily: string | null;
-  count: bigint | number;
-};
-
 type SourceRunRow = {
   sourceName: string;
   sourceFamily: string | null;
@@ -35,12 +30,6 @@ type SourceRunRow = {
   acceptedCount: bigint | number;
   canonicalCreatedCount: bigint | number;
   dedupedCount: bigint | number;
-};
-
-type SourceCountRow = {
-  sourceName: string;
-  sourceFamily: string | null;
-  count: bigint | number;
 };
 
 type DailyRow = {

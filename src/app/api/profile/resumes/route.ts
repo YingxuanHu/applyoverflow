@@ -1,7 +1,16 @@
 import { type NextRequest } from "next/server";
 
-import { errorResponse, successResponse } from "@/lib/api-utils";
-import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  isUnauthorizedApiError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+  unauthorizedResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { importUploadedResumeForProfile } from "@/lib/profile-resume-service";
 import { revalidateProfileViews } from "@/lib/revalidation";
@@ -29,15 +38,27 @@ export async function GET() {
 
     return successResponse(resumes);
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
+    if (isUnauthorizedApiError(error)) return unauthorizedResponse();
     return errorResponse("Failed to fetch resumes", 500);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.resumeUpload,
+      "Resume upload"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "document:resume-upload",
+      API_RATE_LIMITS.documentUpload
+    );
+    if (rateLimited) return rateLimited;
+
     const user = await requireCurrentUserProfile();
     const storageReadiness = getStorageReadiness();
     if (!storageReadiness.configured) {
@@ -63,9 +84,7 @@ export async function POST(request: NextRequest) {
     revalidateProfileViews();
     return successResponse({ message: result.message }, 201);
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
+    if (isUnauthorizedApiError(error)) return unauthorizedResponse();
     return errorResponse(
       error instanceof Error ? error.message : "Resume upload failed.",
       400

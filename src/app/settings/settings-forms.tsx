@@ -159,7 +159,6 @@ export function PreferencesForm({
     salaryMax: string;
     salaryCurrency: string;
     location: string;
-    workAuthorization: string;
   };
 }) {
   const [state, formAction] = useActionState(
@@ -271,20 +270,6 @@ export function PreferencesForm({
             maxLength={120}
             name="location"
             placeholder="Toronto, ON"
-            type="text"
-          />
-        </div>
-        <div>
-          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-work-auth">
-            Work authorization
-          </label>
-          <input
-            className={SETTINGS_INPUT_CLASS}
-            defaultValue={defaults.workAuthorization}
-            id="pref-work-auth"
-            maxLength={120}
-            name="workAuthorization"
-            placeholder="US citizen, Canadian PR, etc."
             type="text"
           />
         </div>

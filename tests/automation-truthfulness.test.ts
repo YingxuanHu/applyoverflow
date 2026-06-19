@@ -31,6 +31,7 @@ function makeJob(overrides: Partial<NormalizedJobInput> = {}): NormalizedJobInpu
     normalizedCareerStage: "MID_LEVEL",
     normalizedCareerStageConfidence: 0.78,
     normalizedIndustry: "TECHNOLOGY",
+    normalizedIndustries: ["TECHNOLOGY"],
     normalizedIndustryConfidence: 0.8,
     normalizedRoleCategory: "SOFTWARE_ENGINEERING",
     normalizedRoleCategoryConfidence: 0.9,

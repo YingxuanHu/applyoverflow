@@ -44,7 +44,7 @@ services:
       - "3000"
     command: ["npm", "run", "start:web"]
 
-  worker:
+  worker-ingestion:
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -54,6 +54,68 @@ services:
       NODE_ENV: production
       DATABASE_PROCESS_ROLE: daemon
       DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: ingestion
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-source-workers:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: recovery_poll
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: source-workers
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-maintenance:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: maintenance
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: maintenance
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    profiles:
+      - legacy-worker
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: daemon
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: all
       INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
     depends_on:
       postgres:

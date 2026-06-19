@@ -75,7 +75,6 @@ export default async function ProfilePage({
         linkedinUrl: true,
         githubUrl: true,
         portfolioUrl: true,
-        workAuthorization: true,
         preferredWorkMode: true,
         experienceLevel: true,
         salaryMin: true,
@@ -148,8 +147,7 @@ export default async function ProfilePage({
   const missingApplicationDetails =
     !initialValues.contact.phone.trim() ||
     !initialValues.contact.linkedInUrl.trim() ||
-    !initialValues.contact.portfolioUrl.trim() ||
-    !initialValues.workAuthorization.trim();
+    !initialValues.contact.portfolioUrl.trim();
 
   const params = await searchParams;
   const requestedTab =
@@ -295,7 +293,6 @@ export default async function ProfilePage({
                       : "",
                   salaryCurrency: profile?.salaryCurrency ?? "USD",
                   location: profile?.location ?? "",
-                  workAuthorization: profile?.workAuthorization ?? "",
                 }}
               />
             </section>
@@ -315,7 +312,6 @@ export default async function ProfilePage({
                   headline: initialValues.headline,
                   summary: initialValues.summary,
                   location: initialValues.location,
-                  workAuthorization: initialValues.workAuthorization,
                   contact: initialValues.contact,
                   skills: initialValues.skills,
                   educations: initialValues.educations,

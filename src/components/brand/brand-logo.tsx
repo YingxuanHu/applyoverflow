@@ -15,7 +15,7 @@ export function BrandLogo({
   showText = true,
 }: BrandLogoProps) {
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-2", className)}>
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
       <span
         className={cn(
           "flex size-8 shrink-0 items-center justify-center text-foreground",

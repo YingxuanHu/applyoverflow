@@ -25,7 +25,7 @@ const APPLICATION_FILTERS = [
   { value: "SUBMITTED", label: "Submitted" },
   { value: "CONFIRMED", label: "Confirmed" },
   { value: "FAILED", label: "Failed" },
-  { value: "WITHDRAWN", label: "Withdrawn" },
+  { value: "WITHDRAWN", label: "Closed" },
 ] as const;
 
 type ApplicationFilterValue = (typeof APPLICATION_FILTERS)[number]["value"];
@@ -64,6 +64,7 @@ function statusColor(status: ApplicationHistoryStatus): string {
 
 function statusLabel(status: ApplicationHistoryStatus): string {
   if (status === "PACKAGE_ONLY") return "Package only";
+  if (status === "WITHDRAWN") return "Closed";
   return formatDisplayLabel(status);
 }
 
@@ -307,7 +308,7 @@ function getStatusSummary(item: ApplicationHistoryItem) {
     case "FAILED":
       return item.latestSubmission?.notes ?? "Submission attempt failed and may need another pass.";
     case "WITHDRAWN":
-      return "This application was withdrawn after submission.";
+      return "This application was closed after submission.";
     default:
       return "Application state recorded.";
   }

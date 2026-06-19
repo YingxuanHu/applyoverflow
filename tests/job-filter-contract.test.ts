@@ -17,8 +17,19 @@ function job(overrides: Partial<Parameters<typeof getJobFilterContractViolations
     normalizedRoleCategory: overrides.normalizedRoleCategory ?? "FINANCE_ACCOUNTING",
     normalizedRoleCategoryConfidence: overrides.normalizedRoleCategoryConfidence ?? 0.9,
     normalizedIndustry: overrides.normalizedIndustry ?? "TECHNOLOGY",
+    normalizedIndustries: overrides.normalizedIndustries ?? [
+      overrides.normalizedIndustry ?? "TECHNOLOGY",
+    ],
     normalizedIndustryConfidence: overrides.normalizedIndustryConfidence ?? 0.8,
     normalizedCareerStage: overrides.normalizedCareerStage ?? "MID_LEVEL",
+    experienceLevelGroup:
+      overrides.experienceLevelGroup ??
+      (overrides.normalizedCareerStage === "INTERNSHIP_COOP_STUDENT"
+        ? "STUDENT_INTERN"
+        : overrides.normalizedCareerStage === "SENIOR" ||
+            overrides.normalizedCareerStage === "STAFF_PRINCIPAL"
+          ? "SENIOR_LEAD_STAFF"
+          : "MID_EXPERIENCED"),
     normalizedCareerStageConfidence: overrides.normalizedCareerStageConfidence ?? 0.82,
     classificationStatus: overrides.classificationStatus ?? "PARTIAL",
   };
@@ -142,6 +153,35 @@ test("industry and role are independent in the role filter contract", () => {
   assert.deepEqual(
     violations.map((violation) => violation.id),
     ["software_at_bank"]
+  );
+});
+
+test("company industry filter accepts any verified industry label on multi-label companies", () => {
+  const rows = [
+    job({
+      id: "media_tech",
+      title: "Software Engineer",
+      normalizedIndustry: "MEDIA_ENTERTAINMENT",
+      normalizedIndustries: ["MEDIA_ENTERTAINMENT", "TECHNOLOGY"],
+      normalizedIndustryConfidence: 0.99,
+    }),
+    job({
+      id: "retail",
+      title: "Store Associate",
+      normalizedIndustry: "RETAIL_CONSUMER_GOODS",
+      normalizedIndustries: ["RETAIL_CONSUMER_GOODS"],
+      normalizedIndustryConfidence: 0.99,
+    }),
+  ];
+
+  const violations = getJobFilterContractViolations(
+    { industry: "TECHNOLOGY" },
+    rows
+  );
+
+  assert.deepEqual(
+    violations.map((violation) => violation.id),
+    ["retail"]
   );
 });
 

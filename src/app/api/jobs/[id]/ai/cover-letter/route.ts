@@ -1,21 +1,43 @@
-import { successResponse, errorResponse } from "@/lib/api-utils";
-import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
-import { UnauthorizedError, requireCurrentUserProfile } from "@/lib/current-user";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { requireCurrentUserProfile } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
+import { readCoverLetterRequestOptions } from "@/lib/ai/cover-letter-request";
+import { persistGeneratedCoverLetterDocument } from "@/lib/ai/generated-cover-letter-document";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
-import { prisma } from "@/lib/db";
-import { buildDocumentStorageKey, saveFile } from "@/lib/storage";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.mediumJson,
+      "Cover letter request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:job-cover-letter",
+      API_RATE_LIMITS.aiCoverLetter
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);
     }
+    const coverLetterOptions = await readCoverLetterRequestOptions(request);
 
     const [jobCtx, profileCtx] = await Promise.all([
       buildJobContext(id),
@@ -31,41 +53,17 @@ export async function POST(
 
     // Lazy-import to avoid bundling the OpenAI SDK into other routes
     const { generateCoverLetter } = await import("@/lib/ai/cover-letter");
-    const result = await generateCoverLetter(jobCtx, profileCtx);
+    const result = await generateCoverLetter(jobCtx, profileCtx, coverLetterOptions);
     result.profileNotice = profileReadiness.profileNotice;
 
     // Persist the generated letter as an AI document. Best-effort.
     let savedDocumentId: string | null = null;
     try {
       const profile = await requireCurrentUserProfile();
-      const title = buildAiGeneratedDocumentTitle({
-        kind: "COVER_LETTER",
-        company: jobCtx.company,
-        roleTitle: jobCtx.title,
-      });
-      const buffer = Buffer.from(result.text, "utf-8");
-      const fileName = `${title.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "")}.txt`;
-      const storageKey = buildDocumentStorageKey({
+      const savedDoc = await persistGeneratedCoverLetterDocument({
         userId: profile.id,
-        title,
-        extension: ".txt",
-        type: "COVER_LETTER",
-      });
-      await saveFile(storageKey, buffer, { contentType: "text/plain; charset=utf-8" });
-      const savedDoc = await prisma.document.create({
-        data: {
-          userId: profile.id,
-          type: "COVER_LETTER",
-          title,
-          originalFileName: fileName,
-          filename: fileName,
-          mimeType: "text/plain; charset=utf-8",
-          sizeBytes: buffer.byteLength,
-          storageKey,
-          isPrimary: false,
-          isAiGenerated: true,
-        },
-        select: { id: true },
+        job: jobCtx,
+        text: result.text,
       });
       savedDocumentId = savedDoc.id;
     } catch (persistError) {
@@ -74,11 +72,7 @@ export async function POST(
 
     return successResponse({ ...result, documentId: savedDocumentId });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/jobs/[id]/ai/cover-letter error:", error);
     const message = error instanceof Error ? error.message : "Cover letter generation failed";
-    return errorResponse(message, 500);
+    return handleApiRouteError(error, "POST /api/jobs/[id]/ai/cover-letter", message);
   }
 }

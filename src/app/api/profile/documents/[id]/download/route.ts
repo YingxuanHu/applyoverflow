@@ -1,13 +1,21 @@
-import { errorResponse } from "@/lib/api-utils";
-import { UnauthorizedError, requireCurrentProfileId } from "@/lib/current-user";
+import { errorResponse, handleApiRouteError, rateLimitResponse } from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { readStoredFile } from "@/lib/storage";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "document:download",
+      API_RATE_LIMITS.documentDownload
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
     const userId = await requireCurrentProfileId();
     const document = await prisma.document.findFirst({
@@ -41,10 +49,10 @@ export async function GET(
       },
     });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("GET /api/profile/documents/[id]/download error:", error);
-    return errorResponse("Failed to download document", 500);
+    return handleApiRouteError(
+      error,
+      "GET /api/profile/documents/[id]/download",
+      "Failed to download document"
+    );
   }
 }

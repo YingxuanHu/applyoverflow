@@ -15,6 +15,7 @@ type DatabaseProcessRole =
   | "recovery_discovery"
   | "bulk_recovery"
   | "expansion_pipeline"
+  | "maintenance"
   | "other";
 
 const PRIVATE_DATABASE_ROLES = new Set<DatabaseProcessRole>([
@@ -24,6 +25,7 @@ const PRIVATE_DATABASE_ROLES = new Set<DatabaseProcessRole>([
   "recovery_discovery",
   "bulk_recovery",
   "expansion_pipeline",
+  "maintenance",
 ]);
 
 function readPositiveIntegerEnv(name: string) {
@@ -44,6 +46,7 @@ function detectDatabaseProcessRole(): DatabaseProcessRole {
     explicitRole === "recovery_discovery" ||
     explicitRole === "bulk_recovery" ||
     explicitRole === "expansion_pipeline" ||
+    explicitRole === "maintenance" ||
     explicitRole === "other"
   ) {
     return explicitRole;
@@ -87,6 +90,7 @@ function getDatabasePoolMax(role: DatabaseProcessRole) {
     recovery_discovery: "DATABASE_POOL_MAX_RECOVERY_DISCOVERY",
     bulk_recovery: "DATABASE_POOL_MAX_BULK_RECOVERY",
     expansion_pipeline: "DATABASE_POOL_MAX_EXPANSION_PIPELINE",
+    maintenance: "DATABASE_POOL_MAX_MAINTENANCE",
     other: "DATABASE_POOL_MAX_OTHER",
   };
 
@@ -109,6 +113,7 @@ function getDatabasePoolMax(role: DatabaseProcessRole) {
     recovery_discovery: 2,
     bulk_recovery: 2,
     expansion_pipeline: 1,
+    maintenance: 2,
     other: 4,
   };
 

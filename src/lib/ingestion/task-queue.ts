@@ -258,6 +258,7 @@ export async function claimSourceTasks(
   now: Date = new Date(),
   filters: {
     companySourceIds?: string[];
+    excludedConnectorNames?: string[];
   } = {}
 ) {
   const companySourceIds =
@@ -265,6 +266,8 @@ export async function claimSourceTasks(
   if (companySourceIds.length === 0 && filters.companySourceIds) {
     return [];
   }
+  const excludedConnectorNames =
+    filters.excludedConnectorNames?.filter((value) => value.trim().length > 0) ?? [];
 
   await recoverStaleRunningSourceTasks(kind, now);
   if (kind !== "CONNECTOR_POLL") {
@@ -274,6 +277,37 @@ export async function claimSourceTasks(
   const companySourceFilter =
     companySourceIds.length > 0
       ? Prisma.sql`AND st."companySourceId" IN (${Prisma.join(companySourceIds)})`
+      : Prisma.empty;
+  const excludedConnectorFilter =
+    kind === "CONNECTOR_POLL" && excludedConnectorNames.length > 0
+      ? Prisma.sql`
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "CompanySource" cs
+          WHERE
+            cs."id" = st."companySourceId"
+            AND cs."connectorName" IN (${Prisma.join(excludedConnectorNames)})
+        )
+      `
+      : Prisma.empty;
+  const connectorPollSourceReadinessFilter =
+    kind === "CONNECTOR_POLL"
+      ? Prisma.sql`
+        AND (
+          st."companySourceId" IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM "CompanySource" cs
+            WHERE
+              cs."id" = st."companySourceId"
+              AND cs."status" IN ('PROVISIONED', 'ACTIVE', 'DEGRADED')
+              AND cs."validationState" = 'VALIDATED'
+              AND cs."pollState" <> 'QUARANTINED'
+              AND cs."pollState" <> 'DISABLED'
+              AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+          )
+        )
+      `
       : Prisma.empty;
 
   const claimCandidates = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -285,6 +319,8 @@ export async function claimSourceTasks(
         AND st."status" = 'PENDING'::"SourceTaskStatus"
         AND st."notBeforeAt" <= ${now}
         ${companySourceFilter}
+        ${excludedConnectorFilter}
+        ${connectorPollSourceReadinessFilter}
       ORDER BY st."priorityScore" DESC, st."createdAt" ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

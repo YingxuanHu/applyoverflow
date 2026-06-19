@@ -1,18 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { X } from "lucide-react";
 
-import { ApplicationListCard } from "@/components/applications/application-list-card";
-import {
-  ApplicationRemindersSummary,
-  type ApplicationReminderGroup,
-} from "@/components/applications/application-reminders-summary";
-import { ApplicationsSearchField } from "@/components/applications/applications-search-field";
-import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
+import { type ApplicationReminderGroup } from "@/components/applications/application-reminders-summary";
+import { ApplicationsPageClient } from "@/components/applications/applications-page-client";
+import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
-import { Button } from "@/components/ui/button";
+import type { TrackedApplicationStatus } from "@/generated/prisma/client";
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { normalizeTextParam } from "@/lib/filter-values";
 import {
+  getTrackedApplicationFlowApplications,
   getTrackedDashboardData,
   type TrackerSearchScope,
   type TrackerSortFilter,
@@ -31,17 +27,18 @@ type ApplicationsSearchParams = {
   reminderSearch?: string;
 };
 
-function parseStatusFilter(rawValue?: string) {
+function parseStatusFilter(rawValue?: string): TrackedApplicationStatus | "ALL" {
   const value = String(rawValue ?? "ALL").toUpperCase();
   if (
     value === "ALL" ||
     value === "WISHLIST" ||
-    value === "PREPARING" ||
     value === "APPLIED" ||
     value === "SCREEN" ||
     value === "INTERVIEW" ||
     value === "OFFER" ||
+    value === "ACCEPTED" ||
     value === "REJECTED" ||
+    value === "DECLINED" ||
     value === "WITHDRAWN"
   ) {
     return value;
@@ -78,11 +75,6 @@ const APPLICATION_STATE_PARAM_KEYS = [
   "searchScope",
   ...APPLICATION_SEARCH_PARAM_KEYS,
 ] as const;
-
-function normalizeTextParam(value?: string) {
-  const trimmed = String(value ?? "").trim();
-  return trimmed ? trimmed.slice(0, 120) : undefined;
-}
 
 function parseSearchScope(rawValue?: string): TrackerSearchScope {
   if (
@@ -253,21 +245,24 @@ export default async function ApplicationsPage({
     .filter(Boolean)
     .sort((left, right) => left.localeCompare(right));
 
-  const data = await getTrackedDashboardData({
-    status: status as Parameters<typeof getTrackedDashboardData>[0]["status"],
-    sort,
-    tags: selectedTags,
-    search,
-    searchScope: selectedSearchScope,
-    titleSearch,
-    companySearch,
-    locationSearch,
-    tagSearch,
-    reminderSearch,
-  });
-  const expiredCount = data.applications.filter(
-    (application) => application.canonicalJob?.status === "EXPIRED"
-  ).length;
+  // The list data honors the active search/status/sort/tag filters; the flow
+  // dataset is fetched independently so the funnel always summarizes the full
+  // history (the chart's own time-range control narrows it).
+  const [data, flowApplications] = await Promise.all([
+    getTrackedDashboardData({
+      status: status as Parameters<typeof getTrackedDashboardData>[0]["status"],
+      sort,
+      tags: selectedTags,
+      search,
+      searchScope: selectedSearchScope,
+      titleSearch,
+      companySearch,
+      locationSearch,
+      tagSearch,
+      reminderSearch,
+    }),
+    getTrackedApplicationFlowApplications(),
+  ]);
   const hasActiveFilters =
     status !== "ALL" ||
     sort !== "UPDATED_DESC" ||
@@ -287,6 +282,14 @@ export default async function ApplicationsPage({
     reminderSearch,
   };
   const activeSearchChips = buildActiveApplicationSearchChips(params, searchValues);
+  const userTagFilters = data.userTags.map((tag) => ({
+    id: tag.id,
+    name: tag.name,
+    active: selectedTags.includes(tag.name),
+    href: buildApplicationsHref(params, {
+      tags: toggleTag(selectedTags, tag.name).join(",") || undefined,
+    }),
+  }));
   const now = data.loadedAt.getTime();
   const reminderGroups: ApplicationReminderGroup[] = data.applications
     .map((application) => {
@@ -313,6 +316,17 @@ export default async function ApplicationsPage({
       };
     })
     .filter((group) => group.reminders.length > 0);
+  const clientStateKey = JSON.stringify({
+    companySearch,
+    locationSearch,
+    reminderSearch,
+    search,
+    selectedTags,
+    sort,
+    status,
+    tagSearch,
+    titleSearch,
+  });
 
   return (
     <div className="app-page space-y-6">
@@ -321,6 +335,7 @@ export default async function ApplicationsPage({
         stateParamKeys={APPLICATION_STATE_PARAM_KEYS}
         storageKey="autoapplication.applications.filters"
       />
+      <ScrollPositionMemory storageKeyPrefix="autoapplication.applications.scroll" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Applications</h1>
@@ -330,161 +345,24 @@ export default async function ApplicationsPage({
         </div>
       </div>
 
-      <ApplicationsOverviewBar
-        shownCount={data.applications.length}
-        totalCount={data.totalApplicationCount}
-        activeCount={data.activeCount}
-        expiredCount={expiredCount}
+      <ApplicationsPageClient
+        applications={data.applications}
+        flowApplications={flowApplications}
+        filters={{
+          activeSearchChips,
+          hasActiveFilters,
+          searchValues: buildSearchFormInitialValues(searchValues),
+          selectedSearchScope,
+          selectedTags,
+          sort,
+          status,
+          userTagFilters,
+        }}
+        key={clientStateKey}
+        reminderGroups={reminderGroups}
+        stateKey={clientStateKey}
+        totalApplicationCount={data.totalApplicationCount}
       />
-
-      <ApplicationRemindersSummary groups={reminderGroups} />
-
-      <section className="surface-panel p-3.5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Your applications</h2>
-            <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-              Jobs submitted from the feed appear here automatically.
-            </p>
-          </div>
-        </div>
-
-        <form
-          method="GET"
-          className="toolbar-panel mt-3 grid min-w-0 items-end gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem_auto] xl:grid-cols-[minmax(24rem,1fr)_9rem_12.5rem_auto]"
-        >
-          <ApplicationsSearchField
-            initialScope={selectedSearchScope}
-            initialValues={buildSearchFormInitialValues(searchValues)}
-          />
-
-          <label className="grid gap-1.5 text-sm">
-            <span className="control-label hidden sm:block">
-              Status
-            </span>
-            <select
-              name="status"
-              defaultValue={status}
-              className="h-10 rounded-[14px] border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
-            >
-              <option value="ALL">All statuses</option>
-              <option value="WISHLIST">Wishlist</option>
-              <option value="PREPARING">Preparing</option>
-              <option value="APPLIED">Applied</option>
-              <option value="SCREEN">Screen</option>
-              <option value="INTERVIEW">Interview</option>
-              <option value="OFFER">Offer</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="WITHDRAWN">Withdrawn</option>
-            </select>
-          </label>
-
-          <label className="grid gap-1.5 text-sm">
-            <span className="control-label hidden sm:block">
-              Sort
-            </span>
-            <select
-              name="sort"
-              defaultValue={sort}
-              className="h-10 rounded-[14px] border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
-            >
-              <option value="UPDATED_DESC">Updated (newest)</option>
-              <option value="UPDATED_ASC">Updated (oldest)</option>
-              <option value="DEADLINE_ASC">Deadline (earliest)</option>
-              <option value="DEADLINE_DESC">Deadline (latest)</option>
-              <option value="COMPANY_ASC">Company (A-Z)</option>
-              <option value="COMPANY_DESC">Company (Z-A)</option>
-            </select>
-          </label>
-
-          <div className="grid grid-cols-2 items-end gap-2 sm:col-span-2 lg:col-span-1 lg:flex lg:justify-end lg:gap-3 lg:pl-1">
-            {selectedTags.length > 0 ? (
-              <input type="hidden" name="tags" value={selectedTags.join(",")} />
-            ) : null}
-            <Button
-              className={`h-10 min-w-0 px-4 lg:min-w-24 ${hasActiveFilters ? "" : "col-span-2 lg:col-span-1"}`}
-              type="submit"
-            >
-              Apply
-            </Button>
-            {hasActiveFilters ? (
-              <Button
-                className="h-10 min-w-0 px-4 lg:min-w-20"
-                render={<Link href="/applications?reset=1" />}
-                variant="outline"
-              >
-                Clear
-              </Button>
-            ) : null}
-          </div>
-        </form>
-
-        {activeSearchChips.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {activeSearchChips.map((chip) => (
-              <Link
-                aria-label={`Remove ${chip.label}`}
-                className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border/70 bg-card pl-3 pr-1.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                href={chip.href}
-                key={chip.key}
-              >
-                <span className="min-w-0 truncate">{chip.label}</span>
-                <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
-                  <X className="h-3.5 w-3.5" />
-                </span>
-              </Link>
-            ))}
-          </div>
-        ) : null}
-
-        {data.userTags.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {data.userTags.map((tag) => {
-              const active = selectedTags.includes(tag.name);
-              return (
-                <Link
-                  key={tag.id}
-                  href={buildApplicationsHref(params, {
-                    tags: toggleTag(selectedTags, tag.name).join(",") || undefined,
-                  })}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    active
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {tag.name}
-                </Link>
-              );
-            })}
-          </div>
-        ) : null}
-
-        <div className="mt-4">
-          {data.applications.length === 0 ? (
-            <div className="empty-state">
-              <p className="text-sm font-medium text-foreground">
-                No applications in this view
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Add a manual entry or use the jobs feed to start building your tracker.
-              </p>
-            </div>
-          ) : (
-            <ul className="object-list mt-4">
-              {data.applications.map((application) => (
-                <li
-                  key={application.id}
-                  className="object-row"
-                  id={`application-${application.id}`}
-                >
-                  <ApplicationListCard application={application} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
     </div>
   );
 }

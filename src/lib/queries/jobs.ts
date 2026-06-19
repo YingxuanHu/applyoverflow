@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/db";
 import { PAGE_SIZE } from "@/lib/constants";
-import { Prisma, type Prisma as PrismaTypes } from "@/generated/prisma/client";
+import {
+  Prisma,
+  type Prisma as PrismaTypes,
+  type SubmissionCategory,
+  type TrackedApplicationStatus,
+} from "@/generated/prisma/client";
+import { splitFilterValues } from "@/lib/filter-values";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
 import {
   sanitizeCompanyName,
@@ -8,26 +14,29 @@ import {
   sanitizeJobTitle,
 } from "@/lib/job-cleanup";
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
-import { getOptionalCurrentProfileId } from "@/lib/current-user";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
+import {
+  getOptionalCurrentAuthUserId,
+  getOptionalCurrentProfileId,
+} from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
 import { inferGeoScope } from "@/lib/geo-scope";
+import {
+  JOB_BOARD_MIN_AVAILABILITY_SCORE,
+  buildDefaultCanonicalVisibilityWhere,
+} from "@/lib/jobs/visibility";
 import {
   getStartOfTodayInTimeZone,
   normalizeUserTimeZone,
 } from "@/lib/time-zone";
 import {
-  normalizeEducations,
-  normalizeExperiences,
-  normalizeSkills,
-} from "@/lib/profile";
-import {
   CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD,
-  EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD,
+  METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD,
   INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
   expandNormalizedRoleCategoryFilterValue,
-  normalizeCareerStageFilterValue,
-  normalizeEmploymentTypeFilterValue,
+  normalizeEmploymentTypeGroupFilterValue,
+  normalizeExperienceLevelGroupFilterValue,
   normalizeIndustryFilterValue,
 } from "@/lib/job-metadata";
 import {
@@ -35,6 +44,7 @@ import {
   getActiveRoleCategoryFilters,
   type FilterContractJob,
 } from "@/lib/job-filter-contract";
+import { computeRankingScore } from "@/lib/ingestion/quality";
 import {
   convertSalaryAmount,
   convertSalaryRange,
@@ -57,9 +67,10 @@ import { resolveATSFiller } from "@/lib/automation/fillers";
 const MAX_SEARCH_LENGTH = 200;
 const MAX_SEARCH_TOKENS = 12;
 const NO_VIEWER_PROFILE_ID = "__viewer_none__";
+const NO_AUTH_USER_ID = "__auth_user_none__";
 const DEFAULT_VISIBLE_JOB_STATUSES = ["LIVE"] as const;
 const DEFAULT_SEARCH_VISIBLE_JOB_STATUSES = DEFAULT_VISIBLE_JOB_STATUSES;
-const DEFAULT_MIN_AVAILABILITY_SCORE = 60;
+const DEFAULT_MIN_AVAILABILITY_SCORE = JOB_BOARD_MIN_AVAILABILITY_SCORE;
 const DEFAULT_SEARCH_MIN_AVAILABILITY_SCORE = DEFAULT_MIN_AVAILABILITY_SCORE;
 const JOB_STATUS_FILTER_VALUES = new Set([
   "AGING",
@@ -73,10 +84,16 @@ const FILTERABLE_CLASSIFICATION_STATUSES = [
   "PARTIAL",
   "NEEDS_REVIEW",
 ] as const;
-const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
-const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
 const UNKNOWN_COMPANY_VISIBILITY_BLOCKLIST = [
   "",
+  "0",
+  "00",
+  "000",
+  "n/a",
+  "na",
+  "none",
+  "not available",
+  "not specified",
   "unknown",
   "unknown company",
   "jooble",
@@ -106,6 +123,16 @@ const HOT_FEED_QUERY_TTL_MS = 300_000;
 const JOB_COUNT_TIMEOUT_MS = 1_200;
 const JOB_FEED_INDEX_COUNT_TIMEOUT_MS = 5_000;
 const FEED_INDEX_SEARCH_MATCH_ID_LIMIT = 10_000;
+// A sole title/company search for a SELECTIVE term (few matches relative to the
+// pool) is pathologically slow on the default feed path: Postgres scans the
+// rankingScore-ordered index and filters the text per-row, discarding hundreds
+// of thousands of non-matching rows before it finds one page (e.g. company
+// "google" → ~21s, scanning 228k rows). When the match set is small we can
+// instead pull the matching ids via the trigram index (bitmap, milliseconds)
+// and constrain the feed query to them, which makes ranking, pagination, AND
+// the exact count fast. Broad/dense terms (e.g. "engineer") keep the existing
+// path — there the rank-ordered scan finds a page almost immediately.
+const SELECTIVE_SCOPED_SEARCH_THRESHOLD = 8_000;
 const TIMED_CACHE_MAX_ENTRIES = 128;
 const DIVERSIFICATION_OVERSCAN = 80;
 const DEMO_SOURCE_NAME_SET = new Set<string>(DEMO_SOURCE_NAMES);
@@ -147,9 +174,20 @@ async function withCountTimeout(
 }
 
 const inflightJobsQueryStore = new Map<string, Promise<JobsResult>>();
-const JOB_CARD_INCLUDE = (viewerProfileId: string | null) =>
+const TRACKED_APPLICATION_NOT_APPLIED_STATUSES: TrackedApplicationStatus[] = [
+  "WISHLIST",
+  "PREPARING",
+];
+
+const JOB_CARD_INCLUDE = (
+  viewerProfileId: string | null,
+  authUserId: string | null
+) =>
   ({
     eligibility: true,
+    feedIndex: {
+      select: { status: true },
+    },
     sourceMappings: true,
     savedJobs: {
       where: {
@@ -158,9 +196,20 @@ const JOB_CARD_INCLUDE = (viewerProfileId: string | null) =>
       },
       select: { id: true },
     },
+    trackedApplications: {
+      where: {
+        userId: authUserId ?? NO_AUTH_USER_ID,
+        status: { notIn: TRACKED_APPLICATION_NOT_APPLIED_STATUSES },
+      },
+      select: { id: true },
+      take: 1,
+    },
   }) satisfies PrismaTypes.JobCanonicalInclude;
 
-const JOB_FEED_CARD_SELECT = (viewerProfileId: string | null) =>
+const JOB_FEED_CARD_SELECT = (
+  viewerProfileId: string | null,
+  authUserId: string | null = null
+) =>
   ({
     id: true,
     title: true,
@@ -174,6 +223,7 @@ const JOB_FEED_CARD_SELECT = (viewerProfileId: string | null) =>
     normalizedRoleCategory: true,
     normalizedRoleCategoryConfidence: true,
     normalizedIndustry: true,
+    normalizedIndustries: true,
     normalizedIndustryConfidence: true,
     classificationStatus: true,
     experienceLevel: true,
@@ -207,6 +257,14 @@ const JOB_FEED_CARD_SELECT = (viewerProfileId: string | null) =>
         status: "ACTIVE",
       },
       select: { id: true },
+    },
+    trackedApplications: {
+      where: {
+        userId: authUserId ?? NO_AUTH_USER_ID,
+        status: { notIn: TRACKED_APPLICATION_NOT_APPLIED_STATUSES },
+      },
+      select: { id: true },
+      take: 1,
     },
   }) satisfies PrismaTypes.JobCanonicalSelect;
 
@@ -294,44 +352,29 @@ function withSanitizedJobFeedPresentation<
   );
 }
 
-function buildAvailabilityVisibilityWhere(minScore: number): PrismaTypes.JobCanonicalWhereInput {
-  return {
-    availabilityScore: { gte: minScore },
-  };
-}
-
-function buildApplyableVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
-  return {
-    deadSignalAt: null,
-    OR: [
-      { applyUrl: { startsWith: "http://" } },
-      { applyUrl: { startsWith: "https://" } },
-    ],
-  };
-}
-
 function buildGlobalVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
   return {};
 }
 
-function buildRecentApplyEvidenceWhere(now: Date = new Date()): PrismaTypes.JobCanonicalWhereInput {
+function buildCompanyVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
   return {
-    OR: [
-      {
-        lastConfirmedAliveAt: {
-          gte: new Date(now.getTime() - RECENT_ALIVE_EVIDENCE_MAX_AGE_MS),
-        },
-      },
-      {
-        lastSourceSeenAt: {
-          gte: new Date(now.getTime() - RECENT_SOURCE_EVIDENCE_MAX_AGE_MS),
-        },
-      },
-    ],
+    NOT: {
+      OR: [
+        ...UNKNOWN_COMPANY_VISIBILITY_BLOCKLIST.map((company) => ({
+          company: { equals: company, mode: "insensitive" as const },
+        })),
+        ...GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS.map((entry) => ({
+          AND: [
+            { company: { equals: entry.company, mode: "insensitive" as const } },
+            { applyUrl: { contains: entry.applyUrlContains, mode: "insensitive" as const } },
+          ],
+        })),
+      ],
+    },
   };
 }
 
-function buildCompanyVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
+function buildFeedIndexCompanyVisibilityWhere(): PrismaTypes.JobFeedIndexWhereInput {
   return {
     NOT: {
       OR: [
@@ -355,13 +398,9 @@ function buildDefaultJobBoardVisibilityWhere(
 ): PrismaTypes.JobCanonicalWhereInput {
   return {
     AND: [
-      { status: { in: [...DEFAULT_VISIBLE_JOB_STATUSES] } },
-      buildAvailabilityVisibilityWhere(minAvailabilityScore),
-      buildApplyableVisibilityWhere(),
+      buildDefaultCanonicalVisibilityWhere(now, minAvailabilityScore),
       buildCompanyVisibilityWhere(),
       buildGlobalVisibilityWhere(),
-      buildVisibleDeadlineWhere(now),
-      buildRecentApplyEvidenceWhere(now),
     ],
   };
 }
@@ -463,23 +502,6 @@ function buildSearchLikePatternGroups(raw: string | undefined) {
   );
 }
 
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
-}
-
 function getPostedAfterDate(value?: string, now: Date = new Date()) {
   const days =
     value === "1d"
@@ -567,6 +589,7 @@ function logJobFilterDebug(
           normalizedRoleCategory: job.normalizedRoleCategory ?? null,
           normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence ?? null,
           normalizedIndustry: job.normalizedIndustry ?? null,
+          normalizedIndustries: job.normalizedIndustries ?? [],
           normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
           classificationStatus: job.classificationStatus ?? null,
           matchedBy: "base_visible_jobs_and_structured_filters_then_search",
@@ -643,6 +666,7 @@ async function countJobFeedIndexMatches(
 async function getJobsFromFeedIndex(input: {
   filters: JobFilterParams;
   viewerProfileId: string | null;
+  authUserId: string | null;
   salaryExchangeRates: SalaryExchangeRates;
   summaryPromise: Promise<JobFeedSummary>;
   includeExactTotal: boolean;
@@ -651,6 +675,7 @@ async function getJobsFromFeedIndex(input: {
   const {
     filters,
     viewerProfileId,
+    authUserId,
     salaryExchangeRates,
     summaryPromise,
     includeExactTotal,
@@ -658,8 +683,11 @@ async function getJobsFromFeedIndex(input: {
   } = input;
   const page = filters.page ?? 1;
   const skip = (page - 1) * PAGE_SIZE;
+  const now = new Date();
   const where: Prisma.JobFeedIndexWhereInput = {};
   const canonicalRelationWhere: Prisma.JobCanonicalWhereInput = {};
+
+  appendFeedIndexAndCondition(where, buildFeedIndexCompanyVisibilityWhere());
 
   if (useSqlDemoVisibilityFilter) {
     canonicalRelationWhere.sourceMappings = {
@@ -689,15 +717,16 @@ async function getJobsFromFeedIndex(input: {
       filters.posted ||
       filters.submissionCategory
   );
-  const canUseDirectSearchPrefilter =
-    Boolean(filters.search) &&
+  // Direct in-app pagination (slicing the prefiltered id list) is valid only
+  // when nothing else narrows the set further — then the id list IS the full
+  // ordered result and we can paginate it without re-querying the index.
+  const canSlicePrefilterIds =
     !hasStructuredFeedFilters &&
-    !filters.titleSearch &&
-    !filters.companySearch &&
-    !filters.locationSearch &&
     !filters.status &&
     !useSqlDemoVisibilityFilter &&
     (!filters.sortBy || filters.sortBy === "relevance");
+  let useDirectPrefilterSlice = false;
+
   if (filters.search && (!filters.status || normalizeJobStatusFilter(filters.status) === "LIVE")) {
     const searchPrefilterLimit = hasStructuredFeedFilters
       ? FEED_INDEX_SEARCH_MATCH_ID_LIMIT
@@ -710,7 +739,49 @@ async function getJobsFromFeedIndex(input: {
       searchScope,
       searchPrefilterLimit
     );
+    if (searchPrefilterIds !== null) {
+      useDirectPrefilterSlice =
+        canSlicePrefilterIds &&
+        !filters.titleSearch &&
+        !filters.companySearch &&
+        !filters.locationSearch;
+    }
   }
+
+  // Accelerate a single SELECTIVE scoped title/company search. The default
+  // rank-ordered scan is pathological for selective terms — it discards
+  // hundreds of thousands of high-rank non-matching rows per page (e.g.
+  // company "google" → ~21s). When the term is selective we pull its full
+  // ordered match set through the trigram index and paginate it in app, which
+  // is fast and yields an exact total. Gated to the sole-text-search,
+  // no-structured-filter case so the id list IS the whole ordered result.
+  let acceleratedScopedField: "title" | "company" | null = null;
+  if (
+    searchPrefilterIds === null &&
+    !filters.search &&
+    !filters.locationSearch &&
+    canSlicePrefilterIds
+  ) {
+    const soleScopedSearch =
+      filters.titleSearch && !filters.companySearch
+        ? ({ field: "title", query: filters.titleSearch } as const)
+        : filters.companySearch && !filters.titleSearch
+          ? ({ field: "company", query: filters.companySearch } as const)
+          : null;
+    if (soleScopedSearch) {
+      const orderedIds = await getSelectiveScopedSearchIds(
+        soleScopedSearch.field,
+        soleScopedSearch.query,
+        SELECTIVE_SCOPED_SEARCH_THRESHOLD
+      );
+      if (orderedIds !== null) {
+        searchPrefilterIds = orderedIds;
+        acceleratedScopedField = soleScopedSearch.field;
+        useDirectPrefilterSlice = true;
+      }
+    }
+  }
+
   if (searchPrefilterIds !== null) {
     if (searchPrefilterIds.length === 0) {
       return {
@@ -723,7 +794,7 @@ async function getJobsFromFeedIndex(input: {
       } satisfies JobsResult;
     }
     where.canonicalJobId = { in: searchPrefilterIds };
-  } else {
+  } else if (filters.search) {
     appendFeedIndexTextSearchWhere(
       where,
       searchScope === "title"
@@ -736,8 +807,13 @@ async function getJobsFromFeedIndex(input: {
       filters.search
     );
   }
-  appendFeedIndexTextSearchWhere(where, "title", filters.titleSearch);
-  appendFeedIndexTextSearchWhere(where, "company", filters.companySearch);
+
+  if (acceleratedScopedField !== "title") {
+    appendFeedIndexTextSearchWhere(where, "title", filters.titleSearch);
+  }
+  if (acceleratedScopedField !== "company") {
+    appendFeedIndexTextSearchWhere(where, "company", filters.companySearch);
+  }
   appendFeedIndexLocationSearchWhere(where, filters.locationSearch);
 
   if (filters.region) {
@@ -745,9 +821,12 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.workMode) {
-    where.workMode = {
-      in: filters.workMode.split(",") as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-    };
+    appendFeedIndexAndCondition(where, {
+      workMode: {
+        in: filters.workMode.split(",") as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+      },
+      workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+    });
   }
 
   if (filters.industry) {
@@ -756,7 +835,13 @@ async function getJobsFromFeedIndex(input: {
       "UNKNOWN"
     );
     appendFeedIndexAndCondition(where, {
-      normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+      OR:
+        industries.length > 0
+          ? [
+              { normalizedIndustries: { hasSome: industries } },
+              { normalizedIndustry: { in: industries } },
+            ]
+          : [{ normalizedIndustry: { in: [] } }],
       normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
@@ -801,13 +886,14 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.employmentType) {
-    const employmentTypes = withoutUnknownFilterValues(
-      splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+    const employmentTypeGroups = withoutUnknownFilterValues(
+      splitFilterValues(normalizeEmploymentTypeGroupFilterValue(filters.employmentType)),
       "UNKNOWN"
     );
     appendFeedIndexAndCondition(where, {
-      normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
-      normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
+      employmentTypeGroup:
+        employmentTypeGroups.length > 0 ? { in: employmentTypeGroups } : { in: [] },
+      employmentTypeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
 
@@ -833,7 +919,6 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.expiry === "soon") {
-    const now = new Date();
     const soonDeadline = new Date(now.getTime() + 5 * 86_400_000);
     where.deadline = {
       gte: now,
@@ -842,12 +927,12 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.careerStage || filters.experienceLevel) {
-    const stages = splitFilterValues(
-      normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+    const groups = splitFilterValues(
+      normalizeExperienceLevelGroupFilterValue(filters.careerStage ?? filters.experienceLevel)
     );
-    const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
+    const knownGroups = withoutUnknownFilterValues(groups, "UNKNOWN");
     appendFeedIndexAndCondition(where, {
-      normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+      experienceLevelGroup: knownGroups.length > 0 ? { in: knownGroups } : { in: [] },
       normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
     });
   }
@@ -888,6 +973,12 @@ async function getJobsFromFeedIndex(input: {
     };
   }
   const requireLiveCanonicalJobs = !filters.status || requestedStatus === "LIVE";
+  if (requireLiveCanonicalJobs) {
+    appendAndCondition(
+      canonicalRelationWhere,
+      buildDefaultJobBoardVisibilityWhere(now, DEFAULT_MIN_AVAILABILITY_SCORE)
+    );
+  }
   if (Object.keys(canonicalRelationWhere).length > 0) {
     where.canonicalJob = {
       is: canonicalRelationWhere,
@@ -898,6 +989,9 @@ async function getJobsFromFeedIndex(input: {
     | Prisma.JobFeedIndexOrderByWithRelationInput
     | Prisma.JobFeedIndexOrderByWithRelationInput[] = [
     { rankingScore: "desc" },
+    { freshnessScore: "desc" },
+    { qualityScore: "desc" },
+    { trustScore: "desc" },
     { postedAt: "desc" },
   ];
 
@@ -905,12 +999,16 @@ async function getJobsFromFeedIndex(input: {
     orderBy = [
       { deadline: { sort: "asc", nulls: "last" } },
       { rankingScore: "desc" },
+      { freshnessScore: "desc" },
       { postedAt: "desc" },
     ];
   } else if (filters.sortBy === "newest") {
     orderBy = { postedAt: "desc" };
   } else if (filters.sortBy === "company") {
-    orderBy = [{ company: "asc" }, { postedAt: "desc" }];
+    orderBy = [
+      { company: "asc" },
+      { postedAt: "desc" },
+    ];
   }
 
   const totalPromise = includeExactTotal
@@ -921,7 +1019,7 @@ async function getJobsFromFeedIndex(input: {
     : Promise.resolve(null);
 
   const indexedRows =
-    canUseDirectSearchPrefilter && searchPrefilterIds !== null
+    useDirectPrefilterSlice && searchPrefilterIds !== null
       ? searchPrefilterIds
           .slice(skip, skip + PAGE_SIZE + 1)
           .map((canonicalJobId) => ({ canonicalJobId }))
@@ -953,10 +1051,14 @@ async function getJobsFromFeedIndex(input: {
 
   const jobs = await prisma.jobCanonical.findMany({
     where: {
-      id: { in: canonicalJobIds },
-      ...(requireLiveCanonicalJobs ? { status: "LIVE" as const } : {}),
+      AND: [
+        { id: { in: canonicalJobIds } },
+        ...(requireLiveCanonicalJobs
+          ? [buildDefaultJobBoardVisibilityWhere(now, DEFAULT_MIN_AVAILABILITY_SCORE)]
+          : []),
+      ],
     },
-    select: JOB_FEED_CARD_SELECT(viewerProfileId),
+    select: JOB_FEED_CARD_SELECT(viewerProfileId, authUserId),
   });
   const order = new Map(canonicalJobIds.map((id, index) => [id, index]));
   const visibleJobs = jobs.sort(
@@ -965,10 +1067,11 @@ async function getJobsFromFeedIndex(input: {
       (order.get(right.id) ?? Number.MAX_SAFE_INTEGER)
   );
   const data = visibleJobs.slice(0, PAGE_SIZE).map((job) => {
-    const { savedJobs, ...rest } = job;
+    const { savedJobs, trackedApplications, ...rest } = job;
     return withSanitizedJobFeedPresentation({
       ...rest,
       isSaved: savedJobs.length > 0,
+      hasApplied: trackedApplications.length > 0,
     });
   });
 
@@ -1406,6 +1509,62 @@ async function searchJobFeedIndexExactCompanyIds(query: string, limit: number) {
   return rows.map((row) => row.canonicalJobId);
 }
 
+/**
+ * Cheap selectivity probe for a single scoped title/company search.
+ *
+ * Runs the same substring match the feed `contains` filter uses, but with NO
+ * ordering and a hard `LIMIT threshold + 1`, so the trigram bitmap can stop
+ * early. Returns:
+ *  - `null` when the term is broad (more than `threshold` matches) — the caller
+ *    should keep the default rank-ordered path, which is fast for dense terms.
+ *  - the full list of matching canonical job ids when the term is selective.
+ *    The caller constrains the feed query to these ids (a primary-key lookup),
+ *    so ranking/pagination/count are all fast and the total is exact.
+ */
+async function getSelectiveScopedSearchIds(
+  field: "title" | "company",
+  query: string | undefined,
+  threshold: number
+): Promise<string[] | null> {
+  const likePatternGroups = buildSearchLikePatternGroups(query);
+  if (likePatternGroups.length === 0) return null;
+
+  const column = field === "title" ? `"title"` : `"company"`;
+  const params: string[] = [];
+  const whereSql = likePatternGroups
+    .map((patterns) => {
+      const variantSql = patterns.map((pattern) => {
+        params.push(pattern);
+        return `${column} ILIKE $${params.length} ESCAPE '\\'`;
+      });
+      return `(${variantSql.join(" OR ")})`;
+    })
+    .join(" AND ");
+  const limitParam = params.length + 1;
+
+  // No ORDER BY here: the trigram bitmap can stop early at the LIMIT, so the
+  // probe is fast even for broad terms (which we then reject). For selective
+  // terms we get the full match set and order it in app by the same key the
+  // feed uses (rankingScore desc, postedAt desc) — cheap for <= threshold rows.
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ canonicalJobId: string; rankingScore: number; postedAt: Date }>
+  >(
+    `SELECT "canonicalJobId", "rankingScore", "postedAt" FROM "JobFeedIndex"
+     WHERE status = 'LIVE' AND ${whereSql}
+     LIMIT $${limitParam}`,
+    ...params,
+    threshold + 1
+  );
+
+  if (rows.length > threshold) return null;
+  rows.sort(
+    (left, right) =>
+      right.rankingScore - left.rankingScore ||
+      right.postedAt.getTime() - left.postedAt.getTime()
+  );
+  return rows.map((row) => row.canonicalJobId);
+}
+
 function buildLocationSearchWhere(
   query: string | undefined
 ): PrismaTypes.JobCanonicalWhereInput | null {
@@ -1798,28 +1957,6 @@ function normalizeProfileMatchText(value: string) {
     .trim();
 }
 
-function splitProfileTextEntries(value: string | null | undefined) {
-  return String(value ?? "")
-    .split(/[\n,;|•]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .slice(0, 24);
-}
-
-function dedupeNormalizedPhrases(values: string[]) {
-  const phrases = new Set<string>();
-
-  for (const value of values) {
-    const normalized = normalizeProfileMatchText(value);
-    if (normalized.length < 3 || normalized.length > 80) {
-      continue;
-    }
-    phrases.add(normalized);
-  }
-
-  return [...phrases];
-}
-
 function inferProfileRegion(value: string | null | undefined): "US" | "CA" | null {
   const normalized = normalizeProfileMatchText(value ?? "");
 
@@ -1863,30 +2000,6 @@ function extractProfileTokens(values: string[]) {
   }
 
   return tokens;
-}
-
-function collectEducationProfileTerms(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const terms: string[] = [];
-
-  for (const item of value) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-
-    const objectValue = item as Record<string, unknown>;
-    for (const field of ["field", "degree", "description"] as const) {
-      const fieldValue = objectValue[field];
-      if (typeof fieldValue === "string" && fieldValue.trim()) {
-        terms.push(fieldValue);
-      }
-    }
-  }
-
-  return terms;
 }
 
 function containsProfilePhrase(haystack: string, phrase: string) {
@@ -1949,78 +2062,6 @@ function getExperienceLevelDistance(
   }
 
   return Math.abs(jobRank - profileRank);
-}
-
-async function loadProfileMatchSignals(
-  userProfileId?: string | null
-): Promise<ProfileMatchSignals> {
-  if (!userProfileId) {
-    return EMPTY_PROFILE_MATCH_SIGNALS;
-  }
-
-  const profile = await prisma.userProfile.findUnique({
-    where: { id: userProfileId },
-    select: {
-      location: true,
-      headline: true,
-      preferredWorkMode: true,
-      experienceLevel: true,
-      salaryMin: true,
-      salaryMax: true,
-      salaryCurrency: true,
-      summary: true,
-      skillsText: true,
-      experienceText: true,
-      educationText: true,
-      skillsJson: true,
-      experiencesJson: true,
-      educationsJson: true,
-    },
-  });
-
-  if (!profile) {
-    return EMPTY_PROFILE_MATCH_SIGNALS;
-  }
-
-  const experiences = normalizeExperiences(profile.experiencesJson);
-  const skills = normalizeSkills(profile.skillsJson);
-  const educations = normalizeEducations(profile.educationsJson);
-  const normalizedLocation = normalizeProfileMatchText(profile.location ?? "");
-
-  const summaryInputs = [profile.summary ?? ""];
-
-  const experienceInputs = [
-    profile.headline ?? "",
-    ...experiences.map((entry) => entry.title),
-    ...splitProfileTextEntries(profile.experienceText),
-  ];
-
-  const skillInputs = [
-    ...skills.map((entry) => entry.name),
-    ...splitProfileTextEntries(profile.skillsText),
-  ];
-
-  const educationInputs = [
-    ...educations.map((entry) => entry.degree),
-    ...collectEducationProfileTerms(profile.educationsJson),
-    ...splitProfileTextEntries(profile.educationText),
-  ];
-
-  return {
-    location: normalizedLocation || null,
-    locationRegion: inferProfileRegion(profile.location),
-    preferredWorkMode: profile.preferredWorkMode,
-    experienceLevel: profile.experienceLevel,
-    salaryMin: profile.salaryMin,
-    salaryMax: profile.salaryMax,
-    salaryCurrency: normalizeSalaryCurrency(profile.salaryCurrency) ?? "USD",
-    summaryPhrases: dedupeNormalizedPhrases(summaryInputs),
-    summaryTokens: extractProfileTokens(summaryInputs),
-    experiencePhrases: dedupeNormalizedPhrases(experienceInputs),
-    experienceTokens: extractProfileTokens(experienceInputs),
-    skillPhrases: dedupeNormalizedPhrases(skillInputs),
-    educationPhrases: dedupeNormalizedPhrases(educationInputs),
-  };
 }
 
 function scoreProfileMatch(
@@ -2285,6 +2326,9 @@ export type ScoringJobInput = {
   postedAt: Date | null;
   status: string | null;
   availabilityScore: number;
+  qualityScore?: number | null;
+  trustScore?: number | null;
+  freshnessScore?: number | null;
   region: string | null;
   workMode: string | null;
   roleFamily: string | null;
@@ -2466,14 +2510,40 @@ export function scoreJobDetailed(
   };
 }
 
-/** Thin wrapper returning just the total score — used by the feed query. */
-function scoreJob(
-  job: ScoringJobInput,
-  prefs: FeedPrefs,
-  behavior: BehaviorProfile,
-  profile: ProfileMatchSignals = EMPTY_PROFILE_MATCH_SIGNALS
-): number {
-  return scoreJobDetailed(job, prefs, behavior, profile).total;
+function scoreRecommendedJob(job: ScoringJobInput): number {
+  const sourceCount = job.sourceMappings.length;
+  const strongestSource = [...job.sourceMappings].sort(
+    (left, right) =>
+      (right.sourceQualityRank ?? 0) - (left.sourceQualityRank ?? 0) ||
+      (right.sourceReliability ?? 0) - (left.sourceReliability ?? 0)
+  )[0];
+  const sourceTrustFallback =
+    strongestSource == null
+      ? 0
+      : Math.max(
+          strongestSource.sourceQualityRank ?? 0,
+          (strongestSource.sourceReliability ?? 0) * 100
+        );
+  const freshnessFallback = (() => {
+    if (!job.postedAt) return 40;
+    const daysAgo = Math.max(0, (Date.now() - job.postedAt.getTime()) / 86_400_000);
+    if (daysAgo <= 1) return 100;
+    if (daysAgo <= 3) return 92;
+    if (daysAgo <= 7) return 84;
+    if (daysAgo <= 14) return 72;
+    if (daysAgo <= 30) return 58;
+    if (daysAgo <= 60) return 42;
+    return 25;
+  })();
+
+  return computeRankingScore({
+    qualityScore: job.qualityScore ?? 50,
+    trustScore: job.trustScore ?? sourceTrustFallback,
+    freshnessScore: job.freshnessScore ?? freshnessFallback,
+    availabilityScore: job.availabilityScore,
+    sourceCount,
+    submissionCategory: (job.eligibility?.submissionCategory ?? null) as SubmissionCategory | null,
+  });
 }
 
 type RankedFeedCandidate = {
@@ -2645,15 +2715,6 @@ function buildDemoOnlySourceWhere(): PrismaTypes.JobCanonicalWhereInput | null {
         },
       },
     },
-  };
-}
-
-function buildVisibleDeadlineWhere(now: Date = new Date()): PrismaTypes.JobCanonicalWhereInput {
-  return {
-    OR: [
-      { deadline: null },
-      { deadline: { gte: now } },
-    ],
   };
 }
 
@@ -2924,6 +2985,7 @@ async function getJobsByRelevance(
   filters: JobFilterParams,
   where: Prisma.JobCanonicalWhereInput,
   viewerProfileId: string | null,
+  authUserId: string | null,
   includeExactTotal: boolean,
   useSqlDemoVisibilityFilter: boolean,
   totalFallback: number | null = null
@@ -2939,7 +3001,7 @@ async function getJobsByRelevance(
   if (skip >= scoringWindowSize) {
     const jobs = await prisma.jobCanonical.findMany({
       where,
-      select: JOB_FEED_CARD_SELECT(viewerProfileId),
+      select: JOB_FEED_CARD_SELECT(viewerProfileId, authUserId),
       orderBy: { postedAt: "desc" },
       skip,
       take: PAGE_SIZE * 3,
@@ -2953,10 +3015,11 @@ async function getJobsByRelevance(
     );
     const slicedJobs = visibleJobs.slice(0, PAGE_SIZE);
     const data = slicedJobs.map((job) => {
-      const { savedJobs, ...rest } = job;
+      const { savedJobs, trackedApplications, ...rest } = job;
       return withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
+        hasApplied: trackedApplications.length > 0,
       });
     });
 
@@ -2994,6 +3057,9 @@ async function getJobsByRelevance(
       postedAt: true,
       status: true,
       availabilityScore: true,
+      qualityScore: true,
+      trustScore: true,
+      freshnessScore: true,
       region: true,
       workMode: true,
       roleFamily: true,
@@ -3022,10 +3088,7 @@ async function getJobsByRelevance(
     ? withCountTimeout(() => prisma.jobCanonical.count({ where }), JOB_COUNT_TIMEOUT_MS)
     : Promise.resolve(null);
 
-  const [prefs, behavior, profile, scoringJobs, total] = await Promise.all([
-    loadFeedPrefs(viewerProfileId),
-    loadBehaviorProfile(viewerProfileId),
-    loadProfileMatchSignals(viewerProfileId),
+  const [scoringJobs, total] = await Promise.all([
     scoringJobsPromise,
     totalPromise,
   ]);
@@ -3062,7 +3125,7 @@ async function getJobsByRelevance(
             sourceQualityRank,
             sourceReliability,
           })),
-        baseScore: scoreJob(
+        baseScore: scoreRecommendedJob(
           {
             ...job,
             sourceMappings: job.sourceMappings
@@ -3073,9 +3136,6 @@ async function getJobsByRelevance(
                 sourceReliability,
               })),
           },
-          prefs,
-          behavior,
-          profile
         ) + scoreSearchFiltersBoost(job, filters),
       }))
       .sort(
@@ -3098,7 +3158,7 @@ async function getJobsByRelevance(
   // Fetch full data for this page only
   const jobs = await prisma.jobCanonical.findMany({
     where: { id: { in: pageIds } },
-    select: JOB_FEED_CARD_SELECT(viewerProfileId),
+    select: JOB_FEED_CARD_SELECT(viewerProfileId, authUserId),
   });
 
   // Restore relevance order (Prisma doesn't preserve id-in ordering)
@@ -3115,11 +3175,12 @@ async function getJobsByRelevance(
     ) {
       return [];
     }
-    const { savedJobs, ...rest } = job;
+    const { savedJobs, trackedApplications, ...rest } = job;
     return [
       withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
+        hasApplied: trackedApplications.length > 0,
       }),
     ];
   });
@@ -3158,12 +3219,20 @@ export type JobFilterParams = {
 
 export async function getJobs(
   inputFilters: JobFilterParams,
-  options?: { viewerProfileId?: string | null; userTimeZone?: string | null }
+  options?: {
+    viewerProfileId?: string | null;
+    authUserId?: string | null;
+    userTimeZone?: string | null;
+  }
 ) {
   const viewerProfileId =
     options && "viewerProfileId" in options
       ? (options.viewerProfileId ?? null)
       : await getOptionalCurrentProfileId();
+  const authUserId =
+    options && "authUserId" in options
+      ? (options.authUserId ?? null)
+      : await getOptionalCurrentAuthUserId();
   const userTimeZone = normalizeUserTimeZone(options?.userTimeZone);
   const salaryCurrency = await loadSalaryComparisonCurrency(
     inputFilters.salaryCurrency,
@@ -3291,19 +3360,23 @@ export async function getJobs(
 
     if (filters.workMode) {
       const modes = filters.workMode.split(",");
-      where.workMode = {
-        in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-      };
+      appendAndCondition(where, {
+        workMode: {
+          in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+        },
+        workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+      });
     }
 
     if (filters.employmentType) {
-      const employmentTypes = withoutUnknownFilterValues(
-        splitFilterValues(normalizeEmploymentTypeFilterValue(filters.employmentType)),
+      const employmentTypeGroups = withoutUnknownFilterValues(
+        splitFilterValues(normalizeEmploymentTypeGroupFilterValue(filters.employmentType)),
         "UNKNOWN"
       );
       appendAndCondition(where, {
-        normalizedEmploymentType: employmentTypes.length > 0 ? { in: employmentTypes } : { in: [] },
-        normalizedEmploymentTypeConfidence: { gte: EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD },
+        employmentTypeGroup:
+          employmentTypeGroups.length > 0 ? { in: employmentTypeGroups } : { in: [] },
+        employmentTypeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
 
@@ -3313,7 +3386,13 @@ export async function getJobs(
         "UNKNOWN"
       );
       appendAndCondition(where, {
-        normalizedIndustry: industries.length > 0 ? { in: industries } : { in: [] },
+        OR:
+          industries.length > 0
+            ? [
+                { normalizedIndustries: { hasSome: industries } },
+                { normalizedIndustry: { in: industries } },
+              ]
+            : [{ normalizedIndustry: { in: [] } }],
         normalizedIndustryConfidence: { gte: INDUSTRY_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
@@ -3390,12 +3469,12 @@ export async function getJobs(
     }
 
     if (filters.careerStage || filters.experienceLevel) {
-      const stages = splitFilterValues(
-        normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)
+      const groups = splitFilterValues(
+        normalizeExperienceLevelGroupFilterValue(filters.careerStage ?? filters.experienceLevel)
       );
-      const knownStages = withoutUnknownFilterValues(stages, "UNKNOWN");
+      const knownGroups = withoutUnknownFilterValues(groups, "UNKNOWN");
       appendAndCondition(where, {
-        normalizedCareerStage: knownStages.length > 0 ? { in: knownStages } : { in: [] },
+        experienceLevelGroup: knownGroups.length > 0 ? { in: knownGroups } : { in: [] },
         normalizedCareerStageConfidence: { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD },
       });
     }
@@ -3457,6 +3536,7 @@ export async function getJobs(
           await getJobsFromFeedIndex({
             filters,
             viewerProfileId,
+            authUserId,
             salaryExchangeRates,
             summaryPromise,
             includeExactTotal,
@@ -3470,6 +3550,7 @@ export async function getJobs(
           filters,
           where,
           viewerProfileId,
+          authUserId,
           includeExactTotal,
           useSqlDemoVisibilityFilter,
           searchMatchTotalHint
@@ -3484,6 +3565,7 @@ export async function getJobs(
         await getJobsFromFeedIndex({
           filters,
           viewerProfileId,
+          authUserId,
           salaryExchangeRates,
           summaryPromise,
           includeExactTotal,
@@ -3509,7 +3591,7 @@ export async function getJobs(
 
     const jobs = await prisma.jobCanonical.findMany({
       where,
-      select: JOB_FEED_CARD_SELECT(viewerProfileId),
+      select: JOB_FEED_CARD_SELECT(viewerProfileId, authUserId),
       orderBy,
       skip,
       take: PAGE_SIZE * 3,
@@ -3523,10 +3605,11 @@ export async function getJobs(
       })
     );
     const data = visibleJobs.slice(0, PAGE_SIZE).map((job) => {
-      const { savedJobs, ...rest } = job;
+      const { savedJobs, trackedApplications, ...rest } = job;
       return withSanitizedJobFeedPresentation({
         ...rest,
         isSaved: savedJobs.length > 0,
+        hasApplied: trackedApplications.length > 0,
       });
     });
 
@@ -3571,12 +3654,23 @@ export async function getJobs(
 
 export async function getJobById(id: string) {
   const viewerProfileId = await getOptionalCurrentProfileId();
-  const job = await prisma.jobCanonical.findUnique({
-    where: { id },
-    include: JOB_CARD_INCLUDE(viewerProfileId),
+  const authUserId = await getOptionalCurrentAuthUserId();
+  const now = new Date();
+  const job = await prisma.jobCanonical.findFirst({
+    where: {
+      id,
+      AND: [buildDefaultJobBoardVisibilityWhere(now, DEFAULT_MIN_AVAILABILITY_SCORE)],
+    },
+    include: JOB_CARD_INCLUDE(viewerProfileId, authUserId),
   });
 
   if (!job) return null;
+  if (
+    job.feedIndex?.status !== "LIVE" ||
+    hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus)
+  ) {
+    return null;
+  }
   if (
     !isClearlyVisibleJobPosting({
       title: job.title,
@@ -3587,9 +3681,10 @@ export async function getJobById(id: string) {
     return null;
   }
 
-  const { savedJobs, ...rest } = job;
+  const { savedJobs, trackedApplications, ...rest } = job;
   return withSanitizedJobPresentation({
     ...rest,
     isSaved: savedJobs.length > 0,
+    hasApplied: trackedApplications.length > 0,
   });
 }

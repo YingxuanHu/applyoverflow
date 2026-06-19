@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   buildAmazonSearchUrl,
   buildAppleSearchUrl,
+  buildBankOfAmericaSearchUrl,
+  buildHomeDepotSearchUrl,
   buildGoogleSearchUrl,
   buildEightfoldDetailUrl,
   buildEightfoldSearchUrl,
   buildNetflixDetailUrl,
   buildNetflixSearchUrl,
   createOfficialCompanyConnector,
+  extractBankOfAmericaJobDetailFromHtml,
   extractAppleJobsFromHydration,
   extractGoogleJobsFromHtml,
   extractGoogleTotalRecords,
@@ -43,15 +46,30 @@ test("official company source quality outranks ATS/direct board and aggregators"
     sourceUrl: "https://example.com/careers/jobs/456",
     applyUrl: "https://example.com/careers/jobs/456",
   });
+  const companyJsonHtmlFallback = getSourceQualitySnapshot({
+    sourceName: "CompanyJson:example",
+    sourceUrl: "https://example.com/careers/article-about-jobs",
+    applyUrl: "https://example.com/careers/article-about-jobs",
+    metadata: { source: "company-site", route: "html" },
+  });
+  const companyJsonStructured = getSourceQualitySnapshot({
+    sourceName: "CompanyJson:example",
+    sourceUrl: "https://example.com/careers/jobs/456",
+    applyUrl: "https://example.com/careers/jobs/456",
+    metadata: { source: "company-site", route: "structured" },
+  });
 
   assert.equal(official.kind, "FIRST_PARTY_COMPANY");
   assert.equal(ats.kind, "DIRECT_COMPANY");
   assert.equal(aggregator.kind, "AGGREGATOR_REDIRECT");
   assert.equal(aggregatorWithDirectApplyUrl.kind, "AGGREGATOR_REDIRECT");
-  assert.equal(companyHtml.kind, "DIRECT_COMPANY");
+  assert.equal(companyHtml.kind, "WEAK_SCRAPED_COPY");
+  assert.equal(companyJsonHtmlFallback.kind, "WEAK_SCRAPED_COPY");
+  assert.equal(companyJsonStructured.kind, "DIRECT_COMPANY");
   assert.ok(official.rank > ats.rank);
   assert.ok(ats.rank > aggregator.rank);
-  assert.ok(companyHtml.rank > aggregatorWithDirectApplyUrl.rank);
+  assert.ok(companyJsonStructured.rank > companyJsonHtmlFallback.rank);
+  assert.ok(companyHtml.rank > aggregator.rank);
 });
 
 test("official company token parser supports company and market", () => {
@@ -63,8 +81,16 @@ test("official company token parser supports company and market", () => {
     company: "apple",
     market: "global",
   });
+  assert.deepEqual(parseOfficialCompanySourceToken("bankofamerica"), {
+    company: "bankofamerica",
+    market: "global",
+  });
   assert.deepEqual(parseOfficialCompanySourceToken("google:global"), {
     company: "google",
+    market: "global",
+  });
+  assert.deepEqual(parseOfficialCompanySourceToken("homedepot:global"), {
+    company: "homedepot",
     market: "global",
   });
   assert.deepEqual(parseOfficialCompanySourceToken("microsoft:us"), {
@@ -79,6 +105,10 @@ test("official company token parser supports company and market", () => {
     company: "netflix",
     market: "global",
   });
+  assert.deepEqual(parseOfficialCompanySourceToken("starbucks:north-america"), {
+    company: "starbucks",
+    market: "north-america",
+  });
   assert.throws(() => parseOfficialCompanySourceToken("meta"), /Unsupported/);
 });
 
@@ -92,6 +122,251 @@ test("official company connector exposes full-snapshot tier-one sources", () => 
   assert.equal(connector.sourceName, "OfficialCompany:Amazon");
   assert.equal(connector.sourceTier, "TIER_1");
   assert.equal(connector.freshnessMode, "FULL_SNAPSHOT");
+});
+
+test("Bank of America official connector uses first-party search servlet", () => {
+  const connector = createOfficialCompanyConnector({
+    company: "bankofamerica",
+    market: "global",
+  });
+
+  assert.equal(connector.key, "official-company:bankofamerica:global");
+  assert.equal(connector.sourceName, "OfficialCompany:Bank of America");
+  assert.equal(connector.sourceTier, "TIER_1");
+  assert.equal(connector.freshnessMode, "FULL_SNAPSHOT");
+  assert.equal(
+    buildBankOfAmericaSearchUrl({ offset: 100, limit: 50 }),
+    "https://careers.bankofamerica.com/services/jobssearchservlet?start=100&rows=150&search=getAllJobs"
+  );
+});
+
+test("Home Depot official connector uses the corporate CWS jobs API", () => {
+  const connector = createOfficialCompanyConnector({
+    company: "homedepot",
+    market: "global",
+  });
+
+  assert.equal(connector.key, "official-company:homedepot:global");
+  assert.equal(connector.sourceName, "OfficialCompany:Home Depot");
+  assert.equal(connector.sourceTier, "TIER_1");
+  assert.equal(connector.freshnessMode, "FULL_SNAPSHOT");
+
+  const url = new URL(buildHomeDepotSearchUrl({ offset: 101, limit: 50 }));
+  assert.equal(url.origin + url.pathname, "https://jobsapi-internal.m-cloud.io/api/job");
+  assert.equal(url.searchParams.get("Organization"), "1814");
+  assert.equal(url.searchParams.get("Limit"), "50");
+  assert.equal(url.searchParams.get("offset"), "101");
+  assert.equal(url.searchParams.get("facet"), "parent_category:Corporate");
+  assert.equal(url.searchParams.get("callback"), "CWS.jobs.jobCallback");
+});
+
+test("Home Depot official connector maps corporate CWS jobs", async () => {
+  const previousFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    calls.push(url);
+    return new Response(
+      `CWS.jobs.jobCallback(${JSON.stringify({
+        totalHits: 2,
+        queryResult: [
+          {
+            id: 23464632,
+            ref: "Req181933",
+            entity_status: "Open",
+            title: "Data Scientist - Network Strategy",
+            company_name: "Home Depot / THD",
+            primary_city: "Atlanta",
+            primary_state: "GA",
+            primary_country: "US",
+            parent_category: "Corporate",
+            primary_category: "Supply Chain",
+            location_type: "Multisite",
+            ats_portalid: "Workday",
+            open_date: "2026-06-04T18:11:18.630Z",
+            url: "https://careers.homedepot.com/job/23464632/data-scientist-network-strategy-atlanta-ga/",
+            description:
+              '<div data-field="description"><b>Position Purpose:</b><p>Build data science initiatives.</p></div>',
+          },
+        ],
+      })})`,
+      { status: 200, headers: { "content-type": "application/javascript" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "homedepot",
+      market: "global",
+    });
+    const result = await connector.fetchJobs({ now: new Date(), limit: 1 });
+
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.jobs[0]?.sourceId, "homedepot:Req181933");
+    assert.equal(result.jobs[0]?.company, "Home Depot");
+    assert.equal(result.jobs[0]?.location, "Atlanta, GA, US");
+    assert.equal(result.jobs[0]?.workMode, "HYBRID");
+    assert.equal(
+      result.jobs[0]?.applyUrl,
+      "https://careers.homedepot.com/job/23464632/data-scientist-network-strategy-atlanta-ga/"
+    );
+    assert.match(result.jobs[0]?.description ?? "", /Position Purpose: Build data science/);
+    assert.deepEqual(result.checkpoint, {
+      kind: "home-depot-official",
+      offset: 2,
+    });
+    assert.ok(calls[0]?.includes("parent_category%3ACorporate"));
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("Bank of America official connector continues when totalMatches is a string", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalFetchDetails = process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS;
+  const fetchedUrls: string[] = [];
+  process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS = "0";
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetchedUrls.push(String(input));
+    return new Response(
+      JSON.stringify({
+        totalMatches: "1,588",
+        jobsList: [
+          {
+            postingTitle: "Credit Officer II",
+            jobRequisitionId: "26017431",
+            jcrURL:
+              "/en-us/job-detail/26017431/credit-officer-ii-boston-massachusetts-united-states",
+            city: "Boston",
+            state: "Massachusetts",
+            country: "United States",
+            postedDate: "06/04/2026",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "bankofamerica",
+      market: "global",
+    });
+    const result = await connector.fetchJobs({
+      now: new Date("2026-06-04T00:00:00.000Z"),
+      limit: 1,
+      log: () => undefined,
+    });
+
+    assert.equal(result.exhausted, false);
+    assert.deepEqual(result.checkpoint, {
+      kind: "bank-of-america-official",
+      offset: 1,
+    });
+    assert.equal(result.jobs.length, 1);
+    assert.equal(fetchedUrls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalFetchDetails == null) {
+      delete process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS;
+    } else {
+      process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS = originalFetchDetails;
+    }
+  }
+});
+
+test("Bank of America official connector pages with servlet end-index rows", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalFetchDetails = process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS;
+  const fetchedUrls: string[] = [];
+  process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS = "0";
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    fetchedUrls.push(url.toString());
+    const start = Number(url.searchParams.get("start") ?? "0");
+    const jobsList = Array.from({ length: start === 0 ? 100 : 50 }, (_, index) => {
+      const id = start + index + 1;
+      return {
+        postingTitle: `Banking role ${id}`,
+        jobRequisitionId: String(26000000 + id),
+        jcrURL: `/en-us/job-detail/${26000000 + id}/banking-role-${id}`,
+        city: "Charlotte",
+        state: "North Carolina",
+        country: "United States",
+        postedDate: "06/04/2026",
+      };
+    });
+
+    return new Response(JSON.stringify({ totalMatches: "1,588", jobsList }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "bankofamerica",
+      market: "global",
+    });
+    const result = await connector.fetchJobs({
+      now: new Date("2026-06-04T00:00:00.000Z"),
+      limit: 150,
+      log: () => undefined,
+    });
+
+    assert.equal(result.exhausted, false);
+    assert.deepEqual(result.checkpoint, {
+      kind: "bank-of-america-official",
+      offset: 150,
+    });
+    assert.equal(result.jobs.length, 150);
+    assert.equal(
+      fetchedUrls[0],
+      "https://careers.bankofamerica.com/services/jobssearchservlet?start=0&rows=100&search=getAllJobs"
+    );
+    assert.equal(
+      fetchedUrls[1],
+      "https://careers.bankofamerica.com/services/jobssearchservlet?start=100&rows=150&search=getAllJobs"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalFetchDetails == null) {
+      delete process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS;
+    } else {
+      process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS = originalFetchDetails;
+    }
+  }
+});
+
+test("Bank of America detail parser extracts job-specific apply and metadata", () => {
+  const detail = extractBankOfAmericaJobDetailFromHtml(`
+    <div class="job-description-body js-job-description-body"
+      data-jobTimeType="Full time"
+      data-jobTitle="CFO Valuation Specialist"
+      data-jobSaveLocation="New York, NY"></div>
+    <a href="https://ghr.wd1.myworkdayjobs.com/Lateral-US/job/New-York/CFO-Valuation-Specialist_26002591">Acknowledge</a>
+    <script type="application/ld+json">
+      {
+        "@context": "http://schema.org",
+        "@type": "JobPosting",
+        "datePosted": "2026-03-24",
+        "employmentType": "Full time",
+        "title": "CFO Valuation Specialist",
+        "description": "<p>Job Description:</p><p>Build valuation controls.</p>"
+      }
+    </script>
+  `);
+
+  assert.equal(detail.title, "CFO Valuation Specialist");
+  assert.equal(detail.location, "New York, NY");
+  assert.equal(detail.employmentType, "Full time");
+  assert.equal(
+    detail.applyUrl,
+    "https://ghr.wd1.myworkdayjobs.com/Lateral-US/job/New-York/CFO-Valuation-Specialist_26002591"
+  );
+  assert.equal(detail.description, "Job Description: Build valuation controls.");
+  assert.equal(detail.postedAt?.toISOString().slice(0, 10), "2026-03-24");
 });
 
 test("official company postings are trusted outbound sources", () => {
@@ -180,7 +455,23 @@ test("official company URL builders use official career surfaces", () => {
       offset: 0,
       limit: 100,
     }),
-    "https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&num=100&start=0&location=Canada"
+    "https://apply.careers.microsoft.com/api/pcsx/search?domain=microsoft.com&num=100&start=0&sort_by=relevance&location=Canada"
+  );
+  const starbucksConfig = {
+    company: "starbucks" as const,
+    displayName: "Starbucks" as const,
+    domain: "starbucks.com" as const,
+    baseUrl: "https://apply.starbucks.com" as const,
+  };
+  assert.equal(
+    buildEightfoldSearchUrl({
+      config: starbucksConfig,
+      location: "US",
+      jobCategory: "technology",
+      offset: 0,
+      limit: 50,
+    }),
+    "https://apply.starbucks.com/api/pcsx/search?domain=starbucks.com&num=50&start=0&sort_by=relevance&location=US&filter_job_category=technology"
   );
   assert.equal(
     buildEightfoldDetailUrl({ config: microsoftConfig, positionId: "1970393556753318" }),
@@ -597,6 +888,84 @@ test("Eightfold official connector returns an offset resume checkpoint", async (
       locationIndex: 0,
       offset: 1,
     });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("Starbucks official connector shards Eightfold office categories", async () => {
+  const previousFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url.includes("/api/pcsx/search")) {
+      const parsed = new URL(url);
+      const category = parsed.searchParams.get("filter_job_category");
+      const positions =
+        category === "technology"
+          ? [
+              {
+                id: 481032940,
+                displayJobId: "260032940",
+                name: "software quality assurance analyst sr- ST; Nashville TN",
+                locations: ["US", "Nashville, Tennessee, United States"],
+                standardizedLocations: ["US", "Nashville, TN, US"],
+                postedTs: 1780435529,
+                department: "Quality Assurance",
+                workLocationOption: "hybrid",
+                atsJobId: "260032940",
+              },
+            ]
+          : [];
+
+      return new Response(
+        JSON.stringify({
+          status: 200,
+          data: {
+            count: positions.length,
+            positions,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        status: 200,
+        data: {
+          id: 481032940,
+          displayJobId: "260032940",
+          name: "software quality assurance analyst sr- ST; Nashville TN",
+          locations: ["US", "Nashville, Tennessee, United States"],
+          standardizedLocations: ["US", "Nashville, TN, US"],
+          postedTs: 1780435529,
+          department: "Quality Assurance",
+          workLocationOption: "hybrid",
+          atsJobId: "260032940",
+          jobDescription: "<p>Validate Starbucks technology systems.</p>",
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const connector = createOfficialCompanyConnector({
+      company: "starbucks",
+      market: "us",
+    });
+    const result = await connector.fetchJobs({ now: new Date(), limit: 5 });
+
+    assert.equal(result.jobs.length, 1);
+    assert.equal(result.jobs[0]?.sourceId, "starbucks:260032940");
+    assert.equal(result.jobs[0]?.company, "Starbucks");
+    assert.equal(result.jobs[0]?.workMode, "HYBRID");
+    assert.match(result.jobs[0]?.description ?? "", /Validate Starbucks technology systems/);
+    assert.ok(calls.some((url) => url.includes("filter_job_category=technology")));
+    assert.ok(!calls.some((url) => url.includes("filter_job_category=retail+stores")));
   } finally {
     globalThis.fetch = previousFetch;
   }

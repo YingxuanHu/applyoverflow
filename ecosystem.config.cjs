@@ -1,17 +1,64 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
- * PM2 ecosystem configuration for the ingestion daemon.
+ * PM2 ecosystem configuration for ApplyOverflow background workers.
  *
- * Start:   npx pm2 start ecosystem.config.cjs
- * Stop:    npx pm2 stop ingest-daemon
- * Restart: npx pm2 restart ingest-daemon
- * Logs:    npx pm2 logs ingest-daemon
- * Status:  npx pm2 status
+ * Set APPLYOVERFLOW_WORKER_GROUPS to run a scoped subset in a worker
+ * container:
+ * - ingestion: steady scheduler daemon
+ * - source-workers: poll / validation / discovery queue drains
+ * - maintenance: feed summary and feed-index repair loops
+ * - top-picks: durable Top Picks refresh worker
+ * - overnight: optional high-throughput overnight expansion apps
+ * - all: legacy/default behavior
  */
+const fs = require("node:fs");
+const path = require("node:path");
+
 const overnightAccelerationEnabled =
   process.env.INGEST_OVERNIGHT_ACCELERATION === "1";
+const selectedWorkerGroups = parseWorkerGroups(
+  process.env.APPLYOVERFLOW_WORKER_GROUPS ||
+    process.env.WORKER_GROUP ||
+    "all"
+);
+
+function parseWorkerGroups(value) {
+  const groups = new Set(
+    String(value)
+      .split(",")
+      .map((group) => group.trim())
+      .filter(Boolean)
+  );
+  return groups.size > 0 ? groups : new Set(["all"]);
+}
+
+function selectWorkerApps(apps) {
+  if (selectedWorkerGroups.has("all")) {
+    return apps.map(stripWorkerGroupMetadata);
+  }
+
+  return apps
+    .filter((app) =>
+      app.__workerGroups?.some((group) => selectedWorkerGroups.has(group))
+    )
+    .map(stripWorkerGroupMetadata);
+}
+
+function stripWorkerGroupMetadata(app) {
+  const pm2App = { ...app };
+  delete pm2App.__workerGroups;
+  return pm2App;
+}
+
+function withWorkerGroups(app, groups) {
+  return {
+    ...app,
+    __workerGroups: groups,
+  };
+}
 
 function buildOvernightApp(name, args, output, error, extraEnv = {}) {
-  return {
+  return withWorkerGroups({
     name,
     script: "node_modules/.bin/tsx",
     args,
@@ -30,23 +77,26 @@ function buildOvernightApp(name, args, output, error, extraEnv = {}) {
       DATABASE_PROCESS_ROLE: "daemon",
       DATABASE_POOL_MAX_DAEMON: process.env.DATABASE_POOL_MAX_DAEMON || "4",
       DATABASE_POOL_MAX_RECOVERY_POLL:
-        process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+        process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
       DATABASE_POOL_CONNECTION_TIMEOUT_MS:
         process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
       INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
       JOOBLE_ENABLED: "false",
       SOURCE_JOOBLE_ENABLED: "false",
       INGEST_JOOBLE_ENABLED: "false",
+      ADZUNA_ENABLED: "false",
+      SOURCE_ADZUNA_ENABLED: "false",
+      INGEST_ADZUNA_ENABLED: "false",
       INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
         process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
       ...extraEnv,
     },
     max_memory_restart: "1024M",
-  };
+  }, ["overnight"]);
 }
 
 function buildOvernightShellApp(name, args, output, error, extraEnv = {}) {
-  return {
+  return withWorkerGroups({
     name,
     script: "bash",
     args,
@@ -70,12 +120,43 @@ function buildOvernightShellApp(name, args, output, error, extraEnv = {}) {
       JOOBLE_ENABLED: "false",
       SOURCE_JOOBLE_ENABLED: "false",
       INGEST_JOOBLE_ENABLED: "false",
+      ADZUNA_ENABLED: "false",
+      SOURCE_ADZUNA_ENABLED: "false",
+      INGEST_ADZUNA_ENABLED: "false",
       INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
         process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
       ...extraEnv,
     },
     max_memory_restart: "1024M",
-  };
+  }, ["overnight"]);
+}
+
+function buildMaintenanceShellApp(name, args, output, error, extraEnv = {}) {
+  return withWorkerGroups({
+    name,
+    script: "bash",
+    args,
+    cwd: __dirname,
+    autorestart: true,
+    max_restarts: 10,
+    min_uptime: "30s",
+    restart_delay: 10000,
+    output,
+    error,
+    log_date_format: "YYYY-MM-DD HH:mm:ss",
+    merge_logs: true,
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || "production",
+      DATABASE_PROCESS_ROLE: "maintenance",
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+      DATABASE_POOL_MAX_MAINTENANCE:
+        process.env.DATABASE_POOL_MAX_MAINTENANCE || "2",
+      ...extraEnv,
+    },
+    max_memory_restart: "384M",
+  }, ["maintenance"]);
 }
 
 const overnightAccelerationApps = overnightAccelerationEnabled
@@ -119,9 +200,9 @@ const overnightAccelerationApps = overnightAccelerationEnabled
           DATABASE_PROCESS_ROLE: "recovery_poll",
           INGEST_RECOVERY_MODE: "1",
           RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
+            process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "80",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -131,7 +212,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/frontier-growth-overnight-err.log",
         {
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -141,9 +222,9 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/high-yield-source-poll-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
           INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "6",
+            process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
         }
       ),
       buildOvernightShellApp(
@@ -153,7 +234,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/ats-frontier-expansion-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         }
       ),
       buildOvernightApp(
@@ -169,7 +250,7 @@ const overnightAccelerationApps = overnightAccelerationEnabled
         "./logs/feed-index-sync-overnight-err.log",
         {
           DATABASE_POOL_MAX_RECOVERY_POLL:
-            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+            process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         }
       ),
       buildOvernightApp(
@@ -193,12 +274,87 @@ const overnightAccelerationApps = overnightAccelerationEnabled
     ]
   : [];
 
-module.exports = {
-  apps: [
+const maintenanceApps = [
+  buildMaintenanceShellApp(
+    "maintenance-feed-summary",
+    `-lc 'while true; do node_modules/.bin/tsx -r dotenv/config scripts/refresh-job-feed-summary.ts || true; sleep ${process.env.JOB_FEED_SUMMARY_REFRESH_SECONDS || 300}; done'`,
+    "./logs/maintenance-feed-summary-out.log",
+    "./logs/maintenance-feed-summary-err.log"
+  ),
+  buildMaintenanceShellApp(
+    "maintenance-feed-index-sync",
+    `-lc 'sleep ${process.env.JOB_FEED_INDEX_SYNC_INITIAL_DELAY_SECONDS || 120}; while true; do timeout ${process.env.JOB_FEED_INDEX_SYNC_TIMEOUT_SECONDS || 300}s node_modules/.bin/tsx -r dotenv/config scripts/backfill-job-feed-index.ts --mode=all --batch-size=${process.env.JOB_FEED_INDEX_SYNC_BATCH_SIZE || 250} --max-batches=${process.env.JOB_FEED_INDEX_SYNC_MAX_BATCHES || 4} --concurrency=${process.env.JOB_FEED_INDEX_SYNC_CONCURRENCY || 2} --sleep-ms=100 || true; sleep ${process.env.JOB_FEED_INDEX_SYNC_INTERVAL_SECONDS || 1800}; done'`,
+    "./logs/maintenance-feed-index-sync-out.log",
+    "./logs/maintenance-feed-index-sync-err.log"
+  ),
+  buildMaintenanceShellApp(
+    "maintenance-url-health-cycle",
+    `-lc 'sleep ${process.env.URL_HEALTH_CYCLE_INITIAL_DELAY_SECONDS || 60}; while true; do timeout ${process.env.URL_HEALTH_CYCLE_TIMEOUT_SECONDS || 900}s node_modules/.bin/tsx -r dotenv/config scripts/url-health-cycle.ts --enqueue-limit=${process.env.URL_HEALTH_CYCLE_ENQUEUE_LIMIT || 8000} --run-limit=${process.env.URL_HEALTH_CYCLE_RUN_LIMIT || 4000} || true; sleep ${process.env.URL_HEALTH_CYCLE_INTERVAL_SECONDS || 600}; done'`,
+    "./logs/maintenance-url-health-cycle-out.log",
+    "./logs/maintenance-url-health-cycle-err.log",
     {
+      DATABASE_POOL_MAX_MAINTENANCE:
+        process.env.DATABASE_POOL_MAX_MAINTENANCE || "3",
+    }
+  ),
+  buildMaintenanceShellApp(
+    "maintenance-search-index-queue-drain",
+    `-lc 'sleep ${process.env.SEARCH_INDEX_QUEUE_DRAIN_INITIAL_DELAY_SECONDS || 180}; while true; do timeout ${process.env.SEARCH_INDEX_QUEUE_DRAIN_TIMEOUT_SECONDS || 900}s node_modules/.bin/tsx -r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploitation --worker-only --queue=SEARCH_INDEX --limit=${process.env.SEARCH_INDEX_QUEUE_DRAIN_LIMIT || 1500} --max-batches=${process.env.SEARCH_INDEX_QUEUE_DRAIN_MAX_BATCHES || 16} --skip-metrics || true; sleep ${process.env.SEARCH_INDEX_QUEUE_DRAIN_INTERVAL_SECONDS || 300}; done'`,
+    "./logs/maintenance-search-index-queue-drain-out.log",
+    "./logs/maintenance-search-index-queue-drain-err.log",
+    {
+      PIPELINE_SEARCH_INDEX_CLAIM_LIMIT:
+        process.env.PIPELINE_SEARCH_INDEX_CLAIM_LIMIT || "250",
+      PIPELINE_SEARCH_INDEX_CONCURRENCY:
+        process.env.PIPELINE_SEARCH_INDEX_CONCURRENCY || "6",
+      DATABASE_POOL_MAX_MAINTENANCE:
+        process.env.DATABASE_POOL_MAX_MAINTENANCE || "3",
+    }
+  ),
+];
+
+const topPicksWorkerScript = path.join(
+  __dirname,
+  "scripts/top-picks-refresh-worker.ts"
+);
+const topPicksApps = fs.existsSync(topPicksWorkerScript)
+  ? [
+      withWorkerGroups(
+        {
+          name: "top-picks-refresh-worker",
+          script: "node_modules/.bin/tsx",
+          args: `-r dotenv/config scripts/top-picks-refresh-worker.ts --forever --limit=${process.env.TOP_PICKS_REFRESH_WORKER_LIMIT || 3} --concurrency=${process.env.TOP_PICKS_REFRESH_WORKER_CONCURRENCY || 1} --idle-sleep-ms=${process.env.TOP_PICKS_REFRESH_WORKER_IDLE_SLEEP_MS || 30000} --error-sleep-ms=${process.env.TOP_PICKS_REFRESH_WORKER_ERROR_SLEEP_MS || 60000}`,
+          cwd: __dirname,
+          autorestart: true,
+          max_restarts: 10,
+          min_uptime: "30s",
+          restart_delay: 10000,
+          output: "./logs/top-picks-refresh-worker-out.log",
+          error: "./logs/top-picks-refresh-worker-err.log",
+          log_date_format: "YYYY-MM-DD HH:mm:ss",
+          merge_logs: true,
+          env: {
+            ...process.env,
+            NODE_ENV: process.env.NODE_ENV || "production",
+            DATABASE_PROCESS_ROLE: "maintenance",
+            DATABASE_POOL_MAX_MAINTENANCE:
+              process.env.DATABASE_POOL_MAX_MAINTENANCE || "2",
+            DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+              process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+          },
+          max_memory_restart: "768M",
+        },
+        ["top-picks", "maintenance"]
+      ),
+    ]
+  : [];
+
+const steadyWorkerApps = [
+    {
+      __workerGroups: ["ingestion"],
       name: "ingest-daemon",
       script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-daemon.ts --interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 5} --force`,
+      args: `-r dotenv/config scripts/ingest-daemon.ts --interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15} --force`,
       cwd: __dirname,
       // Restart policy
       autorestart: true,
@@ -216,48 +372,52 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "daemon",
         DATABASE_POOL_MAX_DAEMON:
-          process.env.DATABASE_POOL_MAX_DAEMON || "4",
+          process.env.DATABASE_POOL_MAX_DAEMON || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS:
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "8",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "3",
         INGEST_STEADY_DISCOVERY_LIMIT:
-          process.env.INGEST_STEADY_DISCOVERY_LIMIT || "25",
+          process.env.INGEST_STEADY_DISCOVERY_LIMIT || "10",
         INGEST_STEADY_VALIDATION_LIMIT:
-          process.env.INGEST_STEADY_VALIDATION_LIMIT || "50",
+          process.env.INGEST_STEADY_VALIDATION_LIMIT || "20",
         INGEST_STEADY_SOURCE_POLL_LIMIT:
-          process.env.INGEST_STEADY_SOURCE_POLL_LIMIT || "100",
+          process.env.INGEST_STEADY_SOURCE_POLL_LIMIT || "35",
         INGEST_STEADY_REDISCOVERY_LIMIT:
-          process.env.INGEST_STEADY_REDISCOVERY_LIMIT || "10",
+          process.env.INGEST_STEADY_REDISCOVERY_LIMIT || "5",
         INGEST_STEADY_URL_HEALTH_LIMIT:
-          process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "1",
+          process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "3000",
         INGEST_BURST_DISCOVERY_LIMIT:
-          process.env.INGEST_BURST_DISCOVERY_LIMIT || "25",
+          process.env.INGEST_BURST_DISCOVERY_LIMIT || "10",
         INGEST_BURST_VALIDATION_LIMIT:
-          process.env.INGEST_BURST_VALIDATION_LIMIT || "50",
+          process.env.INGEST_BURST_VALIDATION_LIMIT || "20",
         INGEST_BURST_SOURCE_POLL_LIMIT:
-          process.env.INGEST_BURST_SOURCE_POLL_LIMIT || "100",
+          process.env.INGEST_BURST_SOURCE_POLL_LIMIT || "35",
         INGEST_BURST_REDISCOVERY_LIMIT:
-          process.env.INGEST_BURST_REDISCOVERY_LIMIT || "10",
+          process.env.INGEST_BURST_REDISCOVERY_LIMIT || "5",
         INGEST_BURST_URL_HEALTH_LIMIT:
-          process.env.INGEST_BURST_URL_HEALTH_LIMIT || "1",
+          process.env.INGEST_BURST_URL_HEALTH_LIMIT || "5000",
       },
       // Memory guard — restart if daemon leaks past 512MB
       max_memory_restart: "512M",
     },
     {
+      __workerGroups: ["source-workers"],
       name: "ingest-poll-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=5",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=${process.env.INGEST_POLL_WORKER_INTERVAL_SECONDS || 60}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -272,33 +432,73 @@ module.exports = {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
         DATABASE_POOL_MAX_RECOVERY_POLL:
-          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "8",
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS:
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "6",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "2",
         RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "700",
+          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "80",
         INGEST_STEADY_URL_HEALTH_LIMIT:
-          process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "1",
+          process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "3000",
         INGEST_BURST_URL_HEALTH_LIMIT:
-          process.env.INGEST_BURST_URL_HEALTH_LIMIT || "1",
+          process.env.INGEST_BURST_URL_HEALTH_LIMIT || "5000",
       },
       max_memory_restart: "512M",
     },
     {
+      __workerGroups: ["source-workers"],
+      name: "ingest-high-yield-source-poll",
+      script: "bash",
+      args: `-lc 'sleep ${process.env.HIGH_YIELD_SOURCE_POLL_INITIAL_DELAY_SECONDS || 300}; while true; do timeout ${process.env.HIGH_YIELD_SOURCE_POLL_TIMEOUT_SECONDS || 180}s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --limit=${process.env.HIGH_YIELD_SOURCE_POLL_LIMIT || 8} --concurrency=${process.env.HIGH_YIELD_SOURCE_POLL_CONCURRENCY || 2} --min-age-minutes=${process.env.HIGH_YIELD_SOURCE_POLL_MIN_AGE_MINUTES || 120} --max-runtime-ms=${process.env.HIGH_YIELD_SOURCE_POLL_MAX_RUNTIME_MS || 60000} || true; sleep ${process.env.HIGH_YIELD_SOURCE_POLL_INTERVAL_SECONDS || 900}; done'`,
+      cwd: __dirname,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 10000,
+      output: "./logs/high-yield-source-poll-steady-out.log",
+      error: "./logs/high-yield-source-poll-steady-err.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      merge_logs: true,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        DATABASE_PROCESS_ROLE: "recovery_poll",
+        DATABASE_POOL_MAX_RECOVERY_POLL:
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+        DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+        INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
+        JOOBLE_ENABLED: "false",
+        SOURCE_JOOBLE_ENABLED: "false",
+        INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
+        INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
+          process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
+        INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
+          process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
+      },
+      max_memory_restart: "512M",
+    },
+    {
+      __workerGroups: ["source-workers"],
       name: "ingest-validation-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=10",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=${process.env.INGEST_VALIDATION_WORKER_INTERVAL_SECONDS || 120}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -318,22 +518,26 @@ module.exports = {
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY:
-          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "12",
+          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "3",
         RECOVERY_WORKER_VALIDATION_LIMIT:
-          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "250",
+          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "80",
         DATABASE_POOL_MAX_RECOVERY_VALIDATION:
           process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
       },
       max_memory_restart: "512M",
     },
     {
+      __workerGroups: ["source-workers"],
       name: "ingest-discovery-worker",
       script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=15",
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 180}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -353,20 +557,30 @@ module.exports = {
         JOOBLE_ENABLED: "false",
         SOURCE_JOOBLE_ENABLED: "false",
         INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_DISCOVERY_QUEUE_CONCURRENCY:
-          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "6",
+          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "2",
         RECOVERY_WORKER_DISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "80",
+          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "30",
         RECOVERY_WORKER_REDISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "50",
+          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "15",
         DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
           process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "2",
       },
       max_memory_restart: "512M",
     },
+];
+
+module.exports = {
+  apps: selectWorkerApps([
+    ...steadyWorkerApps,
+    ...maintenanceApps,
+    ...topPicksApps,
     ...overnightAccelerationApps,
-  ],
+  ]),
 };

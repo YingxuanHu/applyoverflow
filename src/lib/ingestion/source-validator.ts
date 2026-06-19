@@ -39,6 +39,7 @@ export type SourceValidationResult = {
   message: string;
   sourceQualityScore: number;
   recommendedCooldownMinutes: number;
+  softDiscoveryMiss?: boolean;
 };
 
 type ValidatableCompanySource = {
@@ -137,11 +138,26 @@ async function validateTaleoSource(
       };
     }
 
-    const shouldRediscover =
-      source.validationState === "SUSPECT" || source.consecutiveFailures >= 1;
     const message = result.error
       ? `Taleo sitemap validation failed: ${result.error}`
       : "Taleo sitemap exposed no listings for this career section.";
+
+    if (!result.error) {
+      return {
+        kind: "SUSPECT",
+        validationState: "SUSPECT",
+        pollState: "BACKOFF",
+        httpStatus: null,
+        jobsFound: 0,
+        message,
+        sourceQualityScore: 0.22,
+        recommendedCooldownMinutes: 360,
+        softDiscoveryMiss: true,
+      };
+    }
+
+    const shouldRediscover =
+      source.validationState === "SUSPECT" || source.consecutiveFailures >= 1;
 
     return {
       kind: shouldRediscover ? "NEEDS_REDISCOVERY" : "SUSPECT",
@@ -179,14 +195,16 @@ async function validateCompanySiteSource(
       }
 
       return {
-        kind: "NEEDS_REDISCOVERY",
-        validationState: "NEEDS_REDISCOVERY",
-        pollState: "QUARANTINED",
+        kind: "SUSPECT",
+        validationState: "SUSPECT",
+        pollState: "BACKOFF",
         httpStatus: null,
         jobsFound: 0,
-        message: "Career surface did not expose a stable ATS, structured feed, or HTML job listing.",
-        sourceQualityScore: 0.12,
-        recommendedCooldownMinutes: 360,
+        message:
+          "Career surface is reachable but did not expose a stable ATS, structured feed, or HTML job listing yet.",
+        sourceQualityScore: 0.24,
+        recommendedCooldownMinutes: 180,
+        softDiscoveryMiss: true,
       };
     }
 
@@ -231,6 +249,7 @@ async function validateCompanySiteSource(
         message: "Careers page is reachable, but HTML fallback did not extract a listing yet.",
         sourceQualityScore: 0.34,
         recommendedCooldownMinutes: 240,
+        softDiscoveryMiss: true,
       };
     }
 
@@ -369,21 +388,25 @@ function escalateHardFailure(
   const isDeterministicHardInvalidVendor = DETERMINISTIC_ATS_HARD_INVALID_CONNECTORS.has(
     source.connectorName
   );
-  const shouldInvalidate =
-    isDeterministicHardInvalidVendor ||
-    source.validationState === "SUSPECT" ||
-    source.consecutiveFailures >= 1;
+  const shouldInvalidate = isDeterministicHardInvalidVendor;
+  const shouldRediscover =
+    !shouldInvalidate &&
+    (source.validationState === "SUSPECT" || source.consecutiveFailures >= 1);
   const vendorSpecificMessage = buildHardInvalidMessage(source, httpStatus, message);
 
   return {
-    kind: shouldInvalidate ? "INVALID" : "SUSPECT",
-    validationState: shouldInvalidate ? "INVALID" : "SUSPECT",
-    pollState: shouldInvalidate ? "QUARANTINED" : "BACKOFF",
+    kind: shouldInvalidate ? "INVALID" : shouldRediscover ? "NEEDS_REDISCOVERY" : "SUSPECT",
+    validationState: shouldInvalidate
+      ? "INVALID"
+      : shouldRediscover
+        ? "NEEDS_REDISCOVERY"
+        : "SUSPECT",
+    pollState: shouldInvalidate || shouldRediscover ? "QUARANTINED" : "BACKOFF",
     httpStatus,
     jobsFound: 0,
     message: vendorSpecificMessage,
-    sourceQualityScore: shouldInvalidate ? 0.05 : 0.15,
-    recommendedCooldownMinutes: shouldInvalidate ? 720 : 240,
+    sourceQualityScore: shouldInvalidate ? 0.05 : shouldRediscover ? 0.08 : 0.15,
+    recommendedCooldownMinutes: shouldInvalidate || shouldRediscover ? 720 : 240,
   };
 }
 

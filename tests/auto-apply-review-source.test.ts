@@ -57,7 +57,7 @@ test("internal eligibility candidates are not exposed as verified Auto Apply", (
   assert.match(displaySource, /return false/);
 
   assert.doesNotMatch(detailPageSource, />\s*Auto apply\s*</);
-  assert.match(detailPageSource, /Check Auto Apply/);
+  assert.match(detailPageSource, /JobDetailActionGroup/);
 
   assert.doesNotMatch(jobsPageSource, /label: "Auto-apply"/);
   assert.doesNotMatch(jobsPageSource, /title="Apply type"/);

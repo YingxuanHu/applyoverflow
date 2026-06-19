@@ -1,26 +1,12 @@
 import {
   CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD,
+  INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
   expandNormalizedRoleCategoryFilterValue,
-  normalizeCareerStageFilterValue,
+  normalizeExperienceLevelGroupFilterValue,
+  normalizeIndustryFilterValue,
 } from "@/lib/job-metadata";
-
-function splitFilterValues(value?: string) {
-  if (!value) return [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-
-  for (const entry of value.split(",")) {
-    const trimmed = entry.replace(/\s+/g, " ").trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    values.push(trimmed);
-  }
-
-  return values;
-}
+import { splitFilterValues } from "@/lib/filter-values";
 
 function withoutUnknownFilterValues(values: string[], unknownValue: string) {
   return values.filter((value) => value !== unknownValue);
@@ -38,7 +24,16 @@ export function getActiveCareerStageFilters(filters: {
   experienceLevel?: string;
 }) {
   return withoutUnknownFilterValues(
-    splitFilterValues(normalizeCareerStageFilterValue(filters.careerStage ?? filters.experienceLevel)),
+    splitFilterValues(
+      normalizeExperienceLevelGroupFilterValue(filters.careerStage ?? filters.experienceLevel)
+    ),
+    "UNKNOWN"
+  );
+}
+
+export function getActiveIndustryFilters(filters: { industry?: string }) {
+  return withoutUnknownFilterValues(
+    splitFilterValues(normalizeIndustryFilterValue(filters.industry)),
     "UNKNOWN"
   );
 }
@@ -51,8 +46,10 @@ export type FilterContractJob = {
   normalizedRoleCategory?: string | null;
   normalizedRoleCategoryConfidence?: number | null;
   normalizedIndustry?: string | null;
+  normalizedIndustries?: string[] | null;
   normalizedIndustryConfidence?: number | null;
   normalizedCareerStage?: string | null;
+  experienceLevelGroup?: string | null;
   normalizedCareerStageConfidence?: number | null;
   classificationStatus?: string | null;
 };
@@ -65,31 +62,44 @@ export type JobFilterContractViolation = {
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries: string[];
   normalizedIndustryConfidence: number | null;
   normalizedCareerStage: string | null;
+  experienceLevelGroup: string | null;
   normalizedCareerStageConfidence: number | null;
   classificationStatus: string | null;
   activeRoleCategories: string[];
+  activeIndustries: string[];
   activeCareerStages: string[];
   reason: string;
 };
 
 export function getJobFilterContractViolations(
-  filters: { roleCategory?: string; careerStage?: string; experienceLevel?: string },
+  filters: { roleCategory?: string; industry?: string; careerStage?: string; experienceLevel?: string },
   jobs: FilterContractJob[]
 ): JobFilterContractViolation[] {
   const activeRoleCategories = getActiveRoleCategoryFilters(filters);
+  const activeIndustries = getActiveIndustryFilters(filters);
   const activeCareerStages = getActiveCareerStageFilters(filters);
-  if (activeRoleCategories.length === 0 && activeCareerStages.length === 0) return [];
+  if (
+    activeRoleCategories.length === 0 &&
+    activeIndustries.length === 0 &&
+    activeCareerStages.length === 0
+  ) return [];
 
   const activeRoleCategorySet = new Set(activeRoleCategories);
+  const activeIndustrySet = new Set(activeIndustries);
   const activeCareerStageSet = new Set(activeCareerStages);
   const violations: JobFilterContractViolation[] = [];
 
   for (const job of jobs) {
     const normalizedRoleCategory = job.normalizedRoleCategory ?? null;
     const normalizedRoleCategoryConfidence = job.normalizedRoleCategoryConfidence ?? null;
+    const normalizedIndustry = job.normalizedIndustry ?? null;
+    const normalizedIndustries = job.normalizedIndustries ?? [];
+    const normalizedIndustryConfidence = job.normalizedIndustryConfidence ?? null;
     const normalizedCareerStage = job.normalizedCareerStage ?? null;
+    const experienceLevelGroup = job.experienceLevelGroup ?? null;
     const normalizedCareerStageConfidence = job.normalizedCareerStageConfidence ?? null;
     const classificationStatus = job.classificationStatus ?? null;
 
@@ -108,8 +118,22 @@ export function getJobFilterContractViolations(
     } else if (activeRoleCategories.length > 0 && classificationStatus === "UNKNOWN") {
       reason = "classification_status_unknown";
     } else if (
+      activeIndustries.length > 0 &&
+      !(
+        (normalizedIndustry && activeIndustrySet.has(normalizedIndustry)) ||
+        normalizedIndustries.some((industry) => activeIndustrySet.has(industry))
+      )
+    ) {
+      reason = "company_industry_mismatch";
+    } else if (
+      activeIndustries.length > 0 &&
+      (normalizedIndustryConfidence === null ||
+        normalizedIndustryConfidence < INDUSTRY_FILTER_CONFIDENCE_THRESHOLD)
+    ) {
+      reason = "company_industry_low_confidence";
+    } else if (
       activeCareerStages.length > 0 &&
-      (!normalizedCareerStage || !activeCareerStageSet.has(normalizedCareerStage))
+      (!experienceLevelGroup || !activeCareerStageSet.has(experienceLevelGroup))
     ) {
       reason = "career_stage_mismatch";
     } else if (
@@ -129,12 +153,15 @@ export function getJobFilterContractViolations(
       roleFamily: job.roleFamily,
       normalizedRoleCategory,
       normalizedRoleCategoryConfidence,
-      normalizedIndustry: job.normalizedIndustry ?? null,
-      normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
+      normalizedIndustry,
+      normalizedIndustries,
+      normalizedIndustryConfidence,
       normalizedCareerStage,
+      experienceLevelGroup,
       normalizedCareerStageConfidence,
       classificationStatus,
       activeRoleCategories,
+      activeIndustries,
       activeCareerStages,
       reason,
     });
@@ -144,7 +171,7 @@ export function getJobFilterContractViolations(
 }
 
 export function assertJobFilterContract(
-  filters: { roleCategory?: string; careerStage?: string; experienceLevel?: string },
+  filters: { roleCategory?: string; industry?: string; careerStage?: string; experienceLevel?: string },
   jobs: FilterContractJob[],
   source: string = "jobs"
 ) {

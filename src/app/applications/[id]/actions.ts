@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import type {
   TrackedApplicationDocumentSlot,
   TrackedApplicationEventType,
@@ -37,6 +38,10 @@ import {
   getStorageReadiness,
   saveFile,
 } from "@/lib/storage";
+import {
+  parseDateTimeLocalInTimeZone,
+  USER_TIME_ZONE_COOKIE,
+} from "@/lib/time-zone";
 import { TRACKED_STATUS_LABEL } from "@/lib/tracker-ui";
 
 type ActionState = {
@@ -64,12 +69,13 @@ const ACCEPTED_MIME_TYPES = new Set<string>([
 
 const allowedStatuses = new Set<TrackedApplicationStatus>([
   "WISHLIST",
-  "PREPARING",
   "APPLIED",
   "SCREEN",
   "INTERVIEW",
   "OFFER",
+  "ACCEPTED",
   "REJECTED",
+  "DECLINED",
   "WITHDRAWN",
 ]);
 
@@ -80,7 +86,9 @@ const allowedEventTypes = new Set<TrackedApplicationEventType>([
   "SCREEN",
   "INTERVIEW",
   "OFFER",
+  "ACCEPTED",
   "REJECTED",
+  "DECLINED",
 ]);
 
 const allowedSlots = new Set<TrackedApplicationDocumentSlot>([
@@ -127,6 +135,15 @@ function inferDocumentMimeType(fileName: string, browserMime: string): string {
   }
 
   return inferProfileDocumentMimeType(fileName, browserMime);
+}
+
+async function parseReminderDateTimeLocal(rawValue: string, formData: FormData) {
+  if (!rawValue) return null;
+
+  const browserTimeZone = String(formData.get("timeZone") ?? "").trim();
+  const cookieStore = await cookies();
+  const cookieTimeZone = cookieStore.get(USER_TIME_ZONE_COOKIE)?.value;
+  return parseDateTimeLocalInTimeZone(rawValue, browserTimeZone || cookieTimeZone);
 }
 
 const EDITABLE_APPLICATION_FIELDS = [
@@ -267,8 +284,8 @@ export async function addTimelineEvent(
     }
 
     if (typeRaw === "REMINDER" && reminderAtRaw) {
-      reminderAt = new Date(reminderAtRaw);
-      if (Number.isNaN(reminderAt.getTime())) {
+      reminderAt = await parseReminderDateTimeLocal(reminderAtRaw, formData);
+      if (!reminderAt) {
         return { error: "Invalid reminder date/time.", success: null };
       }
       if (reminderAt <= new Date()) {
@@ -311,8 +328,8 @@ export async function updateTimelineEvent(
 
     let reminderAt: Date | null = null;
     if (reminderAtRaw) {
-      reminderAt = new Date(reminderAtRaw);
-      if (Number.isNaN(reminderAt.getTime())) {
+      reminderAt = await parseReminderDateTimeLocal(reminderAtRaw, formData);
+      if (!reminderAt) {
         return { error: "Invalid reminder date/time.", success: null };
       }
       if (reminderAt <= new Date()) {

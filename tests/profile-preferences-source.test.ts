@@ -13,9 +13,10 @@ test("job preferences live with the profile application surface", () => {
   const profileForm = readRepoFile("src/components/profile/profile-form.tsx");
 
   assert.match(profilePage, /<PreferencesForm/);
+  assert.match(profilePage, /<ProfileForm/);
   assert.match(profilePage, /id="job-preferences"/);
   assert.match(profilePage, /Application profile/);
-  assert.match(profileForm, /title="Application profile"/);
+  assert.match(profileForm, /export function ProfileForm/);
   assert.match(navSidebar, /profile\?tab=details#job-preferences/);
   assert.doesNotMatch(navSidebar, /settings#job-preferences/);
   assert.doesNotMatch(settingsPage, /id="job-preferences"/);

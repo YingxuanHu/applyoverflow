@@ -55,6 +55,7 @@ export type JobCardData = {
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries: string[];
   normalizedIndustryConfidence: number | null;
   classificationStatus: string | null;
   experienceLevel: ExperienceLevel | null;
@@ -67,6 +68,7 @@ export type JobCardData = {
   postedAt: string;
   deadline: string | null;
   isSaved: boolean;
+  hasApplied: boolean;
   eligibility: JobCardEligibility;
   sourceMappings: JobCardSource[];
   primaryExternalLink: JobResolvedLink | null;
@@ -152,6 +154,7 @@ export type ApplicationHistoryItem = {
     normalizedRoleCategory: string | null;
     normalizedRoleCategoryConfidence: number | null;
     normalizedIndustry: string | null;
+    normalizedIndustries: string[];
     normalizedIndustryConfidence: number | null;
     classificationStatus: string | null;
     applyUrl: string;

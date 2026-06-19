@@ -196,7 +196,7 @@ export function AccountSecurityPanel({
     setPendingAction(null);
 
     if (result.error) {
-      showError("Unable to start email change. The email may already be in use.");
+      showError("Unable to start email change. Sign in again if this session is no longer fresh.");
       return;
     }
 

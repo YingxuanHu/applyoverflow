@@ -1,8 +1,23 @@
-import { UnauthorizedError, requireCurrentUserIds } from "@/lib/current-user";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { rateLimitResponse } from "@/lib/api-utils";
+import {
+  ReauthenticationRequiredError,
+  UnauthorizedError,
+  requireCurrentUserIds,
+  requireFreshSensitiveSession,
+} from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "settings:data-export",
+      API_RATE_LIMITS.dataExport
+    );
+    if (rateLimited) return rateLimited;
+
+    await requireFreshSensitiveSession();
     const { authUserId, profileId } = await requireCurrentUserIds();
 
     const [
@@ -262,6 +277,10 @@ export async function GET() {
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return Response.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    if (error instanceof ReauthenticationRequiredError) {
+      return Response.json({ error: error.message }, { status: 401 });
     }
 
     console.error("[settings.export] Failed to build data export", error);

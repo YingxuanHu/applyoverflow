@@ -31,7 +31,7 @@ import {
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
-import { coerceNormalizedIndustry } from "@/lib/job-metadata";
+import { classifyJobMetadata, coerceNormalizedIndustry } from "@/lib/job-metadata";
 import type {
   IngestionSummary,
   NormalizedJobInput,
@@ -801,6 +801,7 @@ async function performConnectorIngestion(
     const normalizationResult = normalizeSourceJob({
       job: sourceJob,
       fetchedAt: now,
+      sourceName: connector.sourceName,
     });
 
     if (normalizationResult.kind === "rejected") {
@@ -1017,6 +1018,7 @@ async function performConnectorPreview(
     const normalizationResult = normalizeSourceJob({
       job: sourceJob,
       fetchedAt: now,
+      sourceName: connector.sourceName,
     });
 
     if (normalizationResult.kind === "rejected") {
@@ -1454,10 +1456,18 @@ const canonicalMatchSelect = {
   normalizedEmploymentTypeConfidence: true,
   normalizedCareerStage: true,
   normalizedCareerStageConfidence: true,
+  experienceLevelGroup: true,
+  experienceLevelSource: true,
+  experienceLevelEvidenceJson: true,
+  experienceLevelWarningsJson: true,
   normalizedIndustry: true,
+  normalizedIndustries: true,
   normalizedIndustryConfidence: true,
   normalizedRoleCategory: true,
   normalizedRoleCategoryConfidence: true,
+  normalizedRoleCategoryGroup: true,
+  normalizedRoleCategoryStatus: true,
+  normalizedRoleCategorySource: true,
   classificationStatus: true,
   workMode: true,
 } as const;
@@ -1466,19 +1476,84 @@ function applyCompanyIndustryToNormalizedJob(
   normalizedJob: NormalizedJobInput,
   companyRecord: {
     normalizedIndustry?: string | null;
+    normalizedIndustries?: string[] | null;
     normalizedIndustryConfidence?: number | null;
   }
 ): NormalizedJobInput {
   const normalizedIndustry = coerceNormalizedIndustry(companyRecord.normalizedIndustry);
+  const normalizedIndustries = normalizeCompanyIndustryValues(
+    companyRecord.normalizedIndustries,
+    normalizedIndustry
+  );
   const normalizedIndustryConfidence =
     companyRecord.normalizedIndustryConfidence ??
-    (normalizedIndustry === "UNKNOWN" ? 0.2 : 0.9);
+    (normalizedIndustries.length === 0 ? 0.2 : 0.9);
+  const roleMetadata = classifyJobMetadata({
+    title: normalizedJob.title,
+    company: normalizedJob.company,
+    description: normalizedJob.description,
+    location: normalizedJob.location,
+    roleFamily: normalizedJob.roleFamily,
+    companyIndustries: normalizedIndustries,
+    legacyIndustry: normalizedJob.industry,
+    sourceEmploymentType: normalizedJob.employmentType,
+    inferredEmploymentType: normalizedJob.employmentType,
+    workMode: normalizedJob.workMode,
+    applyUrl: normalizedJob.applyUrl,
+  });
+  const useRoleMetadata =
+    roleMetadata.normalizedRoleCategory === normalizedJob.normalizedRoleCategory ||
+    normalizedJob.normalizedRoleCategory === "OTHER_UNKNOWN" ||
+    roleMetadata.confidence.roleCategory > normalizedJob.normalizedRoleCategoryConfidence;
 
   return {
     ...normalizedJob,
     normalizedIndustry,
+    normalizedIndustries,
     normalizedIndustryConfidence,
+    normalizedRoleCategory: useRoleMetadata
+      ? roleMetadata.normalizedRoleCategory
+      : normalizedJob.normalizedRoleCategory,
+    normalizedRoleCategoryConfidence: useRoleMetadata
+      ? roleMetadata.confidence.roleCategory
+      : normalizedJob.normalizedRoleCategoryConfidence,
+    normalizedRoleCategoryGroup: useRoleMetadata
+      ? roleMetadata.normalizedRoleCategoryGroup
+      : normalizedJob.normalizedRoleCategoryGroup,
+    normalizedRoleCategoryStatus: useRoleMetadata
+      ? roleMetadata.normalizedRoleCategoryStatus
+      : normalizedJob.normalizedRoleCategoryStatus,
+    normalizedRoleCategorySource: useRoleMetadata
+      ? roleMetadata.normalizedRoleCategorySource
+      : normalizedJob.normalizedRoleCategorySource,
+    normalizedRoleCategoryCandidatesJson: useRoleMetadata
+      ? (roleMetadata.normalizedRoleCategoryCandidates as unknown as Prisma.InputJsonValue)
+      : normalizedJob.normalizedRoleCategoryCandidatesJson,
+    normalizedRoleCategoryEvidenceJson: useRoleMetadata
+      ? (roleMetadata.normalizedRoleCategoryEvidence as unknown as Prisma.InputJsonValue)
+      : normalizedJob.normalizedRoleCategoryEvidenceJson,
+    normalizedRoleCategoryWarningsJson: useRoleMetadata
+      ? (roleMetadata.normalizedRoleCategoryWarnings as unknown as Prisma.InputJsonValue)
+      : normalizedJob.normalizedRoleCategoryWarningsJson,
+    classificationStatus: useRoleMetadata
+      ? roleMetadata.classificationStatus
+      : normalizedJob.classificationStatus,
   };
+}
+
+function normalizeCompanyIndustryValues(
+  values: string[] | null | undefined,
+  primaryIndustry: string | null | undefined
+) {
+  const seen = new Set<string>();
+  const industries: NormalizedJobInput["normalizedIndustries"] = [];
+  for (const value of [...(values ?? []), primaryIndustry ?? ""]) {
+    const industry = coerceNormalizedIndustry(value);
+    if (industry === "UNKNOWN" || seen.has(industry)) continue;
+    seen.add(industry);
+    industries.push(industry);
+  }
+  return industries;
 }
 
 export async function upsertCanonicalJob({
@@ -1501,7 +1576,11 @@ export async function upsertCanonicalJob({
     companyKey: normalizedJob.companyKey,
     urls: [sourceUrl, rawApplyUrl, normalizedJob.applyUrl],
   });
-  normalizedJob = applyCompanyIndustryToNormalizedJob(normalizedJob, companyRecord);
+  const companyDisplayName = companyRecord.name.trim() || normalizedJob.company;
+  normalizedJob = applyCompanyIndustryToNormalizedJob(
+    { ...normalizedJob, company: companyDisplayName },
+    companyRecord
+  );
 
   if (!currentCanonicalId) {
     const canonicalJob = await prisma.jobCanonical.create({
@@ -1537,21 +1616,54 @@ export async function upsertCanonicalJob({
       id: true,
       companyId: true,
       title: true,
+      displayTitle: true,
+      titleConfidence: true,
+      titleStatus: true,
+      titleSource: true,
+      titleCandidatesJson: true,
+      titleRejectedFragmentsJson: true,
+      titleExtractionWarnings: true,
+      jobPageType: true,
       company: true,
       companyKey: true,
       titleKey: true,
       titleCoreKey: true,
       descriptionFingerprint: true,
       location: true,
+      locationConfidence: true,
+      locationStatus: true,
+      locationSource: true,
+      locationCandidatesJson: true,
       locationKey: true,
       region: true,
       workMode: true,
+      workModeConfidence: true,
+      workModeStatus: true,
+      workModeSource: true,
+      workModeCandidatesJson: true,
       salaryMin: true,
       salaryMax: true,
       salaryCurrency: true,
+      salaryStatus: true,
+      salaryPeriod: true,
+      salaryRawText: true,
+      salaryConfidence: true,
+      salarySource: true,
       employmentType: true,
+      employmentTypeGroup: true,
+      employmentTypeConfidence: true,
+      employmentTypeStatus: true,
+      employmentTypeSource: true,
+      employmentTypeCandidatesJson: true,
       experienceLevel: true,
+      experienceLevelGroup: true,
+      experienceLevelSource: true,
+      experienceLevelEvidenceJson: true,
+      experienceLevelWarningsJson: true,
       description: true,
+      descriptionStatus: true,
+      descriptionConfidence: true,
+      descriptionWordCount: true,
       shortSummary: true,
       industry: true,
       roleFamily: true,
@@ -1560,15 +1672,33 @@ export async function upsertCanonicalJob({
       normalizedCareerStage: true,
       normalizedCareerStageConfidence: true,
       normalizedIndustry: true,
+      normalizedIndustries: true,
       normalizedIndustryConfidence: true,
       normalizedRoleCategory: true,
       normalizedRoleCategoryConfidence: true,
+      normalizedRoleCategoryGroup: true,
+      normalizedRoleCategoryStatus: true,
+      normalizedRoleCategorySource: true,
+      normalizedRoleCategoryCandidatesJson: true,
+      normalizedRoleCategoryEvidenceJson: true,
+      normalizedRoleCategoryWarningsJson: true,
       classificationStatus: true,
       applyUrl: true,
       applyUrlKey: true,
       postedAt: true,
+      datePostedConfidence: true,
+      datePostedStatus: true,
+      datePostedSource: true,
+      datePostedRawText: true,
       deadline: true,
+      applicationDeadlineConfidence: true,
+      applicationDeadlineStatus: true,
+      applicationDeadlineSource: true,
+      applicationDeadlineRawText: true,
       duplicateClusterId: true,
+      metadataExtractionWarnings: true,
+      extractionWarnings: true,
+      extractionRejectionReasons: true,
       availabilityScore: true,
       sourceMappings: {
         where: {
@@ -1599,11 +1729,52 @@ export async function upsertCanonicalJob({
   );
   const shouldReplaceGenericCompany =
     currentCompanyIsGeneric && !incomingCompanyIsGeneric;
+  const shouldUseCompanyRecordName =
+    companyDisplayName.length > 0 &&
+    currentCanonical.company !== companyDisplayName;
   const incomingHasSalary =
     normalizedJob.salaryMin != null || normalizedJob.salaryMax != null;
   const currentHasSalary =
     currentCanonical.salaryMin != null || currentCanonical.salaryMax != null;
   const useIncomingSalary = (preferIncomingSource && incomingHasSalary) || !currentHasSalary;
+  const useIncomingTitleExtraction =
+    preferIncomingSource ||
+    currentCanonical.titleStatus == null ||
+    currentCanonical.titleConfidence == null;
+  const useIncomingLocationExtraction =
+    preferIncomingSource ||
+    currentCanonical.locationStatus == null ||
+    currentCanonical.locationConfidence == null;
+  const useIncomingDescriptionExtraction =
+    preferIncomingSource ||
+    currentCanonical.descriptionStatus == null ||
+    currentCanonical.descriptionConfidence == null;
+  const useIncomingWorkModeExtraction =
+    preferIncomingSource ||
+    currentCanonical.workModeStatus == null ||
+    currentCanonical.workModeConfidence == null;
+  const useIncomingEmploymentTypeExtraction =
+    preferIncomingSource ||
+    currentCanonical.employmentTypeStatus == null ||
+    currentCanonical.employmentTypeConfidence == null;
+  const useIncomingExperienceLevelExtraction =
+    preferIncomingSource ||
+    currentCanonical.experienceLevelGroup == null ||
+    currentCanonical.normalizedCareerStageConfidence == null;
+  const useIncomingRoleCategoryExtraction =
+    preferIncomingSource ||
+    currentCanonical.normalizedRoleCategoryGroup == null ||
+    currentCanonical.normalizedRoleCategoryStatus == null ||
+    currentCanonical.normalizedRoleCategorySource == null ||
+    currentCanonical.normalizedRoleCategoryConfidence == null;
+  const useIncomingDatePostedExtraction =
+    preferIncomingSource ||
+    currentCanonical.datePostedStatus == null ||
+    currentCanonical.datePostedConfidence == null;
+  const useIncomingDeadlineExtraction =
+    preferIncomingSource ||
+    currentCanonical.applicationDeadlineStatus == null ||
+    currentCanonical.applicationDeadlineConfidence == null;
   const normalizedEmploymentType = chooseCanonicalStringValue({
     currentValue: currentCanonical.normalizedEmploymentType ?? "UNKNOWN",
     nextValue: normalizedJob.normalizedEmploymentType,
@@ -1622,6 +1793,10 @@ export async function upsertCanonicalJob({
     preferNext: preferIncomingSource,
     unknownValues: ["UNKNOWN", "OTHER_UNKNOWN"],
   });
+  const normalizedIndustries =
+    normalizedJob.normalizedIndustries.length > 0
+      ? normalizedJob.normalizedIndustries
+      : normalizeCompanyIndustryValues(currentCanonical.normalizedIndustries, normalizedIndustry);
   const normalizedRoleCategory = chooseCanonicalStringValue({
     currentValue: currentCanonical.normalizedRoleCategory ?? "OTHER_UNKNOWN",
     nextValue: normalizedJob.normalizedRoleCategory,
@@ -1661,6 +1836,9 @@ export async function upsertCanonicalJob({
     normalizedCareerStage === normalizedJob.normalizedCareerStage &&
     normalizedIndustry === normalizedJob.normalizedIndustry &&
     normalizedRoleCategory === normalizedJob.normalizedRoleCategory;
+  const usingIncomingRoleCategory =
+    normalizedRoleCategory === normalizedJob.normalizedRoleCategory ||
+    useIncomingRoleCategoryExtraction;
 
   const canonicalJob = await prisma.jobCanonical.update({
     where: { id: currentCanonical.id },
@@ -1673,10 +1851,53 @@ export async function upsertCanonicalJob({
         nextValue: normalizedJob.title,
         preferNext: preferIncomingSource,
       }),
+      displayTitle: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.displayTitle,
+        nextValue: normalizedJob.displayTitle ?? null,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.titleConfidence,
+        nextValue: normalizedJob.titleConfidence,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.titleStatus,
+        nextValue: normalizedJob.titleStatus,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.titleSource,
+        nextValue: normalizedJob.titleSource,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleCandidatesJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.titleCandidatesJson,
+        nextValue: normalizedJob.titleCandidatesJson ?? null,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleRejectedFragmentsJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.titleRejectedFragmentsJson,
+        nextValue: normalizedJob.titleRejectedFragmentsJson ?? null,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      titleExtractionWarnings: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.titleExtractionWarnings,
+        nextValue: normalizedJob.titleExtractionWarnings ?? null,
+        preferNext: useIncomingTitleExtraction,
+      }),
+      jobPageType: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.jobPageType,
+        nextValue: normalizedJob.jobPageType ?? null,
+        preferNext: useIncomingTitleExtraction,
+      }),
       company: chooseCanonicalStringValue({
         currentValue: currentCanonical.company,
         nextValue: normalizedJob.company,
-        preferNext: preferIncomingSource || shouldReplaceGenericCompany,
+        preferNext:
+          shouldUseCompanyRecordName ||
+          preferIncomingSource ||
+          shouldReplaceGenericCompany,
         unknownValues: GENERIC_ATS_COMPANY_UNKNOWN_VALUES,
       }),
       companyKey: chooseCanonicalStringValue({
@@ -1706,6 +1927,26 @@ export async function upsertCanonicalJob({
         preferNext: preferIncomingSource,
         unknownValues: ["Unknown"],
       }),
+      locationConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.locationConfidence,
+        nextValue: normalizedJob.locationConfidence,
+        preferNext: useIncomingLocationExtraction,
+      }),
+      locationStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.locationStatus,
+        nextValue: normalizedJob.locationStatus,
+        preferNext: useIncomingLocationExtraction,
+      }),
+      locationSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.locationSource,
+        nextValue: normalizedJob.locationSource,
+        preferNext: useIncomingLocationExtraction,
+      }),
+      locationCandidatesJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.locationCandidatesJson,
+        nextValue: normalizedJob.locationCandidatesJson ?? null,
+        preferNext: useIncomingLocationExtraction,
+      }),
       locationKey: chooseCanonicalStringValue({
         currentValue: currentCanonical.locationKey,
         nextValue: normalizedJob.locationKey,
@@ -1722,27 +1963,122 @@ export async function upsertCanonicalJob({
         preferNext: preferIncomingSource,
         unknownValue: "UNKNOWN",
       }),
+      workModeConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.workModeConfidence,
+        nextValue: normalizedJob.workModeConfidence,
+        preferNext: useIncomingWorkModeExtraction,
+      }),
+      workModeStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.workModeStatus,
+        nextValue: normalizedJob.workModeStatus,
+        preferNext: useIncomingWorkModeExtraction,
+      }),
+      workModeSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.workModeSource,
+        nextValue: normalizedJob.workModeSource,
+        preferNext: useIncomingWorkModeExtraction,
+      }),
+      workModeCandidatesJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.workModeCandidatesJson,
+        nextValue: normalizedJob.workModeCandidatesJson ?? null,
+        preferNext: useIncomingWorkModeExtraction,
+      }),
       salaryMin: useIncomingSalary ? normalizedJob.salaryMin : currentCanonical.salaryMin,
       salaryMax: useIncomingSalary ? normalizedJob.salaryMax : currentCanonical.salaryMax,
       salaryCurrency: useIncomingSalary
         ? normalizedJob.salaryCurrency ?? currentCanonical.salaryCurrency
         : currentCanonical.salaryCurrency ?? normalizedJob.salaryCurrency,
+      salaryStatus: useIncomingSalary
+        ? normalizedJob.salaryStatus
+        : currentCanonical.salaryStatus ?? normalizedJob.salaryStatus,
+      salaryPeriod: useIncomingSalary
+        ? normalizedJob.salaryPeriod
+        : currentCanonical.salaryPeriod ?? normalizedJob.salaryPeriod,
+      salaryRawText: useIncomingSalary
+        ? normalizedJob.salaryRawText
+        : currentCanonical.salaryRawText ?? normalizedJob.salaryRawText,
+      salaryConfidence: useIncomingSalary
+        ? normalizedJob.salaryConfidence
+        : currentCanonical.salaryConfidence ?? normalizedJob.salaryConfidence,
+      salarySource: useIncomingSalary
+        ? normalizedJob.salarySource
+        : currentCanonical.salarySource ?? normalizedJob.salarySource,
       employmentType: chooseCanonicalEnumValue({
         currentValue: currentCanonical.employmentType,
         nextValue: normalizedJob.employmentType,
         preferNext: preferIncomingSource,
         unknownValue: "UNKNOWN",
       }),
+      employmentTypeGroup: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.employmentTypeGroup,
+        nextValue: normalizedJob.employmentTypeGroup,
+        preferNext: useIncomingEmploymentTypeExtraction,
+      }),
+      employmentTypeConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.employmentTypeConfidence,
+        nextValue: normalizedJob.employmentTypeConfidence,
+        preferNext: useIncomingEmploymentTypeExtraction,
+      }),
+      employmentTypeStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.employmentTypeStatus,
+        nextValue: normalizedJob.employmentTypeStatus,
+        preferNext: useIncomingEmploymentTypeExtraction,
+      }),
+      employmentTypeSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.employmentTypeSource,
+        nextValue: normalizedJob.employmentTypeSource,
+        preferNext: useIncomingEmploymentTypeExtraction,
+      }),
+      employmentTypeCandidatesJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.employmentTypeCandidatesJson,
+        nextValue: normalizedJob.employmentTypeCandidatesJson ?? null,
+        preferNext: useIncomingEmploymentTypeExtraction,
+      }),
       experienceLevel: chooseCanonicalEnumValue({
         currentValue: currentCanonical.experienceLevel,
         nextValue: normalizedJob.experienceLevel,
-        preferNext: preferIncomingSource,
+        preferNext: useIncomingExperienceLevelExtraction,
         unknownValue: "UNKNOWN",
+      }),
+      experienceLevelGroup: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.experienceLevelGroup,
+        nextValue: normalizedJob.experienceLevelGroup,
+        preferNext: useIncomingExperienceLevelExtraction,
+      }),
+      experienceLevelSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.experienceLevelSource,
+        nextValue: normalizedJob.experienceLevelSource,
+        preferNext: useIncomingExperienceLevelExtraction,
+      }),
+      experienceLevelEvidenceJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.experienceLevelEvidenceJson,
+        nextValue: normalizedJob.experienceLevelEvidenceJson ?? null,
+        preferNext: useIncomingExperienceLevelExtraction,
+      }),
+      experienceLevelWarningsJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.experienceLevelWarningsJson,
+        nextValue: normalizedJob.experienceLevelWarningsJson ?? null,
+        preferNext: useIncomingExperienceLevelExtraction,
       }),
       description: chooseCanonicalDescription({
         currentValue: currentCanonical.description,
         nextValue: normalizedJob.description,
         preferNext: preferIncomingSource,
+      }),
+      descriptionStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.descriptionStatus,
+        nextValue: normalizedJob.descriptionStatus,
+        preferNext: useIncomingDescriptionExtraction,
+      }),
+      descriptionConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.descriptionConfidence,
+        nextValue: normalizedJob.descriptionConfidence,
+        preferNext: useIncomingDescriptionExtraction,
+      }),
+      descriptionWordCount: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.descriptionWordCount,
+        nextValue: normalizedJob.descriptionWordCount,
+        preferNext: useIncomingDescriptionExtraction,
       }),
       shortSummary: chooseCanonicalDescription({
         currentValue: currentCanonical.shortSummary,
@@ -1765,9 +2101,34 @@ export async function upsertCanonicalJob({
       normalizedCareerStage,
       normalizedCareerStageConfidence,
       normalizedIndustry,
+      normalizedIndustries,
       normalizedIndustryConfidence,
       normalizedRoleCategory,
       normalizedRoleCategoryConfidence,
+      normalizedRoleCategoryGroup: usingIncomingRoleCategory
+        ? normalizedJob.normalizedRoleCategoryGroup
+        : currentCanonical.normalizedRoleCategoryGroup ?? normalizedJob.normalizedRoleCategoryGroup,
+      normalizedRoleCategoryStatus: usingIncomingRoleCategory
+        ? normalizedJob.normalizedRoleCategoryStatus
+        : currentCanonical.normalizedRoleCategoryStatus ?? normalizedJob.normalizedRoleCategoryStatus,
+      normalizedRoleCategorySource: usingIncomingRoleCategory
+        ? normalizedJob.normalizedRoleCategorySource
+        : currentCanonical.normalizedRoleCategorySource ?? normalizedJob.normalizedRoleCategorySource,
+      normalizedRoleCategoryCandidatesJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.normalizedRoleCategoryCandidatesJson,
+        nextValue: normalizedJob.normalizedRoleCategoryCandidatesJson ?? null,
+        preferNext: usingIncomingRoleCategory,
+      }),
+      normalizedRoleCategoryEvidenceJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.normalizedRoleCategoryEvidenceJson,
+        nextValue: normalizedJob.normalizedRoleCategoryEvidenceJson ?? null,
+        preferNext: usingIncomingRoleCategory,
+      }),
+      normalizedRoleCategoryWarningsJson: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.normalizedRoleCategoryWarningsJson,
+        nextValue: normalizedJob.normalizedRoleCategoryWarningsJson ?? null,
+        preferNext: usingIncomingRoleCategory,
+      }),
       classificationStatus: usingIncomingMetadata
         ? normalizedJob.classificationStatus
         : (currentCanonical.classificationStatus ?? normalizedJob.classificationStatus),
@@ -1782,11 +2143,66 @@ export async function upsertCanonicalJob({
         preferNext: preferIncomingSource,
       }),
       postedAt: chooseEarlierDate(currentCanonical.postedAt, normalizedJob.postedAt),
+      datePostedConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.datePostedConfidence,
+        nextValue: normalizedJob.datePostedConfidence,
+        preferNext: useIncomingDatePostedExtraction,
+      }),
+      datePostedStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.datePostedStatus,
+        nextValue: normalizedJob.datePostedStatus,
+        preferNext: useIncomingDatePostedExtraction,
+      }),
+      datePostedSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.datePostedSource,
+        nextValue: normalizedJob.datePostedSource,
+        preferNext: useIncomingDatePostedExtraction,
+      }),
+      datePostedRawText: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.datePostedRawText,
+        nextValue: normalizedJob.datePostedRawText,
+        preferNext: useIncomingDatePostedExtraction,
+      }),
       deadline: choosePreferredDeadline(currentCanonical.deadline, normalizedJob.deadline),
+      applicationDeadlineConfidence: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.applicationDeadlineConfidence,
+        nextValue: normalizedJob.applicationDeadlineConfidence,
+        preferNext: useIncomingDeadlineExtraction,
+      }),
+      applicationDeadlineStatus: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.applicationDeadlineStatus,
+        nextValue: normalizedJob.applicationDeadlineStatus,
+        preferNext: useIncomingDeadlineExtraction,
+      }),
+      applicationDeadlineSource: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.applicationDeadlineSource,
+        nextValue: normalizedJob.applicationDeadlineSource,
+        preferNext: useIncomingDeadlineExtraction,
+      }),
+      applicationDeadlineRawText: chooseCanonicalNullableValue({
+        currentValue: currentCanonical.applicationDeadlineRawText,
+        nextValue: normalizedJob.applicationDeadlineRawText,
+        preferNext: useIncomingDeadlineExtraction,
+      }),
       duplicateClusterId: chooseCanonicalNullableValue({
         currentValue: currentCanonical.duplicateClusterId,
         nextValue: normalizedJob.duplicateClusterId,
         preferNext: preferIncomingSource,
+      }),
+      extractionWarnings: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.extractionWarnings,
+        nextValue: normalizedJob.extractionWarnings ?? null,
+        preferNext: preferIncomingSource || currentCanonical.extractionWarnings == null,
+      }),
+      metadataExtractionWarnings: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.metadataExtractionWarnings,
+        nextValue: normalizedJob.metadataExtractionWarnings ?? null,
+        preferNext: preferIncomingSource || currentCanonical.metadataExtractionWarnings == null,
+      }),
+      extractionRejectionReasons: chooseCanonicalJsonValue({
+        currentValue: currentCanonical.extractionRejectionReasons,
+        nextValue: normalizedJob.extractionRejectionReasons ?? null,
+        preferNext: preferIncomingSource || currentCanonical.extractionRejectionReasons == null,
       }),
       status: "LIVE",
       lastSeenAt: now,
@@ -2862,12 +3278,31 @@ function chooseCanonicalNullableValue<T>({
   preferNext,
 }: {
   currentValue: T | null;
-  nextValue: T | null;
+  nextValue: T | null | undefined;
   preferNext: boolean;
 }) {
   if (preferNext && nextValue != null) return nextValue;
   if (currentValue != null) return currentValue;
   return nextValue;
+}
+
+function chooseCanonicalJsonValue({
+  currentValue,
+  nextValue,
+  preferNext,
+}: {
+  currentValue: Prisma.JsonValue | null;
+  nextValue: Prisma.InputJsonValue | null | undefined;
+  preferNext: boolean;
+}) {
+  const selected =
+    preferNext && nextValue != null
+      ? nextValue
+      : currentValue != null
+        ? currentValue
+        : nextValue;
+
+  return selected == null ? undefined : (selected as Prisma.InputJsonValue);
 }
 
 function chooseCanonicalEnumValue<T extends string | null>({

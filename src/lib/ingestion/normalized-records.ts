@@ -11,6 +11,8 @@ import {
   computeTrustScore,
 } from "@/lib/ingestion/quality";
 import { normalizeSourceJob } from "@/lib/ingestion/normalize";
+import { extractNormalizedJobFacts } from "@/lib/ingestion/extraction/quality-gates";
+import { mapNormalizedEmploymentTypeToLegacy } from "@/lib/ingestion/extraction/job-metadata-extractor";
 import { classifyJobMetadata } from "@/lib/job-metadata";
 import { sanitizeCompanyName, sanitizeJobDescriptionText, sanitizeJobTitle } from "@/lib/job-cleanup";
 import type { SourceConnectorJob } from "@/lib/ingestion/types";
@@ -42,6 +44,50 @@ function parseDate(value: Prisma.JsonValue | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function readEnumValue<T extends string>(
+  value: Prisma.JsonValue | null | undefined,
+  allowed: readonly T[]
+) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return allowed.includes(normalized as T) ? (normalized as T) : null;
+}
+
+function hasSourceRegistryImport(metadataJson: Prisma.JsonValue | null | undefined) {
+  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) {
+    return false;
+  }
+
+  return "sourceRegistryImport" in metadataJson;
+}
+
+export async function applyVerifiedCompanyDisplayName<T extends { company: string; companyKey: string }>(
+  job: T
+): Promise<T> {
+  if (!job.companyKey) return job;
+
+  const company = await prisma.company.findUnique({
+    where: { companyKey: job.companyKey },
+    select: {
+      name: true,
+      metadataJson: true,
+      normalizedIndustrySource: true,
+    },
+  });
+
+  const hasVerifiedRegistryName =
+    company != null &&
+    company.name.trim().length > 0 &&
+    (company.normalizedIndustrySource === "company_verified_csv" ||
+      hasSourceRegistryImport(company.metadataJson));
+
+  if (!hasVerifiedRegistryName || company.name === job.company) {
+    return job;
+  }
+
+  return { ...job, company: company.name };
+}
+
 export function inferFreshnessModeFromSourceName(sourceName: string) {
   const prefix = sourceName.split(":")[0] ?? sourceName;
   return INCREMENTAL_SOURCE_PREFIXES.has(prefix) ? "INCREMENTAL" : "FULL_SNAPSHOT";
@@ -67,8 +113,20 @@ export function parseSourceConnectorJobFromRawPayload(input: {
     applyUrl: typeof payload.applyUrl === "string" ? payload.applyUrl : "",
     postedAt: parseDate(payload.postedAt),
     deadline: parseDate(payload.deadline),
-    employmentType: null,
-    workMode: null,
+    employmentType: readEnumValue(payload.employmentType, [
+      "FULL_TIME",
+      "PART_TIME",
+      "CONTRACT",
+      "INTERNSHIP",
+      "UNKNOWN",
+    ]),
+    workMode: readEnumValue(payload.workMode, [
+      "REMOTE",
+      "HYBRID",
+      "ONSITE",
+      "FLEXIBLE",
+      "UNKNOWN",
+    ]),
     salaryMin: typeof payload.salaryMin === "number" ? payload.salaryMin : null,
     salaryMax: typeof payload.salaryMax === "number" ? payload.salaryMax : null,
     salaryCurrency: typeof payload.salaryCurrency === "string" ? payload.salaryCurrency : null,
@@ -79,13 +137,24 @@ export function parseSourceConnectorJobFromRawPayload(input: {
   } satisfies SourceConnectorJob;
 }
 
-function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetchedAt: Date) {
-  const title = sanitizeJobTitle(sourceJob.title);
+function buildRejectedNormalizedRecordData(
+  sourceJob: SourceConnectorJob,
+  fetchedAt: Date,
+  sourceName?: string | null
+) {
   const company = sanitizeCompanyName(sourceJob.company, {
     urls: [sourceJob.applyUrl, sourceJob.sourceUrl],
   });
-  const location = sourceJob.location.trim() || "Unknown";
-  const description = sanitizeJobDescriptionText(sourceJob.description, {
+  const facts = extractNormalizedJobFacts(sourceJob, {
+    company,
+    urls: [sourceJob.applyUrl, sourceJob.sourceUrl],
+    sourceName,
+    metadata: sourceJob.metadata,
+    fetchedAt,
+  });
+  const title = facts.title.value || sanitizeJobTitle(sourceJob.title);
+  const location = facts.location?.value || sourceJob.location.trim() || "Unknown";
+  const description = facts.description.text ?? sanitizeJobDescriptionText(sourceJob.description, {
     title,
     location,
   });
@@ -99,6 +168,7 @@ function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetche
   });
   const metadata = classifyJobMetadata({
     title,
+    rawTitle: sourceJob.title,
     company,
     description,
     location,
@@ -106,7 +176,10 @@ function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetche
     inferredEmploymentType: "UNKNOWN",
     legacyIndustry: null,
     roleFamily: "Unknown",
-    workMode: sourceJob.workMode ?? "UNKNOWN",
+    workMode: facts.metadata.workMode.value,
+    sourceMetadata: sourceJob.metadata,
+    applyUrl: sourceJob.applyUrl,
+    sourceUrl: sourceJob.sourceUrl,
   });
 
   return {
@@ -119,29 +192,90 @@ function buildRejectedNormalizedRecordData(sourceJob: SourceConnectorJob, fetche
     location,
     locationKey: dedupeFields.locationKey,
     region: null,
-    workMode: "UNKNOWN" as const,
+    workMode: facts.metadata.workMode.value,
+    workModeConfidence: facts.metadata.workMode.confidence,
+    workModeStatus: facts.metadata.workMode.status,
+    workModeSource: facts.metadata.workMode.source,
+    workModeCandidatesJson: facts.metadata.workModeCandidates as unknown as Prisma.InputJsonValue,
     salaryMin: sourceJob.salaryMin,
     salaryMax: sourceJob.salaryMax,
     salaryCurrency: sourceJob.salaryCurrency,
-    employmentType: "UNKNOWN" as const,
-    experienceLevel: "UNKNOWN" as const,
+    employmentType: mapNormalizedEmploymentTypeToLegacy(facts.metadata.employmentType.value),
+    employmentTypeGroup: facts.metadata.employmentTypeGroup,
+    employmentTypeConfidence: facts.metadata.employmentType.confidence,
+    employmentTypeStatus: facts.metadata.employmentType.status,
+    employmentTypeSource: facts.metadata.employmentType.source,
+    employmentTypeCandidatesJson:
+      facts.metadata.employmentTypeCandidates as unknown as Prisma.InputJsonValue,
+    experienceLevel: metadata.experienceLevel,
+    experienceLevelGroup: metadata.experienceLevelGroup,
+    experienceLevelSource: metadata.experienceLevelSource,
+    experienceLevelEvidenceJson:
+      metadata.experienceLevelEvidence as unknown as Prisma.InputJsonValue,
+    experienceLevelWarningsJson:
+      metadata.experienceLevelWarnings as unknown as Prisma.InputJsonValue,
     description,
     shortSummary: description.slice(0, 280),
     industry: null,
     roleFamily: "Unknown",
-    normalizedEmploymentType: metadata.normalizedEmploymentType,
-    normalizedEmploymentTypeConfidence: metadata.confidence.employmentType,
+    normalizedEmploymentType: facts.metadata.employmentType.value,
+    normalizedEmploymentTypeConfidence: facts.metadata.employmentType.confidence,
     normalizedCareerStage: metadata.normalizedCareerStage,
     normalizedCareerStageConfidence: metadata.confidence.careerStage,
     normalizedIndustry: metadata.normalizedIndustry,
+    normalizedIndustries: metadata.normalizedIndustries,
     normalizedIndustryConfidence: metadata.confidence.industry,
     normalizedRoleCategory: metadata.normalizedRoleCategory,
     normalizedRoleCategoryConfidence: metadata.confidence.roleCategory,
+    normalizedRoleCategoryGroup: metadata.normalizedRoleCategoryGroup,
+    normalizedRoleCategoryStatus: metadata.normalizedRoleCategoryStatus,
+    normalizedRoleCategorySource: metadata.normalizedRoleCategorySource,
+    normalizedRoleCategoryCandidatesJson:
+      metadata.normalizedRoleCategoryCandidates as unknown as Prisma.InputJsonValue,
+    normalizedRoleCategoryEvidenceJson:
+      metadata.normalizedRoleCategoryEvidence as unknown as Prisma.InputJsonValue,
+    normalizedRoleCategoryWarningsJson:
+      metadata.normalizedRoleCategoryWarnings as unknown as Prisma.InputJsonValue,
     classificationStatus: metadata.classificationStatus,
+    displayTitle: facts.displayTitle ?? null,
+    titleConfidence: facts.title.confidence,
+    titleStatus: facts.title.status,
+    titleSource: facts.title.source,
+    titleCandidatesJson: facts.titleCandidates as unknown as Prisma.InputJsonValue,
+    titleRejectedFragmentsJson:
+      facts.titleRejectedFragments as unknown as Prisma.InputJsonValue,
+    titleExtractionWarnings: facts.titleExtractionWarnings as unknown as Prisma.InputJsonValue,
+    jobPageType: facts.jobPageType ?? "unknown",
+    locationConfidence: facts.location?.confidence ?? null,
+    locationStatus: facts.location?.status ?? "missing",
+    locationSource: facts.location?.source ?? null,
+    locationCandidatesJson: facts.locationCandidates as unknown as Prisma.InputJsonValue,
+    salaryStatus: facts.salary.status,
+    salaryPeriod: facts.salary.period,
+    salaryRawText: facts.salary.rawText,
+    salaryConfidence: facts.salary.confidence,
+    salarySource: facts.salary.source,
+    descriptionStatus: facts.description.status,
+    descriptionConfidence: facts.description.confidence,
+    descriptionWordCount: facts.description.wordCount,
+    datePostedConfidence: facts.metadata.datePosted.confidence,
+    datePostedStatus: facts.metadata.datePosted.status,
+    datePostedSource: facts.metadata.datePosted.source,
+    datePostedRawText: facts.metadata.datePosted.rawValue ?? null,
+    applicationDeadlineConfidence: facts.metadata.applicationDeadline.confidence,
+    applicationDeadlineStatus: facts.metadata.applicationDeadline.status,
+    applicationDeadlineSource: facts.metadata.applicationDeadline.source,
+    applicationDeadlineRawText: facts.metadata.applicationDeadline.rawValue ?? null,
+    metadataExtractionWarnings: facts.metadata.warnings as unknown as Prisma.InputJsonValue,
+    extractionWarnings: facts.quality.warnings as unknown as Prisma.InputJsonValue,
+    extractionRejectionReasons: facts.quality.rejectionReasons as unknown as Prisma.InputJsonValue,
     applyUrl: sourceJob.applyUrl,
     applyUrlKey: dedupeFields.applyUrlKey,
-    postedAt: sourceJob.postedAt ?? fetchedAt,
-    deadline: sourceJob.deadline,
+    postedAt: facts.metadata.datePosted.value ?? fetchedAt,
+    deadline:
+      facts.metadata.applicationDeadline.status === "invalid"
+        ? null
+        : facts.metadata.applicationDeadline.value,
     duplicateClusterId: dedupeFields.duplicateClusterId,
   };
 }
@@ -161,6 +295,7 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
   const normalizationResult = normalizeSourceJob({
     job: sourceJob,
     fetchedAt: input.fetchedAt,
+    sourceName: input.rawSourceName,
   });
   const sourceIdentity = deriveSourceIdentitySnapshot({
     sourceName: input.rawSourceName,
@@ -177,7 +312,9 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
   });
 
   if (normalizationResult.kind === "rejected") {
-    const rejected = buildRejectedNormalizedRecordData(sourceJob, input.fetchedAt);
+    const rejected = await applyVerifiedCompanyDisplayName(
+      buildRejectedNormalizedRecordData(sourceJob, input.fetchedAt, input.rawSourceName)
+    );
     const trustScore = computeTrustScore({
       sourceReliability: sourceLifecycle.sourceReliability,
       sourceType: sourceLifecycle.sourceType,
@@ -226,16 +363,18 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
     sourceCount: 1,
   });
 
+  const normalizedJob = await applyVerifiedCompanyDisplayName(normalizationResult.job);
+
   return prisma.normalizedJobRecord.upsert({
     where: { rawJobId: input.rawJobId },
     create: {
       rawJobId: input.rawJobId,
       status: "VALIDATED",
       normalizationVersion: "v2-staged",
-      qualityScore: computeNormalizedQualityScore(normalizationResult.job),
+      qualityScore: computeNormalizedQualityScore(normalizedJob),
       trustScore,
       freshnessScore: 100,
-      ...normalizationResult.job,
+      ...normalizedJob,
       metadataJson:
         sourceJob.metadata != null
           ? (sourceJob.metadata as Prisma.InputJsonValue)
@@ -246,10 +385,10 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
       normalizationVersion: "v2-staged",
       rejectionReason: null,
       integrityReason: null,
-      qualityScore: computeNormalizedQualityScore(normalizationResult.job),
+      qualityScore: computeNormalizedQualityScore(normalizedJob),
       trustScore,
       freshnessScore: 100,
-      ...normalizationResult.job,
+      ...normalizedJob,
       metadataJson:
         sourceJob.metadata != null
           ? (sourceJob.metadata as Prisma.InputJsonValue)

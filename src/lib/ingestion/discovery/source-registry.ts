@@ -268,6 +268,14 @@ export async function promoteSourceCandidate(input: {
       },
       new Date()
     );
+
+    if (!source) {
+      await rejectSourceCandidate(
+        candidate.id,
+        "Company-site candidate matched a tombstoned invalid source URL or source name."
+      );
+      return null;
+    }
   }
 
   await prisma.sourceCandidate.update({

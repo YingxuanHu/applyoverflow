@@ -64,6 +64,53 @@ test("rejects generic company careers pages after a job-specific URL redirects a
   assert.ok(result.contentMatch.genericUrlSignals.includes("root_careers_url"));
 });
 
+test("rejects generic careers pages even when they repeat title words", () => {
+  const result = classify({
+    requestedUrl: "https://iongroup.com/careers/",
+    finalUrl: "https://iongroup.com/careers/",
+    bodyText:
+      "It starts with opportunity. Explore opportunities. Search our open positions and join our talent community.",
+    title: "It starts with opportunity",
+    company: "ION Group",
+    redirectDepth: 0,
+  });
+
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE);
+  assert.equal(result.isBadForFeed, true);
+  assert.ok(result.contentMatch.genericUrlSignals.includes("generic_careers_path"));
+});
+
+test("rejects talent-community apply URLs that redirect to a generic careers root", () => {
+  const result = classify({
+    requestedUrl: "https://jobs.aecon.com/talentcommunity/apply/602588617/?locale=en_US",
+    finalUrl: "https://jobs.aecon.com/",
+    bodyText:
+      "Position Title: Co-op Engineering Student. Engineering. Students. Search by Keyword Search by Location View All Jobs Join our Talent Community.",
+    title: "Position Title: Co-op Engineering Student",
+    company: "Aecon",
+    redirectDepth: 1,
+  });
+
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE);
+  assert.equal(result.isBadForFeed, true);
+  assert.ok(result.contentMatch.genericUrlSignals.includes("job_specific_path_lost_after_redirect"));
+});
+
+test("rejects ATS job URLs that redirect back to a company board without the job id", () => {
+  const result = classify({
+    requestedUrl: "https://job-boards.greenhouse.io/stackadapt/jobs/4245432009",
+    finalUrl: "https://job-boards.greenhouse.io/stackadapt?error=true",
+    bodyText:
+      "StackAdapt Careers Senior Software Engineer Marketing Engineer Product Designer Open roles.",
+    title: "Senior Software Engineer, Creatives",
+    company: "StackAdapt",
+    redirectDepth: 1,
+  });
+
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE);
+  assert.equal(result.isBadForFeed, true);
+});
+
 test("rejects generic search pages with empty keyword and location parameters", () => {
   const result = classify({
     requestedUrl: "https://company.example/jobs/987654/senior-accountant",

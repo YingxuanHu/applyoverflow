@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  unauthorizedResponse,
+} from "@/lib/api-utils";
 import {
   UnauthorizedError,
   requireCurrentAuthUserId,
@@ -292,6 +300,20 @@ function formatDocumentContext(
 
 export async function POST(request: Request, context: RouteContext) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.mediumJson,
+      "Assistant request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "ai:application-assistant",
+      API_RATE_LIMITS.aiAssistant
+    );
+    if (rateLimited) return rateLimited;
+
     const [authUserId, profile] = await Promise.all([
       requireCurrentAuthUserId(),
       requireCurrentUserProfile(),
@@ -303,8 +325,11 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const body = await request.json().catch(() => null);
-    const question =
-      typeof body?.question === "string" ? body.question.trim().slice(0, 2000) : "";
+    const rawQuestion = typeof body?.question === "string" ? body.question.trim() : "";
+    if (rawQuestion.length > 2000) {
+      return errorResponse("Question is too long (max 2000 chars).", 400);
+    }
+    const question = rawQuestion;
     const history = sanitizeHistory(body?.history);
 
     if (!question) {
@@ -500,7 +525,7 @@ ${applicationContext}`,
     return NextResponse.json({ answer, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorizedResponse();
     }
 
     const message = error instanceof Error ? error.message : "Unknown error";

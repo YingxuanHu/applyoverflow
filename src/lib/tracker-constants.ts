@@ -6,4 +6,5 @@ export const TRACKED_ACTIVE_STATUSES: TrackedApplicationStatus[] = [
   "APPLIED",
   "SCREEN",
   "INTERVIEW",
+  "OFFER",
 ];

@@ -93,9 +93,7 @@ async function fetchRemoteOkJobs(
   const toProcess =
     typeof limit === "number" ? entries.slice(0, limit) : entries;
 
-  const jobs: SourceConnectorJob[] = toProcess.map((entry) =>
-    mapToSourceJob(entry, now)
-  );
+  const jobs: SourceConnectorJob[] = toProcess.map(mapToSourceJob);
 
   return {
     jobs,
@@ -108,7 +106,7 @@ async function fetchRemoteOkJobs(
   };
 }
 
-function mapToSourceJob(entry: RemoteOkJob, now: Date): SourceConnectorJob {
+function mapToSourceJob(entry: RemoteOkJob): SourceConnectorJob {
   const id = entry.id ?? entry.slug ?? "";
   const title = (entry.position ?? "").trim();
   const company = (entry.company ?? "").trim();

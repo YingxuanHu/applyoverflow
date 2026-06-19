@@ -16,20 +16,32 @@ import {
 import { cn } from "@/lib/utils";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
+import {
+  getJobsReturnLabel,
+  getSafeJobsReturnHref,
+} from "@/lib/jobs/return-navigation";
 import { getApplicationReviewData } from "@/lib/queries/applications";
 import { resolveJobSalaryRange } from "@/lib/salary-extraction";
 
 type JobDetailPageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function JobDetailPage({ params }: JobDetailPageProps) {
+export default async function JobDetailPage({
+  params,
+  searchParams,
+}: JobDetailPageProps) {
   const sessionUser = await getOptionalSessionUser();
   if (!sessionUser) {
     redirect("/sign-in");
   }
 
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
+  const fromParam = getFirstSearchParamValue(resolvedSearchParams, "from");
+  const returnHref = getSafeJobsReturnHref(fromParam) ?? "/jobs";
+  const returnLabel = getJobsReturnLabel(returnHref);
   const detailData = await getApplicationReviewData(id);
 
   if (!detailData) {
@@ -83,8 +95,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     <div className="app-page space-y-5">
       {/* Breadcrumb */}
       <div>
-        <Link href="/jobs" className="text-sm text-muted-foreground hover:text-foreground">
-          ← Jobs
+        <Link
+          href={returnHref}
+          scroll={false}
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
+          ← {returnLabel}
         </Link>
       </div>
 
@@ -235,4 +251,12 @@ function Field({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
     </div>
   );
+}
+
+function getFirstSearchParamValue(
+  params: Record<string, string | string[] | undefined>,
+  key: string
+) {
+  const value = params[key];
+  return Array.isArray(value) ? value[0] : value;
 }

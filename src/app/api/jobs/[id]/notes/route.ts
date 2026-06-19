@@ -1,6 +1,14 @@
-import { successResponse, errorResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { prisma } from "@/lib/db";
-import { requireCurrentProfileId, UnauthorizedError } from "@/lib/current-user";
+import { requireCurrentProfileId } from "@/lib/current-user";
 
 /**
  * PATCH /api/jobs/[id]/notes
@@ -14,10 +22,30 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Job notes request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:notes",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const userId = await requireCurrentProfileId();
     const { id: jobId } = await params;
     const body = await request.json().catch(() => null);
-    const notes: string = typeof body?.notes === "string" ? body.notes.slice(0, 4000) : "";
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
+    const notes: string = typeof body?.notes === "string" ? body.notes : "";
+    if (notes.length > 4000) {
+      return errorResponse("Notes are too long (max 4000 chars).", 400);
+    }
 
     // Find existing package or create a stub
     const existing = await prisma.applicationPackage.findFirst({
@@ -54,10 +82,10 @@ export async function PATCH(
 
     return successResponse({ saved: true });
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("PATCH /api/jobs/[id]/notes error:", error);
-    return errorResponse("Failed to save notes", 500);
+    return handleApiRouteError(
+      error,
+      "PATCH /api/jobs/[id]/notes",
+      "Failed to save notes"
+    );
   }
 }

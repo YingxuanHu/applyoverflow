@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,6 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   const initialError = useMemo(() => {
     if (!token) {
@@ -144,12 +139,10 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
           ) : null}
           <Button
             className="h-11 w-full rounded-full"
-            disabled={pending || !token || !isHydrated}
+            disabled={pending || !token}
             type="submit"
           >
-            {!isHydrated ? (
-              "Loading..."
-            ) : pending ? (
+            {pending ? (
               <>
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                 Updating...

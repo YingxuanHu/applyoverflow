@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useActionState, useEffect, useState } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { CalendarClock, ChevronDown, Pencil, Trash2 } from "lucide-react";
 
 import {
@@ -58,6 +64,14 @@ function toDateTimeLocalInputValue(date: Date | null) {
   return local.toISOString().slice(0, 16);
 }
 
+function useBrowserTimeZone() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    () => ""
+  );
+}
+
 function useActionToast(state: ActionState, successTitle: string) {
   const { notify } = useNotifications();
 
@@ -70,6 +84,59 @@ function useActionToast(state: ActionState, successTitle: string) {
   }, [notify, state.error, state.success, successTitle]);
 }
 
+function ReminderDeleteButton({
+  applicationId,
+  reminderId,
+  className = "h-7 w-7 px-0 text-muted-foreground hover:text-destructive",
+  label = "Delete reminder",
+}: {
+  applicationId: string;
+  reminderId: string;
+  className?: string;
+  label?: string;
+}) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteState, deleteAction, deletePending] = useActionState(
+    deleteTimelineEvent,
+    INITIAL_STATE
+  );
+  useActionToast(deleteState, "Reminder deleted");
+
+  function dispatchDelete() {
+    const payload = new FormData();
+    payload.set("applicationId", applicationId);
+    payload.set("eventId", reminderId);
+    setDeleteOpen(false);
+    startTransition(() => deleteAction(payload));
+  }
+
+  return (
+    <>
+      <Button
+        aria-label={label}
+        className={className}
+        disabled={deletePending}
+        onClick={() => setDeleteOpen(true)}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+      <ConfirmActionDialog
+        confirmLabel={deletePending ? "Deleting..." : "Delete"}
+        description="Delete this reminder?"
+        destructive
+        onConfirm={dispatchDelete}
+        onOpenChange={setDeleteOpen}
+        open={deleteOpen}
+        pending={deletePending}
+        title="Delete reminder?"
+      />
+    </>
+  );
+}
+
 function ReminderSummaryItem({
   applicationId,
   reminder,
@@ -78,27 +145,14 @@ function ReminderSummaryItem({
   reminder: Reminder;
 }) {
   const [editing, setEditing] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(reminder.note ?? "");
   const [timeDraft, setTimeDraft] = useState(toDateTimeLocalInputValue(reminder.reminderAt));
   const [updateState, updateAction, updatePending] = useActionState(
     updateTimelineEvent,
     INITIAL_STATE
   );
-  const [deleteState, deleteAction, deletePending] = useActionState(
-    deleteTimelineEvent,
-    INITIAL_STATE
-  );
+  const browserTimeZone = useBrowserTimeZone();
   useActionToast(updateState, "Reminder saved");
-  useActionToast(deleteState, "Reminder deleted");
-
-  function dispatchDelete() {
-    const payload = new FormData();
-    payload.set("applicationId", applicationId);
-    payload.set("eventId", reminder.id);
-    setDeleteOpen(false);
-    startTransition(() => deleteAction(payload));
-  }
 
   if (editing) {
     return (
@@ -112,6 +166,7 @@ function ReminderSummaryItem({
         <input name="applicationId" type="hidden" value={applicationId} />
         <input name="eventId" type="hidden" value={reminder.id} />
         <input name="type" type="hidden" value="REMINDER" />
+        <input name="timeZone" type="hidden" value={browserTimeZone} />
         <Textarea
           className="min-h-[64px] resize-y text-sm"
           name="note"
@@ -176,30 +231,9 @@ function ReminderSummaryItem({
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            aria-label="Delete reminder"
-            className="h-7 w-7 px-0 text-muted-foreground hover:text-destructive"
-            disabled={deletePending}
-            onClick={() => setDeleteOpen(true)}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          <ReminderDeleteButton applicationId={applicationId} reminderId={reminder.id} />
         </div>
       </div>
-
-      <ConfirmActionDialog
-        confirmLabel={deletePending ? "Deleting..." : "Delete"}
-        description="Delete this reminder?"
-        destructive
-        onConfirm={dispatchDelete}
-        onOpenChange={setDeleteOpen}
-        open={deleteOpen}
-        pending={deletePending}
-        title="Delete reminder?"
-      />
     </div>
   );
 }
@@ -246,6 +280,14 @@ function ApplicationReminderGroupRow({
             <span className="rounded-full border border-border/70 bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
               +{additionalCount}
             </span>
+          ) : null}
+          {firstReminder ? (
+            <ReminderDeleteButton
+              applicationId={group.applicationId}
+              className="h-8 w-8 px-0 text-muted-foreground hover:text-destructive"
+              label="Delete shown reminder"
+              reminderId={firstReminder.id}
+            />
           ) : null}
           <Button
             aria-expanded={expanded}

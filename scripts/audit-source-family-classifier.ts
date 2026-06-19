@@ -72,6 +72,18 @@ function parseArgs(argv: string[]): CliArgs {
   return parsed;
 }
 
+function normalizeIndustryList(values: string[] | null | undefined, primary: string | null) {
+  const seen = new Set<string>();
+  const industries: NormalizedJobInput["normalizedIndustries"] = [];
+  for (const value of [...(values ?? []), primary ?? ""]) {
+    const industry = coerceNormalizedIndustry(value);
+    if (industry === "UNKNOWN" || seen.has(industry)) continue;
+    seen.add(industry);
+    industries.push(industry);
+  }
+  return industries;
+}
+
 function buildNormalizedJob(record: {
   title: string;
   company: string;
@@ -97,6 +109,7 @@ function buildNormalizedJob(record: {
   normalizedCareerStage: string | null;
   normalizedCareerStageConfidence?: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries?: string[] | null;
   normalizedIndustryConfidence?: number | null;
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence?: number | null;
@@ -132,6 +145,7 @@ function buildNormalizedJob(record: {
     normalizedCareerStage: coerceNormalizedCareerStage(record.normalizedCareerStage),
     normalizedCareerStageConfidence: record.normalizedCareerStageConfidence ?? 0.2,
     normalizedIndustry: coerceNormalizedIndustry(record.normalizedIndustry),
+    normalizedIndustries: normalizeIndustryList(record.normalizedIndustries, record.normalizedIndustry),
     normalizedIndustryConfidence: record.normalizedIndustryConfidence ?? 0.2,
     normalizedRoleCategory: coerceNormalizedRoleCategory(record.normalizedRoleCategory),
     normalizedRoleCategoryConfidence: record.normalizedRoleCategoryConfidence ?? 0.2,
@@ -214,6 +228,7 @@ async function main() {
         normalizedEmploymentType: true,
         normalizedCareerStage: true,
         normalizedIndustry: true,
+        normalizedIndustries: true,
         normalizedRoleCategory: true,
         applyUrl: true,
         applyUrlKey: true,

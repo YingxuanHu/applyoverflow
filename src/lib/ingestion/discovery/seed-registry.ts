@@ -16,9 +16,9 @@ import type {
 } from "@/generated/prisma/client";
 
 const CAREER_PATH_RE =
-  /\/(?:careers?|jobs?|join(?:-us)?|work-with-us|opportunit(?:y|ies)|open(?:-| )?(?:roles?|positions?|jobs?))/i;
+  /\/(?:careers?|jobs?|roles?|join(?:-us|-our-team|-the-team)?|work-(?:with-us|here|for-us)|opportunit(?:y|ies)|explore(?:-| )?(?:all-|open-)?(?:jobs?|roles?|positions?|opportunities)|find(?:-| )?(?:a-)?(?:jobs?|roles?|positions?|opportunities)|browse(?:-| )?(?:all-|open-)?(?:jobs?|roles?|positions?|openings?|opportunities)|search(?:-| )?(?:jobs?|roles?|positions?|openings?|opportunities)|view(?:-| )?(?:all-|open-)?(?:jobs?|roles?|positions?|openings?|opportunities)|see(?:-| )?(?:all-|open-)?(?:jobs?|roles?|positions?|openings?|opportunities)|all(?:-| )?(?:jobs?|roles?|positions?|openings?|opportunities)|open(?:-| )?(?:roles?|positions?|jobs?|opportunities)|current(?:-| )?(?:openings?|opportunities|vacancies|jobs?|roles?|positions?)|available(?:-| )?(?:roles?|positions?|jobs?|opportunities)|job(?:-| )?board|vacanc(?:y|ies)|employment|hiring|talent)/i;
 const JOB_DETAIL_PATH_RE =
-  /\/(?:job|jobs|career|careers|position|positions|vacancy|vacancies|posting|openings?)\/[^/?#]{4,}/i;
+  /\/(?:job|jobs|career|careers|role|roles|position|positions|opportunity|opportunities|vacancy|vacancies|posting|openings?)\/[^/?#]{4,}/i;
 const SITEMAP_RE = /(?:^|\/)(?:sitemap|job-sitemap)[^/]*\.xml$/i;
 const AGGREGATOR_HOST_RE =
   /(?:^|\.)?(?:adzuna\.(?:com|ca)|jooble\.org|remoteok\.com|remotive\.com|jobicy\.com|themuse\.com|himalayas\.app|usajobs\.gov|jobbank\.gc\.ca|weworkremotely\.com)$/i;
@@ -27,7 +27,48 @@ const COMPANY_SITE_ROUTE_HINTS = [
   "/jobs",
   "/careers/jobs",
   "/careers/openings",
+  "/careers/open-roles",
+  "/careers/open-positions",
+  "/careers/current-openings",
+  "/careers/job-openings",
+  "/careers/job-board",
+  "/careers/all-jobs",
+  "/careers/all-open-roles",
+  "/careers/explore-jobs",
+  "/careers/explore-roles",
+  "/careers/find-a-job",
+  "/careers/find-jobs",
+  "/careers/search-jobs",
+  "/careers/browse-jobs",
+  "/careers/view-jobs",
+  "/careers/view-roles",
+  "/careers/available-opportunities",
   "/join-us",
+  "/join-our-team",
+  "/join-the-team",
+  "/open-roles",
+  "/open-positions",
+  "/open-opportunities",
+  "/current-openings",
+  "/current-opportunities",
+  "/available-roles",
+  "/available-positions",
+  "/job-board",
+  "/roles",
+  "/all-jobs",
+  "/all-open-roles",
+  "/explore-jobs",
+  "/explore-roles",
+  "/find-a-job",
+  "/find-jobs",
+  "/search-jobs",
+  "/browse-jobs",
+  "/view-jobs",
+  "/view-roles",
+  "/opportunities",
+  "/vacancies",
+  "/work-with-us",
+  "/work-here",
   "/company/careers",
   "/about/careers",
 ];

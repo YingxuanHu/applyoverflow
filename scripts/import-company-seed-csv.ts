@@ -61,6 +61,7 @@ type ImportSummary = {
   validationTasksQueued: number;
   discoveryTasksQueued: number;
   unsupportedUrlCompanies: number;
+  tombstonedSourceUrlsSkipped: number;
   countsByConnector: Record<string, number>;
   countsByVendor: Record<string, number>;
 };
@@ -180,6 +181,9 @@ function parseCsv(content: string, fileLabel: string): CsvRow[] {
     "companyname",
   ]);
   const careersUrlIndex = findHeaderIndex(normalizedHeader, [
+    "career_url",
+    "career url",
+    "careerurl",
     "careers_url",
     "careers url",
     "careersurl",
@@ -405,6 +409,32 @@ function shouldProvisionImportedCompanySiteRoute(route: {
 function bumpCounter(record: Record<string, number>, key: string | null) {
   const normalizedKey = key && key.trim().length > 0 ? key : "blank";
   record[normalizedKey] = (record[normalizedKey] ?? 0) + 1;
+}
+
+function readTombstonedSourceUrlSet(metadataJson: unknown) {
+  const metadata =
+    metadataJson && typeof metadataJson === "object" && !Array.isArray(metadataJson)
+      ? (metadataJson as Record<string, unknown>)
+      : {};
+  const raw = metadata.invalidSourceUrls;
+  if (!Array.isArray(raw)) return new Set<string>();
+  return new Set(
+    raw
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => normalizeTombstonedSourceUrl(value))
+      .filter(Boolean)
+  );
+}
+
+function normalizeTombstonedSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.trim().toLowerCase().replace(/\/+$/, "");
+  }
 }
 
 async function upsertAtsSource(input: {
@@ -660,6 +690,7 @@ async function main() {
     validationTasksQueued: 0,
     discoveryTasksQueued: 0,
     unsupportedUrlCompanies: 0,
+    tombstonedSourceUrlsSkipped: 0,
     countsByConnector: {},
     countsByVendor: {},
   };
@@ -712,11 +743,27 @@ async function main() {
   summary.uniqueCompanies = aggregated.size;
 
   for (const aggregate of aggregated.values()) {
-    const careersUrls = [...aggregate.careersUrls];
-    const preferredCareersUrl = choosePreferredCareersUrl(careersUrls);
+    const rawCareersUrls = [...aggregate.careersUrls];
+    const existingImportCompany = await prisma.company.findUnique({
+      where: { companyKey: aggregate.companyKey },
+      select: { id: true, metadataJson: true },
+    });
+    const tombstonedSourceUrls = readTombstonedSourceUrlSet(
+      existingImportCompany?.metadataJson
+    );
+    const companySiteCareersUrls = rawCareersUrls.filter(
+      (url) => !tombstonedSourceUrls.has(normalizeTombstonedSourceUrl(url))
+    );
+    summary.tombstonedSourceUrlsSkipped +=
+      rawCareersUrls.length - companySiteCareersUrls.length;
+    const preferredCareersUrl = choosePreferredCareersUrl(companySiteCareersUrls);
     const vendorHintConnector = inferDetectedAtsFromVendors(aggregate.atsVendors);
-    const firstPartyCareersUrls = careersUrls.filter((url) => isFirstPartyCareersUrl(url));
-    const directDiscovery = await discoverSourceCandidatesFromUrls(careersUrls);
+    const firstPartyCareersUrls = companySiteCareersUrls.filter((url) => isFirstPartyCareersUrl(url));
+    // Tombstones represent bad source identities, most often a generic
+    // company-site source. Keep raw URLs available for ATS/direct-board
+    // detection so a bad CompanyHtml record can still be replaced by a valid
+    // Workday/Ashby/Greenhouse/etc source.
+    const directDiscovery = await discoverSourceCandidatesFromUrls(rawCareersUrls);
     const shouldScanFirstPartyPages =
       !args.fast &&
       firstPartyCareersUrls.length > 0 &&
@@ -737,7 +784,7 @@ async function main() {
       bumpCounter(summary.countsByConnector, connectorName);
     }
 
-    if (uniqueCandidates.length === 0 && careersUrls.length > 0) {
+    if (uniqueCandidates.length === 0 && companySiteCareersUrls.length > 0) {
       bumpCounter(summary.countsByConnector, "company-site");
     }
 
@@ -746,8 +793,8 @@ async function main() {
       seedFile: path.basename(filePath),
       importedAt: now.toISOString(),
       importLineNumbers: aggregate.lineNumbers,
-      sourceCareerUrls: careersUrls,
-      seedPageUrls: careersUrls,
+      sourceCareerUrls: rawCareersUrls,
+      seedPageUrls: companySiteCareersUrls,
       csvVendors: [...aggregate.atsVendors].sort(),
       ats: vendorHintConnector,
       supportedConnectors: connectorNames,
@@ -781,7 +828,7 @@ async function main() {
           summary.discoveryTasksQueued += 1;
           summary.unsupportedUrlCompanies += 1;
         }
-      } else if (careersUrls.length > 0) {
+      } else if (companySiteCareersUrls.length > 0) {
         summary.companySiteCompanies += 1;
         summary.discoveryTasksQueued += 1;
         summary.unsupportedUrlCompanies += 1;
@@ -790,24 +837,19 @@ async function main() {
       continue;
     }
 
-    const existingCompany = await prisma.company.findUnique({
-      where: { companyKey: aggregate.companyKey },
-      select: { id: true },
-    });
-
     const company = await ensureCompanyRecord({
       companyName: aggregate.companyName,
       companyKey: aggregate.companyKey,
-      urls: careersUrls,
-      careersUrl: preferredCareersUrl,
+      urls: uniqueCandidates.length > 0 ? rawCareersUrls : companySiteCareersUrls,
+      careersUrl: preferredCareersUrl ?? (uniqueCandidates.length > 0 ? choosePreferredCareersUrl(rawCareersUrls) : null),
       detectedAts: connectorNames[0] ?? vendorHintConnector,
       discoveryStatus: uniqueCandidates.length > 0 ? "DISCOVERED" : "PENDING",
       crawlStatus: "IDLE",
-      discoveryConfidence: uniqueCandidates.length > 0 ? 0.94 : careersUrls.length > 0 ? 0.6 : 0.2,
+      discoveryConfidence: uniqueCandidates.length > 0 ? 0.94 : companySiteCareersUrls.length > 0 ? 0.6 : 0.2,
       metadataJson: companyMetadata,
     });
 
-    if (existingCompany) {
+    if (existingImportCompany) {
       summary.updatedCompanies += 1;
     } else {
       summary.importedCompanies += 1;
@@ -834,7 +876,7 @@ async function main() {
                   )
                 )
               )
-            : careersUrls,
+            : rawCareersUrls,
           sourceInputUrls,
           csvVendors: [...aggregate.atsVendors].sort(),
           now,
@@ -865,7 +907,7 @@ async function main() {
                 seedPageUrl: preferredCareersUrl,
               },
             },
-            careersUrls,
+            careersUrls: companySiteCareersUrls,
             csvVendors: [...aggregate.atsVendors].sort(),
             now,
           });
@@ -892,7 +934,7 @@ async function main() {
             deferredInspection: true,
           },
         },
-        careersUrls,
+        careersUrls: companySiteCareersUrls,
         csvVendors: [...aggregate.atsVendors].sort(),
         now,
       });
@@ -912,7 +954,7 @@ async function main() {
       continue;
     }
 
-    if (careersUrls.length > 0) {
+    if (companySiteCareersUrls.length > 0) {
       summary.companySiteCompanies += 1;
       summary.unsupportedUrlCompanies += 1;
       await enqueueUniqueSourceTask({

@@ -346,7 +346,10 @@ async function buildSourceJob({
     detail?.company?.trim() || fallbackCompanyName;
   const title = detail?.title?.trim() || listingJob.title;
   const location = detail?.location?.trim() || listingJob.location;
-  const applyUrl = detail?.applyUrl?.trim() || listingJob.detailUrl;
+  const applyUrl = chooseSuccessFactorsApplyUrl(
+    detail?.applyUrl?.trim() || null,
+    listingJob.detailUrl
+  );
 
   return {
     sourceId: listingJob.detailUrl,
@@ -370,6 +373,19 @@ async function buildSourceJob({
       pathPrefix: target.pathPrefix,
     } as Prisma.InputJsonValue,
   };
+}
+
+function chooseSuccessFactorsApplyUrl(applyUrl: string | null, detailUrl: string) {
+  if (!applyUrl) return detailUrl;
+  try {
+    const parsed = new URL(applyUrl);
+    if (/\/talentcommunity\/apply\//i.test(parsed.pathname)) {
+      return detailUrl;
+    }
+  } catch {
+    return detailUrl;
+  }
+  return applyUrl;
 }
 
 function parseJobDetailPage(

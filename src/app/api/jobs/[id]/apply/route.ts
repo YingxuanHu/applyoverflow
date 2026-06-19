@@ -1,11 +1,24 @@
 import { type NextRequest } from "next/server";
-import { UnauthorizedError } from "@/lib/current-user";
 import {
   prepareApplicationReview,
   submitApplicationReview,
   updateApplicationSubmissionStatus,
 } from "@/lib/queries/applications";
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+
+const SUBMISSION_STATUS_BY_INTENT = {
+  confirm: "CONFIRMED",
+  fail: "FAILED",
+  withdraw: "WITHDRAWN",
+} as const;
 
 /** POST — prepare or submit */
 export async function POST(
@@ -13,8 +26,25 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:apply",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
-    const body = await request.json();
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
     const intent = typeof body?.intent === "string" ? body.intent : null;
 
     if (intent === "prepare") {
@@ -29,11 +59,11 @@ export async function POST(
 
     return errorResponse("Invalid application intent", 400);
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("POST /api/jobs/[id]/apply error:", error);
-    return errorResponse("Failed to update application review", 500);
+    return handleApiRouteError(
+      error,
+      "POST /api/jobs/[id]/apply",
+      "Failed to update application review"
+    );
   }
 }
 
@@ -43,27 +73,41 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application status request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:apply-status",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
-    const body = await request.json();
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
     const patchIntent = typeof body?.intent === "string" ? body.intent : null;
 
-    const statusMap = {
-      confirm: "CONFIRMED",
-      fail: "FAILED",
-      withdraw: "WITHDRAWN",
-    } as const;
-
-    if (!patchIntent || !(patchIntent in statusMap)) {
+    if (!patchIntent || !(patchIntent in SUBMISSION_STATUS_BY_INTENT)) {
       return errorResponse("Invalid intent — expected confirm, fail, or withdraw", 400);
     }
 
-    const result = await updateApplicationSubmissionStatus(id, statusMap[patchIntent as keyof typeof statusMap]);
+    const result = await updateApplicationSubmissionStatus(
+      id,
+      SUBMISSION_STATUS_BY_INTENT[patchIntent as keyof typeof SUBMISSION_STATUS_BY_INTENT]
+    );
     return successResponse(result);
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return errorResponse("Unauthorized", 401);
-    }
-    console.error("PATCH /api/jobs/[id]/apply error:", error);
-    return errorResponse("Failed to update submission status", 500);
+    return handleApiRouteError(
+      error,
+      "PATCH /api/jobs/[id]/apply",
+      "Failed to update submission status"
+    );
   }
 }

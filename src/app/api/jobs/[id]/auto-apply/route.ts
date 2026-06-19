@@ -2,12 +2,21 @@ import { type NextRequest } from "next/server";
 import { runAutoApply } from "@/lib/automation/engine";
 import { resolveATSFiller } from "@/lib/automation/fillers";
 import { buildAutoApplyReviewSummary } from "@/lib/automation/review";
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  isUnauthorizedApiError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+  unauthorizedResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { prepareAutoApplyPackage } from "@/lib/queries/applications";
 import { recordAction } from "@/lib/queries/behavior";
 import { saveJob } from "@/lib/queries/saved-jobs";
 import { syncTrackedApplicationFromSubmission } from "@/lib/queries/tracker";
-import { requireCurrentProfileId, UnauthorizedError } from "@/lib/current-user";
+import { requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import type { AutomationRunMode } from "@/lib/automation/types";
 
@@ -42,15 +51,27 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.mediumJson,
+      "Auto-apply request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:auto-apply",
+      API_RATE_LIMITS.autoApply
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
     let userId: string;
 
     try {
       userId = await requireCurrentProfileId();
     } catch (error) {
-      if (error instanceof UnauthorizedError) {
-        return errorResponse("Unauthorized", 401);
-      }
+      if (isUnauthorizedApiError(error)) return unauthorizedResponse();
       throw error;
     }
 
@@ -95,12 +116,27 @@ export async function POST(
         resumeVariantId = body.resumeVariantId;
       }
       if (typeof body?.coverLetterContent === "string") {
+        if (body.coverLetterContent.length > 12_000) {
+          return errorResponse("Cover letter content is too long (max 12000 chars).", 400);
+        }
         coverLetterContent = body.coverLetterContent;
       }
       if (body?.answers && typeof body.answers === "object" && !Array.isArray(body.answers)) {
         const entries = Object.entries(body.answers).filter(
           ([, value]) => typeof value === "string"
         ) as Array<[string, string]>;
+        if (entries.length > 50) {
+          return errorResponse("Too many screening answers (max 50).", 400);
+        }
+        const oversizedAnswer = entries.find(
+          ([key, value]) => key.length > 200 || value.length > 2_000
+        );
+        if (oversizedAnswer) {
+          return errorResponse(
+            "Screening answer keys must be under 200 chars and answers under 2000 chars.",
+            400
+          );
+        }
         answers = Object.fromEntries(entries);
       }
     } catch {
@@ -157,9 +193,7 @@ export async function POST(
         savedAnswers: answers,
       });
     } catch (error) {
-      if (error instanceof UnauthorizedError) {
-        return errorResponse("Unauthorized", 401);
-      }
+      if (isUnauthorizedApiError(error)) return unauthorizedResponse();
       const msg = error instanceof Error ? error.message : "Could not prepare package";
       return errorResponse(msg, 400);
     }

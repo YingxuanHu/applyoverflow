@@ -263,6 +263,13 @@ const CONNECTOR_POLL_RUNTIME_BATCH_CAPS: Record<string, number> = {
   ),
 };
 
+function getRuntimeCycleExhaustedConnectorNames(connectorCounts: Map<string, number>) {
+  return Object.entries(CONNECTOR_POLL_RUNTIME_CYCLE_CAPS)
+    .filter(([, cap]) => cap !== Number.MAX_SAFE_INTEGER)
+    .filter(([connectorName, cap]) => (connectorCounts.get(connectorName) ?? 0) >= cap)
+    .map(([connectorName]) => connectorName);
+}
+
 const CONNECTOR_POLL_BATCH_OVERFLOW_RETRY_MS = 90 * 1000;
 const CONNECTOR_POLL_CYCLE_OVERFLOW_RETRY_MS = 15 * 60 * 1000;
 // Per-source connector runtime cap (passed to ingestConnector).
@@ -299,6 +306,22 @@ const COMPANY_SOURCE_RECOVERY_SUPPRESSED_ATS_DEFER_MINUTES = 180;
 const COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS = Math.max(
   2,
   readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_COOLDOWN_HOURS") ?? 12
+);
+const COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS") ?? 6
+);
+const COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS = Math.max(
+  COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS") ?? 12
+);
+const COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD = Math.max(
+  10,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD") ?? 25
+);
+const COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD = Math.max(
+  COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD,
+  readNonNegativeIntegerEnv("INGEST_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD") ?? 100
 );
 const COMPANY_SOURCE_SLOW_LOW_YIELD_MIN_RUNS = Math.max(
   2,
@@ -355,6 +378,14 @@ const GROWTH_SOURCE_QUERY_MULTIPLIER = Math.max(
 const OFFICIAL_COMPANY_SOURCE_POLL_LIMIT = Math.max(
   100,
   readNonNegativeIntegerEnv("OFFICIAL_COMPANY_SOURCE_POLL_LIMIT") ?? 500
+);
+const BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT = Math.max(
+  50,
+  readNonNegativeIntegerEnv("BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT") ?? 100
+);
+const EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT = Math.max(
+  50,
+  readNonNegativeIntegerEnv("EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT") ?? 100
 );
 const FRONTIER_POLL_SLICE_CONCURRENCY = Math.max(
   1,
@@ -3314,11 +3345,27 @@ export async function runCompanySourcePollQueue(options: {
       )
     );
     const batchNow = new Date();
+    const excludedConnectorNames =
+      getRuntimeCycleExhaustedConnectorNames(runtimeConnectorCounts);
+    const excludedConnectorWhere =
+      excludedConnectorNames.length > 0
+        ? {
+            OR: [
+              { companySourceId: null },
+              {
+                companySource: {
+                  connectorName: { notIn: excludedConnectorNames },
+                },
+              },
+            ],
+          } satisfies Prisma.SourceTaskWhereInput
+        : {};
     const previewTasks = await prisma.sourceTask.findMany({
       where: {
         kind: "CONNECTOR_POLL",
         status: "PENDING",
         notBeforeAt: { lte: batchNow },
+        ...excludedConnectorWhere,
         ...(options.companySourceIds && options.companySourceIds.length > 0
           ? { companySourceId: { in: options.companySourceIds } }
           : {}),
@@ -3349,7 +3396,7 @@ export async function runCompanySourcePollQueue(options: {
       "CONNECTOR_POLL",
       claimLimit,
       batchNow,
-      { companySourceIds: options.companySourceIds }
+      { companySourceIds: options.companySourceIds, excludedConnectorNames }
     );
 
     if (tasks.length === 0) {
@@ -3761,8 +3808,13 @@ async function discoverCompanySurface(
     fallbackRoute &&
     (discoveredSourceCount === 0 || shouldProvisionParallelCompanySite)
   ) {
-    await provisionCompanySiteSource(company.id, company.companyKey, fallbackRoute, now);
-    customSourceProvisioned = true;
+    const provisionedSource = await provisionCompanySiteSource(
+      company.id,
+      company.companyKey,
+      fallbackRoute,
+      now
+    );
+    customSourceProvisioned = provisionedSource !== null;
   }
 
   const nextStatus: CompanyDiscoveryStatus =
@@ -3946,6 +3998,17 @@ async function provisionCompanySiteSource(
       ? `CompanyJson:${companyKey}`
       : `CompanyHtml:${companyKey}`;
 
+  const tombstone = await readCompanySourceTombstone(companyId);
+  if (
+    tombstone.invalidSourceNames.has(sourceName) ||
+    tombstone.invalidSourceUrls.has(normalizeTombstonedSourceUrl(route.url))
+  ) {
+    console.warn(
+      `[company-discovery] Skipping tombstoned company-site source ${sourceName} (${route.url})`
+    );
+    return null;
+  }
+
   const companySource = await upsertCompanySourceByIdentity({
     identity: {
       companyId,
@@ -4020,6 +4083,39 @@ async function provisionCompanySiteSource(
   });
 
   return companySource;
+}
+
+async function readCompanySourceTombstone(companyId: string) {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { metadataJson: true },
+  });
+  const metadata =
+    company?.metadataJson &&
+    typeof company.metadataJson === "object" &&
+    !Array.isArray(company.metadataJson)
+      ? (company.metadataJson as Record<string, Prisma.JsonValue>)
+      : {};
+
+  return {
+    invalidSourceNames: new Set(readStringArray(metadata.invalidSourceNames)),
+    invalidSourceUrls: new Set(
+      readStringArray(metadata.invalidSourceUrls).map((url) =>
+        normalizeTombstonedSourceUrl(url)
+      )
+    ),
+  };
+}
+
+function normalizeTombstonedSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.searchParams.sort();
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.trim().toLowerCase().replace(/\/+$/, "");
+  }
 }
 
 export async function promoteCompanySiteSourceRoute(
@@ -4142,6 +4238,12 @@ async function runSourceValidation(companySourceId: string, now: Date) {
     retainedLiveJobCount: source.retainedLiveJobCount,
     overlapRatio: source.overlapRatio,
   });
+  const recommendedCooldownUntil =
+    result.recommendedCooldownMinutes > 0
+      ? new Date(now.getTime() + result.recommendedCooldownMinutes * 60 * 1000)
+      : null;
+  const preservedFutureCooldownUntil =
+    source.cooldownUntil && source.cooldownUntil > now ? source.cooldownUntil : null;
 
   await prisma.companySource.update({
     where: { id: source.id },
@@ -4152,10 +4254,7 @@ async function runSourceValidation(companySourceId: string, now: Date) {
       lastValidatedAt: now,
       lastFailureAt: result.kind === "VALIDATED" ? null : now,
       lastHttpStatus: result.httpStatus,
-      cooldownUntil:
-        result.recommendedCooldownMinutes > 0
-          ? new Date(now.getTime() + result.recommendedCooldownMinutes * 60 * 1000)
-          : null,
+      cooldownUntil: recommendedCooldownUntil ?? preservedFutureCooldownUntil,
       validationAttemptCount: nextValidationAttemptCount,
       validationSuccessCount: nextValidationSuccessCount,
       consecutiveFailures: nextFailureCount,
@@ -4210,7 +4309,9 @@ async function runSourceValidation(companySourceId: string, now: Date) {
   if (
     result.kind === "INVALID" ||
     result.kind === "NEEDS_REDISCOVERY" ||
-    (result.kind === "SUSPECT" && nextFailureCount >= HARD_FAILURE_REDISCOVERY_THRESHOLD)
+    (result.kind === "SUSPECT" &&
+      nextFailureCount >= HARD_FAILURE_REDISCOVERY_THRESHOLD &&
+      !result.softDiscoveryMiss)
   ) {
     await prisma.companySource.update({
       where: { id: source.id },
@@ -4230,6 +4331,24 @@ async function runSourceValidation(companySourceId: string, now: Date) {
       notBeforeAt: now,
     });
   }
+}
+
+function resolveCompanySourceConnectorPollLimit(source: {
+  connectorName: string;
+  token: string | null;
+}) {
+  if (source.connectorName !== "official-company") return undefined;
+  if (source.token?.toLowerCase().startsWith("bankofamerica")) {
+    return BANK_OF_AMERICA_OFFICIAL_SOURCE_POLL_LIMIT;
+  }
+  if (
+    source.token?.toLowerCase().startsWith("microsoft") ||
+    source.token?.toLowerCase().startsWith("nvidia") ||
+    source.token?.toLowerCase().startsWith("starbucks")
+  ) {
+    return EIGHTFOLD_OFFICIAL_SOURCE_POLL_LIMIT;
+  }
+  return OFFICIAL_COMPANY_SOURCE_POLL_LIMIT;
 }
 
 async function pollCompanySource(
@@ -4279,9 +4398,7 @@ async function pollCompanySource(
     now,
     runMode: "SCHEDULED",
     limit:
-      source.connectorName === "official-company"
-        ? OFFICIAL_COMPANY_SOURCE_POLL_LIMIT
-        : undefined,
+      resolveCompanySourceConnectorPollLimit(source),
     maxRuntimeMs: effectiveMaxRuntimeMs,
     triggerLabel: `company-source:${source.id}`,
     scheduleCadenceMinutes: source.pollingCadenceMinutes,
@@ -4576,6 +4693,13 @@ async function handleCompanySourcePollFailure(
   const timeoutUpdatedCount = latestTimeoutRun?.canonicalUpdatedCount ?? 0;
   const timeoutMadeProgress =
     timeoutCreatedCount > 0 || timeoutAcceptedCount > 0 || timeoutUpdatedCount > 0;
+  const timeoutZeroCreateRefresh =
+    timeoutFailure &&
+    timeoutCreatedCount === 0 &&
+    timeoutAcceptedCount >= COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_ACCEPTED_THRESHOLD;
+  const timeoutHeavyZeroCreateRefresh =
+    timeoutZeroCreateRefresh &&
+    timeoutAcceptedCount >= COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_ACCEPTED_THRESHOLD;
   // Workday returns 500/502/503/504 and text/html as bot-detection responses,
   // not as genuine server errors. Treat all of these as blocked failures so they
   // get the 12h/24h/36h cooldown ladder rather than the 1h generic ladder.
@@ -4629,7 +4753,7 @@ async function handleCompanySourcePollFailure(
       ? "INVALID"
       : hardFailure
       ? shouldRediscover
-        ? "INVALID"
+        ? "NEEDS_REDISCOVERY"
         : "SUSPECT"
       : (blockedFailure || workdayBlockedFailure)
         ? "BLOCKED"
@@ -4648,6 +4772,8 @@ async function handleCompanySourcePollFailure(
     ? Math.max(0.45, source.sourceQualityScore * 0.88)
     : infrastructureFailure
       ? Math.max(0.5, source.sourceQualityScore * 0.98)
+    : timeoutZeroCreateRefresh
+      ? Math.max(0.22, source.sourceQualityScore * 0.82)
     : timeoutFailure
       ? Math.max(0.28, source.sourceQualityScore * 0.9)
     : Math.max(0.02, source.failureStreak > 0 ? 0.12 : 0.2);
@@ -4668,6 +4794,11 @@ async function handleCompanySourcePollFailure(
   });
 
   const timeoutCooldownMinutes =
+    timeoutZeroCreateRefresh
+      ? (timeoutHeavyZeroCreateRefresh
+          ? COMPANY_SOURCE_TIMEOUT_HEAVY_ZERO_CREATE_COOLDOWN_HOURS
+          : COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS) * 60
+    :
     transientRuntimeFailure && GROWTH_MODE_ENABLED
       ? timeoutCreatedCount >= 25
         ? 8
@@ -4778,6 +4909,8 @@ async function handleCompanySourcePollFailure(
         ? `High-value Workday source blocked; preserved with slower retry window. ${errorMessage}`
         : infrastructureFailure
           ? `INFRASTRUCTURE_FAILURE: ingestion infrastructure had a transient database/runtime failure; source quality preserved and retry scheduled. ${errorMessage}`
+        : timeoutZeroCreateRefresh
+          ? `TIME_BUDGET_LOW_NOVELTY: poll accepted ${timeoutAcceptedCount} known jobs but created 0 new canonicals before timing out; source cooled down to protect ingestion throughput. ${errorMessage}`
         : timeoutFailure
           ? `TIME_BUDGET_EXCEEDED: poll exceeded runtime budget after partial progress (${timeoutAcceptedCount} accepted, ${timeoutCreatedCount} created); retry scheduled on a short growth-mode cooldown. ${errorMessage}`
         : workdayBlockedFailure && workdayHost

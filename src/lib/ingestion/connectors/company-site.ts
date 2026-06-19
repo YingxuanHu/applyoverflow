@@ -29,7 +29,51 @@ const MAX_SITEMAP_FILES = 8;
 const MAX_SITEMAP_JOB_URLS = 250;
 const JOB_LINK_RE =
   /(job|career|position|opening|opportunit|vacanc|posting|requisition|role)/i;
+const CAREER_NAVIGATION_LINK_RE =
+  /\b(?:careers?|jobs?|job board|all jobs|all roles|all open roles|explore(?: all)? jobs|explore roles?|explore opportunities|find a job|find jobs|find roles?|find your role|find your next role|search jobs|search roles?|search openings?|browse jobs|browse roles?|browse openings?|see jobs|see roles?|see openings?|view jobs|view roles?|view openings?|view positions?|current jobs|current roles?|current openings?|current opportunities|available jobs|available roles?|available positions?|available opportunities|opportunit(?:y|ies)|career opportunities|join(?: us| our team| the team)|work(?: with us| for us| here)|employment|talent|hiring|now hiring|openings?|open roles?|open positions?|open jobs?|open opportunities|vacanc(?:y|ies))\b/i;
 const PAGINATION_RE = /(next|more|older|page \d+)/i;
+const JOB_DETAIL_SEGMENT_RE =
+  /^(?:job|jobs|career|careers|role|roles|position|positions|opportunity|opportunities|opening|openings|open-position|open-positions|job-opening|job-openings|vacancy|vacancies|requisition|requisitions|job_detail|job-detail)$/i;
+const GENERIC_DETAIL_TRAILING_SEGMENT_RE =
+  /^(?:search|results?|all|listings?|departments?|offices?|locations?|categories?|job-alerts?|alerts?|login|signin|sign-in|apply|application|interview-prep|resources?)$/i;
+const JOB_DETAIL_QUERY_PARAM_NAMES = [
+  "gh_jid",
+  "job_id",
+  "jobId",
+  "job",
+  "jobReqId",
+  "jobreqid",
+  "requisitionId",
+  "reqId",
+  "postingId",
+];
+const HTML_JOB_EVIDENCE_PATTERNS = [
+  /\bjob description\b/i,
+  /\bposition summary\b/i,
+  /\babout the role\b/i,
+  /\babout the job\b/i,
+  /\bwhat you(?:'|’)ll do\b/i,
+  /\bresponsibilit(?:y|ies)\b/i,
+  /\brequirements?\b/i,
+  /\bqualifications?\b/i,
+  /\bminimum qualifications?\b/i,
+  /\bpreferred qualifications?\b/i,
+  /\bapply for this job\b/i,
+  /\bapply now\b/i,
+  /\bjob type\b/i,
+  /\bemployment type\b/i,
+  /\brequisition\b/i,
+] satisfies RegExp[];
+const HTML_NON_JOB_DENSE_PATTERNS = [
+  /\bshare the story\b/i,
+  /\btry agentforce\b/i,
+  /\bwhile you wait to hear back\b/i,
+  /\binterview prep tools\b/i,
+  /\bai interview practice\b/i,
+  /\bhow .{1,60} works\b/i,
+  /\bwhat .{1,60} does\b/i,
+  /\blender\s*-\s*borrower\b/i,
+] satisfies RegExp[];
 
 type CompanySiteConnectorOptions = {
   sourceName: string;
@@ -319,7 +363,10 @@ async function crawlListingPages(url: string, signal?: AbortSignal) {
     const page = await fetchHtml(nextUrl, signal);
     pages.push(page);
 
-    for (const link of extractPaginationLinks(page.html, page.url)) {
+    for (const link of [
+      ...extractPaginationLinks(page.html, page.url),
+      ...extractListingNavigationLinks(page.html, page.url),
+    ]) {
       if (!visited.has(link.href) && queue.length < MAX_LISTING_PAGES) {
         queue.push(link.href);
       }
@@ -369,10 +416,10 @@ function extractStructuredJobs(html: string, pageUrl: string, companyName: strin
     sourceId: buildSourceId(job.requisitionId, job.sourceUrl, job.title),
     sourceUrl: job.sourceUrl,
     title: job.title,
-    company: job.company || companyName,
+    company: chooseStructuredCompanyName(job.company, companyName),
     location: job.location || "Unknown",
     description: job.description,
-    applyUrl: job.applyUrl || job.sourceUrl,
+    applyUrl: chooseCompanySiteApplyUrl(job.applyUrl, job.sourceUrl),
     postedAt: job.postedAt,
     deadline: job.deadline,
     employmentType: job.employmentType,
@@ -414,6 +461,9 @@ function extractHtmlDetailJob(
       applyUrl,
     })
   ) {
+    return [];
+  }
+  if (!hasHtmlFallbackJobEvidence({ heading, description, pageUrl, applyUrl })) {
     return [];
   }
 
@@ -586,6 +636,44 @@ function dedupeStructuredJobs(jobs: StructuredJobPosting[]) {
   });
 }
 
+function chooseCompanySiteApplyUrl(applyUrl: string | null | undefined, sourceUrl: string) {
+  const fallbackUrl = sourceUrl || applyUrl || "";
+  const candidate = applyUrl || fallbackUrl;
+  if (!candidate) return fallbackUrl;
+
+  try {
+    const parsedCandidate = new URL(candidate);
+    const sourceLooksJobSpecific = looksLikePotentialJobDetailUrl(sourceUrl);
+    if (sourceLooksJobSpecific && /\/talentcommunity\/apply\//i.test(parsedCandidate.pathname)) {
+      return sourceUrl;
+    }
+
+    const candidateLooksGenericRoot =
+      /^\/(?:jobs?|careers?)\/?$/i.test(parsedCandidate.pathname) ||
+      /^\/(?:jobs?|careers?)\/search\/?$/i.test(parsedCandidate.pathname);
+    if (sourceLooksJobSpecific && candidateLooksGenericRoot) {
+      return sourceUrl;
+    }
+  } catch {
+    return fallbackUrl;
+  }
+
+  return candidate;
+}
+
+function chooseStructuredCompanyName(structuredCompany: string, sourceCompany: string) {
+  const normalized = structuredCompany.trim();
+  if (!normalized) return sourceCompany;
+  if (isGenericCompanySitePlatformName(normalized)) return sourceCompany;
+  return normalized;
+}
+
+function isGenericCompanySitePlatformName(company: string) {
+  return /^(jobs2web|successfactors|sap|workday|greenhouse|lever|smartrecruiters|icims|jobvite)$/i.test(
+    company.trim()
+  );
+}
+
 function collectDetailLinks(listingPages: HtmlFetchResult[]) {
   const seen = new Set<string>();
   const links: ParsedLink[] = [];
@@ -611,6 +699,7 @@ function extractCandidateJobLinks(html: string, pageUrl: string) {
       return (
         text.length <= 140 &&
         JOB_LINK_RE.test(`${text} ${link.href}`) &&
+        looksLikePotentialJobDetailUrl(link.href) &&
         !PAGINATION_RE.test(text) &&
         !isClearlyNonJobPosting({
           title: text,
@@ -627,7 +716,8 @@ function extractCandidateJobLinksFromScripts(html: string, pageUrl: string) {
   const seen = new Set<string>();
   const links: ParsedLink[] = [];
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
-  const directUrlMatches = /https?:\/\/[^"'`\s<>]+|\/(?:jobs?|careers?|positions?|openings?)[^"'`\s<>]*/gi;
+  const directUrlMatches =
+    /https?:\/\/[^"'`\s<>]+|\/(?:jobs?|careers?|roles?|positions?|openings?|open-roles?|open-positions?|open-opportunities|current-openings?|current-opportunities|available-roles?|available-positions?|available-opportunities|all-jobs|all-roles|all-open-roles|explore-jobs|explore-all-jobs|explore-roles|explore-opportunities|find-a-job|find-jobs|find-roles|find-your-role|find-your-next-role|search-jobs|search-roles|browse-jobs|browse-roles|view-jobs|view-roles|opportunities|job-board|vacancies|join-us|join-our-team|join-the-team|work-with-us|work-for-us|work-here)[^"'`\s<>]*/gi;
 
   for (const match of scripts) {
     const script = decodeHtmlEntities(match[1] ?? "");
@@ -638,6 +728,7 @@ function extractCandidateJobLinksFromScripts(html: string, pageUrl: string) {
         const href = new URL(candidate, base).toString();
         if (new URL(href).hostname !== base.hostname) continue;
         if (!JOB_LINK_RE.test(href)) continue;
+        if (!looksLikePotentialJobDetailUrl(href)) continue;
         if (
           isClearlyNonJobPosting({
             title: href.split("/").pop()?.replace(/[-_]+/g, " ") ?? "",
@@ -662,8 +753,79 @@ function extractCandidateJobLinksFromScripts(html: string, pageUrl: string) {
   return links.slice(0, MAX_LINKS_PER_PAGE);
 }
 
+function hasHtmlFallbackJobEvidence(input: {
+  heading: string;
+  description: string;
+  pageUrl: string;
+  applyUrl: string;
+}) {
+  if (
+    !looksLikePotentialJobDetailUrl(input.pageUrl) &&
+    !looksLikePotentialJobDetailUrl(input.applyUrl)
+  ) {
+    return false;
+  }
+
+  const combined = `${input.heading}\n${input.description}\n${input.pageUrl}\n${input.applyUrl}`;
+  const positiveHits = countMatches(combined, HTML_JOB_EVIDENCE_PATTERNS);
+  const negativeHits = countMatches(combined, HTML_NON_JOB_DENSE_PATTERNS);
+  if (negativeHits >= 2 && positiveHits < 3) {
+    return false;
+  }
+
+  return positiveHits >= 2;
+}
+
+function looksLikePotentialJobDetailUrl(url: string) {
+  if (isClearlyNonJobContentUrl(url)) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (JOB_DETAIL_QUERY_PARAM_NAMES.some((name) => parsed.searchParams.has(name))) {
+      return true;
+    }
+
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const markerIndex = pathSegments.findIndex((segment) =>
+      JOB_DETAIL_SEGMENT_RE.test(segment)
+    );
+    if (markerIndex < 0) return false;
+
+    const trailingSegments = pathSegments.slice(markerIndex + 1);
+    if (trailingSegments.length === 0) return false;
+
+    const lastSegment = trailingSegments.at(-1) ?? "";
+    if (!lastSegment || GENERIC_DETAIL_TRAILING_SEGMENT_RE.test(lastSegment)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function countMatches(input: string, patterns: readonly RegExp[]) {
+  return patterns.reduce(
+    (count, pattern) => (pattern.test(input) ? count + 1 : count),
+    0
+  );
+}
+
 function extractPaginationLinks(html: string, pageUrl: string) {
   return extractLinks(html, pageUrl).filter((link) => PAGINATION_RE.test(link.text));
+}
+
+function extractListingNavigationLinks(html: string, pageUrl: string) {
+  return extractLinks(html, pageUrl).filter((link) => {
+    if (PAGINATION_RE.test(link.text)) return false;
+    if (looksLikePotentialJobDetailUrl(link.href)) return false;
+    if (isClearlyNonJobContentUrl(link.href)) return false;
+    return CAREER_NAVIGATION_LINK_RE.test(`${link.text} ${link.href}`);
+  });
 }
 
 function extractLinks(html: string, pageUrl: string) {
@@ -699,14 +861,51 @@ function looksLikeCareerSurface(html: string, pageUrl: string) {
 
   const positiveSignals = [
     /\bcareers?\b/,
+    /\bjob board\b/,
+    /\ball jobs\b/,
+    /\ball roles\b/,
+    /\ball open roles\b/,
+    /\bexplore (?:all )?jobs\b/,
+    /\bexplore roles?\b/,
+    /\bexplore opportunities\b/,
+    /\bfind a job\b/,
+    /\bfind jobs\b/,
+    /\bfind roles?\b/,
+    /\bfind your role\b/,
+    /\bfind your next role\b/,
+    /\bsearch jobs\b/,
+    /\bsearch roles?\b/,
+    /\bsearch openings?\b/,
+    /\bbrowse jobs\b/,
+    /\bbrowse roles?\b/,
+    /\bbrowse openings?\b/,
+    /\bsee jobs\b/,
+    /\bsee roles?\b/,
+    /\bsee openings?\b/,
+    /\bview jobs\b/,
+    /\bview roles?\b/,
+    /\bview openings?\b/,
+    /\bview positions?\b/,
     /\bopen roles?\b/,
     /\bopen positions?\b/,
+    /\bopen jobs?\b/,
+    /\bopen opportunities\b/,
+    /\bavailable roles?\b/,
+    /\bavailable positions?\b/,
+    /\bavailable opportunities\b/,
+    /\bcurrent roles?\b/,
     /\bjob openings?\b/,
     /\bjoin (our )?team\b/,
+    /\bjoin us\b/,
     /\bwork with us\b/,
-    /\bsearch jobs\b/,
-    /\bview jobs\b/,
+    /\bwork for us\b/,
+    /\bwork here\b/,
+    /\bemployment\b/,
+    /\btalent\b/,
+    /\bhiring\b/,
     /\bcurrent openings\b/,
+    /\bcurrent opportunities\b/,
+    /\bvacanc(?:y|ies)\b/,
     /\bopportunities\b/,
   ];
 

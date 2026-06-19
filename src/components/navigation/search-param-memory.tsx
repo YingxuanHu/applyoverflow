@@ -3,9 +3,12 @@
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { normalizeJobsStateQuery } from "@/lib/jobs/search-state";
+
 type SearchParamMemoryProps = {
   basePath: string;
   cookieName?: string;
+  normalizer?: "jobs";
   persistEndpoint?: string;
   stateParamKeys?: readonly string[];
   storageKey: string;
@@ -14,6 +17,7 @@ type SearchParamMemoryProps = {
 export function SearchParamMemory({
   basePath,
   cookieName,
+  normalizer,
   persistEndpoint,
   stateParamKeys,
   storageKey,
@@ -37,7 +41,10 @@ export function SearchParamMemory({
       return;
     }
 
-    const stateSearch = getStateSearch(searchParams, stateParamKeys);
+    const stateSearch = normalizeStateSearch(
+      getStateSearch(searchParams, stateParamKeys),
+      normalizer
+    );
     if (stateSearch) {
       sessionStorage.setItem(storageKey, stateSearch);
       if (cookieName) setMemoryCookie(cookieName, stateSearch);
@@ -51,13 +58,14 @@ export function SearchParamMemory({
       return;
     }
 
-    const saved = sessionStorage.getItem(storageKey);
+    const saved = normalizeStateSearch(sessionStorage.getItem(storageKey) ?? "", normalizer);
     if (saved) {
       router.replace(`${basePath}?${saved}`);
     }
   }, [
     basePath,
     cookieName,
+    normalizer,
     pathname,
     persistEndpoint,
     router,
@@ -86,6 +94,14 @@ function getStateSearch(
     if (!hasState) return "";
   }
   return params.toString();
+}
+
+function normalizeStateSearch(search: string, normalizer?: SearchParamMemoryProps["normalizer"]) {
+  if (!search) return "";
+  if (normalizer === "jobs") {
+    return normalizeJobsStateQuery(search);
+  }
+  return search;
 }
 
 function setMemoryCookie(name: string, value: string) {

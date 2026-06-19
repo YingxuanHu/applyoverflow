@@ -60,6 +60,8 @@ test("treats generic Workable /j apply URLs as unresolved company names", () => 
 });
 
 test("treats generic ATS and public-board host slugs as unresolved company names", () => {
+  assert.equal(hasUnresolvedGenericCompanyName("0"), true);
+  assert.equal(hasUnresolvedGenericCompanyName("N/A"), true);
   assert.equal(
     hasUnresolvedGenericCompanyName(
       "Oraclecloud",
@@ -171,5 +173,17 @@ test("derives tenant company from Teamtailor domains", () => {
       urls: ["https://synthesized.teamtailor.com/jobs/7634610-account-executive-apac"],
     }),
     "Synthesized"
+  );
+});
+
+test("does not let generic Workday tenant hosts override trusted company names", () => {
+  assert.equal(
+    sanitizeCompanyName("Bank of America", {
+      urls: [
+        "https://ghr.wd1.myworkdayjobs.com/Lateral-US/job/Jacksonville/ACS--Bilingual-Spanish-Call-Center-Telephone-Banker--Jacksonville--FL_26015661-2",
+        "https://careers.bankofamerica.com/en-us/job-detail/26015661/acs-bilingual-spanish-call-center-telephone-banker-jacksonville-fl-jacksonville-florida-united-states",
+      ],
+    }),
+    "Bank of America"
   );
 });

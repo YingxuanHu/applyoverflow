@@ -113,12 +113,103 @@ test("classifyNonJobPosting rejects generic careers landing pages", () => {
       applyUrl: "https://careers.hpe.com/us/en/hybrid-cloud",
       reason: "non_job_title",
     },
+    {
+      title: "It starts with opportunity",
+      description:
+        "Explore opportunities. Search our open positions. Join a group of passionate professionals transforming industries.",
+      applyUrl: "https://iongroup.com/careers/",
+      reason: "non_job_title",
+    },
   ]) {
     const result = classifyNonJobPosting(input);
 
     assert.equal(result.detected, true, input.applyUrl);
     assert.equal(result.reason, input.reason, input.applyUrl);
   }
+});
+
+test("classifyNonJobPosting rejects company-site fallback pages that are not jobs", () => {
+  for (const input of [
+    {
+      title: "Will AI Replace Jobs?",
+      description:
+        "With the rise of artificial intelligence in the workplace, people are concerned about losing their jobs to AI. Try Agentforce and share the story.",
+      applyUrl:
+        "https://www.salesforce.com/ap/artificial-intelligence/will-ai-replace-jobs/",
+      reason: "non_job_title",
+    },
+    {
+      title: "Thanks for applying to Remote!",
+      description:
+        "While you wait to hear back from us, get ready for your next interview with interview prep tools and AI interview practice.",
+      applyUrl: "https://www.notion.so/11ccb4dadab4805f80a7c73b6567bd8f?pvs=21",
+      reason: "non_job_title",
+    },
+    {
+      title: "Current Opening",
+      description:
+        "Faircent careers opportunities. How Faircent works. What Faircent does. Lender - Borrower Sample Agreement.",
+      applyUrl: "https://www.faircent.com/personal-loan",
+      reason: "non_job_title",
+    },
+    {
+      title: "Please fill details and apply",
+      description:
+        "Faircent careers opportunities. Current opening. How it works. Lender - Borrower Sample Agreement.",
+      applyUrl: "https://www.faircent.com/personal-loan",
+      reason: "non_job_title",
+    },
+  ]) {
+    const result = classifyNonJobPosting(input);
+    assert.equal(result.detected, true, input.applyUrl);
+    assert.equal(result.reason, input.reason, input.applyUrl);
+  }
+});
+
+test("classifyNonJobPosting rejects thank-you and lead-capture pages", () => {
+  for (const input of [
+    {
+      title: "Job seeker didn’t know to send thank you note after interview, people came to the rescue",
+      description: "I hate etiquette.",
+      applyUrl: "https://www.upworthy.com/thank-you-note-after-interview",
+      reason: "non_job_title",
+    },
+    {
+      title: "THANK YOU",
+      description:
+        "Your information has been submitted to our team, and someone will reach out to you shortly.",
+      applyUrl: "https://www.tunein.com/thank-you",
+      reason: "non_job_title",
+    },
+    {
+      title: "Thank you!",
+      description:
+        "Challenges and Opportunities in Cloud-Based Simulation - An Engineer's Perspective TY!",
+      applyUrl: "https://www.rescale.com/webinars/thank-you",
+      reason: "non_job_title",
+    },
+    {
+      title: "Be positioned for Growth with InsurePay Reconciliation Thank You",
+      description: "Thank you for requesting a copy of this whitepaper.",
+      applyUrl: "https://www.duckcreek.com/whitepaper/insurepay-reconciliation-thank-you",
+      reason: "thank_you_confirmation_page",
+    },
+  ]) {
+    const result = classifyNonJobPosting(input);
+    assert.equal(result.detected, true, input.title);
+    assert.equal(result.reason, input.reason, input.title);
+  }
+});
+
+test("classifyNonJobPosting allows real jobs with thank-you-adjacent wording", () => {
+  const result = classifyNonJobPosting({
+    title: "Customer Success Manager",
+    description:
+      "About the role. Responsibilities include improving customer onboarding and post-sale communication. Requirements include SaaS customer success experience.",
+    applyUrl: "https://jobs.example.com/customer-success-manager-123",
+  });
+
+  assert.equal(result.detected, false);
 });
 
 test("classifyNonJobPosting rejects generic ATS board pages even when a scraped title looks real", () => {
@@ -240,6 +331,12 @@ test("classifyNonJobPosting allows concrete job postings", () => {
       description:
         "About the role. Responsibilities include outbound prospecting and building pipeline.",
       applyUrl: "https://www.relexsolutions.com/careers/jobs/?gh_jid=6675540003",
+    },
+    {
+      title: "Senior Software Engineer - Risk",
+      description:
+        "About the role. Responsibilities include building secure services and collaborating with product teams. Requirements include professional software engineering experience.",
+      applyUrl: "https://job-boards.greenhouse.io/tenableinc/jobs/5099269008",
     },
   ]) {
     const result = classifyNonJobPosting(input);

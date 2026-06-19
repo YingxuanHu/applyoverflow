@@ -16,6 +16,8 @@ const APPLE_PAGE_SIZE = 20;
 const GOOGLE_PAGE_SIZE = 20;
 const EIGHTFOLD_PAGE_SIZE = 100;
 const NETFLIX_PAGE_SIZE = 50;
+const BANK_OF_AMERICA_PAGE_SIZE = 100;
+const HOME_DEPOT_PAGE_SIZE = 100;
 const AMAZON_GLOBAL_SHARD_MODE = "global-unfiltered-first-v2";
 export const AMAZON_US_CATEGORY_SHARDS = [
   "Software Development",
@@ -63,10 +65,13 @@ const EIGHTFOLD_LOCATIONS = {
 export type OfficialCompanyKey =
   | "amazon"
   | "apple"
+  | "bankofamerica"
   | "google"
+  | "homedepot"
   | "microsoft"
   | "netflix"
-  | "nvidia";
+  | "nvidia"
+  | "starbucks";
 export type OfficialCompanyMarket = "ca" | "us" | "north-america" | "global";
 
 type OfficialCompanyConnectorOptions = {
@@ -205,13 +210,100 @@ type NetflixCheckpoint = {
   offset: number;
 };
 
-type EightfoldCompanyKey = Extract<OfficialCompanyKey, "microsoft" | "nvidia">;
+type BankOfAmericaSearchResponse = {
+  jobsList?: BankOfAmericaJob[];
+  totalMatches?: number | string;
+};
+
+type BankOfAmericaJob = {
+  postingTitle?: string;
+  brand?: string;
+  jcrURL?: string;
+  postedDate?: string;
+  indexedDate?: string;
+  jobRequisitionId?: string | number;
+  city?: string;
+  state?: string;
+  country?: string;
+  locationString?: string;
+  division?: string;
+  family?: string;
+  lob?: string;
+  subLob?: string;
+  area?: string;
+  workShift?: string;
+  timeType?: string;
+  job_type_text?: string;
+  yearsOfExperience?: string;
+  minYearsOfExperience?: number;
+  maxYearsOfExperience?: number;
+};
+
+type BankOfAmericaJobDetail = {
+  description: string | null;
+  applyUrl: string | null;
+  postedAt: Date | null;
+  employmentType: string | null;
+  title: string | null;
+  location: string | null;
+};
+
+type BankOfAmericaCheckpoint = {
+  kind: "bank-of-america-official";
+  offset: number;
+};
+
+type HomeDepotSearchResponse = {
+  totalHits?: number;
+  queryResult?: HomeDepotJob[];
+};
+
+type HomeDepotJob = {
+  id?: string | number;
+  ref?: string;
+  clientid?: string;
+  title?: string;
+  company_name?: string;
+  primary_city?: string;
+  primary_state?: string;
+  primary_country?: string;
+  location_type?: string;
+  parent_category?: string;
+  primary_category?: string;
+  department?: string;
+  function?: string;
+  description?: string;
+  open_date?: string;
+  close_date?: string;
+  employment_type?: string;
+  job_type?: string;
+  schedule?: string;
+  salary?: string;
+  url?: string;
+  fndly_url?: string;
+  ats_portalid?: string;
+  entity_status?: string;
+};
+
+type HomeDepotCheckpoint = {
+  kind: "home-depot-official";
+  offset: number;
+};
+
+type EightfoldCompanyKey = Extract<
+  OfficialCompanyKey,
+  "microsoft" | "nvidia" | "starbucks"
+>;
 
 type EightfoldConfig = {
   company: EightfoldCompanyKey;
-  displayName: "Microsoft" | "NVIDIA";
-  domain: "microsoft.com" | "nvidia.com";
-  baseUrl: "https://apply.careers.microsoft.com" | "https://jobs.nvidia.com";
+  displayName: "Microsoft" | "NVIDIA" | "Starbucks";
+  domain: "microsoft.com" | "nvidia.com" | "starbucks.com";
+  baseUrl:
+    | "https://apply.careers.microsoft.com"
+    | "https://jobs.nvidia.com"
+    | "https://apply.starbucks.com";
+  jobCategories?: string[];
 };
 
 type EightfoldSearchResponse = {
@@ -260,8 +352,22 @@ type EightfoldCheckpoint = {
   company: EightfoldCompanyKey;
   market: OfficialCompanyMarket;
   locationIndex: number;
+  categoryIndex?: number;
   offset: number;
 };
+
+const STARBUCKS_OFFICE_JOB_CATEGORIES = [
+  "technology",
+  "finance and accounting",
+  "supply chain management",
+  "human resources",
+  "store development and design",
+  "business strategy",
+  "marketing and brand management",
+  "administrative support",
+  "research and development",
+  "sales and account management",
+] as const;
 
 export function createOfficialCompanyConnector(
   options: OfficialCompanyConnectorOptions
@@ -282,7 +388,19 @@ export function createOfficialCompanyConnector(
         return fetchGoogleJobs(fetchOptions);
       }
 
-      if (options.company === "microsoft" || options.company === "nvidia") {
+      if (options.company === "bankofamerica") {
+        return fetchBankOfAmericaJobs(fetchOptions);
+      }
+
+      if (options.company === "homedepot") {
+        return fetchHomeDepotJobs(fetchOptions);
+      }
+
+      if (
+        options.company === "microsoft" ||
+        options.company === "nvidia" ||
+        options.company === "starbucks"
+      ) {
         return fetchEightfoldJobs({ company: options.company, market }, fetchOptions);
       }
 
@@ -306,13 +424,16 @@ export function parseOfficialCompanySourceToken(token: string): {
   if (
     company !== "amazon" &&
     company !== "apple" &&
+    company !== "bankofamerica" &&
     company !== "google" &&
+    company !== "homedepot" &&
     company !== "microsoft" &&
     company !== "netflix" &&
-    company !== "nvidia"
+    company !== "nvidia" &&
+    company !== "starbucks"
   ) {
     throw new Error(
-      `Unsupported official company source "${token}". Supported values: amazon, apple, google, microsoft, netflix, nvidia.`
+      `Unsupported official company source "${token}". Supported values: amazon, apple, bankofamerica, google, homedepot, microsoft, netflix, nvidia, starbucks.`
     );
   }
 
@@ -632,19 +753,153 @@ export async function fetchNetflixJobs(
   });
 }
 
+export async function fetchBankOfAmericaJobs(
+  fetchOptions: SourceConnectorFetchOptions
+): Promise<SourceConnectorFetchResult> {
+  const checkpoint = parseBankOfAmericaCheckpoint(fetchOptions.checkpoint);
+  const jobsById = new Map<string, SourceConnectorJob>();
+  let offset = checkpoint?.offset ?? 0;
+  let totalRecords = Number.POSITIVE_INFINITY;
+  let exhausted = true;
+
+  while (offset < totalRecords) {
+    if (isDeadlineNear(fetchOptions)) {
+      exhausted = false;
+      const nextCheckpoint = buildBankOfAmericaCheckpoint(offset);
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "bankofamerica",
+        totalRecords: Number.isFinite(totalRecords) ? totalRecords : null,
+        stoppedReason: "deadline_near",
+      }, nextCheckpoint);
+    }
+
+    const pageLimit =
+      fetchOptions.limit && fetchOptions.limit > jobsById.size
+        ? Math.min(BANK_OF_AMERICA_PAGE_SIZE, fetchOptions.limit - jobsById.size)
+        : BANK_OF_AMERICA_PAGE_SIZE;
+    const payload = await fetchJson<BankOfAmericaSearchResponse>(
+      buildBankOfAmericaSearchUrl({ offset, limit: pageLimit }),
+      fetchOptions.signal
+    );
+    const jobs = Array.isArray(payload.jobsList) ? payload.jobsList : [];
+    totalRecords = parseNumberLike(payload.totalMatches) ?? offset + jobs.length;
+
+    for (const job of jobs) {
+      if (isDeadlineNear(fetchOptions)) {
+        exhausted = false;
+        const nextCheckpoint = buildBankOfAmericaCheckpoint(offset);
+        await fetchOptions.onCheckpoint?.(nextCheckpoint);
+        return buildResult(jobsById, exhausted, {
+          company: "bankofamerica",
+          totalRecords: Number.isFinite(totalRecords) ? totalRecords : null,
+          stoppedReason: "deadline_near",
+        }, nextCheckpoint);
+      }
+
+      const detail = shouldFetchBankOfAmericaDetails()
+        ? await fetchBankOfAmericaJobDetail(job, fetchOptions)
+        : null;
+      const mapped = mapBankOfAmericaJob(job, detail);
+      if (mapped) jobsById.set(mapped.sourceId, mapped);
+
+      if (fetchOptions.limit && jobsById.size >= fetchOptions.limit) {
+        exhausted = false;
+        const nextCheckpoint =
+          offset + jobs.length < totalRecords
+            ? buildBankOfAmericaCheckpoint(offset + jobs.length)
+            : null;
+        await fetchOptions.onCheckpoint?.(nextCheckpoint);
+        return buildResult(jobsById, exhausted, {
+          company: "bankofamerica",
+          totalRecords,
+        }, nextCheckpoint);
+      }
+    }
+
+    offset += jobs.length;
+    if (jobs.length === 0) break;
+  }
+
+  return buildResult(jobsById, exhausted, {
+    company: "bankofamerica",
+    totalRecords: Number.isFinite(totalRecords) ? totalRecords : jobsById.size,
+  });
+}
+
+export async function fetchHomeDepotJobs(
+  fetchOptions: SourceConnectorFetchOptions
+): Promise<SourceConnectorFetchResult> {
+  const checkpoint = parseHomeDepotCheckpoint(fetchOptions.checkpoint);
+  const jobsById = new Map<string, SourceConnectorJob>();
+  let offset = checkpoint?.offset ?? 1;
+  let totalRecords = Number.POSITIVE_INFINITY;
+  let exhausted = true;
+
+  while (offset <= totalRecords) {
+    if (isDeadlineNear(fetchOptions)) {
+      exhausted = false;
+      const nextCheckpoint = buildHomeDepotCheckpoint(offset);
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "homedepot",
+        totalRecords: Number.isFinite(totalRecords) ? totalRecords : null,
+        stoppedReason: "deadline_near",
+      }, nextCheckpoint);
+    }
+
+    const pageLimit =
+      fetchOptions.limit && fetchOptions.limit > jobsById.size
+        ? Math.min(HOME_DEPOT_PAGE_SIZE, fetchOptions.limit - jobsById.size)
+        : HOME_DEPOT_PAGE_SIZE;
+    const payload = await fetchJsonp<HomeDepotSearchResponse>(
+      buildHomeDepotSearchUrl({ offset, limit: pageLimit }),
+      fetchOptions.signal
+    );
+    const jobs = Array.isArray(payload.queryResult) ? payload.queryResult : [];
+    totalRecords =
+      typeof payload.totalHits === "number" ? payload.totalHits : offset + jobs.length - 1;
+
+    for (const job of jobs) {
+      const mapped = mapHomeDepotJob(job);
+      if (mapped) jobsById.set(mapped.sourceId, mapped);
+    }
+
+    offset += jobs.length;
+    if (fetchOptions.limit && jobsById.size >= fetchOptions.limit) {
+      exhausted = false;
+      const nextCheckpoint =
+        offset <= totalRecords ? buildHomeDepotCheckpoint(offset) : null;
+      await fetchOptions.onCheckpoint?.(nextCheckpoint);
+      return buildResult(jobsById, exhausted, {
+        company: "homedepot",
+        totalRecords,
+      }, nextCheckpoint);
+    }
+
+    if (jobs.length === 0) break;
+  }
+
+  return buildResult(jobsById, exhausted, {
+    company: "homedepot",
+    totalRecords: Number.isFinite(totalRecords) ? totalRecords : jobsById.size,
+  });
+}
+
 export async function fetchEightfoldJobs(
   options: { company: EightfoldCompanyKey; market: OfficialCompanyMarket },
   fetchOptions: SourceConnectorFetchOptions
 ): Promise<SourceConnectorFetchResult> {
   const config = getEightfoldConfig(options.company);
   const locations = EIGHTFOLD_LOCATIONS[options.market];
+  const categories = config.jobCategories?.length ? config.jobCategories : [null];
   const checkpoint = parseEightfoldCheckpoint(
     fetchOptions.checkpoint,
     options.company,
     options.market
   );
   const jobsById = new Map<string, SourceConnectorJob>();
-  const totalHitsByLocation: Record<string, number> = {};
+  const totalHitsByShard: Record<string, number> = {};
   let exhausted = true;
 
   for (
@@ -653,126 +908,148 @@ export async function fetchEightfoldJobs(
     locationIndex += 1
   ) {
     const location = locations[locationIndex]!;
-    let offset = locationIndex === checkpoint?.locationIndex ? checkpoint.offset : 0;
+    const checkpointCategoryIndex = checkpoint?.categoryIndex ?? 0;
+    const startingCategoryIndex =
+      locationIndex === checkpoint?.locationIndex ? checkpointCategoryIndex : 0;
 
-    while (true) {
-      if (isDeadlineNear(fetchOptions)) {
-        exhausted = false;
-        const nextCheckpoint = buildEightfoldCheckpoint(
-          options.company,
-          options.market,
-          locationIndex,
-          offset
-        );
-        await fetchOptions.onCheckpoint?.(nextCheckpoint);
-        return buildResult(jobsById, exhausted, {
-          company: config.company,
-          market: options.market,
-          totalHitsByLocation,
-          stoppedReason: "deadline_near",
-        }, nextCheckpoint);
-      }
+    for (
+      let categoryIndex = startingCategoryIndex;
+      categoryIndex < categories.length;
+      categoryIndex += 1
+    ) {
+      const jobCategory = categories[categoryIndex] ?? null;
+      let offset =
+        locationIndex === checkpoint?.locationIndex &&
+        categoryIndex === checkpointCategoryIndex
+          ? checkpoint.offset
+          : 0;
 
-      const pageLimit =
-        fetchOptions.limit && fetchOptions.limit > jobsById.size
-          ? Math.min(
-              getEightfoldPageSize(options.company),
-              fetchOptions.limit - jobsById.size
-            )
-          : getEightfoldPageSize(options.company);
-      const searchUrl = buildEightfoldSearchUrl({
-        config,
-        location,
-        offset,
-        limit: pageLimit,
-      });
-      let payload: EightfoldSearchResponse;
-      try {
-        payload = await fetchJson<EightfoldSearchResponse>(
-          searchUrl,
-          fetchOptions.signal
-        );
-        assertEightfoldOk(payload, searchUrl);
-      } catch (error) {
-        if (jobsById.size === 0) {
-          throw error;
-        }
-
-        exhausted = false;
-        const nextCheckpoint = buildEightfoldCheckpoint(
-          options.company,
-          options.market,
-          locationIndex,
-          offset
-        );
-        await fetchOptions.onCheckpoint?.(nextCheckpoint);
-        return buildResult(jobsById, exhausted, {
-          company: config.company,
-          market: options.market,
-          totalHitsByLocation,
-          stoppedReason: "search_page_error",
-          error: error instanceof Error ? error.message : String(error),
-        }, nextCheckpoint);
-      }
-      const positions = Array.isArray(payload.data?.positions)
-        ? payload.data.positions
-        : [];
-      const totalHits =
-        typeof payload.data?.count === "number" ? payload.data.count : positions.length;
-      totalHitsByLocation[location] = totalHits;
-
-      for (const position of positions) {
+      while (true) {
         if (isDeadlineNear(fetchOptions)) {
           exhausted = false;
           const nextCheckpoint = buildEightfoldCheckpoint(
             options.company,
             options.market,
             locationIndex,
-            offset
+            offset,
+            categoryIndex
           );
           await fetchOptions.onCheckpoint?.(nextCheckpoint);
           return buildResult(jobsById, exhausted, {
             company: config.company,
             market: options.market,
-            totalHitsByLocation,
+            totalHitsByShard,
             stoppedReason: "deadline_near",
           }, nextCheckpoint);
         }
 
-        const detail = shouldFetchEightfoldDetails()
-          ? await fetchEightfoldJobDetail(config, position, fetchOptions)
-          : null;
-        const mapped = mapEightfoldJob(config, position, detail);
-        if (mapped) jobsById.set(mapped.sourceId, mapped);
+        const pageLimit =
+          fetchOptions.limit && fetchOptions.limit > jobsById.size
+            ? Math.min(
+                getEightfoldPageSize(options.company),
+                fetchOptions.limit - jobsById.size
+              )
+            : getEightfoldPageSize(options.company);
+        const searchUrl = buildEightfoldSearchUrl({
+          config,
+          location,
+          offset,
+          limit: pageLimit,
+          jobCategory,
+        });
+        let payload: EightfoldSearchResponse;
+        try {
+          payload = await fetchJson<EightfoldSearchResponse>(
+            searchUrl,
+            fetchOptions.signal
+          );
+          assertEightfoldOk(payload, searchUrl);
+        } catch (error) {
+          if (jobsById.size === 0) {
+            throw error;
+          }
 
-        if (fetchOptions.limit && jobsById.size >= fetchOptions.limit) {
           exhausted = false;
-          const nextCheckpoint = getNextEightfoldCheckpoint({
-            company: options.company,
-            market: options.market,
-            locations,
+          const nextCheckpoint = buildEightfoldCheckpoint(
+            options.company,
+            options.market,
             locationIndex,
-            offset: offset + positions.length,
-            totalHits,
-          });
+            offset,
+            categoryIndex
+          );
           await fetchOptions.onCheckpoint?.(nextCheckpoint);
           return buildResult(jobsById, exhausted, {
             company: config.company,
             market: options.market,
-            totalHitsByLocation,
+            totalHitsByShard,
+            stoppedReason: "search_page_error",
+            error: error instanceof Error ? error.message : String(error),
           }, nextCheckpoint);
         }
-      }
+        const positions = Array.isArray(payload.data?.positions)
+          ? payload.data.positions
+          : [];
+        const totalHits =
+          typeof payload.data?.count === "number" ? payload.data.count : positions.length;
+        const shardKey = `${location || "all"}:${jobCategory ?? "all"}`;
+        totalHitsByShard[shardKey] = totalHits;
 
-      offset += positions.length;
-      if (positions.length === 0 || offset >= totalHits) break;
+        for (const position of positions) {
+          if (isDeadlineNear(fetchOptions)) {
+            exhausted = false;
+            const nextCheckpoint = buildEightfoldCheckpoint(
+              options.company,
+              options.market,
+              locationIndex,
+              offset,
+              categoryIndex
+            );
+            await fetchOptions.onCheckpoint?.(nextCheckpoint);
+            return buildResult(jobsById, exhausted, {
+              company: config.company,
+              market: options.market,
+              totalHitsByShard,
+              stoppedReason: "deadline_near",
+            }, nextCheckpoint);
+          }
+
+          const detail = shouldFetchEightfoldDetails()
+            ? await fetchEightfoldJobDetail(config, position, fetchOptions)
+            : null;
+          const mapped = mapEightfoldJob(config, position, detail);
+          if (mapped) jobsById.set(mapped.sourceId, mapped);
+
+          if (fetchOptions.limit && jobsById.size >= fetchOptions.limit) {
+            exhausted = false;
+            const nextCheckpoint = getNextEightfoldCheckpoint({
+              company: options.company,
+              market: options.market,
+              locations,
+              categories,
+              locationIndex,
+              categoryIndex,
+              offset: offset + positions.length,
+              totalHits,
+            });
+            await fetchOptions.onCheckpoint?.(nextCheckpoint);
+            return buildResult(jobsById, exhausted, {
+              company: config.company,
+              market: options.market,
+              totalHitsByShard,
+            }, nextCheckpoint);
+          }
+        }
+
+        offset += positions.length;
+        if (positions.length === 0 || offset >= totalHits) break;
+      }
     }
   }
 
   return buildResult(jobsById, exhausted, {
     company: config.company,
     market: options.market,
-    totalHitsByLocation,
+    totalHitsByShard,
   });
 }
 
@@ -806,6 +1083,16 @@ export function buildAppleSearchUrl(input: { market: "ca" | "us" | "global"; pag
   return url.toString();
 }
 
+export function buildBankOfAmericaSearchUrl(input: { offset: number; limit: number }) {
+  const url = new URL("https://careers.bankofamerica.com/services/jobssearchservlet");
+  url.searchParams.set("start", String(input.offset));
+  // BofA's servlet treats `rows` as the end index, not the page size.
+  // start=100&rows=100 returns zero rows; start=100&rows=200 returns the next 100.
+  url.searchParams.set("rows", String(input.offset + input.limit));
+  url.searchParams.set("search", "getAllJobs");
+  return url.toString();
+}
+
 export function buildGoogleSearchUrl(input: { page: number }) {
   const url = new URL("https://www.google.com/about/careers/applications/jobs/results/");
   if (input.page > 1) {
@@ -830,9 +1117,22 @@ export function buildNetflixDetailUrl(input: { positionId: string }) {
   return url.toString();
 }
 
+export function buildHomeDepotSearchUrl(input: { offset: number; limit: number }) {
+  const url = new URL("https://jobsapi-internal.m-cloud.io/api/job");
+  url.searchParams.set("Organization", "1814");
+  url.searchParams.set("Limit", String(input.limit));
+  url.searchParams.set("offset", String(input.offset));
+  url.searchParams.set("sortfield", "open_date");
+  url.searchParams.set("sortorder", "descending");
+  url.searchParams.set("facet", "parent_category:Corporate");
+  url.searchParams.set("callback", "CWS.jobs.jobCallback");
+  return url.toString();
+}
+
 export function buildEightfoldSearchUrl(input: {
   config: EightfoldConfig;
   location: string;
+  jobCategory?: string | null;
   offset: number;
   limit: number;
 }) {
@@ -840,8 +1140,12 @@ export function buildEightfoldSearchUrl(input: {
   url.searchParams.set("domain", input.config.domain);
   url.searchParams.set("num", String(input.limit));
   url.searchParams.set("start", String(input.offset));
+  url.searchParams.set("sort_by", "relevance");
   if (input.location) {
     url.searchParams.set("location", input.location);
+  }
+  if (input.jobCategory) {
+    url.searchParams.set("filter_job_category", input.jobCategory);
   }
   return url.toString();
 }
@@ -1142,6 +1446,230 @@ function mapNetflixJob(
   };
 }
 
+async function fetchBankOfAmericaJobDetail(
+  job: BankOfAmericaJob,
+  fetchOptions: SourceConnectorFetchOptions
+) {
+  const sourceUrl = absoluteBankOfAmericaUrl(job.jcrURL);
+  if (!sourceUrl) return null;
+
+  try {
+    return extractBankOfAmericaJobDetailFromHtml(
+      await fetchText(sourceUrl, fetchOptions.signal)
+    );
+  } catch {
+    return null;
+  }
+}
+
+function mapBankOfAmericaJob(
+  job: BankOfAmericaJob,
+  detail: BankOfAmericaJobDetail | null
+): SourceConnectorJob | null {
+  const postingId = stringOrNull(job.jobRequisitionId);
+  const title = cleanText(detail?.title ?? job.postingTitle ?? "");
+  const sourceUrl = absoluteBankOfAmericaUrl(job.jcrURL);
+  if (!postingId || !title || !sourceUrl) return null;
+
+  const location = cleanText(
+    detail?.location ??
+      buildBankOfAmericaLocation(job) ??
+      job.locationString ??
+      "Unknown"
+  );
+  const description = cleanText(
+    detail?.description ??
+      buildBankOfAmericaFallbackDescription({ title, job, location })
+  );
+  const applyUrl = detail?.applyUrl ?? sourceUrl;
+  const employmentType = mapEmploymentType(
+    detail?.employmentType ?? job.timeType ?? job.job_type_text
+  );
+
+  return {
+    sourceId: `bankofamerica:${postingId}`,
+    sourceUrl,
+    title,
+    company: cleanText(job.brand ?? "Bank of America"),
+    location,
+    description,
+    applyUrl,
+    postedAt: detail?.postedAt ?? parseBankOfAmericaDate(job.postedDate ?? job.indexedDate),
+    deadline: null,
+    employmentType,
+    workMode: inferWorkMode([location, description, job.workShift ?? ""].join(" ")),
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    metadata: {
+      officialCompany: "bankofamerica",
+      postingId,
+      division: job.division ?? null,
+      family: job.family ?? null,
+      lob: job.lob ?? null,
+      subLob: job.subLob ?? null,
+      area: job.area ?? null,
+      yearsOfExperience: job.yearsOfExperience ?? null,
+      minYearsOfExperience: job.minYearsOfExperience ?? null,
+      maxYearsOfExperience: job.maxYearsOfExperience ?? null,
+      sourceUrl,
+      applyUrl,
+    } satisfies Record<string, Prisma.InputJsonValue | null>,
+  };
+}
+
+function mapHomeDepotJob(job: HomeDepotJob): SourceConnectorJob | null {
+  const postingId = stringOrNull(job.ref) ?? stringOrNull(job.clientid) ?? stringOrNull(job.id);
+  const title = cleanText(job.title ?? "");
+  const sourceUrl = normalizeHomeDepotJobUrl(job.url);
+  if (!postingId || !title || !sourceUrl) return null;
+
+  const entityStatus = (job.entity_status ?? "").trim().toLowerCase();
+  if (entityStatus && entityStatus !== "open") return null;
+
+  const location = cleanText(
+    [job.primary_city, job.primary_state, job.primary_country]
+      .map((value) => value?.trim())
+      .filter(Boolean)
+      .join(", ") || "Unknown"
+  );
+  const description = cleanText(
+    job.description ??
+      buildHomeDepotFallbackDescription({
+        title,
+        parentCategory: job.parent_category ?? null,
+        primaryCategory: job.primary_category ?? null,
+        department: job.department ?? null,
+        location,
+      })
+  );
+
+  return {
+    sourceId: `homedepot:${postingId}`,
+    sourceUrl,
+    title,
+    company: "Home Depot",
+    location,
+    description,
+    applyUrl: sourceUrl,
+    postedAt: parseDate(job.open_date),
+    deadline: parseDate(job.close_date),
+    employmentType: mapEmploymentType(
+      job.employment_type ?? job.job_type ?? job.schedule
+    ),
+    workMode: mapHomeDepotWorkMode(job.location_type, [location, description].join(" ")),
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    metadata: {
+      officialCompany: "homedepot",
+      postingId,
+      numericId: stringOrNull(job.id) ?? null,
+      parentCategory: job.parent_category ?? null,
+      primaryCategory: job.primary_category ?? null,
+      department: job.department ?? null,
+      function: job.function ?? null,
+      atsPortal: job.ats_portalid ?? null,
+      locationType: job.location_type ?? null,
+      sourceUrl,
+      applyUrl: sourceUrl,
+    } satisfies Record<string, Prisma.InputJsonValue | null>,
+  };
+}
+
+export function extractBankOfAmericaJobDetailFromHtml(
+  html: string
+): BankOfAmericaJobDetail {
+  const jobPosting = extractBankOfAmericaJobPostingJsonLd(html);
+  const bodyAttrs = extractBankOfAmericaBodyAttributes(html);
+  const applyUrl = extractBankOfAmericaApplyUrl(html);
+  const jsonTitle =
+    typeof jobPosting?.title === "string" ? jobPosting.title : null;
+  const jsonDescription =
+    typeof jobPosting?.description === "string" ? jobPosting.description : null;
+  const jsonEmploymentType =
+    typeof jobPosting?.employmentType === "string" ? jobPosting.employmentType : null;
+  const jsonDatePosted =
+    typeof jobPosting?.datePosted === "string" ? jobPosting.datePosted : null;
+
+  return {
+    title: cleanText(bodyAttrs.jobTitle ?? jsonTitle ?? "") || null,
+    location: cleanText(bodyAttrs.jobSaveLocation ?? "") || null,
+    description: jsonDescription ? cleanText(jsonDescription) : null,
+    applyUrl: applyUrl ? decodeHtmlEntitiesFull(applyUrl) : null,
+    postedAt: parseDate(jsonDatePosted),
+    employmentType: bodyAttrs.jobTimeType ?? jsonEmploymentType,
+  };
+}
+
+function extractBankOfAmericaApplyUrl(html: string) {
+  const candidates = [
+    ...html.matchAll(/href=["'](https:\/\/ghr\.wd1\.myworkdayjobs\.com\/[^"']+)["']/gi),
+    ...html.matchAll(/data-bactmln=["'][^"']*?(https:\/\/ghr\.wd1\.myworkdayjobs\.com\/[^"'\s]+)[^"']*["']/gi),
+  ]
+    .map((match) => match[1])
+    .filter((value): value is string => Boolean(value))
+    .map((value) => decodeHtmlEntitiesFull(value));
+
+  return (
+    candidates.find((url) => /\/job\/.+_\d{6,}/i.test(url)) ??
+    candidates.find((url) => /\/job\//i.test(url) && !/\/login(?:$|[?#])/i.test(url)) ??
+    candidates.find((url) => !/\/login(?:$|[?#])/i.test(url)) ??
+    null
+  );
+}
+
+function extractBankOfAmericaJobPostingJsonLd(html: string) {
+  for (const match of html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
+    try {
+      const parsed = JSON.parse(match[1]?.trim() ?? "") as unknown;
+      const posting = findJsonLdJobPosting(parsed);
+      if (posting) return posting;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function findJsonLdJobPosting(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const posting = findJsonLdJobPosting(entry);
+      if (posting) return posting;
+    }
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record["@type"] === "JobPosting") return record;
+  return findJsonLdJobPosting(record["@graph"]);
+}
+
+function extractBankOfAmericaBodyAttributes(html: string) {
+  const bodyMatch = html.match(/<div\b[^>]*class=["'][^"']*job-description-body[^"']*["'][^>]*>/i);
+  const bodyTag = bodyMatch?.[0] ?? "";
+  return {
+    jobTitle: readHtmlDataAttribute(bodyTag, "jobTitle"),
+    jobSaveLocation: readHtmlDataAttribute(bodyTag, "jobSaveLocation"),
+    jobTimeType: readHtmlDataAttribute(bodyTag, "jobTimeType"),
+  };
+}
+
+function readHtmlDataAttribute(tag: string, camelName: string) {
+  const kebabName = camelName.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  const escapedCamel = camelName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedKebab = kebabName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = tag.match(
+    new RegExp(`data-(?:${escapedCamel}|${escapedKebab})=["']([^"']*)["']`, "i")
+  );
+  return match?.[1] ? decodeHtmlEntitiesFull(match[1]).trim() : null;
+}
+
 export function extractGoogleJobsFromHtml(html: string): GoogleRawJob[] {
   const jobs: GoogleRawJob[] = [];
   const seenIds = new Set<string>();
@@ -1351,6 +1879,16 @@ function getEightfoldConfig(company: EightfoldCompanyKey): EightfoldConfig {
     };
   }
 
+  if (company === "starbucks") {
+    return {
+      company,
+      displayName: "Starbucks",
+      domain: "starbucks.com",
+      baseUrl: "https://apply.starbucks.com",
+      jobCategories: [...STARBUCKS_OFFICE_JOB_CATEGORIES],
+    };
+  }
+
   return {
     company,
     displayName: "NVIDIA",
@@ -1362,7 +1900,9 @@ function getEightfoldConfig(company: EightfoldCompanyKey): EightfoldConfig {
 function getEightfoldPageSize(company: EightfoldCompanyKey) {
   // NVIDIA's Eightfold endpoint intermittently returns 403s for larger page
   // sizes from the VPS, while small pages are accepted consistently.
-  return company === "nvidia" ? 20 : EIGHTFOLD_PAGE_SIZE;
+  if (company === "nvidia") return 20;
+  if (company === "starbucks") return 50;
+  return EIGHTFOLD_PAGE_SIZE;
 }
 
 function shouldFetchEightfoldDetails() {
@@ -1374,6 +1914,12 @@ function shouldFetchEightfoldDetails() {
 function shouldFetchNetflixDetails() {
   const value = process.env.OFFICIAL_COMPANY_NETFLIX_FETCH_DETAILS;
   return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+
+function shouldFetchBankOfAmericaDetails() {
+  const value = process.env.OFFICIAL_COMPANY_BANK_OF_AMERICA_FETCH_DETAILS;
+  if (!value) return true;
+  return !/^(0|false|no|off)$/i.test(value.trim());
 }
 
 function buildEightfoldFallbackDescription(input: {
@@ -1412,6 +1958,26 @@ function buildNetflixFallbackDescription(input: {
   return parts.length > 0 ? parts.join(" ") : input.title;
 }
 
+function buildBankOfAmericaFallbackDescription(input: {
+  title: string;
+  job: BankOfAmericaJob;
+  location: string;
+}) {
+  const parts = [
+    input.job.division ? `Division: ${input.job.division}.` : null,
+    input.job.lob ? `Line of business: ${input.job.lob}.` : null,
+    input.job.area ? `Career area: ${input.job.area}.` : null,
+    input.job.yearsOfExperience
+      ? `Experience: ${input.job.yearsOfExperience}.`
+      : null,
+    input.location && input.location !== "Unknown"
+      ? `Location: ${input.location}.`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" ") : input.title;
+}
+
 function assertEightfoldOk(
   payload: EightfoldSearchResponse | EightfoldDetailResponse,
   url: string
@@ -1433,6 +1999,15 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     throw new Error(`Official company fetch failed ${response.status}: ${url}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function fetchJsonp<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const text = await fetchText(url, signal);
+  const match = text.trim().match(/^[\w.]+\(([\s\S]*)\)$/);
+  if (!match?.[1]) {
+    throw new Error(`Official company JSONP response was not parseable: ${url}`);
+  }
+  return JSON.parse(match[1]) as T;
 }
 
 async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
@@ -1693,26 +2268,73 @@ function parseNetflixCheckpoint(
   };
 }
 
+function buildBankOfAmericaCheckpoint(offset: number): BankOfAmericaCheckpoint {
+  return {
+    kind: "bank-of-america-official",
+    offset,
+  };
+}
+
+function parseBankOfAmericaCheckpoint(
+  value: Prisma.InputJsonValue | null | undefined
+): BankOfAmericaCheckpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, Prisma.InputJsonValue | null>;
+  if (record.kind !== "bank-of-america-official") return null;
+  const offset = typeof record.offset === "number" ? record.offset : 0;
+  if (offset < 0) return null;
+  return {
+    kind: "bank-of-america-official",
+    offset,
+  };
+}
+
+function buildHomeDepotCheckpoint(offset: number): HomeDepotCheckpoint {
+  return {
+    kind: "home-depot-official",
+    offset,
+  };
+}
+
+function parseHomeDepotCheckpoint(
+  value: Prisma.InputJsonValue | null | undefined
+): HomeDepotCheckpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, Prisma.InputJsonValue | null>;
+  if (record.kind !== "home-depot-official") return null;
+  const offset = typeof record.offset === "number" ? record.offset : 1;
+  if (offset < 1) return null;
+  return {
+    kind: "home-depot-official",
+    offset,
+  };
+}
+
 function buildEightfoldCheckpoint(
   company: EightfoldCompanyKey,
   market: OfficialCompanyMarket,
   locationIndex: number,
-  offset: number
+  offset: number,
+  categoryIndex: number = 0
 ): EightfoldCheckpoint {
-  return {
+  const checkpoint: EightfoldCheckpoint = {
     kind: "eightfold-official",
     company,
     market,
     locationIndex,
     offset,
   };
+  if (categoryIndex > 0) checkpoint.categoryIndex = categoryIndex;
+  return checkpoint;
 }
 
 function getNextEightfoldCheckpoint(input: {
   company: EightfoldCompanyKey;
   market: OfficialCompanyMarket;
   locations: readonly string[];
+  categories: readonly (string | null)[];
   locationIndex: number;
+  categoryIndex: number;
   offset: number;
   totalHits: number;
 }) {
@@ -1721,7 +2343,19 @@ function getNextEightfoldCheckpoint(input: {
       input.company,
       input.market,
       input.locationIndex,
-      input.offset
+      input.offset,
+      input.categoryIndex
+    );
+  }
+
+  const nextCategoryIndex = input.categoryIndex + 1;
+  if (nextCategoryIndex < input.categories.length) {
+    return buildEightfoldCheckpoint(
+      input.company,
+      input.market,
+      input.locationIndex,
+      0,
+      nextCategoryIndex
     );
   }
 
@@ -1747,13 +2381,16 @@ function parseEightfoldCheckpoint(
 
   const locationIndex =
     typeof record.locationIndex === "number" ? record.locationIndex : 0;
+  const categoryIndex =
+    typeof record.categoryIndex === "number" ? record.categoryIndex : 0;
   const offset = typeof record.offset === "number" ? record.offset : 0;
-  if (locationIndex < 0 || offset < 0) return null;
+  if (locationIndex < 0 || categoryIndex < 0 || offset < 0) return null;
   return {
     kind: "eightfold-official",
     company,
     market,
     locationIndex,
+    categoryIndex: categoryIndex > 0 ? categoryIndex : undefined,
     offset,
   };
 }
@@ -1761,6 +2398,26 @@ function parseEightfoldCheckpoint(
 function absoluteAmazonUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
   return `https://www.amazon.jobs${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function absoluteBankOfAmericaUrl(path: string | undefined | null) {
+  if (!path?.trim()) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `https://careers.bankofamerica.com${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function normalizeHomeDepotJobUrl(value: string | undefined | null) {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://careers.homedepot.com${trimmed.startsWith("/") ? trimmed : `/${trimmed}`}`;
+}
+
+function buildBankOfAmericaLocation(job: BankOfAmericaJob) {
+  const pieces = [job.city, job.state, job.country]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return pieces.length > 0 ? pieces.join(", ") : null;
 }
 
 function parseAmazonLocations(locations: string[] | undefined) {
@@ -1797,6 +2454,24 @@ function parseDate(value: string | undefined | null) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseBankOfAmericaDate(value: string | undefined | null) {
+  if (!value) return null;
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return parseDate(normalized);
+  const [, month, day, year] = match;
+  return parseDate(`${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`);
+}
+
+function parseNumberLike(value: number | string | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const parsed = Number.parseInt(value.replace(/,/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseEpochSeconds(value: number | undefined | null) {
@@ -1854,6 +2529,33 @@ function mapNetflixWorkMode(value: string | null, fallback: string) {
   return null;
 }
 
+function mapHomeDepotWorkMode(value: string | null | undefined, fallback: string) {
+  const normalized = value?.toLowerCase() ?? "";
+  if (normalized.includes("remote") || normalized.includes("wfh")) return "REMOTE";
+  if (normalized.includes("hybrid") || normalized.includes("multisite")) return "HYBRID";
+  if (normalized.includes("onsite") || normalized.includes("on-site")) return "ONSITE";
+  return inferWorkMode(fallback);
+}
+
+function buildHomeDepotFallbackDescription(input: {
+  title: string;
+  parentCategory: string | null;
+  primaryCategory: string | null;
+  department: string | null;
+  location: string;
+}) {
+  const parts = [
+    input.parentCategory ? `Job type: ${input.parentCategory}.` : null,
+    input.primaryCategory ? `Category: ${input.primaryCategory}.` : null,
+    input.department ? `Department: ${input.department}.` : null,
+    input.location && input.location !== "Unknown"
+      ? `Location: ${input.location}.`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" ") : input.title;
+}
+
 function isDeadlineNear(fetchOptions: SourceConnectorFetchOptions) {
   const deadlineAt = fetchOptions.deadlineAt;
   if (!deadlineAt) return false;
@@ -1868,6 +2570,8 @@ function slugify(value: string) {
 }
 
 function officialCompanyDisplayName(company: OfficialCompanyKey) {
+  if (company === "bankofamerica") return "Bank of America";
+  if (company === "homedepot") return "Home Depot";
   if (company === "nvidia") return "NVIDIA";
   if (company === "netflix") return "Netflix";
   return company.charAt(0).toUpperCase() + company.slice(1);

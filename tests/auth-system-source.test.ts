@@ -48,12 +48,17 @@ test("auth config keeps Google separate from email/password accounts", () => {
   assert.match(authSource, /disableImplicitLinking:\s*true/);
   assert.doesNotMatch(authSource, /trustedProviders:\s*\["google"\]/);
   assert.match(authSource, /revokeSessionsOnPasswordReset:\s*true/);
+  assert.match(authSource, /expiresIn:\s*SESSION_MAX_LIFETIME_SECONDS/);
+  assert.match(authSource, /updateAge:\s*SESSION_REFRESH_INTERVAL_SECONDS/);
+  assert.match(authSource, /freshAge:\s*SENSITIVE_ACTION_REAUTH_SECONDS/);
   assert.match(authSource, /rateLimit:\s*{/);
   assert.match(authSource, /sendOnSignUp:\s*false/);
   assert.match(authSource, /sendChangeEmailConfirmation/);
   assert.match(authSource, /lastLoginAt/);
   assert.match(proxySource, /session\.user\.status === "ACTIVE"/);
-  assert.match(currentUserSource, /user\?\.status !== "ACTIVE"/);
+  assert.match(proxySource, /isSessionUsableByPolicy/);
+  assert.match(currentUserSource, /requireFreshSensitiveSession/);
+  assert.match(currentUserSource, /ReauthenticationRequiredError/);
 });
 
 test("app password reset flow stores hashed reset tokens and revokes sessions", () => {
@@ -86,4 +91,19 @@ test("settings expose security controls without account linking", () => {
   assert.match(securityPanel, /changeEmail/);
   assert.match(securityPanel, /revokeOtherSessions/);
   assert.match(securityPanel, /revokeSessions/);
+});
+
+test("sensitive data and deletion endpoints require a fresh session", () => {
+  const exportRoute = readRepoFile("src/app/api/settings/export/route.ts");
+  const profileActions = readRepoFile("src/app/profile/actions.ts");
+  const applicationDeleteRoute = readRepoFile("src/app/api/applications/[id]/route.ts");
+
+  assert.match(exportRoute, /requireFreshSensitiveSession/);
+  assert.match(exportRoute, /ReauthenticationRequiredError/);
+  assert.match(profileActions, /requireFreshSessionForDestructiveProfileAction/);
+  assert.match(profileActions, /deleteProfileResume/);
+  assert.match(profileActions, /deleteProfileCoverLetter/);
+  assert.match(profileActions, /deleteTemplate/);
+  assert.match(applicationDeleteRoute, /requireFreshSensitiveSession/);
+  assert.match(applicationDeleteRoute, /ReauthenticationRequiredError/);
 });

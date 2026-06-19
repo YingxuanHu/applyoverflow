@@ -78,13 +78,26 @@ export type NormalizedJobInput = {
   region: Region | null;
   /** UNKNOWN = work arrangement could not be confidently inferred */
   workMode: WorkMode;
+  workModeConfidence?: number | null;
+  workModeStatus?: string | null;
+  workModeSource?: string | null;
+  workModeCandidatesJson?: Prisma.InputJsonValue;
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
   /** UNKNOWN = employment type could not be confidently inferred */
   employmentType: EmploymentType;
+  employmentTypeGroup?: string | null;
+  employmentTypeConfidence?: number | null;
+  employmentTypeStatus?: string | null;
+  employmentTypeSource?: string | null;
+  employmentTypeCandidatesJson?: Prisma.InputJsonValue;
   /** UNKNOWN = career stage could not be confidently inferred */
   experienceLevel: ExperienceLevel;
+  experienceLevelGroup?: string | null;
+  experienceLevelSource?: string | null;
+  experienceLevelEvidenceJson?: Prisma.InputJsonValue;
+  experienceLevelWarningsJson?: Prisma.InputJsonValue;
   description: string;
   shortSummary: string;
   /** null = role did not match a known industry pattern */
@@ -99,11 +112,50 @@ export type NormalizedJobInput = {
   normalizedCareerStageConfidence: number;
   /** Standardized top-level industry taxonomy used by filters. */
   normalizedIndustry: NormalizedIndustry;
+  /** Multi-label company industry taxonomy used by filters. */
+  normalizedIndustries: NormalizedIndustry[];
   normalizedIndustryConfidence: number;
   /** Standardized job-family taxonomy used by filters. */
   normalizedRoleCategory: NormalizedRoleCategory;
   normalizedRoleCategoryConfidence: number;
+  normalizedRoleCategoryGroup?: string | null;
+  normalizedRoleCategoryStatus?: string | null;
+  normalizedRoleCategorySource?: string | null;
+  normalizedRoleCategoryCandidatesJson?: Prisma.InputJsonValue;
+  normalizedRoleCategoryEvidenceJson?: Prisma.InputJsonValue;
+  normalizedRoleCategoryWarningsJson?: Prisma.InputJsonValue;
   classificationStatus: JobClassificationStatus;
+  displayTitle?: string | null;
+  titleConfidence?: number | null;
+  titleStatus?: string | null;
+  titleSource?: string | null;
+  titleCandidatesJson?: Prisma.InputJsonValue;
+  titleRejectedFragmentsJson?: Prisma.InputJsonValue;
+  titleExtractionWarnings?: Prisma.InputJsonValue;
+  jobPageType?: string | null;
+  locationConfidence?: number | null;
+  locationStatus?: string | null;
+  locationSource?: string | null;
+  locationCandidatesJson?: Prisma.InputJsonValue;
+  salaryStatus?: string | null;
+  salaryPeriod?: string | null;
+  salaryRawText?: string | null;
+  salaryConfidence?: number | null;
+  salarySource?: string | null;
+  descriptionStatus?: string | null;
+  descriptionConfidence?: number | null;
+  descriptionWordCount?: number | null;
+  datePostedConfidence?: number | null;
+  datePostedStatus?: string | null;
+  datePostedSource?: string | null;
+  datePostedRawText?: string | null;
+  applicationDeadlineConfidence?: number | null;
+  applicationDeadlineStatus?: string | null;
+  applicationDeadlineSource?: string | null;
+  applicationDeadlineRawText?: string | null;
+  metadataExtractionWarnings?: Prisma.InputJsonValue;
+  extractionWarnings?: Prisma.InputJsonValue;
+  extractionRejectionReasons?: Prisma.InputJsonValue;
   applyUrl: string;
   applyUrlKey: string | null;
   postedAt: Date;

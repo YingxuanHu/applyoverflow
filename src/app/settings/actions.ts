@@ -1,9 +1,10 @@
 "use server";
 
 import { saveTrackerSettings } from "@/lib/queries/tracker";
-import { UnauthorizedError } from "@/lib/current-user";
+import { requireCurrentProfileId, UnauthorizedError } from "@/lib/current-user";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
 import { revalidatePaths } from "@/lib/revalidation";
+import { invalidateTopPicksForUser } from "@/lib/top-picks/service";
 
 import type { SettingsActionState } from "./action-state";
 
@@ -66,6 +67,8 @@ export async function savePreferencesSettings(
       };
     }
 
+    const profileId = await requireCurrentProfileId();
+
     await saveTrackerSettings({
       preferredWorkMode:
         typeof preferredWorkModeRaw === "string" && preferredWorkModeRaw
@@ -93,12 +96,9 @@ export async function savePreferencesSettings(
         typeof formData.get("location") === "string"
           ? String(formData.get("location"))
           : undefined,
-      workAuthorization:
-        typeof formData.get("workAuthorization") === "string"
-          ? String(formData.get("workAuthorization"))
-          : undefined,
     });
-    revalidatePaths(["/settings", "/profile", "/jobs"]);
+    await invalidateTopPicksForUser(profileId);
+    revalidatePaths(["/settings", "/profile", "/jobs", "/jobs/top-picks"]);
     return { error: null, success: "Job preferences saved." };
   } catch (error) {
     return handleError(error);

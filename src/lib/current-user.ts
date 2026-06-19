@@ -2,6 +2,12 @@ import { headers } from "next/headers";
 
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import {
+  getSensitiveActionSessionFailure,
+  getVerifiedSessionTokenFromHeaders,
+  isSessionUsableByPolicy,
+  type SessionPolicyReason,
+} from "@/lib/auth-session-policy";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
 
 export class UnauthorizedError extends Error {
@@ -11,15 +17,58 @@ export class UnauthorizedError extends Error {
   }
 }
 
+export class ReauthenticationRequiredError extends Error {
+  reason: SessionPolicyReason;
+
+  constructor(reason: SessionPolicyReason = "not_fresh") {
+    super("For security, sign in again before continuing.");
+    this.name = "ReauthenticationRequiredError";
+    this.reason = reason;
+  }
+}
+
 type SessionUser = {
   id: string;
   email: string;
   name: string;
 };
 
+async function getPolicySession(requestHeaders: Headers) {
+  const token = await getVerifiedSessionTokenFromHeaders(requestHeaders);
+  if (!token) {
+    return null;
+  }
+
+  return withPrismaConnectionRetry(() =>
+    prisma.session.findUnique({
+      where: { token },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+        updatedAt: true,
+        userId: true,
+        user: {
+          select: { status: true },
+        },
+      },
+    })
+  );
+}
+
 async function getSessionUser(): Promise<SessionUser | null> {
   try {
     const requestHeaders = await headers();
+    const policySession = await getPolicySession(requestHeaders);
+
+    if (
+      !policySession?.userId ||
+      policySession.user.status !== "ACTIVE" ||
+      !isSessionUsableByPolicy(policySession)
+    ) {
+      return null;
+    }
+
     const session = await withPrismaConnectionRetry(() =>
       auth.api.getSession({
         headers: requestHeaders,
@@ -30,14 +79,7 @@ async function getSessionUser(): Promise<SessionUser | null> {
       return null;
     }
 
-    const user = await withPrismaConnectionRetry(() =>
-      prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { status: true },
-      })
-    );
-
-    if (user?.status !== "ACTIVE") {
+    if (session.user.id !== policySession.userId) {
       return null;
     }
 
@@ -49,6 +91,29 @@ async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
+}
+
+export async function requireFreshSensitiveSession() {
+  const requestHeaders = await headers();
+  const policySession = await getPolicySession(requestHeaders);
+
+  if (
+    !policySession?.userId ||
+    policySession.user.status !== "ACTIVE" ||
+    !isSessionUsableByPolicy(policySession)
+  ) {
+    throw new UnauthorizedError();
+  }
+
+  const sensitiveFailure = getSensitiveActionSessionFailure(policySession);
+  if (sensitiveFailure) {
+    throw new ReauthenticationRequiredError(sensitiveFailure);
+  }
+
+  return {
+    authUserId: policySession.userId,
+    sessionId: policySession.id,
+  };
 }
 
 async function ensureProfileForUser(user: SessionUser) {

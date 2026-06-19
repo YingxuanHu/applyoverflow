@@ -3,6 +3,7 @@ import type { DeadlineReminderType, TrackedApplicationStatus } from "@/generated
 import { sendEmail } from "@/lib/email";
 import { prisma } from "@/lib/db";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
+import { startOfUtcDay } from "@/lib/time-zone";
 
 type ReminderRunResult = {
   scannedApplications: number;
@@ -24,11 +25,6 @@ type TrackedApplicationWithUser = {
   };
 };
 
-function startOfUtcDay(date: Date) {
-  const value = new Date(date);
-  value.setUTCHours(0, 0, 0, 0);
-  return value;
-}
 
 function daysUntil(deadline: Date, today: Date) {
   const msPerDay = 24 * 60 * 60 * 1000;

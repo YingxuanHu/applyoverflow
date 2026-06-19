@@ -55,6 +55,7 @@ type BenchmarkSample = {
   normalizedCareerStage: string | null;
   normalizedCareerStageConfidence?: number | null;
   normalizedIndustry: string | null;
+  normalizedIndustries?: string[] | null;
   normalizedIndustryConfidence?: number | null;
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence?: number | null;
@@ -127,6 +128,18 @@ function percentile(sortedValues: number[], percentileRank: number) {
   return sortedValues[index] ?? 0;
 }
 
+function normalizeIndustryList(values: string[] | null | undefined, primary: string | null) {
+  const seen = new Set<string>();
+  const industries: NormalizedJobInput["normalizedIndustries"] = [];
+  for (const value of [...(values ?? []), primary ?? ""]) {
+    const industry = coerceNormalizedIndustry(value);
+    if (industry === "UNKNOWN" || seen.has(industry)) continue;
+    seen.add(industry);
+    industries.push(industry);
+  }
+  return industries;
+}
+
 function buildNormalizedJob(sample: BenchmarkSample): NormalizedJobInput {
   return {
     title: sample.title,
@@ -153,6 +166,7 @@ function buildNormalizedJob(sample: BenchmarkSample): NormalizedJobInput {
     normalizedCareerStage: coerceNormalizedCareerStage(sample.normalizedCareerStage),
     normalizedCareerStageConfidence: sample.normalizedCareerStageConfidence ?? 0.2,
     normalizedIndustry: coerceNormalizedIndustry(sample.normalizedIndustry),
+    normalizedIndustries: normalizeIndustryList(sample.normalizedIndustries, sample.normalizedIndustry),
     normalizedIndustryConfidence: sample.normalizedIndustryConfidence ?? 0.2,
     normalizedRoleCategory: coerceNormalizedRoleCategory(sample.normalizedRoleCategory),
     normalizedRoleCategoryConfidence: sample.normalizedRoleCategoryConfidence ?? 0.2,
@@ -331,6 +345,7 @@ async function main() {
       normalizedEmploymentType: true,
       normalizedCareerStage: true,
       normalizedIndustry: true,
+      normalizedIndustries: true,
       normalizedRoleCategory: true,
       applyUrl: true,
       applyUrlKey: true,

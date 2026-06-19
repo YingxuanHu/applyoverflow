@@ -8,11 +8,17 @@ function readRepoFile(path: string) {
 
 test("proxy validates signed sessions without importing the full auth stack", () => {
   const proxySource = readRepoFile("src/proxy.ts");
+  const sessionPolicySource = readRepoFile("src/lib/auth-session-policy.ts");
 
-  assert.doesNotMatch(proxySource, /@\/lib\/auth/);
-  assert.match(proxySource, /verifySignedCookieValue/);
+  assert.doesNotMatch(proxySource, /@\/lib\/auth["']/);
+  assert.match(proxySource, /getVerifiedSessionTokenFromHeaders/);
+  assert.match(proxySource, /isSessionUsableByPolicy/);
   assert.match(proxySource, /prisma\.session\.findUnique/);
-  assert.match(proxySource, /expiresAt > new Date\(\)/);
+  assert.match(proxySource, /createdAt:\s*true/);
+  assert.match(proxySource, /updatedAt:\s*true/);
+  assert.match(sessionPolicySource, /verifySignedCookieValue/);
+  assert.match(sessionPolicySource, /SESSION_INACTIVITY_TIMEOUT_SECONDS/);
+  assert.match(sessionPolicySource, /SESSION_MAX_LIFETIME_SECONDS/);
 });
 
 test("ops pages require ops admin authorization", () => {

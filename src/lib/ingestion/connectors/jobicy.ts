@@ -119,7 +119,7 @@ async function fetchJobicyJobs(
         const sourceId = `jobicy:${entry.id}`;
         if (seenIds.has(sourceId)) continue;
         seenIds.add(sourceId);
-        allJobs.push(mapJobicyJob(entry, now));
+        allJobs.push(mapJobicyJob(entry));
       }
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -146,7 +146,7 @@ function resolveJobicyTags() {
   return configured.length === 1 && configured[0] === "ALL" ? ["ALL"] : configured;
 }
 
-function mapJobicyJob(entry: JobicyJob, now: Date): SourceConnectorJob {
+function mapJobicyJob(entry: JobicyJob): SourceConnectorJob {
   const id = String(entry.id ?? "");
   const title = (entry.jobTitle ?? "").trim();
   const company = (entry.companyName ?? "").trim();

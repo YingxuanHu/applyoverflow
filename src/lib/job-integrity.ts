@@ -1,5 +1,6 @@
 const NON_JOB_CONTENT_URL_SEGMENTS = [
   "/ai-guidelines",
+  "/artificial-intelligence/",
   "/blog/",
   "/guide/",
   "/guides/",
@@ -40,6 +41,7 @@ const NON_JOB_CONTENT_URL_SEGMENTS = [
   "/whitepapers/",
   "/lesson-center/",
   "/people-ops/",
+  "/personal-loan",
 ] as const;
 
 const HARD_NON_JOB_CONTENT_URL_SEGMENTS = [
@@ -86,12 +88,16 @@ const NON_JOB_TITLE_PATTERNS = [
   /^what's\b/i,
   /^a guide to\b/i,
   /^the .* guide to\b/i,
+  /^thank you[!.]?$/i,
+  /^thanks[!.]?$/i,
   /^thank you for\b/i,
+  /^job seeker didn[’']t know\b/i,
   /^merci d['’]avoir\b/i,
   /^gracias por\b/i,
   /^vielen dank\b/i,
   /^what are careers? at .+\?$/i,
   /^what does .+ do\?$/i,
+  /^will .+\bjobs?\??$/i,
   /^what careers are available\??$/i,
   /^how do i get hired\??$/i,
   /^how do i apply(?: for a position)?\??$/i,
@@ -127,13 +133,21 @@ const NON_JOB_TITLE_PATTERNS = [
   /^join (?:us|our team|the team)\b/i,
   /^join (?:the )?.+\s+team$/i,
   /^come work with us\b/i,
+  /^it starts with opportunity$/i,
+  /^thanks for applying\b/i,
+  /^your (?:information|application|request) (?:has been|was) submitted\b/i,
+  /^request received\b/i,
+  /^download (?:the )?(?:guide|report|whitepaper|webinar)\b/i,
+  /\bcopy of (?:this )?whitepaper\b/i,
+  /\brequesting a copy\b/i,
+  /\bthank you(?: note| page| confirmation| for requesting| for your interest)\b/i,
   /^join our team and thrive!?$/i,
   /^search careers? at .+$/i,
   /^grow your career(?: with us)?[!.]?$/i,
   /^build your career(?: at .+)?[!.]?$/i,
   /^brilliant thrives here(?: search careers? at .+)?$/i,
   /^current opportunities$/i,
-  /^current openings(?: at .+)?$/i,
+  /^current openings?(?: at .+)?$/i,
   /^search jobs?$/i,
   /^team$/i,
   /^internships?$/i,
@@ -145,6 +159,7 @@ const NON_JOB_TITLE_PATTERNS = [
   /^what happens to\b/i,
   /^become a future leader\b/i,
   /\bcareer guide$/i,
+  /\binterview prep\b/i,
   /^top (?:\d+|seven|ten)\b.*\bpositions\b/i,
   /^privacy notice(?: for job applicants)?$/i,
   /^notice on fraudulent job offers$/i,
@@ -153,6 +168,7 @@ const NON_JOB_TITLE_PATTERNS = [
   /\bannounce(?:s|d)?\b.*\bopening\b/i,
   /\bcopy of careers\b/i,
   /^helpful tips for writing\b/i,
+  /^please fill details and apply$/i,
   /^kb\d+\b/i,
   /^redirect$/i,
   /^apply$/i,
@@ -194,24 +210,22 @@ const NON_JOB_TITLE_PATTERNS = [
 const LOCATION_ONLY_TITLE_RE =
   /^(?:remote|hybrid|onsite|on-site|canada|united states|usa|toronto|montreal|montréal|vancouver|calgary|ottawa|edmonton|winnipeg|mississauga|waterloo|kitchener|laval|quebec|québec|new york|san francisco|seattle|boston|chicago|austin|dallas|los angeles|washington|london|paris|berlin|singapore|apac|emea|latam|europe|asia|africa|middle east|united kingdom|uk|india|australia)(?:\s+(?:office|area|region|centre|center|city))?$/i;
 
-const GENERIC_CAREER_LANDING_TITLE_PATTERNS = [
-  /^careers?(?: at .+)?$/i,
-  /^jobs?(?: at .+)?$/i,
-  /^open positions?$/i,
-  /^current opportunities$/i,
-  /^work (?:at|with|for) .+$/i,
-  /^join (?:us|our team|the team)\b/i,
-  /^join .+\b/i,
-  /^come work with us\b/i,
-  /^build your career\b/i,
-  /^grow your career\b/i,
-  /^help us\b/i,
-] satisfies RegExp[];
-
 const DEPARTMENT_BUCKET_TITLE_RE =
   /^(?:engineering|software engineering|data engineering|platform engineering|product management|business operations|sales|marketing|finance|accounting|legal|operations|design|security|information technology|customer success|customer support|quality assurance|human resources|hr|people)$/i;
 
 const NON_JOB_CONTENT_PATTERNS = [
+  /\byour (?:information|application|request) (?:has been|was) submitted\b/i,
+  /\bsomeone will reach out\b/i,
+  /\bwe(?:'|’)ll be in touch\b/i,
+  /\bthank you for (?:requesting|submitting|your interest|applying)\b/i,
+  /\brequesting a copy\b/i,
+  /\bcopy of (?:this )?(?:whitepaper|report|guide)\b/i,
+  /\bdownload (?:the )?(?:whitepaper|report|guide|webinar)\b/i,
+  /\bwhitepaper\b/i,
+  /\bwebinar\b/i,
+  /\bcase study\b/i,
+  /\bi hate etiquette\b/i,
+  /\bpeople came to the rescue\b/i,
   /\broles we fill\b/i,
   /\bour services\b/i,
   /\bour process\b/i,
@@ -234,6 +248,10 @@ const NON_JOB_CONTENT_PATTERNS = [
   /\bget paid reliably\b/i,
   /\bjoin our network\b/i,
   /\bsearch careers? at\b/i,
+  /\bwhile you wait to hear back\b/i,
+  /\bget you ready\b.*\binterview\b/i,
+  /\binterview prep tools\b/i,
+  /\bai interview practice\b/i,
   /\bexplore open roles\b/i,
   /\bgrow your career\b/i,
   /\bbuild your career\b/i,
@@ -259,6 +277,9 @@ const NON_JOB_CONTENT_PATTERNS = [
   /\bfuture opportunities\b/i,
   /\bevergreen (?:role|opportunity|opening)\b/i,
   /\bwhat do we offer\??\b/i,
+  /\bhow [^.?!\n]{1,80} works\b/i,
+  /\bwhat [^.?!\n]{1,80} does\b/i,
+  /\blender\s*-\s*borrower\b/i,
   /\bwho we are\b/i,
   /\bshortcuts\b/i,
   /\blearn more\b/i,
@@ -323,6 +344,14 @@ export function classifyNonJobPosting(input: {
   const positiveHits = countMatches(combined, JOB_POSTING_PATTERNS);
   const genericCareerUrl = looksLikeGenericCareerUrl(applyUrl);
   const articleOrDocsUrl = looksLikeArticleOrDocsUrl(applyUrl);
+  const thankYouConfirmationPage =
+    Boolean(title) &&
+    /\b(?:thank you|thanks|request received|submitted)\b/i.test(title) &&
+    (negativeHits >= 1 ||
+      /\b(?:submitted|someone will reach out|requesting a copy|whitepaper|download|webinar)\b/i.test(
+        combined
+      ) ||
+      articleOrDocsUrl);
   const questionLikeCareerTitle =
     Boolean(title) &&
     title.endsWith("?") &&
@@ -332,6 +361,15 @@ export function classifyNonJobPosting(input: {
     return {
       detected: true,
       reason: "non_job_title",
+      negativeHits,
+      positiveHits,
+    };
+  }
+
+  if (thankYouConfirmationPage) {
+    return {
+      detected: true,
+      reason: "thank_you_confirmation_page",
       negativeHits,
       positiveHits,
     };
@@ -370,12 +408,7 @@ export function classifyNonJobPosting(input: {
     };
   }
 
-  if (
-    genericCareerUrl &&
-    (!title ||
-      positiveHits <= 1 ||
-      GENERIC_CAREER_LANDING_TITLE_PATTERNS.some((pattern) => pattern.test(title)))
-  ) {
+  if (genericCareerUrl) {
     return {
       detected: true,
       reason: "generic_careers_url",
@@ -516,11 +549,17 @@ function looksLikeGenericAtsBoardUrl(parsed: URL) {
   }
 
   if (host === "boards.greenhouse.io" || host === "job-boards.greenhouse.io") {
-    return parts.length <= 1 || /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? "");
+    return (
+      parts.length <= 1 ||
+      (parts.length <= 2 && /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? ""))
+    );
   }
 
   if (host.endsWith(".greenhouse.io")) {
-    return parts.length <= 1 || /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? "");
+    return (
+      parts.length <= 1 ||
+      (parts.length <= 2 && /^(?:jobs?|departments?|offices?)$/i.test(parts[1] ?? ""))
+    );
   }
 
   return false;

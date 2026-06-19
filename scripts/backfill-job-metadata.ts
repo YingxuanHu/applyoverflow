@@ -34,13 +34,25 @@ type CanonicalJobForBackfill = {
   normalizedEmploymentTypeConfidence: number | null;
   normalizedCareerStage: string | null;
   normalizedCareerStageConfidence: number | null;
+  experienceLevelGroup: string | null;
+  experienceLevelSource: string | null;
+  experienceLevelEvidenceJson: unknown;
+  experienceLevelWarningsJson: unknown;
   normalizedIndustry: string | null;
   normalizedIndustryConfidence: number | null;
   normalizedRoleCategory: string | null;
   normalizedRoleCategoryConfidence: number | null;
+  normalizedRoleCategoryGroup: string | null;
+  normalizedRoleCategoryStatus: string | null;
+  normalizedRoleCategorySource: string | null;
+  normalizedRoleCategoryCandidatesJson: unknown;
+  normalizedRoleCategoryEvidenceJson: unknown;
+  normalizedRoleCategoryWarningsJson: unknown;
   classificationStatus: string | null;
+  applyUrl: string;
   companyRecord: {
     normalizedIndustry: string | null;
+    normalizedIndustries: string[];
     normalizedIndustryConfidence: number | null;
   } | null;
 };
@@ -56,10 +68,20 @@ type ClassifiedUpdate = {
   normalizedEmploymentTypeConfidence: number;
   normalizedCareerStage: string;
   normalizedCareerStageConfidence: number;
+  experienceLevelGroup: string;
+  experienceLevelSource: string;
+  experienceLevelEvidenceJson: unknown;
+  experienceLevelWarningsJson: unknown;
   normalizedIndustry: string;
   normalizedIndustryConfidence: number;
   normalizedRoleCategory: string;
   normalizedRoleCategoryConfidence: number;
+  normalizedRoleCategoryGroup: string;
+  normalizedRoleCategoryStatus: string;
+  normalizedRoleCategorySource: string;
+  normalizedRoleCategoryCandidatesJson: unknown;
+  normalizedRoleCategoryEvidenceJson: unknown;
+  normalizedRoleCategoryWarningsJson: unknown;
   classificationStatus: string;
 };
 
@@ -137,6 +159,14 @@ function buildBackfillWhere(args: Args): Prisma.JobCanonicalWhereInput | undefin
 }
 
 function classify(job: CanonicalJobForBackfill) {
+  const verifiedIndustries = [
+    ...(job.companyRecord?.normalizedIndustries ?? []),
+    job.companyRecord?.normalizedIndustry ?? "",
+    job.normalizedIndustry ?? "",
+  ]
+    .map((value) => coerceNormalizedIndustry(value))
+    .filter((value, index, values) => value !== "UNKNOWN" && values.indexOf(value) === index);
+
   // Existing canonical employmentType may already be polluted by description-only
   // "intern" matches, so backfill treats it as legacy inferred data, not trusted
   // structured source truth.
@@ -146,10 +176,12 @@ function classify(job: CanonicalJobForBackfill) {
     description: job.description,
     location: job.location,
     roleFamily: job.roleFamily,
+    companyIndustries: verifiedIndustries,
     legacyIndustry: job.industry,
     inferredEmploymentType: job.employmentType,
     sourceEmploymentType: null,
     workMode: job.workMode,
+    applyUrl: job.applyUrl,
   });
   if (!job.companyRecord?.normalizedIndustry) return metadata;
 
@@ -173,10 +205,23 @@ function needsUpdate(job: CanonicalJobForBackfill, metadata: JobMetadataClassifi
     job.normalizedEmploymentTypeConfidence !== metadata.confidence.employmentType ||
     job.normalizedCareerStage !== metadata.normalizedCareerStage ||
     job.normalizedCareerStageConfidence !== metadata.confidence.careerStage ||
+    job.experienceLevelGroup !== metadata.experienceLevelGroup ||
+    job.experienceLevelSource !== metadata.experienceLevelSource ||
+    JSON.stringify(job.experienceLevelEvidenceJson ?? null) !==
+      JSON.stringify(metadata.experienceLevelEvidence ?? null) ||
+    JSON.stringify(job.experienceLevelWarningsJson ?? null) !==
+      JSON.stringify(metadata.experienceLevelWarnings ?? null) ||
     job.normalizedIndustry !== metadata.normalizedIndustry ||
     job.normalizedIndustryConfidence !== metadata.confidence.industry ||
     job.normalizedRoleCategory !== metadata.normalizedRoleCategory ||
     job.normalizedRoleCategoryConfidence !== metadata.confidence.roleCategory ||
+    job.normalizedRoleCategoryGroup !== metadata.normalizedRoleCategoryGroup ||
+    job.normalizedRoleCategoryStatus !== metadata.normalizedRoleCategoryStatus ||
+    job.normalizedRoleCategorySource !== metadata.normalizedRoleCategorySource ||
+    JSON.stringify(job.normalizedRoleCategoryEvidenceJson ?? null) !==
+      JSON.stringify(metadata.normalizedRoleCategoryEvidence ?? null) ||
+    JSON.stringify(job.normalizedRoleCategoryWarningsJson ?? null) !==
+      JSON.stringify(metadata.normalizedRoleCategoryWarnings ?? null) ||
     job.classificationStatus !== metadata.classificationStatus
   );
 }
@@ -264,10 +309,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       ${update.normalizedEmploymentTypeConfidence}::double precision,
       ${update.normalizedCareerStage},
       ${update.normalizedCareerStageConfidence}::double precision,
+      ${update.experienceLevelGroup},
+      ${update.experienceLevelSource},
+      ${update.experienceLevelEvidenceJson as Prisma.InputJsonValue}::jsonb,
+      ${update.experienceLevelWarningsJson as Prisma.InputJsonValue}::jsonb,
       ${update.normalizedIndustry},
       ${update.normalizedIndustryConfidence}::double precision,
       ${update.normalizedRoleCategory},
       ${update.normalizedRoleCategoryConfidence}::double precision,
+      ${update.normalizedRoleCategoryGroup},
+      ${update.normalizedRoleCategoryStatus},
+      ${update.normalizedRoleCategorySource},
+      ${update.normalizedRoleCategoryCandidatesJson as Prisma.InputJsonValue}::jsonb,
+      ${update.normalizedRoleCategoryEvidenceJson as Prisma.InputJsonValue}::jsonb,
+      ${update.normalizedRoleCategoryWarningsJson as Prisma.InputJsonValue}::jsonb,
       ${update.classificationStatus}
     )`
   );
@@ -279,10 +334,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
       "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
+      "experienceLevelGroup" = values.experience_level_group,
+      "experienceLevelSource" = values.experience_level_source,
+      "experienceLevelEvidenceJson" = values.experience_level_evidence_json,
+      "experienceLevelWarningsJson" = values.experience_level_warnings_json,
       "normalizedIndustry" = values.normalized_industry,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence,
       "normalizedRoleCategory" = values.normalized_role_category,
       "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "normalizedRoleCategoryGroup" = values.normalized_role_category_group,
+      "normalizedRoleCategoryStatus" = values.normalized_role_category_status,
+      "normalizedRoleCategorySource" = values.normalized_role_category_source,
+      "normalizedRoleCategoryCandidatesJson" = values.normalized_role_category_candidates_json,
+      "normalizedRoleCategoryEvidenceJson" = values.normalized_role_category_evidence_json,
+      "normalizedRoleCategoryWarningsJson" = values.normalized_role_category_warnings_json,
       "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
@@ -290,10 +355,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       normalized_employment_type_confidence,
       normalized_career_stage,
       normalized_career_stage_confidence,
+      experience_level_group,
+      experience_level_source,
+      experience_level_evidence_json,
+      experience_level_warnings_json,
       normalized_industry,
       normalized_industry_confidence,
       normalized_role_category,
       normalized_role_category_confidence,
+      normalized_role_category_group,
+      normalized_role_category_status,
+      normalized_role_category_source,
+      normalized_role_category_candidates_json,
+      normalized_role_category_evidence_json,
+      normalized_role_category_warnings_json,
       classification_status
     )
     WHERE job.id = values.id
@@ -306,10 +381,17 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
       "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
+      "experienceLevelGroup" = values.experience_level_group,
+      "experienceLevelSource" = values.experience_level_source,
+      "experienceLevelEvidenceJson" = values.experience_level_evidence_json,
+      "experienceLevelWarningsJson" = values.experience_level_warnings_json,
       "normalizedIndustry" = values.normalized_industry,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence,
       "normalizedRoleCategory" = values.normalized_role_category,
       "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "normalizedRoleCategoryGroup" = values.normalized_role_category_group,
+      "normalizedRoleCategoryStatus" = values.normalized_role_category_status,
+      "normalizedRoleCategorySource" = values.normalized_role_category_source,
       "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
@@ -317,10 +399,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       normalized_employment_type_confidence,
       normalized_career_stage,
       normalized_career_stage_confidence,
+      experience_level_group,
+      experience_level_source,
+      experience_level_evidence_json,
+      experience_level_warnings_json,
       normalized_industry,
       normalized_industry_confidence,
       normalized_role_category,
       normalized_role_category_confidence,
+      normalized_role_category_group,
+      normalized_role_category_status,
+      normalized_role_category_source,
+      normalized_role_category_candidates_json,
+      normalized_role_category_evidence_json,
+      normalized_role_category_warnings_json,
       classification_status
     )
     WHERE feed."canonicalJobId" = values.id
@@ -333,10 +425,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       "normalizedEmploymentTypeConfidence" = values.normalized_employment_type_confidence,
       "normalizedCareerStage" = values.normalized_career_stage,
       "normalizedCareerStageConfidence" = values.normalized_career_stage_confidence,
+      "experienceLevelGroup" = values.experience_level_group,
+      "experienceLevelSource" = values.experience_level_source,
+      "experienceLevelEvidenceJson" = values.experience_level_evidence_json,
+      "experienceLevelWarningsJson" = values.experience_level_warnings_json,
       "normalizedIndustry" = values.normalized_industry,
       "normalizedIndustryConfidence" = values.normalized_industry_confidence,
       "normalizedRoleCategory" = values.normalized_role_category,
       "normalizedRoleCategoryConfidence" = values.normalized_role_category_confidence,
+      "normalizedRoleCategoryGroup" = values.normalized_role_category_group,
+      "normalizedRoleCategoryStatus" = values.normalized_role_category_status,
+      "normalizedRoleCategorySource" = values.normalized_role_category_source,
+      "normalizedRoleCategoryCandidatesJson" = values.normalized_role_category_candidates_json,
+      "normalizedRoleCategoryEvidenceJson" = values.normalized_role_category_evidence_json,
+      "normalizedRoleCategoryWarningsJson" = values.normalized_role_category_warnings_json,
       "classificationStatus" = values.classification_status
     FROM (VALUES ${Prisma.join(rows)}) AS values(
       id,
@@ -344,10 +446,20 @@ async function writeMetadataBatch(updates: ClassifiedUpdate[]) {
       normalized_employment_type_confidence,
       normalized_career_stage,
       normalized_career_stage_confidence,
+      experience_level_group,
+      experience_level_source,
+      experience_level_evidence_json,
+      experience_level_warnings_json,
       normalized_industry,
       normalized_industry_confidence,
       normalized_role_category,
       normalized_role_category_confidence,
+      normalized_role_category_group,
+      normalized_role_category_status,
+      normalized_role_category_source,
+      normalized_role_category_candidates_json,
+      normalized_role_category_evidence_json,
+      normalized_role_category_warnings_json,
       classification_status
     )
     WHERE record."canonicalJobId" = values.id
@@ -446,14 +558,26 @@ async function main() {
         normalizedEmploymentTypeConfidence: true,
         normalizedCareerStage: true,
         normalizedCareerStageConfidence: true,
+        experienceLevelGroup: true,
+        experienceLevelSource: true,
+        experienceLevelEvidenceJson: true,
+        experienceLevelWarningsJson: true,
         normalizedIndustry: true,
         normalizedIndustryConfidence: true,
         normalizedRoleCategory: true,
         normalizedRoleCategoryConfidence: true,
+        normalizedRoleCategoryGroup: true,
+        normalizedRoleCategoryStatus: true,
+        normalizedRoleCategorySource: true,
+        normalizedRoleCategoryCandidatesJson: true,
+        normalizedRoleCategoryEvidenceJson: true,
+        normalizedRoleCategoryWarningsJson: true,
         classificationStatus: true,
+        applyUrl: true,
         companyRecord: {
           select: {
             normalizedIndustry: true,
+            normalizedIndustries: true,
             normalizedIndustryConfidence: true,
           },
         },
@@ -488,10 +612,20 @@ async function main() {
           normalizedEmploymentTypeConfidence: metadata.confidence.employmentType,
           normalizedCareerStage: metadata.normalizedCareerStage,
           normalizedCareerStageConfidence: metadata.confidence.careerStage,
+          experienceLevelGroup: metadata.experienceLevelGroup,
+          experienceLevelSource: metadata.experienceLevelSource,
+          experienceLevelEvidenceJson: metadata.experienceLevelEvidence,
+          experienceLevelWarningsJson: metadata.experienceLevelWarnings,
           normalizedIndustry: metadata.normalizedIndustry,
           normalizedIndustryConfidence: metadata.confidence.industry,
           normalizedRoleCategory: metadata.normalizedRoleCategory,
           normalizedRoleCategoryConfidence: metadata.confidence.roleCategory,
+          normalizedRoleCategoryGroup: metadata.normalizedRoleCategoryGroup,
+          normalizedRoleCategoryStatus: metadata.normalizedRoleCategoryStatus,
+          normalizedRoleCategorySource: metadata.normalizedRoleCategorySource,
+          normalizedRoleCategoryCandidatesJson: metadata.normalizedRoleCategoryCandidates,
+          normalizedRoleCategoryEvidenceJson: metadata.normalizedRoleCategoryEvidence,
+          normalizedRoleCategoryWarningsJson: metadata.normalizedRoleCategoryWarnings,
           classificationStatus: metadata.classificationStatus,
         });
       }

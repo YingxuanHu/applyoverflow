@@ -61,3 +61,50 @@ test("normalization keeps global jobs applyable while still rejecting junk URLs"
     reason: "invalid_apply_url",
   });
 });
+
+test("future normalization uses context-aware experience extraction", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  const result = normalizeSourceJob({
+    job: buildJob({
+      sourceId: "source:3",
+      sourceUrl: "https://example.com/jobs/product-manager",
+      applyUrl: "https://example.com/jobs/product-manager/apply",
+      title: "Product Manager",
+      location: "Toronto, ON",
+      description:
+        "Own product discovery and roadmap delivery for a customer-facing platform. Requirements include 7+ years of product management experience, strong cross-functional execution, and no direct reports for this individual contributor role.",
+    }),
+    fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
+  });
+
+  assert.equal(result.kind, "accepted");
+  if (result.kind === "accepted") {
+    assert.equal(result.job.normalizedCareerStage, "SENIOR");
+    assert.equal(result.job.experienceLevelGroup, "SENIOR_LEAD_STAFF");
+    assert.equal(result.job.experienceLevelSource, "years_required");
+    assert.notEqual(result.job.experienceLevelGroup, "MANAGER_DIRECTOR_EXECUTIVE");
+    assert.ok(Array.isArray(result.job.experienceLevelEvidenceJson));
+  }
+});
+
+test("future normalization keeps account executive out of executive group", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  const result = normalizeSourceJob({
+    job: buildJob({
+      sourceId: "source:4",
+      sourceUrl: "https://example.com/jobs/account-executive",
+      applyUrl: "https://example.com/jobs/account-executive/apply",
+      title: "Account Executive",
+      location: "Remote - Canada",
+      description:
+        "Manage a sales pipeline, qualify customer needs, and close new business. Requirements include 2+ years of sales experience and strong communication skills.",
+    }),
+    fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
+  });
+
+  assert.equal(result.kind, "accepted");
+  if (result.kind === "accepted") {
+    assert.notEqual(result.job.normalizedCareerStage, "EXECUTIVE");
+    assert.notEqual(result.job.experienceLevelGroup, "MANAGER_DIRECTOR_EXECUTIVE");
+  }
+});
