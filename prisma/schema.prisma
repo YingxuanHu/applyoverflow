@@ -100,6 +100,18 @@ enum UserAction {
   VIEW_DETAILS
 }
 
+enum UserJobPreferenceFeedbackType {
+  NOT_INTERESTED
+  WRONG_ROLE
+  TOO_SENIOR
+  TOO_JUNIOR
+  WRONG_LOCATION
+  WRONG_WORK_MODE
+  WRONG_EMPLOYMENT_TYPE
+  LOW_QUALITY
+  ALREADY_SEEN
+}
+
 enum IngestionRunStatus {
   RUNNING
   SUCCESS
@@ -390,6 +402,10 @@ model UserProfile {
   behaviorSignals        UserBehaviorSignal[]
   applicationSubmissions ApplicationSubmission[]
   applicationPackages    ApplicationPackage[]
+  matchProfile           UserMatchProfile?
+  topPicks               UserTopPick[]
+  topPickRefreshTask     TopPickRefreshTask?
+  jobPreferenceFeedback  UserJobPreferenceFeedback[]
 }
 
 model Company {
@@ -628,6 +644,8 @@ model JobCanonical {
   applicationPackages    ApplicationPackage[]
   behaviorSignals        UserBehaviorSignal[]
   trackedApplications    TrackedApplication[]
+  topPicks               UserTopPick[]
+  preferenceFeedback     UserJobPreferenceFeedback[]
   companyRecord          Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
   urlHealthChecks        JobUrlHealthCheck[]
   sourceTasks            SourceTask[]
@@ -837,6 +855,95 @@ model UserBehaviorSignal {
   // Feed query: exclude passed jobs for a user
   @@index([userId, action])
   @@index([userId, canonicalJobId, action])
+}
+
+model UserMatchProfile {
+  userId                   String   @id
+  profileVersion           Int      @default(1)
+  profileHash              String
+  normalizedSkills         String[] @default([])
+  targetRoleCategories     String[] @default([])
+  targetCareerStage        String?
+  preferredLocationCity    String?
+  preferredLocationRegion  String?
+  preferredLocationCountry String?
+  preferredWorkModes       String[] @default([])
+  targetSalaryMin          Int?
+  targetSalaryMax          Int?
+  targetSalaryCurrency     String?
+  experienceSummary        String?
+  updatedAt                DateTime @updatedAt
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([profileHash])
+  @@index([updatedAt])
+}
+
+model UserTopPick {
+  id             String   @id @default(cuid())
+  userId         String
+  jobId          String
+  score          Float
+  rank           Int
+  scoreBreakdown Json
+  matchReasons   Json
+  concerns       Json
+  profileVersion Int
+  jobVersion     DateTime?
+  computedAt     DateTime @default(now())
+  expiresAt      DateTime
+  isValid        Boolean  @default(true)
+  invalidatedAt  DateTime?
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  JobCanonical @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([userId, isValid, score(sort: Desc)])
+  @@index([jobId])
+  @@index([userId, computedAt])
+  @@index([userId, rank])
+}
+
+model TopPickRefreshTask {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  status         String   @default("PENDING")
+  priorityScore  Float    @default(0)
+  reason         String?
+  candidateLimit Int?
+  storeLimit     Int?
+  notBeforeAt    DateTime @default(now())
+  leaseExpiresAt DateTime?
+  attemptCount   Int      @default(0)
+  maxAttempts    Int      @default(5)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  lastResult     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, notBeforeAt, priorityScore(sort: Desc)])
+  @@index([status, leaseExpiresAt(sort: Asc)])
+}
+
+model UserJobPreferenceFeedback {
+  id           String                        @id @default(cuid())
+  userId       String
+  jobId        String
+  feedbackType UserJobPreferenceFeedbackType
+  createdAt    DateTime                      @default(now())
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  JobCanonical @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([userId, feedbackType])
+  @@index([userId, jobId])
+  @@index([jobId])
 }
 
 model IngestionRun {
