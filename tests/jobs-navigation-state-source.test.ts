@@ -7,6 +7,9 @@ import {
   getJobsReturnLabel,
   getSafeJobsReturnHref,
 } from "../src/lib/jobs/return-navigation";
+import {
+  buildScrollMemoryStorageKey,
+} from "../src/components/navigation/scroll-position-memory";
 
 function readRepoFile(path: string) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -25,6 +28,14 @@ test("job detail links preserve safe jobs and top-picks return state", () => {
   assert.equal(getSafeJobsReturnHref("/jobs/not-a-feed"), null);
   assert.equal(getSafeJobsReturnHref("/applications"), null);
   assert.equal(getJobsReturnLabel("/jobs/top-picks?page=2"), "Top picks");
+  assert.equal(
+    buildScrollMemoryStorageKey({
+      storageKeyPrefix: "autoapplication.jobs.scroll",
+      pathname: "/jobs",
+      search: "page=4&titleSearch=backend",
+    }),
+    "autoapplication.jobs.scroll:/jobs?page=4&titleSearch=backend"
+  );
 });
 
 test("jobs and top picks lists pass source href through shared job cards", () => {
@@ -37,11 +48,16 @@ test("jobs and top picks lists pass source href through shared job cards", () =>
   const jobsErrorSource = readRepoFile("src/app/jobs/error.tsx");
 
   assert.match(cardSource, /sourceHref\?: string/);
+  assert.match(cardSource, /scrollMemoryKeyPrefix\?: string/);
+  assert.match(cardSource, /data-job-card-id=\{job\.id\}/);
+  assert.match(cardSource, /rememberScrollAnchorForHref/);
   assert.match(cardSource, /buildJobDetailHref\(job\.id, sourceHref\)/);
   assert.match(jobsFeedSource, /usePathname/);
   assert.match(jobsFeedSource, /sourceHref=\{sourceHref\}/);
+  assert.match(jobsFeedSource, /scrollMemoryKeyPrefix="autoapplication\.jobs\.scroll"/);
   assert.match(topPicksSource, /usePathname/);
   assert.match(topPicksSource, /sourceHref=\{sourceHref\}/);
+  assert.match(topPicksSource, /scrollMemoryKeyPrefix="autoapplication\.top-picks\.scroll"/);
   assert.match(detailPageSource, /getSafeJobsReturnHref\(fromParam\) \?\? "\/jobs"/);
   assert.match(detailPageSource, /scroll=\{false\}/);
   assert.match(topPicksPageSource, /ScrollPositionMemory/);

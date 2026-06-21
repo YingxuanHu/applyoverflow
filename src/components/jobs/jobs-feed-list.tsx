@@ -61,6 +61,7 @@ export function JobsFeedList({
             }
             job={job}
             referenceNow={referenceNow}
+            scrollMemoryKeyPrefix="autoapplication.jobs.scroll"
             sourceHref={sourceHref}
           />
         </li>

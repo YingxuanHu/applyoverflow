@@ -185,6 +185,7 @@ function TopPickCard({
         }
         job={pick.job}
         referenceNow={referenceNow}
+        scrollMemoryKeyPrefix="autoapplication.top-picks.scroll"
         sourceHref={sourceHref}
       />
     </div>

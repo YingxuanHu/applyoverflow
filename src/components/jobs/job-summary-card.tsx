@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   BriefcaseBusiness,
@@ -19,6 +21,7 @@ import {
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "@/lib/job-metadata";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
+import { rememberScrollAnchorForHref } from "@/components/navigation/scroll-position-memory";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
@@ -27,6 +30,7 @@ type JobSummaryCardProps = {
   referenceNow?: string;
   footerActions?: React.ReactNode;
   sourceHref?: string;
+  scrollMemoryKeyPrefix?: string;
 };
 
 export function JobSummaryCard({
@@ -34,6 +38,7 @@ export function JobSummaryCard({
   referenceNow,
   footerActions,
   sourceHref,
+  scrollMemoryKeyPrefix,
 }: JobSummaryCardProps) {
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const expiringSoon = getExpiringSoonMetaAt(job.deadline, referenceNow);
@@ -53,6 +58,7 @@ export function JobSummaryCard({
 
   return (
     <article
+      data-job-card-id={job.id}
       className={cn(
         "flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row sm:gap-3",
         (job.status === "EXPIRED" || job.status === "REMOVED") && "opacity-60"
@@ -62,6 +68,14 @@ export function JobSummaryCard({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={buildJobDetailHref(job.id, sourceHref)}
+            onClick={() => {
+              if (!scrollMemoryKeyPrefix) return;
+              rememberScrollAnchorForHref({
+                storageKeyPrefix: scrollMemoryKeyPrefix,
+                href: sourceHref,
+                anchorId: job.id,
+              });
+            }}
             className="mobile-list-title inline-block max-w-full text-base font-semibold text-foreground transition hover:underline sm:truncate"
           >
             {job.title}
