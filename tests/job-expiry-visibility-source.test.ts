@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   JOB_BOARD_MIN_AVAILABILITY_SCORE,
+  buildApplyableVisibilityWhere,
   buildDefaultCanonicalVisibilityWhere,
 } from "../src/lib/jobs/visibility";
 
@@ -22,6 +23,15 @@ test("default job-board visibility requires live, recent, applyable jobs", () =>
   assert.match(where, /"deadline"/);
   assert.match(where, /"lastConfirmedAliveAt"/);
   assert.match(where, /"lastSourceSeenAt"/);
+});
+
+test("applyable visibility hides known bad links without hiding unvalidated jobs", () => {
+  const where = JSON.stringify(buildApplyableVisibilityWhere());
+
+  assert.match(where, /"applyUrlValidationStatus":null/);
+  assert.match(where, /"notIn"/);
+  assert.match(where, /"BROKEN_APPLY_LINK"/);
+  assert.match(where, /"GENERIC_APPLY_PAGE"/);
 });
 
 test("feed, detail, top picks, and summary use strict canonical visibility", () => {
