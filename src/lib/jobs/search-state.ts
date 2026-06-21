@@ -205,7 +205,9 @@ export function resolveJobsStateSource(input: {
     };
   }
 
-  const sessionQuery = normalizeJobsStateQuery(input.sessionQuery ?? "");
+  const sessionQuery = normalizeJobsStateQuery(input.sessionQuery ?? "", {
+    includePage: false,
+  });
   if (sessionQuery) {
     return { source: "session" as const, query: sessionQuery };
   }
