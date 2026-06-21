@@ -425,6 +425,11 @@ const TIER_1_POLL_CONNECTORS = new Set([
 const TIER_1_CONDITIONAL_CONNECTORS = new Set([
   "icims",
 ]);
+const GROWTH_REFRESH_HEAVY_SOURCE_TYPES = new Set([
+  "ATS",
+  "COMPANY_JSON",
+  "COMPANY_HTML",
+]);
 // 2026-04-16: Raised defaults + hard caps for the top TIME_BUDGET offenders
 // (ashby/greenhouse/lever/workday). Big tenants like Coinbase, Affirm, Salesforce
 // Workday, etc. legitimately need more time for per-job detail fetches.
@@ -1310,7 +1315,7 @@ function isGrowthFrontierCandidate(input: {
   };
 }
 
-function computeGrowthModePollSignals(input: {
+export function computeGrowthModePollSignals(input: {
   now: Date;
   createdAt: Date | null | undefined;
   updatedAt: Date | null | undefined;
@@ -1353,9 +1358,12 @@ function computeGrowthModePollSignals(input: {
     input.jobsAcceptedCount >= GROWTH_LOW_NOVELTY_ACCEPTED_THRESHOLD * 8 &&
     input.lastJobsCreatedCount === 0 &&
     historicalNoveltyRatio < GROWTH_LOW_NOVELTY_RATIO;
+  const refreshHeavySourceType = GROWTH_REFRESH_HEAVY_SOURCE_TYPES.has(
+    input.sourceType ?? ""
+  );
   const refreshHeavyCandidate =
     !growthFrontier.frontierCandidate &&
-    input.sourceType === "ATS" &&
+    refreshHeavySourceType &&
     (refreshHeavyLowNovelty || historicalRefreshHeavy);
 
   let priorityAdjustment = 0;
@@ -1374,8 +1382,7 @@ function computeGrowthModePollSignals(input: {
   return {
     ...growthFrontier,
     refreshHeavyCandidate,
-    shouldHardCooldown:
-      GROWTH_MODE_ENABLED && refreshHeavyCandidate && input.sourceType === "ATS",
+    shouldHardCooldown: GROWTH_MODE_ENABLED && refreshHeavyCandidate,
     priorityAdjustment,
   };
 }
