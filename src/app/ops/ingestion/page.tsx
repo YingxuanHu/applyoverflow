@@ -74,7 +74,7 @@ export default async function IngestionOpsPage() {
           Classification split
         </p>
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
-          <Field label="Auto-apply eligible" value={String(overview.autoEligibleCount)} />
+          <Field label="Ready to apply" value={String(overview.readyToApplyCount)} />
           <Field label="Review required" value={String(overview.reviewRequiredCount)} />
           <Field label="Manual only" value={String(overview.manualOnlyCount)} />
           <Field label="Scheduled sources" value={String(scheduledSourceCount)} />

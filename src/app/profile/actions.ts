@@ -219,10 +219,8 @@ export async function saveProfile(
   const experiencesJson = experiences.length > 0 ? experiences : Prisma.DbNull;
   const projectsJson = projects.length > 0 ? projects : Prisma.DbNull;
 
-  // Mirror the structured ProfileContact fields onto the direct columns
-  // (`phone`, `linkedinUrl`, etc.) so auto-apply review and AI prompts
-  // can read them. Previously these were only written to contactJson and
-  // every downstream consumer saw "Not set".
+  // Mirror structured ProfileContact fields onto direct columns so AI prompts,
+  // exports, and ranking snapshots can read them without unpacking contactJson.
   const contactColumns = contactToProfileColumnUpdates(contact);
 
   await prisma.userProfile.update({
@@ -259,75 +257,6 @@ export async function saveProfile(
     error: null,
     success: "Profile saved.",
   };
-}
-
-/**
- * Quick-edit action used by the auto-apply review screen. Updates JUST the
- * contact fields (phone, location, linkedin, github, portfolio, work auth) without
- * touching the structured profile data. Saves the user a trip to /profile
- * mid-flow.
- *
- * Mirrors the same dual write (contactJson + direct columns) as saveProfile
- * so the value lands wherever consumers read it.
- */
-export async function updateAutoApplyContactAction(
-  _prev: ProfileActionState,
-  formData: FormData
-): Promise<ProfileActionState> {
-  const user = await requireProfileForAction();
-  if (!user) {
-    return {
-      error: "You must sign in before updating profile.",
-      success: null,
-    };
-  }
-
-  const phone = String(formData.get("phone") ?? "").trim();
-  const location = String(formData.get("location") ?? "").trim();
-  const linkedinUrl = String(formData.get("linkedinUrl") ?? "").trim();
-  const githubUrl = String(formData.get("githubUrl") ?? "").trim();
-  const portfolioUrl = String(formData.get("portfolioUrl") ?? "").trim();
-  const workAuthorization = String(formData.get("workAuthorization") ?? "").trim();
-
-  // Load the existing contact JSON so we can preserve fields we don't
-  // touch (full name, email).
-  const existing = await prisma.userProfile.findUnique({
-    where: { id: user.id },
-    select: { contactJson: true },
-  });
-  const existingContact = normalizeContact(existing?.contactJson ?? null);
-
-  const nextContact = {
-    ...existingContact,
-    phone,
-    location,
-    linkedInUrl: linkedinUrl,
-    githubUrl,
-    portfolioUrl,
-  };
-
-  const hasContact = Object.values(nextContact).some(
-    (value) => typeof value === "string" && value.trim().length > 0
-  );
-
-  await prisma.userProfile.update({
-    where: { id: user.id },
-    data: {
-      contactJson: hasContact ? nextContact : Prisma.DbNull,
-      phone: phone || null,
-      location: location || null,
-      linkedinUrl: linkedinUrl || null,
-      githubUrl: githubUrl || null,
-      portfolioUrl: portfolioUrl || null,
-      workAuthorization: workAuthorization || null,
-    },
-  });
-  await invalidateTopPicksForUser(user.id);
-
-  revalidateProfileViews();
-  revalidatePaths(["/jobs", "/jobs/top-picks"]);
-
-  return { error: null, success: "Details updated." };
 }
 
 export async function setPrimaryProfileResume(

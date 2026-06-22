@@ -29,7 +29,7 @@ Each card should be compact and show only essential information:
 - source
 - short summary
 - why it matches
-- automation category
+- application-readiness status
 
 ## Ranking factors
 
@@ -42,7 +42,7 @@ Rank jobs using a combination of:
 - salary preference match
 - freshness
 - source trust
-- automation feasibility
+- application-readiness confidence
 - prior user behavior
 
 ## Hard filters vs soft signals
@@ -86,9 +86,9 @@ Examples:
 - strong overlap with Python, SQL, and analytics
 - remote preference match
 - salary within target range
-- auto-apply eligible
+- ready to apply
 
-## Why this cannot be auto-applied
+## Why this needs review
 
 Also show when relevant:
 - custom question detected
@@ -117,4 +117,4 @@ Useful batch actions:
 - pass selected low-fit jobs
 - apply using a chosen resume variant to a filtered group
 
-Batch actions must still respect automation and quality guardrails.
+Batch actions must still respect application-readiness and quality guardrails.

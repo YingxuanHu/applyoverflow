@@ -54,8 +54,8 @@ async function main() {
 
   // Category counters
   const categoryCounts = {
-    AUTO_SUBMIT_READY: 0,
-    AUTO_FILL_REVIEW: 0,
+    READY_TO_APPLY: 0,
+    REVIEW_REQUIRED: 0,
     MANUAL_ONLY: 0,
   };
 
@@ -139,7 +139,7 @@ async function main() {
             reasonCode: draft.reasonCode,
             reasonDescription: draft.reasonDescription,
             jobValidityConfidence: draft.jobValidityConfidence,
-            formAutomationConfidence: draft.formAutomationConfidence,
+            applicationFlowConfidence: draft.applicationFlowConfidence,
             packageFitConfidence: draft.packageFitConfidence,
             submissionQualityConfidence: draft.submissionQualityConfidence,
             customizationLevel: draft.customizationLevel,
@@ -156,7 +156,7 @@ async function main() {
             reasonCode: draft.reasonCode,
             reasonDescription: draft.reasonDescription,
             jobValidityConfidence: draft.jobValidityConfidence,
-            formAutomationConfidence: draft.formAutomationConfidence,
+            applicationFlowConfidence: draft.applicationFlowConfidence,
             packageFitConfidence: draft.packageFitConfidence,
             submissionQualityConfidence: draft.submissionQualityConfidence,
             customizationLevel: draft.customizationLevel,
@@ -182,8 +182,8 @@ async function main() {
   console.log(`  Updated: ${totalUpdated}`);
   console.log(`  Skipped: ${totalSkipped}`);
   console.log(`\nCategory breakdown:`);
-  console.log(`  Auto-submit ready: ${categoryCounts.AUTO_SUBMIT_READY}`);
-  console.log(`  Auto-fill + review: ${categoryCounts.AUTO_FILL_REVIEW}`);
+  console.log(`  Ready to apply:    ${categoryCounts.READY_TO_APPLY}`);
+  console.log(`  Review required:   ${categoryCounts.REVIEW_REQUIRED}`);
   console.log(`  Manual only:       ${categoryCounts.MANUAL_ONLY}`);
 
   // Final stats

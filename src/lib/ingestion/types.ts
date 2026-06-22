@@ -178,7 +178,7 @@ export type EligibilityDraft = {
   reasonCode: string;
   reasonDescription: string;
   jobValidityConfidence: number;
-  formAutomationConfidence: number;
+  applicationFlowConfidence: number;
   packageFitConfidence: number;
   submissionQualityConfidence: number;
   customizationLevel: number;
@@ -271,7 +271,7 @@ export type IngestionOverview = {
   staleCount: number;
   expiredCount: number;
   removedCount: number;
-  autoEligibleCount: number;
+  readyToApplyCount: number;
   reviewRequiredCount: number;
   manualOnlyCount: number;
   recentRunCount: number;

@@ -171,7 +171,7 @@ describe("EXCLUDED_TITLE_PATTERNS — admin-flavored education roles are NOT exc
   }
 
   // These should still be excluded — they're clinical / classroom-teaching
-  // / trades that don't fit the auto-apply UX.
+  // / trades that don't fit the office/knowledge-worker job board.
   const denied = [
     "Registered Nurse",
     "Nurse Practitioner",

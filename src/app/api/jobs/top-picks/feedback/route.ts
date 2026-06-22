@@ -5,8 +5,8 @@ import {
   API_BODY_LIMITS,
   errorResponse,
   handleApiRouteError,
+  parseJsonBodyWithLimit,
   rateLimitResponse,
-  requestSizeLimitResponse,
   successResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
@@ -18,13 +18,6 @@ const FEEDBACK_TYPES = new Set<string>(Object.values(UserJobPreferenceFeedbackTy
 
 export async function POST(request: NextRequest) {
   try {
-    const tooLarge = requestSizeLimitResponse(
-      request,
-      API_BODY_LIMITS.smallJson,
-      "Top picks feedback request"
-    );
-    if (tooLarge) return tooLarge;
-
     const rateLimited = await rateLimitResponse(
       request,
       "jobs:top-picks:feedback",
@@ -32,7 +25,14 @@ export async function POST(request: NextRequest) {
     );
     if (rateLimited) return rateLimited;
 
-    const body = await request.json().catch(() => null);
+    const parsedBody = await parseJsonBodyWithLimit<Record<string, unknown>>(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Top picks feedback request"
+    );
+    if (!parsedBody.ok) return parsedBody.response;
+
+    const body = parsedBody.data;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return errorResponse("Invalid JSON body", 400);
     }

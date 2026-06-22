@@ -12,9 +12,8 @@ type PortalTier = "structured" | "semi_structured" | "aggregator" | "unknown";
 /**
  * Classify the application portal tier based on source name and apply URL.
  *
- * - **structured**: ATS with implemented application fillers (Greenhouse,
- *   Lever, Ashby). Form reachability and required-field coverage are still
- *   verified later in the review/preflight flow before submit is allowed.
+ * - **structured**: ATS or career portals with predictable job-specific pages
+ *   and clear application flow.
  * - **semi_structured**: Corporate portals that have forms but may vary
  *   (SuccessFactors, Taleo, company career pages)
  * - **aggregator**: Job boards that link out to external application pages
@@ -34,8 +33,8 @@ function classifyPortal(sourceName: string, applyUrl: string): PortalTier {
     return "structured";
   }
 
-  // Known ATS portals that are ingestible but do not have a working submit
-  // filler yet. They must not be labeled auto-submit ready.
+  // Known ATS portals that are ingestible but vary enough that users should
+  // review the employer page directly.
   if (
     src.includes("workday") || url.includes("myworkdayjobs.com") ||
     src.includes("smartrecruiters") || url.includes("smartrecruiters.com") ||
@@ -109,7 +108,7 @@ export function buildEligibilityDraft({
     job.roleFamily === "Internship" ||
     /\b(intern|co-op|coop|internship|stagiaire)\b/i.test(job.title);
 
-  // Aggregator jobs often link to external sites we may not be able to automate
+  // Aggregator jobs often link to external sites with less predictable quality.
   const hasExternalRedirect =
     portalTier === "aggregator" &&
     !job.applyUrl.includes("greenhouse") &&
@@ -127,17 +126,18 @@ export function buildEligibilityDraft({
       "unknown_source_portal",
       "Source portal is not yet recognized. Manual application required.",
       evaluationTime,
-      { jobValidity: 0.6, formAutomation: 0.15, packageFit: 0.5, submissionQuality: 0.4 }
+      { jobValidity: 0.6, applicationFlow: 0.15, packageFit: 0.5, submissionQuality: 0.4 }
     );
   }
 
-  // Aggregators with external redirects → manual (we can't control the destination form)
+  // Aggregators with external redirects → manual/review because the destination
+  // may not be a job-specific application page.
   if (hasExternalRedirect) {
     return makeManual(
       "aggregator_external_redirect",
       "This job was found via an aggregator and links to an external application page we haven't mapped yet.",
       evaluationTime,
-      { jobValidity: 0.82, formAutomation: 0.2, packageFit: 0.65, submissionQuality: 0.5 }
+      { jobValidity: 0.82, applicationFlow: 0.2, packageFit: 0.65, submissionQuality: 0.5 }
     );
   }
 
@@ -145,13 +145,13 @@ export function buildEligibilityDraft({
   // (the apply URL points to a known structured portal)
   const effectiveTier = portalTier === "aggregator" ? "semi_structured" : portalTier;
 
-  // Semi-structured portals → manual until a submit-capable filler exists.
+  // Semi-structured portals → manual because the employer flow varies.
   if (effectiveTier === "semi_structured") {
     return makeManual(
-      "unsupported_submit_filler",
-      "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
+      "variable_employer_portal",
+      "This employer portal varies by company. Open the posting and apply manually.",
       evaluationTime,
-      { jobValidity: 0.86, formAutomation: 0.2, packageFit: 0.72, submissionQuality: 0.65 }
+      { jobValidity: 0.86, applicationFlow: 0.2, packageFit: 0.72, submissionQuality: 0.65 }
     );
   }
 
@@ -161,9 +161,9 @@ export function buildEligibilityDraft({
   if (requiresCustomWriting) {
     return makeReview(
       "custom_written_response_required",
-      "Structured ATS flow detected, but the description suggests custom writing or extra questions. Human review recommended.",
+      "Structured employer flow detected, but the description suggests custom writing or extra questions. Review before applying.",
       evaluationTime,
-      { jobValidity: 0.9, formAutomation: 0.78, packageFit: 0.8, submissionQuality: 0.74 }
+      { jobValidity: 0.9, applicationFlow: 0.78, packageFit: 0.8, submissionQuality: 0.74 }
     );
   }
 
@@ -171,9 +171,9 @@ export function buildEligibilityDraft({
   if (higherTouchRole) {
     return makeReview(
       "higher_touch_role_review",
-      "Structured ATS flow, but role seniority means a human should review materials before submitting.",
+      "Structured employer flow, but role seniority means materials should be reviewed before applying.",
       evaluationTime,
-      { jobValidity: 0.92, formAutomation: 0.82, packageFit: 0.75, submissionQuality: 0.72 }
+      { jobValidity: 0.92, applicationFlow: 0.82, packageFit: 0.75, submissionQuality: 0.72 }
     );
   }
 
@@ -183,7 +183,7 @@ export function buildEligibilityDraft({
       "internship_review",
       "Structured ATS flow for an internship/co-op. Review recommended to tailor materials for early-career role.",
       evaluationTime,
-      { jobValidity: 0.9, formAutomation: 0.85, packageFit: 0.7, submissionQuality: 0.75 }
+      { jobValidity: 0.9, applicationFlow: 0.85, packageFit: 0.7, submissionQuality: 0.75 }
     );
   }
 
@@ -191,20 +191,19 @@ export function buildEligibilityDraft({
   if (nonStandardEmployment) {
     return makeReview(
       "non_standard_employment_review",
-      "Structured ATS flow, but non-standard employment type makes full auto-submit too aggressive.",
+      "Structured employer flow, but non-standard employment type needs review before applying.",
       evaluationTime,
-      { jobValidity: 0.88, formAutomation: 0.82, packageFit: 0.78, submissionQuality: 0.73 }
+      { jobValidity: 0.88, applicationFlow: 0.82, packageFit: 0.78, submissionQuality: 0.73 }
     );
   }
 
-  // Structured + low-complexity means the job can enter review-first
-  // auto-fill. It is not labeled fully auto-submit-ready until the live form
-  // is reached and required fields are verified in the Auto Apply preflight.
-  return makeReview(
-    "structured_ats_preflight_required",
-    "Supported structured ATS detected. The form must be verified and reviewed before submission.",
+  // Structured + low-complexity means the posting is clean enough to prepare
+  // materials and apply directly on the employer site.
+  return makeReady(
+    "structured_portal_ready",
+    "Structured employer posting detected. Prepare materials, open the posting, and apply on the employer site.",
     evaluationTime,
-    { jobValidity: 0.94, formAutomation: 0.82, packageFit: 0.86, submissionQuality: 0.84 }
+    { jobValidity: 0.94, applicationFlow: 0.82, packageFit: 0.86, submissionQuality: 0.84 }
   );
 }
 
@@ -216,7 +215,7 @@ function normalizeText(value: unknown) {
 
 type ConfidenceScores = {
   jobValidity: number;
-  formAutomation: number;
+  applicationFlow: number;
   packageFit: number;
   submissionQuality: number;
 };
@@ -232,7 +231,7 @@ function makeManual(
     reasonCode,
     reasonDescription,
     jobValidityConfidence: scores.jobValidity,
-    formAutomationConfidence: scores.formAutomation,
+    applicationFlowConfidence: scores.applicationFlow,
     packageFitConfidence: scores.packageFit,
     submissionQualityConfidence: scores.submissionQuality,
     customizationLevel: 3,
@@ -247,14 +246,33 @@ function makeReview(
   scores: ConfidenceScores
 ): EligibilityDraft {
   return {
-    submissionCategory: "AUTO_FILL_REVIEW",
+    submissionCategory: "REVIEW_REQUIRED",
     reasonCode,
     reasonDescription,
     jobValidityConfidence: scores.jobValidity,
-    formAutomationConfidence: scores.formAutomation,
+    applicationFlowConfidence: scores.applicationFlow,
     packageFitConfidence: scores.packageFit,
     submissionQualityConfidence: scores.submissionQuality,
     customizationLevel: 2,
+    evaluatedAt,
+  };
+}
+
+function makeReady(
+  reasonCode: string,
+  reasonDescription: string,
+  evaluatedAt: Date,
+  scores: ConfidenceScores
+): EligibilityDraft {
+  return {
+    submissionCategory: "READY_TO_APPLY",
+    reasonCode,
+    reasonDescription,
+    jobValidityConfidence: scores.jobValidity,
+    applicationFlowConfidence: scores.applicationFlow,
+    packageFitConfidence: scores.packageFit,
+    submissionQualityConfidence: scores.submissionQuality,
+    customizationLevel: 1,
     evaluatedAt,
   };
 }

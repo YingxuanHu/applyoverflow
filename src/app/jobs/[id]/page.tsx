@@ -5,7 +5,6 @@ import { JobDescriptionSection } from "@/components/jobs/job-description-section
 import { JobDetailActionGroup } from "@/components/jobs/job-detail-action-group";
 import { JobMetaRow } from "@/components/jobs/job-meta-row";
 import {
-  APPLICATION_REVIEW_STATE_META,
   formatDeadlineValue,
   formatDisplayLabel,
   formatPostedAge,
@@ -58,16 +57,13 @@ export default async function JobDetailPage({
     select: { id: true, title: true, isPrimary: true },
   });
 
-  const { atsSupported, job, reviewState, submissions } = detailData;
+  const { job, reviewState, submissions } = detailData;
   const latestSubmission = submissions[0] ?? null;
-  const reviewStateMeta = APPLICATION_REVIEW_STATE_META[reviewState];
   const deadlineUrgency = getDeadlineUrgency(job.deadline);
   const expiringSoon = getExpiringSoonMeta(job.deadline);
   const deadlineValue = formatDeadlineValue(job.deadline);
   const applyModeLabel =
-    reviewState === "MANUAL_ONLY" || reviewState === "NOT_ELIGIBLE" || !atsSupported
-      ? "Employer site"
-      : reviewStateMeta.label;
+    reviewState === "NOT_ELIGIBLE" ? "Unavailable" : "Employer site";
   const manualApplyHref =
     job.primaryExternalLink?.href ?? job.sourcePostingLink?.href ?? job.applyUrl;
   const displaySalary = resolveJobSalaryRange({
@@ -217,20 +213,18 @@ export default async function JobDetailPage({
 
       <JobDescriptionSection job={job} showSourceLink={false} />
 
-      {/* "Fit analysis" section — moved from /jobs/[id]/apply. Title styled
-          to match the Description heading. Cover letter rendering is hidden
-          here (showCoverLetter=false); the workspace page still uses it. */}
+      {/* AI workspace — same fit analysis and cover-letter tools used by tracked applications. */}
       {process.env.OPENAI_API_KEY ? (
         <div className="surface-panel p-5 sm:p-6">
           <p className="text-sm font-medium text-muted-foreground">
-            Fit analysis
+            AI workspace
           </p>
           <div className="mt-4">
             <AIWorkspace
               company={job.company}
               jobId={job.id}
               jobTitle={job.title}
-              showCoverLetter={false}
+              showCoverLetter
               userResumes={userResumes}
             />
           </div>

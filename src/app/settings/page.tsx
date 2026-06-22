@@ -11,7 +11,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   User as UserIcon,
-  Wand2,
 } from "lucide-react";
 
 import { AccountSecurityPanel } from "@/components/auth/account-security-panel";
@@ -26,7 +25,6 @@ import { cn } from "@/lib/utils";
 
 import {
   AccountForm,
-  AutomationForm,
   NotificationsForm,
 } from "./settings-forms";
 
@@ -47,7 +45,7 @@ export default async function SettingsPage() {
     redirect("/sign-in");
   }
 
-  const [{ user, profile }, security] = await Promise.all([
+  const [{ user }, security] = await Promise.all([
     getTrackerSettingsData(),
     getAccountSecurityData(),
   ]);
@@ -55,16 +53,14 @@ export default async function SettingsPage() {
     redirect("/sign-in");
   }
 
-  const currentAutomation = profile?.automationMode ?? "REVIEW_BEFORE_SUBMIT";
-
   return (
     <div className="app-page space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings</h1>
           <p className="page-description">
-            Manage your account, automation guardrails, notifications, and
-            workspace experience.
+            Manage your account, notifications, security, and workspace
+            experience.
           </p>
         </div>
       </div>
@@ -156,21 +152,6 @@ export default async function SettingsPage() {
           email={user.email}
           sessions={security.sessions}
         />
-      </section>
-
-      {/* Automation */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="automation">
-        <header className="flex items-center gap-2">
-          <Wand2 className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Automation mode
-          </h2>
-        </header>
-        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-          Control how aggressively the engine prepares and submits
-          applications. Quality guardrails always override automation.
-        </p>
-        <AutomationForm currentMode={currentAutomation} />
       </section>
 
       {/* Notifications */}

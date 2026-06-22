@@ -133,7 +133,7 @@ export function computeRankingScore(input: {
   if ((input.sourceCount ?? 0) >= 2) score += 4;
   if ((input.sourceCount ?? 0) >= 3) score += 2;
 
-  if (input.submissionCategory === "AUTO_SUBMIT_READY") score += 3;
+  if (input.submissionCategory === "READY_TO_APPLY") score += 3;
   if (input.submissionCategory === "MANUAL_ONLY") score -= 1;
 
   return clampScore(score);

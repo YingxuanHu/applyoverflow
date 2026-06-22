@@ -64,7 +64,6 @@ export async function GET(request: Request) {
           salaryCurrency: true,
           preferredWorkMode: true,
           experienceLevel: true,
-          automationMode: true,
           contactJson: true,
           skillsText: true,
           experienceText: true,

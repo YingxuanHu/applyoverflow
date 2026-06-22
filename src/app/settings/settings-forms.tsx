@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import { KeyRound, LoaderCircle } from "lucide-react";
 
@@ -10,12 +10,10 @@ import {
   normalizeSalaryCurrency,
   SALARY_COMPARISON_CURRENCIES,
 } from "@/lib/currency-conversion";
-import { cn } from "@/lib/utils";
 
 import { initialSettingsState, type SettingsActionState } from "./action-state";
 import {
   saveAccountSettings,
-  saveAutomationSettings,
   saveNotificationSettings,
   savePreferencesSettings,
 } from "./actions";
@@ -277,101 +275,6 @@ export function PreferencesForm({
 
       <div>
         <SaveButton label="Save preferences" />
-      </div>
-    </form>
-  );
-}
-
-// ─── Automation section ────────────────────────────────────────────
-
-const AUTOMATION_MODE_OPTIONS = [
-  {
-    value: "REVIEW_BEFORE_SUBMIT",
-    label: "Manual review",
-    description:
-      "Show job matches and prepare materials. You open and submit applications yourself.",
-  },
-  {
-    value: "STRICT_AUTO_APPLY",
-    label: "Strict auto-apply",
-    description:
-      "Submit only supported Greenhouse, Lever, and Ashby forms that pass quality guardrails.",
-  },
-] as const;
-
-export function AutomationForm({
-  currentMode,
-}: {
-  currentMode: string;
-}) {
-  const normalizedCurrentMode = AUTOMATION_MODE_OPTIONS.some(
-    (option) => option.value === currentMode
-  )
-    ? currentMode
-    : "REVIEW_BEFORE_SUBMIT";
-  const [state, formAction] = useActionState(
-    saveAutomationSettings,
-    initialSettingsState
-  );
-  const [selectedMode, setSelectedMode] = useState(normalizedCurrentMode);
-  useSettingsFeedback(state);
-
-  useEffect(() => {
-    setSelectedMode(normalizedCurrentMode);
-  }, [normalizedCurrentMode]);
-
-  return (
-    <form action={formAction} className="mt-4 grid gap-3">
-      <div
-        aria-label="Automation mode"
-        className="grid gap-3 sm:grid-cols-2"
-        role="radiogroup"
-      >
-        {AUTOMATION_MODE_OPTIONS.map((option) => {
-          const isActive = selectedMode === option.value;
-          return (
-            <label
-              className={cn(
-                "relative flex cursor-pointer flex-col gap-1 rounded-[14px] border px-4 py-3 transition-colors",
-                isActive
-                  ? "border-primary/45 bg-accent"
-                  : "border-border/70 bg-card hover:bg-muted"
-              )}
-              key={option.value}
-            >
-              <input
-                className="sr-only"
-                checked={isActive}
-                name="automationMode"
-                onChange={() => setSelectedMode(option.value)}
-                type="radio"
-                value={option.value}
-              />
-              <span className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-foreground">
-                  {option.label}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "inline-flex h-4 w-4 items-center justify-center rounded-full border",
-                    isActive ? "border-primary" : "border-border"
-                  )}
-                >
-                  {isActive ? (
-                    <span className="h-2 w-2 rounded-full bg-primary" />
-                  ) : null}
-                </span>
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {option.description}
-              </span>
-            </label>
-          );
-        })}
-      </div>
-      <div>
-        <SaveButton label="Save automation mode" />
       </div>
     </form>
   );

@@ -1,6 +1,6 @@
 // ─── Structured profile JSON shapes ──────────────────────────────────────────
 // These types define the shape of the JSON fields stored in UserProfile.
-// They're used for display, editing, AI ingestion, and auto-apply field mapping.
+// They're used for display, editing, AI ingestion, exports, and recommendations.
 
 export type ProfileExperience = {
   title: string;

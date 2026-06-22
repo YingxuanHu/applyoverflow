@@ -76,7 +76,7 @@ type RegionType = "US" | "CA";
 type IndustryType = "TECH" | "FINANCE";
 type SourceTierType = "TIER_1" | "TIER_2" | "TIER_3";
 type JobStatusType = "LIVE" | "AGING" | "EXPIRED" | "REMOVED" | "STALE";
-type SubmissionCategoryType = "AUTO_SUBMIT_READY" | "AUTO_FILL_REVIEW" | "MANUAL_ONLY";
+type SubmissionCategoryType = "READY_TO_APPLY" | "REVIEW_REQUIRED" | "MANUAL_ONLY";
 
 const WORK_MODES: WorkModeType[] = ["REMOTE", "HYBRID", "ONSITE", "FLEXIBLE"];
 const EMPLOYMENT_TYPES: EmploymentTypeType[] = ["FULL_TIME", "PART_TIME", "CONTRACT"];
@@ -96,14 +96,14 @@ const ELIGIBILITY_CONFIGS: {
   confidenceRange: [number, number];
 }[] = [
   {
-    category: "AUTO_SUBMIT_READY",
+    category: "READY_TO_APPLY",
     reasonCode: "structured_ats_flow",
     reasonDescription: "Structured ATS flow detected with standard fields. No custom writing required.",
     customizationLevel: 1,
     confidenceRange: [0.82, 0.98],
   },
   {
-    category: "AUTO_FILL_REVIEW",
+    category: "REVIEW_REQUIRED",
     reasonCode: "optional_custom_question",
     reasonDescription: "Mostly structured application with optional custom question detected. Review recommended.",
     customizationLevel: 2,
@@ -178,7 +178,6 @@ async function main() {
       salaryCurrency: "USD",
       preferredWorkMode: "REMOTE",
       experienceLevel: "MID",
-      automationMode: "REVIEW_BEFORE_SUBMIT",
     },
   });
   console.log(`  ✅ User: ${user.name}`);
@@ -356,8 +355,8 @@ async function main() {
   // 5. Job eligibility records
   for (let i = 0; i < 40; i++) {
     let configIdx: number;
-    if (i < 15) configIdx = 0; // AUTO_SUBMIT_READY
-    else if (i < 30) configIdx = 1; // AUTO_FILL_REVIEW
+    if (i < 15) configIdx = 0; // READY_TO_APPLY
+    else if (i < 30) configIdx = 1; // REVIEW_REQUIRED
     else configIdx = 2; // MANUAL_ONLY
 
     const config = ELIGIBILITY_CONFIGS[configIdx];
@@ -370,7 +369,7 @@ async function main() {
         reasonCode: config.reasonCode,
         reasonDescription: config.reasonDescription,
         jobValidityConfidence: parseFloat(faker.number.float({ min: lo, max: hi }).toFixed(2)),
-        formAutomationConfidence: parseFloat(faker.number.float({ min: lo, max: hi }).toFixed(2)),
+        applicationFlowConfidence: parseFloat(faker.number.float({ min: lo, max: hi }).toFixed(2)),
         packageFitConfidence: parseFloat(faker.number.float({ min: lo, max: hi }).toFixed(2)),
         submissionQualityConfidence: parseFloat(faker.number.float({ min: lo, max: hi }).toFixed(2)),
         customizationLevel: config.customizationLevel,
@@ -414,7 +413,7 @@ async function main() {
       canonicalJobId: canonicalJobs[0].id,
       status: "SUBMITTED",
       submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      submissionMethod: "auto",
+      submissionMethod: "manual",
     },
   });
   await prisma.applicationSubmission.create({
@@ -422,7 +421,7 @@ async function main() {
       userId: DEMO_USER_ID,
       canonicalJobId: canonicalJobs[5].id,
       status: "DRAFT",
-      submissionMethod: "review",
+      submissionMethod: "manual",
     },
   });
   console.log("  ✅ Application submissions: 2");

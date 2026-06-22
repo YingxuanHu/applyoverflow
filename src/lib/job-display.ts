@@ -2,16 +2,16 @@ import { formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import type { ApplicationReviewState, JobCardData } from "@/types";
 
 export const SUBMISSION_CATEGORY_META = {
-  AUTO_SUBMIT_READY: {
-    label: "Internal: ready candidate",
+  READY_TO_APPLY: {
+    label: "Ready to apply",
     badgeVariant: "default" as const,
   },
-  AUTO_FILL_REVIEW: {
-    label: "Internal: review candidate",
+  REVIEW_REQUIRED: {
+    label: "Review required",
     badgeVariant: "outline" as const,
   },
   MANUAL_ONLY: {
-    label: "Manual Apply",
+    label: "Manual apply",
     badgeVariant: "outline" as const,
   },
 };
@@ -24,17 +24,17 @@ export const APPLICATION_REVIEW_STATE_META: Record<
   }
 > = {
   READY_FOR_REVIEW: {
-    label: "Check first",
+    label: "Ready to prepare",
     description:
-      "This job needs a form check before the app can say whether it supports Auto Apply.",
+      "Prepare your materials, open the employer posting, and track the result.",
   },
   MANUAL_ONLY: {
-    label: "Manual Apply",
+    label: "Manual apply",
     description:
       "The application should be completed on the employer site.",
   },
   NOT_ELIGIBLE: {
-    label: "Manual Apply",
+    label: "Unavailable",
     description:
       "The job is not currently suitable for the tracked application flow due to status or missing eligibility data.",
   },
@@ -48,10 +48,8 @@ export function getSubmissionMeta(job: Pick<JobCardData, "eligibility">) {
 
 export function shouldShowSubmissionMeta(_job: Pick<JobCardData, "eligibility">) {
   void _job;
-  // SubmissionCategory is an internal ingestion hint, not a verified user-facing
-  // Auto Apply status. Showing it before a live form preflight created a trust
-  // bug: a job could look auto-applicable and later be downgraded after CAPTCHA,
-  // login, or unsupported-field detection. Keep it out of normal job surfaces.
+  // SubmissionCategory is an internal ingestion hint. Keep it out of normal job
+  // cards so user-facing surfaces stay focused on job quality and availability.
   return false;
 }
 
@@ -59,8 +57,8 @@ export function getEligibilityReasonDescription(
   eligibility: Pick<JobCardData, "eligibility">["eligibility"]
 ) {
   if (!eligibility) return "Eligibility has not been evaluated yet.";
-  if (eligibility.submissionCategory === "AUTO_FILL_REVIEW") {
-    return "This role needs a live form check before Auto Apply can be promised.";
+  if (eligibility.submissionCategory === "REVIEW_REQUIRED") {
+    return "Review the employer posting before preparing your application materials.";
   }
   return eligibility.reasonDescription;
 }
@@ -258,7 +256,7 @@ export function formatDeadlineValueAt(
 /** Tailwind text-color class for a submission category. */
 export function submissionCategoryColor(category?: string | null): string {
   switch (category) {
-    case "AUTO_SUBMIT_READY":
+    case "READY_TO_APPLY":
       return "text-emerald-600";
     default:
       return "text-muted-foreground";

@@ -3,10 +3,10 @@
  * columns (`phone`, `location`, `linkedinUrl`, `githubUrl`, `portfolioUrl`).
  *
  * The profile form writes the structured `contactJson` shape, but other
- * surfaces (auto-apply review screen, AI prompt context builders, exported
- * resume/cover-letter generators) read from the direct columns. Without
- * this sync, fields the user typed in /profile silently appear as
- * "Not set" everywhere else.
+ * surfaces (AI prompt context builders, exports, resume/cover-letter
+ * generators, and recommendation snapshots) read from the direct columns.
+ * Without this sync, fields the user typed in /profile silently appear as
+ * "Not set" elsewhere.
  */
 import type { ProfileContact } from "@/lib/profile";
 

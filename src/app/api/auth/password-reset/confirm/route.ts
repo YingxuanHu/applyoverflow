@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { consumeAuthRateLimit } from "@/lib/auth-rate-limit";
+import {
+  API_BODY_LIMITS,
+  parseJsonBodyWithLimit,
+} from "@/lib/api-utils";
 import { resetPasswordWithToken } from "@/lib/auth-password-reset";
 
 export async function POST(request: Request) {
@@ -21,10 +25,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = (await request.json().catch(() => null)) as {
+  const parsedBody = await parseJsonBodyWithLimit<{
     token?: unknown;
     newPassword?: unknown;
-  } | null;
+  }>(request, API_BODY_LIMITS.authJson, "Password reset confirmation");
+  if (!parsedBody.ok) {
+    return parsedBody.response;
+  }
+
+  const body = parsedBody.data;
 
   const token = typeof body?.token === "string" ? body.token : "";
   const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";

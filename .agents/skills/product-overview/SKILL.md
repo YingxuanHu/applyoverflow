@@ -17,13 +17,13 @@ North America-focused job search and application engine. Optimizes for **volume*
 ## Two pools
 
 - **Total job pool** — all live, relevant, deduplicated NA jobs
-- **Auto-apply eligible pool** — subset passing automation + quality thresholds
+- **Ready-to-apply pool** — subset passing source quality and application-readiness thresholds
 
-Every job tagged: `auto-apply eligible` | `review required` | `manual only`
+Every job tagged: `ready to apply` | `review required` | `manual only`
 
 ## Job card shows
 
-Company, title, location, work mode, salary (if available), posting age, source, short summary, why-it-matches, automation tag
+Company, title, location, work mode, salary (if available), posting age, source, short summary, why-it-matches, readiness tag
 
 ## User profile inputs
 
@@ -31,7 +31,7 @@ Resume versions, cover letter templates, saved answers, links (LinkedIn/GitHub/p
 
 ## Jobs page stats (top of feed)
 
-New jobs since last login, expired since last login, saved jobs nearing deadline, jobs newly auto-apply eligible
+New jobs since last login, expired since last login, saved jobs nearing deadline, jobs newly ready to apply
 
 ## Initial focus
 
@@ -42,4 +42,4 @@ New jobs since last login, expired since last login, saved jobs nearing deadline
 
 ## Product principles
 
-Speed with control · Volume with relevance · Automation with guardrails · Transparency in what's shown and why
+Speed with control · Volume with relevance · Application prep with guardrails · Transparency in what's shown and why

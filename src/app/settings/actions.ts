@@ -105,26 +105,6 @@ export async function savePreferencesSettings(
   }
 }
 
-export async function saveAutomationSettings(
-  _prev: SettingsActionState,
-  formData: FormData
-): Promise<SettingsActionState> {
-  try {
-    const raw = formData.get("automationMode");
-    const automationMode =
-      raw === "STRICT_AUTO_APPLY" || raw === "REVIEW_BEFORE_SUBMIT"
-        ? raw
-        : "REVIEW_BEFORE_SUBMIT";
-    await saveTrackerSettings({
-      automationMode,
-    });
-    revalidatePaths(["/settings", "/jobs"]);
-    return { error: null, success: "Automation mode updated." };
-  } catch (error) {
-    return handleError(error);
-  }
-}
-
 export async function saveNotificationSettings(
   _prev: SettingsActionState,
   formData: FormData

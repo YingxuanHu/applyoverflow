@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { consumeAuthRateLimit } from "@/lib/auth-rate-limit";
 import {
+  API_BODY_LIMITS,
+  parseJsonBodyWithLimit,
+} from "@/lib/api-utils";
+import {
   normalizeAuthEmail,
   sendVerificationEmailForUser,
 } from "@/lib/auth-verification";
@@ -35,7 +39,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const parsedBody = await parseJsonBodyWithLimit<Record<string, unknown>>(
+    request,
+    API_BODY_LIMITS.authJson,
+    "Verification email request"
+  );
+  if (!parsedBody.ok) {
+    return parsedBody.response;
+  }
+
+  const body = parsedBody.data;
   const email = normalizeAuthEmail(String(body?.email ?? ""));
 
   if (!email) {

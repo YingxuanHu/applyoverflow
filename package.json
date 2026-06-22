@@ -106,9 +106,6 @@
     "daemon:status": "npx pm2 status",
     "classify": "tsx -r dotenv/config scripts/classify-eligibility.ts",
     "renormalize": "tsx -r dotenv/config scripts/renormalize-rejected.ts",
-    "auto-apply": "tsx -r dotenv/config scripts/auto-apply.ts",
-    "auto-apply:dry": "tsx -r dotenv/config scripts/auto-apply.ts --mode=dry_run",
-    "auto-apply:fill": "tsx -r dotenv/config scripts/auto-apply.ts --mode=fill_only",
     "source:audit-cleanup": "tsx -r dotenv/config scripts/audit-company-sources.ts"
   },
   "dependencies": {

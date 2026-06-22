@@ -51,16 +51,9 @@ enum Industry {
 }
 
 enum SubmissionCategory {
-  AUTO_SUBMIT_READY
-  AUTO_FILL_REVIEW
+  READY_TO_APPLY
+  REVIEW_REQUIRED
   MANUAL_ONLY
-}
-
-enum AutomationMode {
-  DISCOVERY_ONLY
-  ASSIST
-  REVIEW_BEFORE_SUBMIT
-  STRICT_AUTO_APPLY
 }
 
 enum ApplicationStatus {
@@ -378,7 +371,6 @@ model UserProfile {
   salaryCurrency    String?          @default("USD")
   preferredWorkMode WorkMode?
   experienceLevel   ExperienceLevel?
-  automationMode    AutomationMode   @default(REVIEW_BEFORE_SUBMIT)
 
   // Structured profile data (rich JSON fields for AI ingestion and display)
   contactJson     Json?
@@ -757,7 +749,7 @@ model JobEligibility {
   reasonCode                  String
   reasonDescription           String
   jobValidityConfidence       Float
-  formAutomationConfidence    Float
+  applicationFlowConfidence   Float
   packageFitConfidence        Float
   submissionQualityConfidence Float
   customizationLevel          Int
@@ -901,6 +893,7 @@ model UserTopPick {
 
   @@unique([userId, jobId])
   @@index([userId, isValid, score(sort: Desc)])
+  @@index([userId, isValid, expiresAt, score(sort: Desc)])
   @@index([jobId])
   @@index([userId, computedAt])
   @@index([userId, rank])
@@ -943,6 +936,7 @@ model UserJobPreferenceFeedback {
 
   @@index([userId, feedbackType])
   @@index([userId, jobId])
+  @@index([userId, jobId, feedbackType])
   @@index([jobId])
 }
 
@@ -1428,6 +1422,7 @@ model TrackedApplication {
 
   @@unique([userId, canonicalJobId])
   @@index([userId])
+  @@index([userId, canonicalJobId, status])
   @@index([status])
   @@index([deadline])
   @@index([canonicalJobId])

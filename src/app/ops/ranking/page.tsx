@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCurrentProfileId } from "@/lib/current-user";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
+import { formatDisplayLabel } from "@/lib/job-display";
 import { requireOpsAdmin } from "@/lib/ops-auth";
 import {
   loadFeedPrefs,
@@ -208,7 +209,7 @@ export default async function RankingDebugPage() {
                   </Link>
                   <span className="text-[11px] text-muted-foreground">{job.company}</span>
                 </td>
-                <ScoreCell value={job.breakdown.eligibility} max={20} />
+                <ScoreCell value={job.breakdown.eligibility} max={8} />
                 <ScoreCell value={job.breakdown.freshness} max={20} />
                 <ScoreCell value={job.breakdown.availability} max={18} />
                 <ScoreCell value={job.breakdown.profileMatch} max={28} />
@@ -221,7 +222,7 @@ export default async function RankingDebugPage() {
                 <ScoreCell value={job.breakdown.multiSource} max={3} />
                 <td className="py-1.5 pr-3 text-[11px] text-muted-foreground whitespace-nowrap">
                   {job.roleFamily ?? "—"} · {job.workMode ?? "—"} · {job.status ?? "—"} ·{" "}
-                  {job.submissionCategory?.replace("AUTO_", "").replace("_READY", "").replace("_REVIEW", " rev") ?? "—"}
+                  {job.submissionCategory ? formatDisplayLabel(job.submissionCategory) : "—"}
                 </td>
               </tr>
             ))}

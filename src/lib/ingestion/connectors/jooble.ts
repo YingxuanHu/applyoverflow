@@ -282,7 +282,7 @@ const JOOBLE_BIZ_DEV_KEYWORDS = [
 
 // ── New GENERAL families (previously uncovered) ─────────────────────────────
 // Each addresses a white-collar/knowledge-worker segment that fits the
-// auto-apply UX but was invisible to our keyword-based discovery before.
+// office/knowledge-worker feed but was invisible to our keyword-based discovery before.
 // Clinical / blue-collar / trades terms are intentionally absent — they'd
 // be caught by EXCLUDED_TITLE_PATTERNS downstream anyway.
 

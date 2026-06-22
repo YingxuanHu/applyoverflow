@@ -431,7 +431,7 @@ export const ENTERPRISE_DISCOVERY_COMPANIES: EnterpriseCompanyRecord[] = [
   // probe each `seedPageUrls` entry, detect the ATS, and start polling.
   // `ats: "unknown"` is intentional where the ATS isn't pre-verified —
   // discovery handles ATS detection. Only office / corporate / admin /
-  // engineering functions matter for the auto-apply UX; blue-collar /
+  // engineering functions matter for the office/knowledge-worker feed; blue-collar /
   // retail-store / clinical-frontline titles are filtered by
   // EXCLUDED_TITLE_PATTERNS at normalization time even when sourced from
   // these companies.

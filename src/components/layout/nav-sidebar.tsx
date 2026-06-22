@@ -32,7 +32,6 @@ const PROFILE_LINKS = [
 
 const SETTINGS_LINKS = [
   { href: "/settings#account", label: "Account" },
-  { href: "/settings#automation", label: "Automation" },
   { href: "/settings#notifications", label: "Notifications" },
 ];
 

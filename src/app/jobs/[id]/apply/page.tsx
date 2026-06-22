@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Bot, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { ApplicationReviewActions } from "@/components/jobs/application-review-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
 import { getOptionalSessionUser } from "@/lib/current-user";
@@ -10,9 +10,6 @@ import {
   formatPostedAge,
   formatSalary,
   getEligibilityReasonDescription,
-  getSubmissionMeta,
-  shouldShowSubmissionMeta,
-  submissionCategoryColor,
 } from "@/lib/job-display";
 import { getApplicationReviewData } from "@/lib/queries/applications";
 
@@ -34,9 +31,6 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
   }
 
   const {
-    automationMode,
-    atsName,
-    atsSupported,
     job,
     latestPackage,
     packagePreview,
@@ -47,14 +41,8 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
   } = reviewData;
 
   const latestSubmission = submissions[0] ?? null;
-  const submissionMeta = getSubmissionMeta(job);
   const reviewStateMeta = APPLICATION_REVIEW_STATE_META[reviewState];
   const canCreatePackage = recommendedResume !== null;
-  const showSubmissionMeta = shouldShowSubmissionMeta(job);
-
-  if (reviewState === "MANUAL_ONLY" || !atsSupported) {
-    redirect(`/jobs/${job.id}`);
-  }
 
   // Compact status strip values
   const packageState = latestPackage ? "Package ready" : "No package";
@@ -106,23 +94,9 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
       {/* Compact status strip */}
       <div className="border-t border-border py-2.5">
         <p className="text-xs text-muted-foreground">
-          {showSubmissionMeta ? (
-            <>
-              <span className={submissionCategoryColor(job.eligibility?.submissionCategory)}>
-                {submissionMeta.label}
-              </span>
-              <Sep />
-            </>
-          ) : null}
           {packageState}
           <Sep />
           {submissionState}
-          {atsSupported ? (
-            <>
-              <Sep />
-              <span className="text-blue-600 dark:text-blue-400">{atsName} form check</span>
-            </>
-          ) : null}
         </p>
       </div>
 
@@ -178,15 +152,12 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
           <p className="mb-3 text-xs text-muted-foreground">Submission history</p>
           <div className="space-y-3">
             {submissions.map((submission) => {
-              const autoLog = parseAutomationLog(submission.notes);
-              const isAuto = submission.submissionMethod?.startsWith("auto:");
               return (
                 <div
                   key={submission.id}
                   className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0"
                 >
                   <div className="flex items-center gap-2">
-                    {isAuto ? <Bot className="h-3.5 w-3.5 text-muted-foreground" /> : null}
                     <span className="text-sm font-medium text-foreground">
                       {formatDisplayLabel(submission.status)}
                     </span>
@@ -202,9 +173,7 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
                       ? ` · submitted ${formatPostedAge(submission.submittedAt)}`
                       : ""}
                   </p>
-                  {autoLog ? (
-                    <AutomationLogSummary log={autoLog} />
-                  ) : submission.notes ? (
+                  {submission.notes ? (
                     <p className="mt-1 text-xs text-muted-foreground">{submission.notes}</p>
                   ) : null}
                 </div>
@@ -295,7 +264,6 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
           />
           <Field label="Work mode" value={formatDisplayLabel(job.workMode)} />
           <Field label="Work auth" value={workAuthorization ?? "Not set"} />
-          <Field label="Automation mode" value={formatDisplayLabel(automationMode)} />
         </div>
       </details>
     </div>
@@ -324,70 +292,4 @@ function KV({ label, value }: { label: string; value: string }) {
 
 function Sep() {
   return <span className="mx-1.5 text-border">·</span>;
-}
-
-// ─── Automation log helpers ─────────────────────────────────────────────────
-
-type AutomationLog = {
-  atsName: string;
-  mode: string;
-  status: string;
-  filledFieldCount: number;
-  unfillableFieldCount: number;
-  blockers: Array<{ type: string; detail: string }>;
-  durationMs: number;
-  screenshots: string[];
-  notes: string;
-};
-
-function parseAutomationLog(notes: string | null): AutomationLog | null {
-  if (!notes) return null;
-  try {
-    const parsed = JSON.parse(notes);
-    if (parsed && typeof parsed === "object" && "atsName" in parsed && "status" in parsed) {
-      return parsed as AutomationLog;
-    }
-  } catch {
-    // Not a JSON automation log
-  }
-  return null;
-}
-
-function AutomationLogSummary({ log }: { log: AutomationLog }) {
-  const statusColor =
-    log.status === "submitted" ? "text-green-600 dark:text-green-400" :
-    log.status === "filled" ? "text-blue-600 dark:text-blue-400" :
-    log.status === "blocked" ? "text-yellow-600 dark:text-yellow-400" :
-    "text-red-600 dark:text-red-400";
-
-  return (
-    <div className="mt-2 space-y-1.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className={`font-medium ${statusColor}`}>
-          {log.status.toUpperCase()}
-        </span>
-        <span className="text-muted-foreground">
-          {log.atsName} · {log.mode.replace(/_/g, " ")}
-        </span>
-        <span className="text-muted-foreground">
-          {log.filledFieldCount} filled · {log.unfillableFieldCount} unfillable
-        </span>
-        <span className="text-muted-foreground">
-          {(log.durationMs / 1000).toFixed(1)}s
-        </span>
-      </div>
-      {log.blockers.length > 0 ? (
-        <div className="space-y-0.5">
-          {log.blockers.map((b, i) => (
-            <p key={i} className="text-xs text-yellow-600 dark:text-yellow-400">
-              Blocker: [{b.type}] {b.detail}
-            </p>
-          ))}
-        </div>
-      ) : null}
-      {log.notes ? (
-        <p className="text-xs text-muted-foreground">{log.notes}</p>
-      ) : null}
-    </div>
-  );
 }

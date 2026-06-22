@@ -55,7 +55,6 @@ import {
   type SalaryExchangeRates,
 } from "@/lib/currency-conversion";
 import { loadSalaryExchangeRates } from "@/lib/salary-exchange-rates";
-import { resolveATSFiller } from "@/lib/automation/fillers";
 
 // ─── Full-text search ────────────────────────────────────────────────────────
 
@@ -316,25 +315,12 @@ function withSanitizedJobPresentation<T extends SanitizedJobPresentationInput>(
         location: job.location,
       })
     : job.shortSummary;
-  const eligibility =
-    job.eligibility?.submissionCategory === "AUTO_SUBMIT_READY" &&
-    (!job.applyUrl || !resolveATSFiller(job.applyUrl))
-      ? {
-          ...job.eligibility,
-          submissionCategory: "MANUAL_ONLY",
-          reasonCode: "unsupported_submit_filler",
-          reasonDescription:
-            "This application portal is not supported by a working auto-submit filler yet. Manual application required.",
-        }
-      : job.eligibility;
-
   return {
     ...job,
     title,
     company,
     description,
     shortSummary,
-    eligibility,
   };
 }
 
@@ -639,28 +625,21 @@ async function getPassedJobIdSet(
   return new Set(passedRows.map((row) => row.canonicalJobId));
 }
 
-async function countJobFeedIndexMatches(
-  where: Prisma.JobFeedIndexWhereInput,
-  viewerProfileId: string | null
-) {
-  const baseTotal = await prisma.jobFeedIndex.count({ where });
-  const passedJobIds = await getPassedJobIdSet(viewerProfileId);
-  if (passedJobIds.size === 0) return baseTotal;
-
-  const passedTotal = await prisma.jobFeedIndex.count({
-    where: {
-      AND: [
-        where,
-        {
-          canonicalJobId: {
-            in: [...passedJobIds],
-          },
-        },
-      ],
+function buildNotPassedCanonicalWhere(
+  viewerProfileId: string
+): Prisma.JobCanonicalWhereInput {
+  return {
+    behaviorSignals: {
+      none: {
+        userId: viewerProfileId,
+        action: "PASS",
+      },
     },
-  });
+  };
+}
 
-  return Math.max(0, baseTotal - passedTotal);
+async function countJobFeedIndexMatches(where: Prisma.JobFeedIndexWhereInput) {
+  return prisma.jobFeedIndex.count({ where });
 }
 
 async function getJobsFromFeedIndex(input: {
@@ -942,14 +921,14 @@ async function getJobsFromFeedIndex(input: {
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
-    const expandedCategories = new Set<"AUTO_SUBMIT_READY" | "AUTO_FILL_REVIEW" | "MANUAL_ONLY">();
+    const expandedCategories = new Set<"READY_TO_APPLY" | "REVIEW_REQUIRED" | "MANUAL_ONLY">();
 
     for (const category of selectedCategories) {
-      if (category === "AUTO_SUBMIT_READY") {
-        expandedCategories.add("AUTO_SUBMIT_READY");
-      } else if (category === "MANUAL_ONLY" || category === "AUTO_FILL_REVIEW") {
+      if (category === "READY_TO_APPLY") {
+        expandedCategories.add("READY_TO_APPLY");
+      } else if (category === "MANUAL_ONLY" || category === "REVIEW_REQUIRED") {
         expandedCategories.add("MANUAL_ONLY");
-        expandedCategories.add("AUTO_FILL_REVIEW");
+        expandedCategories.add("REVIEW_REQUIRED");
       }
     }
 
@@ -977,6 +956,12 @@ async function getJobsFromFeedIndex(input: {
     appendAndCondition(
       canonicalRelationWhere,
       buildDefaultJobBoardVisibilityWhere(now, DEFAULT_MIN_AVAILABILITY_SCORE)
+    );
+  }
+  if (viewerProfileId) {
+    appendAndCondition(
+      canonicalRelationWhere,
+      buildNotPassedCanonicalWhere(viewerProfileId)
     );
   }
   if (Object.keys(canonicalRelationWhere).length > 0) {
@@ -1013,7 +998,7 @@ async function getJobsFromFeedIndex(input: {
 
   const totalPromise = includeExactTotal
     ? withCountTimeout(
-        () => countJobFeedIndexMatches(where, viewerProfileId),
+        () => countJobFeedIndexMatches(where),
         JOB_FEED_INDEX_COUNT_TIMEOUT_MS
       )
     : Promise.resolve(null);
@@ -1032,7 +1017,11 @@ async function getJobsFromFeedIndex(input: {
         });
 
   let canonicalJobIds = indexedRows.map((row) => row.canonicalJobId);
-  if (viewerProfileId && canonicalJobIds.length > 0) {
+  if (
+    viewerProfileId &&
+    canonicalJobIds.length > 0 &&
+    useDirectPrefilterSlice
+  ) {
     const passedJobIds = await getPassedJobIdSet(viewerProfileId, canonicalJobIds);
     canonicalJobIds = canonicalJobIds.filter((id) => !passedJobIds.has(id));
   }
@@ -2351,7 +2340,7 @@ export type ScoringJobInput = {
  * Score a job for relevance ranking with full breakdown.
  *
  * Scoring bands:
- *   Eligibility:          0–20  (auto-submit only; everything else is manual)
+ *   Application readiness: 0–8  (clean source/form metadata)
  *   Freshness:          -16–20  (graduated by age, more strongly demotes very old jobs)
  *   Availability:       -14–18  (health/lifecycle confidence)
  *   Profile match:       -5–36  (experience titles, skills, education, mode, level, salary)
@@ -2383,11 +2372,10 @@ export function scoreJobDetailed(
   let behaviorSuppression = 0;
   let sourceTrust = 0;
 
-  // Eligibility (0-20)
+  // Application readiness (0-8)
   const cat = job.eligibility?.submissionCategory;
-  if (cat === "AUTO_SUBMIT_READY" && job.applyUrl && resolveATSFiller(job.applyUrl)) {
-    eligibility = 20;
-  }
+  if (cat === "READY_TO_APPLY") eligibility = 8;
+  else if (cat === "REVIEW_REQUIRED") eligibility = 4;
 
   // Freshness (-16 to 20): rewards recency, more strongly demotes very old live jobs
   if (job.postedAt) {
@@ -3484,14 +3472,14 @@ export async function getJobs(
         .split(",")
         .map((entry) => entry.trim())
         .filter(Boolean);
-      const expandedCategories = new Set<"AUTO_SUBMIT_READY" | "AUTO_FILL_REVIEW" | "MANUAL_ONLY">();
+      const expandedCategories = new Set<"READY_TO_APPLY" | "REVIEW_REQUIRED" | "MANUAL_ONLY">();
 
       for (const category of selectedCategories) {
-        if (category === "AUTO_SUBMIT_READY") {
-          expandedCategories.add("AUTO_SUBMIT_READY");
-        } else if (category === "MANUAL_ONLY" || category === "AUTO_FILL_REVIEW") {
+        if (category === "READY_TO_APPLY") {
+          expandedCategories.add("READY_TO_APPLY");
+        } else if (category === "MANUAL_ONLY" || category === "REVIEW_REQUIRED") {
           expandedCategories.add("MANUAL_ONLY");
-          expandedCategories.add("AUTO_FILL_REVIEW");
+          expandedCategories.add("REVIEW_REQUIRED");
         }
       }
 

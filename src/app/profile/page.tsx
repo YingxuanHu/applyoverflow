@@ -221,7 +221,7 @@ export default async function ProfilePage({
                   Resume and cover letter library
                 </h2>
                 <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
-                  Keep uploaded resumes, generation templates, and cover letters organized for review and auto-apply.
+                  Keep uploaded resumes, generation templates, and cover letters organized for applications.
                 </p>
               </div>
             </header>
@@ -277,7 +277,7 @@ export default async function ProfilePage({
                 <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
               </header>
               <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-                Used for best-match ranking, salary-aware filtering defaults, and auto-apply checks.
+                Used for best-match ranking, salary-aware filtering defaults, and application materials.
               </p>
               <PreferencesForm
                 defaults={{

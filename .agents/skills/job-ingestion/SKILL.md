@@ -74,9 +74,9 @@ Contains:
 - deduplicated
 - North America-focused jobs
 
-### Auto-apply eligible pool
+### Ready-to-apply pool
 Subset of total job pool.
-Only jobs that pass automation thresholds.
+Only jobs that pass source quality and application-readiness thresholds.
 
 ## Refresh requirements
 
@@ -89,7 +89,7 @@ Refresh responsibilities:
 - mark expired postings
 - detect removed jobs
 - update deadlines
-- re-evaluate automation eligibility
+- re-evaluate application-readiness status
 
 ## Freshness principles
 
@@ -110,7 +110,7 @@ The jobs page should surface:
 - new jobs since last visit
 - jobs expired since last visit
 - saved jobs nearing deadline
-- jobs newly classified as auto-apply eligible
+- jobs newly classified as ready to apply
 
 ## Scale target
 
@@ -148,5 +148,5 @@ A smaller clean pool is better than a larger noisy one.
 - apply url
 - source name
 - industry / role family
-- automation tag
+- readiness tag
 - duplicate cluster id

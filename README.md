@@ -11,7 +11,7 @@ Current implemented slice:
 - shortlist workflow through `/saved`
 - application history in `/applications`
 - profile editor at `/profile` — contact info, skills, experience, education, projects, preferences
-- profile completeness indicator — weighted score showing which fields improve auto-fill and AI quality
+- profile completeness indicator — weighted score showing which fields improve AI quality and application materials
 - document upload — PDF/DOCX resume upload with text extraction; documents linked to resume variants
 - AI resume ingestion — parse an uploaded resume with OpenAI to populate structured profile fields
 - per-job AI workspace — fit analysis (score + strengths/gaps + keywords) and cover letter generation powered by OpenAI
@@ -181,8 +181,8 @@ npx tsx scripts/discover-sources.ts --dataset=data/discovery/seeds/workday-candi
 ## Product direction
 
 - Feed first, apply flow second
-- Total live job pool plus stricter auto-apply eligible pool
-- Clear classification per job: auto-apply eligible, review required, manual only
+- Total live job pool plus stricter ready-to-apply/review/manual quality bands
+- Clear classification per job: ready to apply, review required, or manual only
 - Deduplication, freshness, expiration tracking, and quality guardrails are foundational
 - This is not a blind spam-style mass apply bot
 

@@ -18,7 +18,6 @@ import {
   syncTrackedApplicationFromSubmission,
   syncTrackedApplicationLifecycleFromSubmission,
 } from "@/lib/queries/tracker";
-import { resolveATSFiller } from "@/lib/automation/fillers";
 import type {
   ApplicationHistoryItem,
   ApplicationHistoryStatus,
@@ -148,21 +147,7 @@ export async function getApplicationReviewData(
     latestPackage?.resumeVariant ??
     selectRecommendedResumeVariant(job.roleFamily, profile.resumeVariants);
 
-  const atsFiller = resolveATSFiller(job.applyUrl);
   const detailJob = serializeJobDetail(job);
-
-  if (
-    !atsFiller &&
-    detailJob.eligibility?.submissionCategory !== "MANUAL_ONLY"
-  ) {
-    detailJob.eligibility = {
-      ...detailJob.eligibility,
-      submissionCategory: "MANUAL_ONLY",
-      reasonCode: "unsupported_submit_filler",
-      reasonDescription:
-        "This application portal is not supported by a working in-app apply flow yet. Manual application required.",
-    };
-  }
 
   const packagePreview = buildPackagePreview(detailJob, profile, recommendedResume);
   const reviewState = getApplicationReviewState(detailJob);
@@ -178,10 +163,7 @@ export async function getApplicationReviewData(
     submissions: job.applicationSubmissions.map(serializeApplicationSubmission),
     packagePreview,
     reviewState,
-    automationMode: profile.automationMode,
     workAuthorization: profile.workAuthorization,
-    atsSupported: atsFiller !== null,
-    atsName: atsFiller?.atsName ?? null,
   };
 }
 
@@ -209,11 +191,9 @@ export async function prepareApplicationReview(jobId: string) {
       : null,
     packageId: packageRecord.id,
     status: "READY",
-    submissionMethod: isManualApplicationCategory(job.eligibility?.submissionCategory) ? "manual" : "review",
+    submissionMethod: "manual",
     submittedAt: null,
-    notes: isManualApplicationCategory(job.eligibility?.submissionCategory)
-      ? "Prepared for manual application in the apply flow."
-      : "Prepared for the apply assistant review flow.",
+    notes: "Prepared for manual application.",
   });
 
   return {
@@ -255,96 +235,6 @@ export async function updateApplicationSubmissionStatus(
   return serializeApplicationSubmission(updated);
 }
 
-/**
- * Prepare an ApplicationPackage for the auto-apply flow using the user's
- * explicit choices from the workspace (resume + optional cover letter +
- * per-job answers). Unlike `prepareApplicationReview`, which picks the
- * recommended resume silently, this variant respects what the user just
- * selected.
- *
- * Returns the package id — the caller (auto-apply API) then passes it
- * through to the automation engine.
- */
-export async function prepareAutoApplyPackage(
-  jobId: string,
-  input: {
-    resumeVariantId: string;
-    coverLetterContent?: string | null;
-    savedAnswers?: Record<string, string>;
-  }
-): Promise<{ packageId: string; savedAnswers: Record<string, string> }> {
-  const userId = await requireCurrentProfileId();
-
-  // Validate the resume variant belongs to this user.
-  const resumeVariant = await prisma.resumeVariant.findFirst({
-    where: { id: input.resumeVariantId, userId },
-    select: { id: true },
-  });
-  if (!resumeVariant) {
-    throw new Error("Selected resume is not available on your profile");
-  }
-
-  const context = await getMutableApplicationContext(jobId);
-  if (!context) throw new Error("Application context not found");
-
-  const { job, profile, latestPackage } = context;
-  // Resolve the chosen resume variant detail for the preview.
-  const chosenResume =
-    profile.resumeVariants.find((variant) => variant.id === input.resumeVariantId) ??
-    null;
-  if (!chosenResume) {
-    throw new Error("Selected resume not found on profile");
-  }
-
-  const packagePreview = buildPackagePreview(
-    serializeJobDetail(job),
-    profile,
-    chosenResume
-  );
-
-  // Merge the workspace-provided saved answers over the derived ones so
-  // the user's explicit overrides win.
-  const mergedAnswersMap: Record<string, string> = {
-    ...packagePreview.savedAnswers.reduce<Record<string, string>>(
-      (accumulator, entry) => {
-        accumulator[entry.label] = entry.value;
-        return accumulator;
-      },
-      {}
-    ),
-    ...jsonValueToStringRecord(latestPackage?.savedAnswers ?? null),
-    ...(input.savedAnswers ?? {}),
-  };
-
-  const attachedLinksMap: Record<string, string> =
-    packagePreview.attachedLinks.reduce<Record<string, string>>(
-      (accumulator, entry) => {
-        accumulator[entry.label] = entry.value;
-        return accumulator;
-      },
-      {}
-    );
-
-  const data = {
-    userId,
-    canonicalJobId: jobId,
-    resumeVariantId: input.resumeVariantId,
-    coverLetterContent: input.coverLetterContent ?? null,
-    attachedLinks: attachedLinksMap as Prisma.InputJsonValue,
-    savedAnswers: mergedAnswersMap as Prisma.InputJsonValue,
-    whyItMatches: packagePreview.whyItMatches,
-  };
-
-  const packageRecord = latestPackage
-    ? await prisma.applicationPackage.update({
-        where: { id: latestPackage.id },
-        data,
-      })
-    : await prisma.applicationPackage.create({ data });
-
-  return { packageId: packageRecord.id, savedAnswers: mergedAnswersMap };
-}
-
 export async function submitApplicationReview(jobId: string) {
   const userId = await requireCurrentProfileId();
   const context = await getMutableApplicationContext(jobId);
@@ -363,8 +253,7 @@ export async function submitApplicationReview(jobId: string) {
     packagePreview,
   });
 
-  const submissionMethod =
-    isManualApplicationCategory(job.eligibility?.submissionCategory) ? "manual" : "review";
+  const submissionMethod = "manual";
   const submittedAt = new Date();
 
   const submissionRecord = await upsertApplicationSubmission({
@@ -376,10 +265,7 @@ export async function submitApplicationReview(jobId: string) {
     status: "SUBMITTED",
     submissionMethod,
     submittedAt,
-    notes:
-      submissionMethod === "manual"
-        ? "Marked submitted manually from the apply review flow."
-        : "Marked submitted from the apply assistant flow.",
+    notes: "Marked submitted from the application package flow.",
   });
 
   await Promise.all([
@@ -884,7 +770,6 @@ function buildPackagePreview(
     salaryMax: number | null;
     salaryCurrency: string | null;
     preferredWorkMode: JobDetailData["workMode"] | null;
-    automationMode: ApplicationReviewData["automationMode"];
   },
   recommendedResume: ResumeVariantSummary | null
 ): ApplicationPackagePreview {
@@ -916,10 +801,6 @@ function buildPackagePreview(
           value: formatDisplayLabel(profile.preferredWorkMode),
         }
       : null,
-    {
-      label: "Automation mode",
-      value: formatDisplayLabel(profile.automationMode),
-    },
   ].filter((entry): entry is { label: string; value: string } => entry !== null);
 
   return {
@@ -927,9 +808,7 @@ function buildPackagePreview(
     savedAnswers,
     whyItMatches: buildPackageWhyItMatches(job, recommendedResume),
     coverLetterMode:
-      isManualApplicationCategory(job.eligibility?.submissionCategory)
-        ? "No auto-generated cover letter. Manual tailoring is expected."
-        : "No custom cover letter yet. This apply assistant flow is resume-first.",
+      "No custom cover letter attached yet. Generate or tailor one before applying if the posting asks for it.",
   };
 }
 
@@ -954,15 +833,7 @@ function buildPackageWhyItMatches(
 
 function getApplicationReviewState(job: JobDetailData): ApplicationReviewState {
   if (job.status !== "LIVE") return "NOT_ELIGIBLE";
-  if (!job.eligibility) return "NOT_ELIGIBLE";
-  if (isManualApplicationCategory(job.eligibility.submissionCategory)) return "MANUAL_ONLY";
   return "READY_FOR_REVIEW";
-}
-
-function isManualApplicationCategory(
-  category: NonNullable<JobCardEligibility>["submissionCategory"] | null | undefined
-) {
-  return category === "MANUAL_ONLY";
 }
 
 function jsonObjectToEntries(value: Prisma.JsonValue) {
@@ -977,19 +848,6 @@ function jsonObjectToEntries(value: Prisma.JsonValue) {
           ? "null"
           : JSON.stringify(entryValue),
   }));
-}
-
-function jsonValueToStringRecord(value: Prisma.JsonValue | null | undefined) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-      .map(([key, entryValue]) => [key, entryValue.trim()])
-      .filter(([, entryValue]) => entryValue.length > 0)
-  );
 }
 
 function canUpdateSubmission(

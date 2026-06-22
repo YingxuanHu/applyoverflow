@@ -588,7 +588,7 @@ export async function getIngestionOverview(): Promise<IngestionOverview> {
     staleCount,
     expiredCount,
     removedCount,
-    autoEligibleCount,
+    readyToApplyCount,
     reviewRequiredCount,
     manualOnlyCount,
     recentRunCount,
@@ -607,13 +607,13 @@ export async function getIngestionOverview(): Promise<IngestionOverview> {
     prisma.jobCanonical.count({
       where: {
         status: { in: [...VISIBLE_JOB_STATUSES] },
-        eligibility: { submissionCategory: "AUTO_SUBMIT_READY" },
+        eligibility: { submissionCategory: "READY_TO_APPLY" },
       },
     }),
     prisma.jobCanonical.count({
       where: {
         status: { in: [...VISIBLE_JOB_STATUSES] },
-        eligibility: { submissionCategory: "AUTO_FILL_REVIEW" },
+        eligibility: { submissionCategory: "REVIEW_REQUIRED" },
       },
     }),
     prisma.jobCanonical.count({
@@ -661,7 +661,7 @@ export async function getIngestionOverview(): Promise<IngestionOverview> {
     staleCount,
     expiredCount,
     removedCount,
-    autoEligibleCount,
+    readyToApplyCount,
     reviewRequiredCount,
     manualOnlyCount,
     recentRunCount,

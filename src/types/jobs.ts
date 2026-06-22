@@ -1,6 +1,5 @@
 import type {
   ApplicationStatus,
-  AutomationMode,
   EmploymentType,
   ExperienceLevel,
   Industry,
@@ -131,12 +130,7 @@ export type ApplicationReviewData = {
   submissions: ApplicationSubmissionSummary[];
   packagePreview: ApplicationPackagePreview;
   reviewState: ApplicationReviewState;
-  automationMode: AutomationMode;
   workAuthorization: string | null;
-  /** Whether the job's apply URL is handled by a registered ATS filler */
-  atsSupported: boolean;
-  /** Name of the ATS filler (e.g. "Greenhouse", "Lever"), or null */
-  atsName: string | null;
 };
 
 export type ApplicationHistoryStatus = ApplicationStatus | "PACKAGE_ONLY";

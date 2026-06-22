@@ -1,8 +1,8 @@
 import {
   API_BODY_LIMITS,
   errorResponse,
+  parseJsonBodyWithLimit,
   rateLimitResponse,
-  requestSizeLimitResponse,
   successResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
@@ -16,13 +16,6 @@ import {
 } from "@/lib/jobs/search-state";
 
 export async function POST(request: Request) {
-  const tooLarge = requestSizeLimitResponse(
-    request,
-    API_BODY_LIMITS.smallJson,
-    "Jobs search state request"
-  );
-  if (tooLarge) return tooLarge;
-
   const rateLimited = await rateLimitResponse(
     request,
     "preferences:jobs-search-state",
@@ -30,12 +23,19 @@ export async function POST(request: Request) {
   );
   if (rateLimited) return rateLimited;
 
+  const parsedBody = await parseJsonBodyWithLimit<{ query?: unknown }>(
+    request,
+    API_BODY_LIMITS.smallJson,
+    "Jobs search state request"
+  );
+  if (!parsedBody.ok) return parsedBody.response;
+
   const profileId = await getOptionalCurrentProfileId();
   if (!profileId) {
     return errorResponse("Authentication required", 401);
   }
 
-  const body = (await request.json().catch(() => null)) as { query?: unknown } | null;
+  const body = parsedBody.data;
   const query = normalizeJobsStateQuery(
     typeof body?.query === "string" ? body.query : "",
     { includePage: false }

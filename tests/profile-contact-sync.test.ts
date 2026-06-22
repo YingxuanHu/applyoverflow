@@ -25,10 +25,9 @@ test("contactToProfileColumnUpdates: copies the flat contact fields into a Prism
 });
 
 test("contactToProfileColumnUpdates: turns empty strings into null so 'Not set' renders properly", () => {
-  // The auto-apply review screen uses `?? \"Not set\"` against the
-  // direct columns — meaning a blank string would skip that fallback and
-  // render an empty field. Coerce to null so the user clearly sees the
-  // missing-data state.
+  // Application/profile surfaces use `?? "Not set"` against direct columns,
+  // meaning a blank string would skip that fallback and render an empty field.
+  // Coerce to null so the user clearly sees the missing-data state.
   assert.deepEqual(
     contactToProfileColumnUpdates({
       fullName: "",
@@ -51,7 +50,7 @@ test("contactToProfileColumnUpdates: turns empty strings into null so 'Not set' 
 
 test("contactToProfileColumnUpdates: trims whitespace before storing", () => {
   // Users routinely paste URLs with leading/trailing whitespace. The
-  // direct-column copy should normalize so equality checks in auto-apply
+  // direct-column copy should normalize so downstream comparisons and exports
   // don't trip on stray spaces.
   assert.deepEqual(
     contactToProfileColumnUpdates({

@@ -780,7 +780,6 @@ export async function getTrackerSettingsData() {
         salaryCurrency: true,
         preferredWorkMode: true,
         experienceLevel: true,
-        automationMode: true,
       },
     }),
     prisma.notification.count({
@@ -917,6 +916,14 @@ const TRACKED_STATUS_NOTE: Record<TrackedApplicationStatus, string> = {
   WITHDRAWN: "closed",
 };
 
+function isUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 export async function upsertTrackedApplicationFromJob(input: {
   canonicalJobId: string;
   status: TrackedApplicationStatus;
@@ -976,30 +983,20 @@ export async function upsertTrackedApplicationFromJob(input: {
   const normalizedJobDescription = getNormalizedTrackedJobDescription(job.description);
   const nextStatus = resolveTrackedStatusFromJobUpsert(existing?.status, input.status);
   const tracked = existing
-    ? await prisma.trackedApplication.update({
-        where: { id: existing.id },
-        data: {
-          company: job.company,
-          roleTitle: job.title,
-          roleUrl: job.applyUrl,
-          deadline: job.deadline,
-          status: nextStatus,
-          jobDescription: existing.jobDescription ?? normalizedJobDescription,
-          fitAnalysis: existing.fitAnalysis ?? latestPackage?.whyItMatches ?? null,
-        },
+    ? await updateTrackedApplicationFromJob({
+        existing,
+        job,
+        normalizedJobDescription,
+        nextStatus,
+        fitAnalysis: latestPackage?.whyItMatches ?? null,
       })
-    : await prisma.trackedApplication.create({
-        data: {
-          userId: authUserId,
-          canonicalJobId: job.id,
-          company: job.company,
-          roleTitle: job.title,
-          roleUrl: job.applyUrl,
-          status: input.status,
-          deadline: job.deadline,
-          jobDescription: normalizedJobDescription,
-          fitAnalysis: latestPackage?.whyItMatches ?? null,
-        },
+    : await createTrackedApplicationFromJobOrRecoverRace({
+        authUserId,
+        canonicalJobId: job.id,
+        job,
+        normalizedJobDescription,
+        requestedStatus: input.status,
+        fitAnalysis: latestPackage?.whyItMatches ?? null,
       });
 
   await prisma.trackedApplicationEvent.create({
@@ -1034,6 +1031,101 @@ export async function upsertTrackedApplicationFromJob(input: {
     created: !existing,
     status: nextStatus,
   };
+}
+
+async function updateTrackedApplicationFromJob(input: {
+  existing: {
+    id: string;
+    jobDescription: string | null;
+    fitAnalysis: string | null;
+  };
+  job: {
+    company: string;
+    title: string;
+    applyUrl: string;
+    deadline: Date | null;
+  };
+  normalizedJobDescription: string | null;
+  nextStatus: TrackedApplicationStatus;
+  fitAnalysis: string | null;
+}) {
+  return prisma.trackedApplication.update({
+    where: { id: input.existing.id },
+    data: {
+      company: input.job.company,
+      roleTitle: input.job.title,
+      roleUrl: input.job.applyUrl,
+      deadline: input.job.deadline,
+      status: input.nextStatus,
+      jobDescription: input.existing.jobDescription ?? input.normalizedJobDescription,
+      fitAnalysis: input.existing.fitAnalysis ?? input.fitAnalysis,
+    },
+  });
+}
+
+async function createTrackedApplicationFromJobOrRecoverRace(input: {
+  authUserId: string;
+  canonicalJobId: string;
+  job: {
+    company: string;
+    title: string;
+    applyUrl: string;
+    deadline: Date | null;
+  };
+  normalizedJobDescription: string | null;
+  requestedStatus: TrackedApplicationStatus;
+  fitAnalysis: string | null;
+}) {
+  try {
+    return await prisma.trackedApplication.create({
+      data: {
+        userId: input.authUserId,
+        canonicalJobId: input.canonicalJobId,
+        company: input.job.company,
+        roleTitle: input.job.title,
+        roleUrl: input.job.applyUrl,
+        status: input.requestedStatus,
+        deadline: input.job.deadline,
+        jobDescription: input.normalizedJobDescription,
+        fitAnalysis: input.fitAnalysis,
+      },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    const existing = await prisma.trackedApplication.findUnique({
+      where: {
+        userId_canonicalJobId: {
+          userId: input.authUserId,
+          canonicalJobId: input.canonicalJobId,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        notes: true,
+        fitAnalysis: true,
+        jobDescription: true,
+      },
+    });
+
+    if (!existing) {
+      throw error;
+    }
+
+    return updateTrackedApplicationFromJob({
+      existing,
+      job: input.job,
+      normalizedJobDescription: input.normalizedJobDescription,
+      nextStatus: resolveTrackedStatusFromJobUpsert(
+        existing.status,
+        input.requestedStatus
+      ),
+      fitAnalysis: input.fitAnalysis,
+    });
+  }
 }
 
 // Fields the user can edit on the application detail page. `notes`,
@@ -1605,12 +1697,6 @@ export async function markAllNotificationsRead() {
   });
 }
 
-type AutomationModeInput =
-  | "DISCOVERY_ONLY"
-  | "ASSIST"
-  | "REVIEW_BEFORE_SUBMIT"
-  | "STRICT_AUTO_APPLY";
-
 type WorkModeInput = "REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE" | "UNKNOWN";
 
 type ExperienceLevelInput =
@@ -1639,7 +1725,6 @@ function cleanOptionalUrl(value: string | null | undefined): string | null {
 export async function saveTrackerSettings(input: {
   emailNotificationsEnabled?: boolean;
   name?: string | null;
-  automationMode?: AutomationModeInput | null;
   preferredWorkMode?: WorkModeInput | null;
   experienceLevel?: ExperienceLevelInput | null;
   salaryMin?: number | null;
@@ -1672,9 +1757,6 @@ export async function saveTrackerSettings(input: {
     if (trimmed.length) {
       profileData.name = trimmed;
     }
-  }
-  if (input.automationMode !== undefined) {
-    profileData.automationMode = input.automationMode ?? "REVIEW_BEFORE_SUBMIT";
   }
   if (input.preferredWorkMode !== undefined) {
     profileData.preferredWorkMode = input.preferredWorkMode ?? null;
