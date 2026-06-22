@@ -5,9 +5,6 @@
  * Existing legacy files under `data/uploads/` remain readable during migration.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 
 import {
   DeleteObjectCommand,
@@ -15,13 +12,6 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-
-const UPLOAD_ROOT = path.join(
-  /* turbopackIgnore: true */ process.cwd(),
-  "data",
-  "uploads"
-);
-const TEMP_DOWNLOAD_PREFIX = path.join(os.tmpdir(), "autoapplication-storage-");
 
 const REQUIRED_STORAGE_ENV_KEYS = [
   "STORAGE_BUCKET",
@@ -41,12 +31,33 @@ type MaterializedStoredFile = {
   cleanup: (() => Promise<void>) | null;
 };
 
+function loadFsPromises() {
+  return import("node:fs/promises");
+}
+
+function loadOs() {
+  return import("node:os");
+}
+
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
 
 function sanitizeStorageSegment(name: string): string {
   return sanitizeFilename(name).replace(/\.+/g, ".").replace(/^[_./-]+|[_./-]+$/g, "") || "file";
+}
+
+function normalizeLegacyStorageKey(storageKey: string): string {
+  return storageKey
+    .split(/[\\/]+/)
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/");
+}
+
+function extensionFromName(name: string | undefined): string {
+  const basename = (name ?? "").split(/[\\/]+/).pop() ?? "";
+  const dotIndex = basename.lastIndexOf(".");
+  return dotIndex >= 0 ? basename.slice(dotIndex) : ".bin";
 }
 
 function readStorageConfig() {
@@ -140,13 +151,14 @@ export function buildDocumentStorageKey(input: {
   return `${input.userId}/${safeType}/${ts}-${randomUUID()}-${safeTitle}${safeExtension}`;
 }
 
-/** Resolve a legacy local storage key to an absolute path on disk. */
+/** Resolve a legacy local storage key under the app's runtime data directory. */
 export function resolvePath(storageKey: string): string {
-  return path.join(UPLOAD_ROOT, storageKey);
+  return `data/uploads/${normalizeLegacyStorageKey(storageKey)}`;
 }
 
 async function readLocalStoredFile(storageKey: string): Promise<Buffer | null> {
   try {
+    const { readFile } = await loadFsPromises();
     return await readFile(resolvePath(storageKey));
   } catch {
     return null;
@@ -155,6 +167,7 @@ async function readLocalStoredFile(storageKey: string): Promise<Buffer | null> {
 
 async function deleteLocalStoredFile(storageKey: string): Promise<void> {
   try {
+    const { unlink } = await loadFsPromises();
     await unlink(resolvePath(storageKey));
   } catch {
     // ignore missing local files during migration cleanup
@@ -261,6 +274,7 @@ export async function deleteFile(storageKey: string): Promise<void> {
 /** Check if a file exists and return its size, or null. */
 export async function fileExists(storageKey: string): Promise<number | null> {
   try {
+    const { stat } = await loadFsPromises();
     const s = await stat(resolvePath(storageKey));
     return s.size;
   } catch {
@@ -277,10 +291,13 @@ export async function materializeStoredFile(
   storageKey: string,
   filename?: string
 ): Promise<MaterializedStoredFile | null> {
+  const localPath = resolvePath(storageKey);
+
   try {
-    await stat(resolvePath(storageKey));
+    const { stat } = await loadFsPromises();
+    await stat(localPath);
     return {
-      filePath: resolvePath(storageKey),
+      filePath: localPath,
       cleanup: null,
     };
   } catch {
@@ -292,10 +309,14 @@ export async function materializeStoredFile(
     return null;
   }
 
-  const tempDir = await mkdtemp(TEMP_DOWNLOAD_PREFIX);
-  const extension = path.extname(filename ?? storageKey) || ".bin";
-  const tempPath = path.join(tempDir, `${randomUUID()}${extension}`);
-  await mkdir(path.dirname(tempPath), { recursive: true });
+  const [{ mkdtemp, rm, writeFile }, os] = await Promise.all([
+    loadFsPromises(),
+    loadOs(),
+  ]);
+  const tempRoot = os.tmpdir().replace(/[\\/]+$/, "");
+  const tempDir = await mkdtemp(`${tempRoot}/autoapplication-storage-`);
+  const extension = extensionFromName(filename ?? storageKey);
+  const tempPath = `${tempDir}/${randomUUID()}${extension}`;
   await writeFile(tempPath, remoteFile);
 
   return {

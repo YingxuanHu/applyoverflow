@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const projectRoot = __dirname;
+
 const nextConfig: NextConfig = {
   onDemandEntries: {
     maxInactiveAge: 15 * 1000,
@@ -34,7 +36,7 @@ const nextConfig: NextConfig = {
     "word-extractor",
   ],
   turbopack: {
-    root: process.cwd(),
+    root: projectRoot,
   },
 };
 
