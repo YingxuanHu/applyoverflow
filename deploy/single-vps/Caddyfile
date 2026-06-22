@@ -27,3 +27,16 @@ applyoverflow.com {
 	}
 	reverse_proxy app:3000
 }
+
+dev.applyoverflow.com {
+	import security_headers
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy host.docker.internal:3001
+}

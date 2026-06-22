@@ -25,6 +25,8 @@
     "db:storage-lifecycle": "tsx -r dotenv/config scripts/apply-storage-lifecycle.ts",
     "db:reset": "bash scripts/db-reset.sh",
     "deploy:single-vps": "bash deploy/single-vps/rebuild.sh",
+    "deploy:staging-vps": "bash deploy/single-vps/rebuild-staging.sh",
+    "deploy:refresh-staging": "bash deploy/single-vps/refresh-staging-from-prod.sh",
     "ingest": "tsx -r dotenv/config scripts/ingest.ts",
     "source:discover": "tsx -r dotenv/config scripts/discover-sources.ts",
     "source:prune": "tsx -r dotenv/config scripts/prune-company-sources.ts",
