@@ -291,12 +291,6 @@ export function scoreJobForUser(
       eligibilityGate: { passed: false, reason: "explicit_negative_feedback" },
     });
   }
-  if (history.appliedJobIds.has(job.jobId)) {
-    return rejectResult(job.jobId, "already_applied", {
-      eligibilityGate: { passed: false, reason: "already_applied" },
-    });
-  }
-
   const roleGate = evaluateRoleGate(job, intent);
   if (!roleGate.passed) {
     return rejectResult(job.jobId, roleGate.reason ?? "role_rejected", {

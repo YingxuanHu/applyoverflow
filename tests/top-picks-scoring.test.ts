@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
 import { ok, strictEqual } from "node:assert";
 
-import { buildUserJobIntent, type UserJobIntent } from "../src/lib/top-picks/intent";
+import {
+  assessUserJobIntentSignal,
+  buildUserJobIntent,
+  type UserJobIntent,
+} from "../src/lib/top-picks/intent";
 import {
   scoreJobForUser,
   type TopPickScoringJob,
@@ -110,6 +114,55 @@ function job(overrides: Partial<TopPickScoringJob> = {}): TopPickScoringJob {
 }
 
 describe("buildUserJobIntent", () => {
+  it("reports missing profile signal before recommendations can be generated", () => {
+    const readiness = assessUserJobIntentSignal(
+      intent({
+        explicitTargetTitles: [],
+        inferredTargetTitles: [],
+        explicitTargetRoleCategories: [],
+        inferredTargetRoleCategories: [],
+        mustHaveSkills: [],
+        strongSkills: [],
+        niceToHaveSkills: [],
+        weakSkills: [],
+        experienceSummary: "",
+      })
+    );
+
+    strictEqual(readiness.canGenerate, false);
+    ok(readiness.missingSignals.some((signal) => signal.includes("target roles")));
+  });
+
+  it("allows top picks when the profile has role intent", () => {
+    const readiness = assessUserJobIntentSignal(intent());
+
+    strictEqual(readiness.canGenerate, true);
+    strictEqual(readiness.missingSignals.length, 0);
+  });
+
+  it("requires skill, experience, saved, or applied-job signal in addition to role intent", () => {
+    const readiness = assessUserJobIntentSignal(
+      intent({
+        mustHaveSkills: [],
+        strongSkills: [],
+        niceToHaveSkills: [],
+        weakSkills: [],
+        experienceSummary: "",
+        positiveSignals: {
+          savedJobIds: [],
+          appliedJobIds: [],
+          likedRoleCategories: [],
+          likedTitles: [],
+          likedCompanies: [],
+          likedSkills: [],
+        },
+      })
+    );
+
+    strictEqual(readiness.canGenerate, false);
+    ok(readiness.missingSignals.some((signal) => signal.includes("skills")));
+  });
+
   it("infers realistic role and seniority intent without hardcoding a user", () => {
     const result = buildUserJobIntent({
       userId: "profile_new_grad",

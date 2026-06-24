@@ -21,9 +21,11 @@ import {
   TOP_PICKS_STORE_LIMIT,
 } from "./config";
 import {
+  assessUserJobIntentSignal,
   buildUserJobIntent,
   getAllowedRoleCategories,
   normalizeIntentText,
+  type TopPicksProfileReadiness,
   type UserJobIntent,
 } from "./intent";
 import {
@@ -162,6 +164,23 @@ export type RefreshTopPicksResult = {
   rejectedBySeniorityReason?: Record<string, number>;
   averageScore: number;
   durationMs: number;
+};
+
+type TopPicksStoredProfileSignal = {
+  profileHash: string;
+  profileVersion: number;
+  updatedAt: Date;
+  normalizedSkills: string[];
+  targetRoleCategories: string[];
+  targetCareerStage: string | null;
+  preferredLocationCity: string | null;
+  preferredLocationRegion: string | null;
+  preferredLocationCountry: string | null;
+  preferredWorkModes: string[];
+  targetSalaryMin: number | null;
+  targetSalaryMax: number | null;
+  targetSalaryCurrency: string | null;
+  experienceSummary: string | null;
 };
 
 function normalizeText(value: string | null | undefined) {
@@ -338,16 +357,68 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
 }
 
 export function hasEnoughProfileSignal(intent: UserJobIntent | null) {
-  if (!intent) return false;
-  return (
-    getAllowedRoleCategories(intent).length > 0 ||
-    intent.explicitTargetTitles.length > 0 ||
-    intent.inferredTargetTitles.length > 0
-  );
+  return assessUserJobIntentSignal(intent).canGenerate;
+}
+
+function buildStoredProfileSignalFromIntent(
+  intent: UserJobIntent
+): TopPicksStoredProfileSignal {
+  return {
+    profileHash: intent.profileHash,
+    profileVersion: intent.profileVersion,
+    updatedAt: new Date(),
+    normalizedSkills: [
+      ...intent.mustHaveSkills,
+      ...intent.strongSkills,
+      ...intent.niceToHaveSkills,
+    ].slice(0, 60),
+    targetRoleCategories: getAllowedRoleCategories(intent),
+    targetCareerStage: intent.targetCareerStages[0] ?? null,
+    preferredLocationCity: intent.preferredLocationCity ?? null,
+    preferredLocationRegion: intent.preferredLocationRegion ?? null,
+    preferredLocationCountry: intent.preferredLocationCountry ?? null,
+    preferredWorkModes: intent.preferredWorkModes,
+    targetSalaryMin: intent.targetSalaryMin ?? null,
+    targetSalaryMax: intent.targetSalaryMax ?? null,
+    targetSalaryCurrency: intent.targetSalaryCurrency ?? null,
+    experienceSummary: intent.experienceSummary,
+  };
+}
+
+function assessStoredProfileSignal(
+  profile: TopPicksStoredProfileSignal | null,
+  intent: UserJobIntent | null
+): TopPicksProfileReadiness {
+  if (intent) return assessUserJobIntentSignal(intent);
+  if (!profile) return assessUserJobIntentSignal(null);
+
+  const hasRoleSignal =
+    profile.targetRoleCategories.length > 0 ||
+    normalizeIntentText(profile.experienceSummary).length >= 40;
+  const hasSkillOrExperienceSignal =
+    profile.normalizedSkills.length > 0 ||
+    normalizeIntentText(profile.experienceSummary).length >= 40;
+  const missingSignals: string[] = [];
+
+  if (!hasRoleSignal) {
+    missingSignals.push("target roles or recent job titles");
+  }
+  if (!hasSkillOrExperienceSignal) {
+    missingSignals.push("skills, experience, or saved jobs");
+  }
+
+  return {
+    canGenerate: hasRoleSignal && hasSkillOrExperienceSignal,
+    missingSignals,
+    message:
+      missingSignals.length > 0
+        ? `Add ${missingSignals.join(" and ")} to generate better Top Picks.`
+        : "Your profile has enough signal to generate Top Picks.",
+  };
 }
 
 function buildBaseFeedWhere(history?: TopPickUserHistory): PrismaTypes.JobFeedIndexWhereInput {
-  const excluded = history ? [...history.excludedJobIds, ...history.appliedJobIds] : [];
+  const excluded = history ? [...history.excludedJobIds] : [];
   return {
     status: "LIVE",
     ...(excluded.length > 0 ? { canonicalJobId: { notIn: excluded } } : {}),
@@ -928,36 +999,47 @@ export async function enqueueTopPicksRefresh(
 }
 
 export async function getTopPicksRefreshStatus(userId: string) {
-  const [profile, authProfile, refreshTask] = await Promise.all([
+  const [storedProfile, refreshTask] = await Promise.all([
     prisma.userMatchProfile.findUnique({
       where: { userId },
-      select: { profileHash: true, profileVersion: true, updatedAt: true },
-    }),
-    prisma.userProfile.findUnique({
-      where: { id: userId },
-      select: { authUserId: true },
+      select: {
+        profileHash: true,
+        profileVersion: true,
+        updatedAt: true,
+        normalizedSkills: true,
+        targetRoleCategories: true,
+        targetCareerStage: true,
+        preferredLocationCity: true,
+        preferredLocationRegion: true,
+        preferredLocationCountry: true,
+        preferredWorkModes: true,
+        targetSalaryMin: true,
+        targetSalaryMax: true,
+        targetSalaryCurrency: true,
+        experienceSummary: true,
+      },
     }),
     getTopPicksRefreshTaskStatus(userId),
   ]);
-  const authUserId = authProfile?.authUserId ?? null;
+  let profile = storedProfile;
+  let builtIntentForReadiness: UserJobIntent | null = null;
+  if (!profile) {
+    builtIntentForReadiness = await buildAndStoreUserMatchProfile(userId);
+    profile = builtIntentForReadiness
+      ? buildStoredProfileSignalFromIntent(builtIntentForReadiness)
+      : null;
+  }
+  const profileReadiness = assessStoredProfileSignal(
+    profile,
+    builtIntentForReadiness
+  );
   const visibleTopPickWhere = {
     userId,
     isValid: true,
     expiresAt: { gt: new Date() },
-    ...(authUserId
-      ? {
-          job: {
-            is: {
-              trackedApplications: {
-                none: {
-                  userId: authUserId,
-                  status: { notIn: ["WISHLIST", "PREPARING"] },
-                },
-              },
-            },
-          },
-        }
-      : {}),
+    job: {
+      is: buildDefaultCanonicalVisibilityWhere(),
+    },
   } satisfies PrismaTypes.UserTopPickWhereInput;
   const [latestPick, validCount] = await Promise.all([
     prisma.userTopPick.findFirst({
@@ -974,6 +1056,10 @@ export async function getTopPicksRefreshStatus(userId: string) {
     (profile ? latestPick.profileVersion !== profile.profileVersion : false);
   return {
     hasProfileSnapshot: Boolean(profile),
+    profileReady: profileReadiness.canGenerate,
+    canRefresh: profileReadiness.canGenerate,
+    missingProfileSignals: profileReadiness.missingSignals,
+    profileReadinessMessage: profileReadiness.message,
     profileVersion: profile?.profileVersion ?? null,
     lastComputedAt: latestPick?.computedAt.toISOString() ?? null,
     expiresAt: latestPick?.expiresAt.toISOString() ?? null,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RefreshCw, Sparkles, X } from "lucide-react";
@@ -17,18 +18,31 @@ type TopPicksStatus = {
   stale: boolean;
   validCount: number;
   hasProfileSnapshot: boolean;
+  profileReady?: boolean;
+  canRefresh?: boolean;
+  missingProfileSignals?: string[];
+  profileReadinessMessage?: string;
   refreshing?: boolean;
+};
+
+type TopPicksEmptyState = {
+  title: string;
+  message: string;
+  actionHref?: string;
+  actionLabel?: string;
 };
 
 type TopPicksListProps = {
   initialPicks: TopPickCardData[];
   referenceNow: string;
   compact?: boolean;
+  emptyState?: TopPicksEmptyState;
 };
 
 const TOP_PICKS_AUTO_REFRESH_RETRY_MS = 15 * 60_000;
 
 export function TopPicksList({
+  emptyState,
   initialPicks,
   referenceNow,
   compact = false,
@@ -83,12 +97,27 @@ export function TopPicksList({
   }
 
   if (picks.length === 0) {
+    const state = emptyState ?? {
+      title: "No top picks ready yet",
+      message:
+        "Refresh picks to generate recommendations from your saved profile, or keep browsing jobs while the background refresh finishes.",
+    };
+
     return (
       <div className="empty-state flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center">
-        <p className="text-sm font-medium text-foreground">No top picks ready yet</p>
+        <p className="text-sm font-medium text-foreground">{state.title}</p>
         <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
-          Recommendations are generated from your saved profile. You can keep browsing jobs while this finishes.
+          {state.message}
         </p>
+        {state.actionHref && state.actionLabel ? (
+          <Button
+            className="mt-4 h-9 rounded-full px-4 text-sm"
+            render={<Link href={state.actionHref} />}
+            variant="outline"
+          >
+            {state.actionLabel}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -129,6 +158,8 @@ function TopPickCard({
   referenceNow: string;
   sourceHref?: string;
 }) {
+  const matchLabel = getTopPickMatchLabel(pick.score);
+
   return (
     <div className={cn("space-y-3", compact && "rounded-md border border-border/60 p-3")}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -136,9 +167,9 @@ function TopPickCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/[0.08] px-2 py-0.5 text-xs font-medium text-primary">
               <Sparkles className="h-3 w-3" />
-              {pick.score}% match
+              {matchLabel}
             </span>
-            <span className="text-xs text-muted-foreground">Rank #{pick.rank}</span>
+            <span className="text-xs text-muted-foreground">Pick #{pick.rank}</span>
           </div>
           {pick.matchReasons.length > 0 ? (
             <ul className="mt-2 flex flex-wrap gap-1.5">
@@ -192,6 +223,13 @@ function TopPickCard({
   );
 }
 
+function getTopPickMatchLabel(score: number) {
+  if (score >= 90) return "Best fit";
+  if (score >= 80) return "Strong fit";
+  if (score >= 70) return "Good fit";
+  return "Worth reviewing";
+}
+
 export function TopPicksRefreshButton({
   compact,
   disabled,
@@ -215,6 +253,18 @@ export function TopPicksRefreshButton({
       }
 
       const body = await response.json().catch(() => null);
+      if (body?.status === "needs_profile") {
+        notify({
+          title: "Complete your profile first",
+          message:
+            body?.refresh?.profileReadinessMessage ??
+            "Top Picks need target roles, skills, or recent experience before they can refresh.",
+          tone: "info",
+        });
+        router.refresh();
+        return;
+      }
+
       notify({
         title: body?.status === "running" ? "Refresh already running" : "Generating top picks",
         message: "This runs in the background, so you can keep browsing.",

@@ -1,9 +1,9 @@
 export const TOP_PICKS_CANDIDATE_LIMIT =
-  Number(process.env.TOP_PICKS_CANDIDATE_LIMIT ?? 12000) || 12000;
+  Number(process.env.TOP_PICKS_CANDIDATE_LIMIT ?? 20000) || 20000;
 export const TOP_PICKS_STORE_LIMIT =
-  Number(process.env.TOP_PICKS_STORE_LIMIT ?? 150) || 150;
+  Number(process.env.TOP_PICKS_STORE_LIMIT ?? 300) || 300;
 export const TOP_PICKS_PAGE_LIMIT =
-  Number(process.env.TOP_PICKS_PAGE_LIMIT ?? 25) || 25;
+  Number(process.env.TOP_PICKS_PAGE_LIMIT ?? 30) || 30;
 export const TOP_PICKS_REFRESH_MAX_AGE_MINUTES =
   Number(process.env.TOP_PICKS_REFRESH_MAX_AGE_MINUTES ?? 60) || 60;
 export const TOP_PICKS_ACTIVE_USER_DAYS =

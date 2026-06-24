@@ -23,6 +23,14 @@ export async function POST(request: NextRequest) {
     if (rateLimited) return rateLimited;
 
     const userId = await requireCurrentProfileId();
+    const currentStatus = await getTopPicksRefreshStatus(userId);
+    if (currentStatus.canRefresh === false || currentStatus.profileReady === false) {
+      return successResponse({
+        status: "needs_profile",
+        refresh: currentStatus,
+      });
+    }
+
     const refresh = await enqueueTopPicksRefresh(userId, {
       reason: "manual_api",
     });

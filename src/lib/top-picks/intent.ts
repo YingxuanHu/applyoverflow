@@ -74,6 +74,12 @@ export type UserJobIntent = {
   profileHash: string;
 };
 
+export type TopPicksProfileReadiness = {
+  canGenerate: boolean;
+  missingSignals: string[];
+  message: string;
+};
+
 export type BuildUserJobIntentInput = {
   userId: string;
   profileVersion: number;
@@ -707,6 +713,48 @@ export function getAllowedRoleCategories(intent: UserJobIntent) {
     ],
     12
   );
+}
+
+export function assessUserJobIntentSignal(
+  intent: UserJobIntent | null
+): TopPicksProfileReadiness {
+  if (!intent) {
+    return {
+      canGenerate: false,
+      missingSignals: ["profile details"],
+      message:
+        "Top Picks need profile details before recommendations can be generated.",
+    };
+  }
+
+  const hasRoleSignal =
+    getAllowedRoleCategories(intent).length > 0 ||
+    intent.explicitTargetTitles.length > 0 ||
+    intent.inferredTargetTitles.length > 0;
+  const hasSkillOrExperienceSignal =
+    intent.mustHaveSkills.length > 0 ||
+    intent.strongSkills.length > 0 ||
+    intent.niceToHaveSkills.length > 0 ||
+    normalizeIntentText(intent.experienceSummary).length >= 40 ||
+    intent.positiveSignals.savedJobIds.length > 0 ||
+    intent.positiveSignals.appliedJobIds.length > 0;
+  const missingSignals: string[] = [];
+
+  if (!hasRoleSignal) {
+    missingSignals.push("target roles or recent job titles");
+  }
+  if (!hasSkillOrExperienceSignal) {
+    missingSignals.push("skills, experience, or saved jobs");
+  }
+
+  return {
+    canGenerate: hasRoleSignal && hasSkillOrExperienceSignal,
+    missingSignals,
+    message:
+      missingSignals.length > 0
+        ? `Add ${missingSignals.join(" and ")} to generate better Top Picks.`
+        : "Your profile has enough signal to generate Top Picks.",
+  };
 }
 
 export function stageRank(stage?: string | null) {

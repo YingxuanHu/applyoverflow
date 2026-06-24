@@ -24,7 +24,10 @@ export type TopPicksQueryOptions = {
   page?: number;
   pageSize?: number;
   minScore?: number;
+  titleSearch?: string | null;
+  companySearch?: string | null;
   location?: string | null;
+  locationSearch?: string | null;
   workMode?: string | null;
   experienceLevel?: string | null;
 };
@@ -79,26 +82,34 @@ function serializePick(input: {
 
 function buildTopPickWhere(
   userId: string,
-  authUserId: string | null,
   options: TopPicksQueryOptions = {}
 ) {
-  const jobWhere: Prisma.JobCanonicalWhereInput = {
-    AND: [buildDefaultCanonicalVisibilityWhere()],
-    ...(authUserId
-      ? {
-          trackedApplications: {
-            none: {
-              userId: authUserId,
-              status: { notIn: ["WISHLIST", "PREPARING"] },
-            },
-          },
-        }
-      : {}),
-  };
+  const jobAnd: Prisma.JobCanonicalWhereInput[] = [
+    buildDefaultCanonicalVisibilityWhere(),
+  ];
 
-  if (options.location) {
-    jobWhere.location = { contains: options.location, mode: "insensitive" };
+  if (options.titleSearch) {
+    jobAnd.push({ title: { contains: options.titleSearch, mode: "insensitive" } });
   }
+  if (options.companySearch) {
+    jobAnd.push({ company: { contains: options.companySearch, mode: "insensitive" } });
+  }
+  const locationValue = options.locationSearch ?? options.location;
+  if (locationValue) {
+    const locationTerms = locationValue
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (locationTerms.length > 0) {
+      jobAnd.push({
+        OR: locationTerms.map((location) => ({
+          location: { contains: location, mode: "insensitive" as const },
+        })),
+      });
+    }
+  }
+  const jobWhere: Prisma.JobCanonicalWhereInput = { AND: jobAnd };
+
   if (options.workMode) {
     const workModes = options.workMode
       .split(",")
@@ -137,7 +148,7 @@ export async function getTopPicksForUser(
     TOP_PICKS_PAGE_LIMIT
   );
   const authUserId = await getAuthUserIdForProfile(userId);
-  const where = buildTopPickWhere(userId, authUserId, options);
+  const where = buildTopPickWhere(userId, options);
   const [rows, total, status] = await Promise.all([
     prisma.userTopPick.findMany({
       where,
