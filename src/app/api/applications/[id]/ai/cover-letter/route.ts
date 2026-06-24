@@ -2,6 +2,7 @@ import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse 
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { readCoverLetterRequestOptions } from "@/lib/ai/cover-letter-request";
+import { getCoverLetterJobContextIssue } from "@/lib/ai/cover-letter-readiness";
 import { persistGeneratedCoverLetterDocument } from "@/lib/ai/generated-cover-letter-document";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
@@ -40,13 +41,7 @@ async function buildTrackedApplicationJobContext(
   }
 
   const canonicalJob = application.canonicalJob;
-  const description =
-    application.jobDescription?.trim() ||
-    canonicalJob?.description?.trim() ||
-    [
-      "No full job description is available for this tracked application.",
-      "Write the cover letter using the known job title, company, linked job metadata, and the user's saved profile.",
-    ].join(" ");
+  const description = application.jobDescription?.trim() || canonicalJob?.description?.trim() || "";
 
   return {
     title: canonicalJob?.title ?? application.roleTitle,
@@ -94,6 +89,8 @@ export async function POST(
         400
       );
     }
+    const jobIssue = getCoverLetterJobContextIssue(jobCtx);
+    if (jobIssue) return errorResponse(jobIssue, 400);
     if (!profileCtx) {
       return errorResponse("Profile not found", 404);
     }

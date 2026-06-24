@@ -18,13 +18,23 @@ function stripLeadingSalutation(text: string) {
   return text.replace(/^(?:dear|hello|hi)\s+[^\n]{0,100},\s*/i, "").trim();
 }
 
+function stripOneTrailingSignature(text: string) {
+  return text.replace(
+    /\n+(?:sincerely|best|best regards|kind regards|regards|thank you),?\s*\n+[\s\S]{0,260}$/i,
+    ""
+  );
+}
+
 function stripTrailingSignature(text: string) {
-  return text
-    .replace(
-      /\n+(?:sincerely|best regards|kind regards|regards|thank you),?\s*\n+[\s\S]{0,260}$/i,
-      ""
-    )
-    .trim();
+  let current = text.trim();
+
+  while (current) {
+    const next = stripOneTrailingSignature(current).trim();
+    if (next === current) return current;
+    current = next;
+  }
+
+  return current;
 }
 
 export function buildCoverLetterSignature(profile: Pick<ProfileContext, "fullName">) {

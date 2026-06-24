@@ -313,64 +313,56 @@ export function JobAssistant({
   }
 
   return (
-    <div className="surface-panel relative overflow-hidden border-border/80 bg-[radial-gradient(circle_at_top_right,rgba(15,23,42,0.07),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(15,23,42,0.05),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-0 shadow-[0_20px_50px_rgba(15,23,42,0.10)] dark:bg-[radial-gradient(circle_at_top_right,rgba(148,163,184,0.10),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(148,163,184,0.07),transparent_32%),linear-gradient(180deg,rgba(10,16,24,0.96),rgba(9,14,22,0.92))] dark:shadow-[0_24px_64px_rgba(2,6,23,0.42)]">
+    <section className="surface-panel relative overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(10,132,255,0.08),rgba(99,102,241,0.06)_38%,rgba(255,255,255,0.96))] p-0 shadow-[0_20px_50px_rgba(15,23,42,0.10)] dark:border-primary/20 dark:bg-[linear-gradient(135deg,rgba(10,132,255,0.16),rgba(99,102,241,0.10)_38%,rgba(9,14,22,0.94))] dark:shadow-[0_24px_64px_rgba(2,6,23,0.42)]">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(to_right,rgba(148,163,184,0.16)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.16)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:linear-gradient(to_bottom,rgba(255,255,255,0.85),transparent)] dark:opacity-[0.08]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-16 top-0 h-40 w-40 rounded-full bg-foreground/[0.08] blur-3xl dark:bg-foreground/[0.08]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -bottom-14 left-0 h-32 w-32 rounded-full bg-foreground/[0.06] blur-3xl dark:bg-foreground/[0.06]"
+        className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(to_right,rgba(148,163,184,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.14)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:linear-gradient(to_bottom,rgba(255,255,255,0.85),transparent)] dark:opacity-[0.08]"
       />
 
       <div className="relative">
-      <div className="border-b border-border/70 bg-background/48 px-5 py-4 backdrop-blur-md dark:bg-background/12">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/60">
-              Job-Scoped Assistant
-            </p>
-            <h3 className="mt-1 text-base font-semibold text-foreground">Ask AI about this job</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Uses the current role, your full profile, your uploaded resumes, linked documents, fit analysis, and reminders.
-            </p>
+        <div className="border-b border-border/70 bg-background/48 px-5 py-4 backdrop-blur-md dark:bg-background/12">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/60">
+                Job-Scoped Assistant
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-foreground">Ask AI about this job</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Uses the current role, your full profile, your uploaded resumes, linked documents, fit analysis, and reminders.
+              </p>
+            </div>
+            {messages.length > 0 ? (
+              <Button
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  setMessages([]);
+                  setError(null);
+                  setProfileNotice(null);
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Clear
+              </Button>
+            ) : null}
           </div>
-          {messages.length > 0 ? (
-            <Button
-              className="h-8 px-3 text-xs"
-              onClick={() => {
-                setMessages([]);
-                setError(null);
-                setProfileNotice(null);
-              }}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              Clear
-            </Button>
+
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <ContextBadge active={hasJobDescription} label="Job description" />
+            <ContextBadge active={hasResume} label="Resume" />
+            <ContextBadge active={hasCoverLetter} label="Cover letter" />
+            <ContextBadge active={hasFitAnalysis} label="Fit analysis" />
+            <ContextBadge active={hasNotes} label="Reminders" />
+          </div>
+        </div>
+
+        <div className="bg-background/18 px-5 py-4 dark:bg-background/0">
+          {!aiConfigured ? (
+            <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              OpenAI is not configured. Add <code>OPENAI_API_KEY</code> to use the job assistant.
+            </p>
           ) : null}
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <ContextBadge active={hasJobDescription} label="Job description" />
-          <ContextBadge active={hasResume} label="Resume" />
-          <ContextBadge active={hasCoverLetter} label="Cover letter" />
-          <ContextBadge active={hasFitAnalysis} label="Fit analysis" />
-          <ContextBadge active={hasNotes} label="Reminders" />
-        </div>
-      </div>
-
-      <div className="bg-background/18 px-5 py-4 dark:bg-background/0">
-        {!aiConfigured ? (
-          <p className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            OpenAI is not configured. Add <code>OPENAI_API_KEY</code> to use the job assistant.
-          </p>
-        ) : null}
 
         {profileNotice ? (
           <p className="mb-3 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-blue-700 dark:text-blue-200">
@@ -492,6 +484,6 @@ export function JobAssistant({
         </form>
       </div>
       </div>
-    </div>
+    </section>
   );
 }

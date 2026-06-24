@@ -4,9 +4,9 @@ import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
 
 import type { JobContext } from "./job-fit";
 import {
-  buildCoverLetterDocHtml,
-  buildCoverLetterDocFileName,
-  COVER_LETTER_WORD_MIME_TYPE,
+  buildCoverLetterDocxBytes,
+  buildCoverLetterDocxFileName,
+  COVER_LETTER_DOCX_MIME_TYPE,
 } from "./cover-letter-doc-html";
 
 type PersistGeneratedCoverLetterInput = {
@@ -27,16 +27,16 @@ export async function persistGeneratedCoverLetterDocument({
     company: job.company,
     roleTitle: job.title,
   });
-  const buffer = Buffer.from(buildCoverLetterDocHtml(text), "utf-8");
-  const fileName = buildCoverLetterDocFileName(title);
+  const buffer = Buffer.from(buildCoverLetterDocxBytes(text));
+  const fileName = buildCoverLetterDocxFileName(title);
   const storageKey = buildDocumentStorageKey({
     userId,
     title,
-    extension: ".doc",
+    extension: ".docx",
     type: "COVER_LETTER",
   });
 
-  await saveFile(storageKey, buffer, { contentType: COVER_LETTER_WORD_MIME_TYPE });
+  await saveFile(storageKey, buffer, { contentType: COVER_LETTER_DOCX_MIME_TYPE });
   const savedDoc = await prisma.document.create({
     data: {
       userId,
@@ -44,7 +44,7 @@ export async function persistGeneratedCoverLetterDocument({
       title,
       originalFileName: fileName,
       filename: fileName,
-      mimeType: COVER_LETTER_WORD_MIME_TYPE,
+      mimeType: COVER_LETTER_DOCX_MIME_TYPE,
       sizeBytes: buffer.byteLength,
       storageKey,
       isPrimary: false,

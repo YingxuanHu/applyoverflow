@@ -9,6 +9,7 @@ import { buildAiProfileText } from "./profile-context";
 import type { JobContext, ProfileContext } from "./job-fit";
 import type { CoverLetterResult } from "./types";
 import { ensureCoverLetterFormat } from "./cover-letter-format";
+import { getCoverLetterJobContextIssue } from "./cover-letter-readiness";
 
 export type { CoverLetterResult } from "./types";
 
@@ -20,14 +21,13 @@ export type GenerateCoverLetterOptions = {
 const SYSTEM_PROMPT = `You are a professional career writer. Write a concise, targeted cover letter for a job application.
 
 Rules:
-- 3 short paragraphs: why this role, what you bring, call to action
+- 3 to 4 compact paragraphs: why this role, what you bring, relevant evidence, call to action
 - No generic filler ("I am writing to apply...", "Please find attached...")
-- Specific — reference the company name, role, and 1-2 concrete achievements
+- Specific — reference the company name, role, job responsibilities, and 2-3 concrete achievements when the profile supports them
 - Ground every claim in the user's saved profile. Do not invent experience, employers, metrics, tools, or credentials.
 - Confident and direct tone
-- 170–280 words total including salutation and signature
-- Start exactly with: Hi [name],
-- End with a closing signature using the user's full name
+- 220–360 words total after the app adds salutation and signature
+- Do not write the salutation, closing, or signature. The app will add: Hi [name], and Sincerely, plus the user's full name.
 - Do NOT include a date, mailing address, JSON, markdown, or code fences
 - Return ONLY the cover letter text, no JSON, no markdown`;
 
@@ -36,6 +36,11 @@ export async function generateCoverLetter(
   profile: ProfileContext,
   options: GenerateCoverLetterOptions = {}
 ): Promise<CoverLetterResult> {
+  const jobIssue = getCoverLetterJobContextIssue(job);
+  if (jobIssue) {
+    throw new Error(jobIssue);
+  }
+
   const profileText = buildAiProfileText(profile);
   const revisionInstruction = options.revisionInstruction?.trim();
   const currentText = options.currentText?.trim();

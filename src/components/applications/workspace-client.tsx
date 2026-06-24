@@ -1593,7 +1593,7 @@ function WorkspaceAISection({
           documentId: latestGeneratedCoverLetter.id,
           title: latestGeneratedCoverLetter.title,
           downloadHref: `/api/profile/documents/${latestGeneratedCoverLetter.id}/download`,
-          downloadLabel: "Download .doc",
+          downloadLabel: null,
         }
       : null;
 
@@ -1780,19 +1780,17 @@ export function ApplicationWorkspaceClient({
         </div>
 
         <div className="grid content-start gap-4 self-start sm:gap-5">
-          <section className="surface-panel p-0">
-            <JobAssistant
-              aiConfigured={aiConfigured}
-              applicationId={application.id}
-              company={application.company}
-              hasCoverLetter={Boolean(coverLetterLink)}
-              hasFitAnalysis={Boolean(application.fitAnalysis)}
-              hasJobDescription={Boolean(application.jobDescription)}
-              hasNotes={reminders.length > 0}
-              hasResume={Boolean(resumeLink)}
-              roleTitle={application.roleTitle}
-            />
-          </section>
+          <JobAssistant
+            aiConfigured={aiConfigured}
+            applicationId={application.id}
+            company={application.company}
+            hasCoverLetter={Boolean(coverLetterLink)}
+            hasFitAnalysis={Boolean(application.fitAnalysis)}
+            hasJobDescription={Boolean(application.jobDescription)}
+            hasNotes={reminders.length > 0}
+            hasResume={Boolean(resumeLink)}
+            roleTitle={application.roleTitle}
+          />
 
           <section className="surface-panel p-3.5 sm:p-6">
             <h2 className="text-base font-semibold text-foreground">Timeline</h2>

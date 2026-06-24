@@ -13,9 +13,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  buildCoverLetterDocFileName,
-  buildCoverLetterDocHtml,
-  COVER_LETTER_WORD_MIME_TYPE,
+  buildCoverLetterDocxBytes,
+  buildCoverLetterDocxFileName,
+  buildCoverLetterPdfBytes,
+  buildCoverLetterPdfFileName,
+  COVER_LETTER_DOCX_MIME_TYPE,
+  COVER_LETTER_PDF_MIME_TYPE,
 } from "@/lib/ai/cover-letter-doc-html";
 import { parseStoredFitAnalysis } from "@/lib/ai/fit-analysis-format";
 import type { CoverLetterResult, FitAnalysis } from "@/lib/ai/types";
@@ -34,6 +37,8 @@ type CoverLetterState = CoverLetterResult & {
   downloadHref?: string | null;
   downloadLabel?: string | null;
 };
+
+type CoverLetterDownloadFormat = "docx" | "pdf";
 
 type Props = {
   jobId?: string;
@@ -180,7 +185,7 @@ export function AIWorkspace({
             ...current,
             text,
             wordCount: countWords(text),
-            downloadLabel: "Download .doc",
+            downloadLabel: null,
           }
         : current
     );
@@ -294,7 +299,7 @@ export function AIWorkspace({
             error={clError}
             onTextChange={updateCoverLetterText}
             onPromptChange={setClPrompt}
-            onDownload={() => downloadCoverLetterDoc(clData, jobTitle, company)}
+            onDownload={(format) => downloadCoverLetter(clData, jobTitle, company, format)}
             onRevise={() => runCoverLetter(clPrompt)}
           />
         )}
@@ -502,7 +507,7 @@ function CoverLetterResult({
   error: string | null;
   onTextChange: (value: string) => void;
   onPromptChange: (value: string) => void;
-  onDownload: () => void;
+  onDownload: (format: CoverLetterDownloadFormat) => void;
   onRevise: () => void;
 }) {
   const hasEditableText = data.text.trim().length > 0;
@@ -517,14 +522,23 @@ function CoverLetterResult({
         </p>
         <div className="flex items-center gap-2">
           {hasEditableText ? (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onDownload}
-            >
-              <Download className="h-3.5 w-3.5" />
-              {data.downloadLabel ?? "Download .doc"}
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onDownload("pdf")}
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onDownload("docx")}
+              >
+                DOCX
+              </Button>
+            </div>
           ) : data.downloadHref ? (
             <Button
               variant="ghost"
@@ -604,23 +618,31 @@ function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function downloadCoverLetterDoc(
+function downloadCoverLetter(
   data: CoverLetterState | null,
   jobTitle: string,
-  company: string
+  company: string,
+  format: CoverLetterDownloadFormat
 ) {
   if (!data?.text.trim()) {
     return;
   }
 
   const title = data.title ?? `Cover letter ${company} ${jobTitle}`;
-  const blob = new Blob([buildCoverLetterDocHtml(data.text)], {
-    type: COVER_LETTER_WORD_MIME_TYPE,
+  const bytes =
+    format === "pdf"
+      ? buildCoverLetterPdfBytes(data.text)
+      : buildCoverLetterDocxBytes(data.text);
+  const blob = new Blob([bytes], {
+    type: format === "pdf" ? COVER_LETTER_PDF_MIME_TYPE : COVER_LETTER_DOCX_MIME_TYPE,
   });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = buildCoverLetterDocFileName(title);
+  anchor.download =
+    format === "pdf"
+      ? buildCoverLetterPdfFileName(title)
+      : buildCoverLetterDocxFileName(title);
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

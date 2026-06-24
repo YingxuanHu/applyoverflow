@@ -10,6 +10,7 @@ import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { requireCurrentUserProfile } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 import { readCoverLetterRequestOptions } from "@/lib/ai/cover-letter-request";
+import { getCoverLetterJobContextIssue } from "@/lib/ai/cover-letter-readiness";
 import { persistGeneratedCoverLetterDocument } from "@/lib/ai/generated-cover-letter-document";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 
@@ -45,6 +46,8 @@ export async function POST(
     ]);
 
     if (!jobCtx) return errorResponse("Job not found", 404);
+    const jobIssue = getCoverLetterJobContextIssue(jobCtx);
+    if (jobIssue) return errorResponse(jobIssue, 400);
     if (!profileCtx) return errorResponse("Profile not found", 404);
     const profileReadiness = assessProfileForAi(profileCtx);
     if (!profileReadiness.canUseAi) {
