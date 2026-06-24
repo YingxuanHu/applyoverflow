@@ -31,6 +31,11 @@ import { installProcessDiagnostics } from "./_process-diagnostics";
 import { syncProductiveAtsTenantsToDiscoveryStore } from "../src/lib/ingestion/ats-tenant-store";
 import { repairJobFeedIndexBatch } from "../src/lib/ingestion/search-index";
 import { runScheduledIngestion } from "../src/lib/ingestion/scheduler";
+import {
+  countDueSourceTasks,
+  reconcileConnectorPollTaskReadiness,
+  reconcileRediscoveryTaskReadiness,
+} from "../src/lib/ingestion/task-queue";
 import { prisma } from "../src/lib/db";
 import type { SourceTaskKind } from "../src/generated/prisma/client";
 
@@ -199,6 +204,10 @@ function getCycleQueueProfile(isFirstCycle: boolean): CycleQueueProfile {
 }
 
 async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklog> {
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now),
+    reconcileRediscoveryTaskReadiness(now),
+  ]);
   const grouped = await prisma.sourceTask.groupBy({
     by: ["kind"],
     where: {
@@ -208,8 +217,6 @@ async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklo
         in: [
           "COMPANY_DISCOVERY",
           "SOURCE_VALIDATION",
-          "CONNECTOR_POLL",
-          "REDISCOVERY",
         ] satisfies SourceTaskKind[],
       },
     },
@@ -223,8 +230,8 @@ async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklo
   const backlog = {
     companyDiscovery: counts.get("COMPANY_DISCOVERY") ?? 0,
     sourceValidation: counts.get("SOURCE_VALIDATION") ?? 0,
-    connectorPoll: counts.get("CONNECTOR_POLL") ?? 0,
-    rediscovery: counts.get("REDISCOVERY") ?? 0,
+    connectorPoll: await countDueSourceTasks("CONNECTOR_POLL", now),
+    rediscovery: await countDueSourceTasks("REDISCOVERY", now),
     total: 0,
   };
 
@@ -238,6 +245,10 @@ async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklo
 }
 
 async function getDueCompanySourceBacklog(now: Date): Promise<DueCompanySourceBacklog> {
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now),
+    reconcileRediscoveryTaskReadiness(now),
+  ]);
   const grouped = await prisma.sourceTask.groupBy({
     by: ["kind"],
     where: {
@@ -247,8 +258,6 @@ async function getDueCompanySourceBacklog(now: Date): Promise<DueCompanySourceBa
       kind: {
         in: [
           "SOURCE_VALIDATION",
-          "CONNECTOR_POLL",
-          "REDISCOVERY",
         ] satisfies SourceTaskKind[],
       },
       companySource: {
@@ -276,8 +285,8 @@ async function getDueCompanySourceBacklog(now: Date): Promise<DueCompanySourceBa
     grouped.find((row) => row.kind === kind)?._count._all ?? 0;
 
   const validation = countFor("SOURCE_VALIDATION");
-  const connectorPoll = countFor("CONNECTOR_POLL");
-  const rediscovery = countFor("REDISCOVERY");
+  const connectorPoll = await countDueSourceTasks("CONNECTOR_POLL", now);
+  const rediscovery = await countDueSourceTasks("REDISCOVERY", now);
 
   return {
     validation,

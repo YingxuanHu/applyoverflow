@@ -21,6 +21,27 @@ const ACTIVE_UNIQUE_SOURCE_TASK_STATUSES: SourceTaskStatus[] = [
   "RUNNING",
 ];
 
+const CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL = Prisma.sql`
+  cs."status" IN ('PROVISIONED', 'ACTIVE', 'DEGRADED')
+  AND cs."validationState" = 'VALIDATED'
+  AND cs."pollState" <> 'QUARANTINED'
+  AND cs."pollState" <> 'DISABLED'
+`;
+
+const REDISCOVERY_ELIGIBLE_SOURCE_SQL = Prisma.sql`
+  cs."status" <> 'DISABLED'
+  AND cs."validationState" <> 'INVALID'
+  AND cs."pollState" <> 'DISABLED'
+  AND (
+    cs."status" = 'REDISCOVER_REQUIRED'
+    OR cs."validationState" = 'NEEDS_REDISCOVERY'
+    OR (
+      cs."status" = 'DEGRADED'
+      AND cs."consecutiveFailures" >= 3
+    )
+  )
+`;
+
 function buildSourceTaskUniquenessWhere(input: {
   kind: SourceTaskKind;
   companyId?: string | null;
@@ -184,6 +205,144 @@ async function recoverStaleRunningSourceTasks(
   return recoveredCount;
 }
 
+export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()) {
+  const skipped = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "SourceTask" st
+    SET
+      "status" = 'SKIPPED'::"SourceTaskStatus",
+      "finishedAt" = ${now},
+      "lastError" = 'Skipped connector poll because the company source is no longer eligible for polling.'
+    FROM "CompanySource" cs
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND NOT (${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL})
+  `);
+
+  const deferred = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "SourceTask" st
+    SET
+      "notBeforeAt" = cs."cooldownUntil",
+      "lastError" = 'Deferred connector poll until the company source cooldown expires.'
+    FROM "CompanySource" cs
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+      AND cs."cooldownUntil" IS NOT NULL
+      AND cs."cooldownUntil" > ${now}
+      AND st."notBeforeAt" < cs."cooldownUntil"
+  `);
+
+  return {
+    skipped,
+    deferred,
+  };
+}
+
+export async function reconcileRediscoveryTaskReadiness(now: Date = new Date()) {
+  const skipped = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "SourceTask" st
+    SET
+      "status" = 'SKIPPED'::"SourceTaskStatus",
+      "finishedAt" = ${now},
+      "lastError" = 'Skipped rediscovery because the company source no longer needs rediscovery or is no longer repairable.'
+    FROM "CompanySource" cs
+    WHERE
+      st."kind" = 'REDISCOVERY'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND NOT (${REDISCOVERY_ELIGIBLE_SOURCE_SQL})
+  `);
+
+  const orphaned = await prisma.sourceTask.updateMany({
+    where: {
+      kind: "REDISCOVERY",
+      status: "PENDING",
+      companySourceId: null,
+    },
+    data: {
+      status: "SKIPPED",
+      finishedAt: now,
+      lastError:
+        "Skipped rediscovery because no company source is attached to the task.",
+    },
+  });
+
+  const deferred = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "SourceTask" st
+    SET
+      "notBeforeAt" = cs."cooldownUntil",
+      "lastError" = 'Deferred rediscovery until the company source cooldown expires.'
+    FROM "CompanySource" cs
+    WHERE
+      st."kind" = 'REDISCOVERY'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND ${REDISCOVERY_ELIGIBLE_SOURCE_SQL}
+      AND cs."cooldownUntil" IS NOT NULL
+      AND cs."cooldownUntil" > ${now}
+      AND st."notBeforeAt" < cs."cooldownUntil"
+  `);
+
+  return {
+    skipped: skipped + orphaned.count,
+    deferred,
+  };
+}
+
+export async function countDueSourceTasks(
+  kind: SourceTaskKind,
+  now: Date = new Date()
+) {
+  if (kind !== "CONNECTOR_POLL" && kind !== "REDISCOVERY") {
+    return prisma.sourceTask.count({
+      where: {
+        kind,
+        status: "PENDING",
+        notBeforeAt: { lte: now },
+      },
+    });
+  }
+
+  if (kind === "REDISCOVERY") {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS count
+      FROM "SourceTask" st
+      JOIN "CompanySource" cs ON cs."id" = st."companySourceId"
+      WHERE
+        st."kind" = 'REDISCOVERY'::"SourceTaskKind"
+        AND st."status" = 'PENDING'::"SourceTaskStatus"
+        AND st."notBeforeAt" <= ${now}
+        AND ${REDISCOVERY_ELIGIBLE_SOURCE_SQL}
+        AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+    `);
+
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS count
+    FROM "SourceTask" st
+    LEFT JOIN "CompanySource" cs ON cs."id" = st."companySourceId"
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."notBeforeAt" <= ${now}
+      AND (
+        st."companySourceId" IS NULL
+        OR (
+          ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+          AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+        )
+      )
+  `);
+
+  return Number(rows[0]?.count ?? 0);
+}
+
 export async function enqueueSourceTask(input: {
   kind: SourceTaskKind;
   priorityScore?: number;
@@ -270,7 +429,11 @@ export async function claimSourceTasks(
     filters.excludedConnectorNames?.filter((value) => value.trim().length > 0) ?? [];
 
   await recoverStaleRunningSourceTasks(kind, now);
-  if (kind !== "CONNECTOR_POLL") {
+  if (kind === "CONNECTOR_POLL") {
+    await reconcileConnectorPollTaskReadiness(now);
+  } else if (kind === "REDISCOVERY") {
+    await reconcileRediscoveryTaskReadiness(now);
+  } else {
     await collapseDuplicatePendingSourceTasks(kind, now);
   }
 
@@ -300,12 +463,22 @@ export async function claimSourceTasks(
             FROM "CompanySource" cs
             WHERE
               cs."id" = st."companySourceId"
-              AND cs."status" IN ('PROVISIONED', 'ACTIVE', 'DEGRADED')
-              AND cs."validationState" = 'VALIDATED'
-              AND cs."pollState" <> 'QUARANTINED'
-              AND cs."pollState" <> 'DISABLED'
+              AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
               AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
           )
+        )
+      `
+      : Prisma.empty;
+  const rediscoverySourceReadinessFilter =
+    kind === "REDISCOVERY"
+      ? Prisma.sql`
+        AND EXISTS (
+          SELECT 1
+          FROM "CompanySource" cs
+          WHERE
+            cs."id" = st."companySourceId"
+            AND ${REDISCOVERY_ELIGIBLE_SOURCE_SQL}
+            AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
         )
       `
       : Prisma.empty;
@@ -321,6 +494,7 @@ export async function claimSourceTasks(
         ${companySourceFilter}
         ${excludedConnectorFilter}
         ${connectorPollSourceReadinessFilter}
+        ${rediscoverySourceReadinessFilter}
       ORDER BY st."priorityScore" DESC, st."createdAt" ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

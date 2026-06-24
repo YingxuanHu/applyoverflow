@@ -14,6 +14,11 @@ import {
   runUrlHealthTaskQueue,
 } from "@/lib/ingestion/health-checker";
 import { readBooleanEnv } from "@/lib/ingestion/capacity";
+import {
+  countDueSourceTasks,
+  reconcileConnectorPollTaskReadiness,
+  reconcileRediscoveryTaskReadiness,
+} from "@/lib/ingestion/task-queue";
 
 const POLL_BACKLOG_THROTTLE_THRESHOLD = 1_000;
 const VALIDATION_BACKLOG_THROTTLE_THRESHOLD = 400;
@@ -27,20 +32,21 @@ async function getExecutionLimits(options: {
   sourcePollLimit?: number;
   rediscoveryLimit?: number;
 }) {
+  const now = new Date();
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now),
+    reconcileRediscoveryTaskReadiness(now),
+  ]);
   const [
     pendingPollCount,
     pendingValidationCount,
   ] = await Promise.all([
-    prisma.sourceTask.count({
-      where: {
-        kind: "CONNECTOR_POLL",
-        status: "PENDING",
-      },
-    }),
+    countDueSourceTasks("CONNECTOR_POLL", now),
     prisma.sourceTask.count({
       where: {
         kind: "SOURCE_VALIDATION",
         status: "PENDING",
+        notBeforeAt: { lte: now },
       },
     }),
   ]);

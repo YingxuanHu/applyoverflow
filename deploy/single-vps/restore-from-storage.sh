@@ -70,6 +70,6 @@ cat "$RESTORE_FILE" | "${COMPOSE[@]}" exec -T postgres pg_restore \
   -d "$POSTGRES_DB"
 
 echo "Applying Prisma migrations after restore"
-"${COMPOSE[@]}" run --rm backup-runner npx prisma migrate deploy
+"${COMPOSE[@]}" run -T --rm backup-runner npx prisma migrate deploy </dev/null
 
 echo "Restore complete."

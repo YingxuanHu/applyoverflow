@@ -88,7 +88,7 @@ cat "$DUMP_FILE" | "${STAGING_COMPOSE[@]}" exec -T postgres-staging pg_restore \
   -d "$STAGING_POSTGRES_DB"
 
 echo "Applying staging migrations after refresh"
-"${STAGING_COMPOSE[@]}" run --rm app-staging npx prisma migrate deploy
+"${STAGING_COMPOSE[@]}" run -T --rm app-staging npx prisma migrate deploy </dev/null
 
 rm -f "$DUMP_FILE"
 

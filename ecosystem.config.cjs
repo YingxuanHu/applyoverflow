@@ -537,7 +537,7 @@ const steadyWorkerApps = [
       __workerGroups: ["source-workers"],
       name: "ingest-discovery-worker",
       script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 180}`,
+      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 120}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -564,13 +564,13 @@ const steadyWorkerApps = [
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_DISCOVERY_QUEUE_CONCURRENCY:
-          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "2",
+          process.env.INGEST_DISCOVERY_QUEUE_CONCURRENCY || "6",
         RECOVERY_WORKER_DISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "30",
+          process.env.RECOVERY_WORKER_DISCOVERY_LIMIT || "60",
         RECOVERY_WORKER_REDISCOVERY_LIMIT:
-          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "15",
+          process.env.RECOVERY_WORKER_REDISCOVERY_LIMIT || "80",
         DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
-          process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "2",
+          process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "3",
       },
       max_memory_restart: "512M",
     },

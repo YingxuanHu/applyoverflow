@@ -156,8 +156,16 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    networks:
+      - default
+      - edge
 
 volumes:
   postgres-data:
   caddy-data:
   caddy-config:
+
+networks:
+  edge:
+    name: applyoverflow-edge
+    external: true

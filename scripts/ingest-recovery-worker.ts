@@ -14,6 +14,11 @@ import {
 import { resolveScaledInteger } from "../src/lib/ingestion/capacity";
 import { prisma } from "../src/lib/db";
 import { installProcessDiagnostics } from "./_process-diagnostics";
+import {
+  countDueSourceTasks,
+  reconcileConnectorPollTaskReadiness,
+  reconcileRediscoveryTaskReadiness,
+} from "../src/lib/ingestion/task-queue";
 
 const recoveryRoleArg =
   process.argv.find((a) => a.startsWith("--role="))?.split("=")[1] ?? "all";
@@ -83,15 +88,18 @@ async function sleep(ms: number) {
 }
 
 async function getRelevantBacklog(role: WorkerRole, now: Date) {
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now),
+    reconcileRediscoveryTaskReadiness(now),
+  ]);
+
   const whereBase = {
     status: "PENDING" as const,
     notBeforeAt: { lte: now },
   };
 
   if (role === "poll") {
-    return prisma.sourceTask.count({
-      where: { ...whereBase, kind: "CONNECTOR_POLL" },
-    });
+    return countDueSourceTasks("CONNECTOR_POLL", now);
   }
 
   if (role === "validation") {
@@ -103,7 +111,7 @@ async function getRelevantBacklog(role: WorkerRole, now: Date) {
   if (role === "discovery") {
     const [discovery, rediscovery] = await Promise.all([
       prisma.sourceTask.count({ where: { ...whereBase, kind: "COMPANY_DISCOVERY" } }),
-      prisma.sourceTask.count({ where: { ...whereBase, kind: "REDISCOVERY" } }),
+      countDueSourceTasks("REDISCOVERY", now),
     ]);
     return discovery + rediscovery;
   }
@@ -111,8 +119,8 @@ async function getRelevantBacklog(role: WorkerRole, now: Date) {
   const [discovery, validation, poll, rediscovery] = await Promise.all([
     prisma.sourceTask.count({ where: { ...whereBase, kind: "COMPANY_DISCOVERY" } }),
     prisma.sourceTask.count({ where: { ...whereBase, kind: "SOURCE_VALIDATION" } }),
-    prisma.sourceTask.count({ where: { ...whereBase, kind: "CONNECTOR_POLL" } }),
-    prisma.sourceTask.count({ where: { ...whereBase, kind: "REDISCOVERY" } }),
+    countDueSourceTasks("CONNECTOR_POLL", now),
+    countDueSourceTasks("REDISCOVERY", now),
   ]);
 
   return discovery + validation + poll + rediscovery;

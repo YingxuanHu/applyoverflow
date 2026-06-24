@@ -44,6 +44,11 @@ services:
     ports:
       - "127.0.0.1:${STAGING_WEB_PORT:-3001}:3000"
     command: ["npm", "run", "start:web"]
+    networks:
+      default:
+      edge:
+        aliases:
+          - applyoverflow-staging-app
 
   worker-ingestion-staging:
     build:
@@ -156,3 +161,8 @@ services:
 
 volumes:
   postgres-staging-data:
+
+networks:
+  edge:
+    name: applyoverflow-edge
+    external: true

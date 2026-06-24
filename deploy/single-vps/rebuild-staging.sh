@@ -13,8 +13,9 @@ REMOTE_APP_DIR="${SINGLE_VPS_STAGING_APP_DIR:-/opt/autoapplication-staging}"
 ENV_FILE="${SINGLE_VPS_STAGING_ENV_FILE:-deploy/single-vps/.env.staging}"
 COMPOSE_FILE="${SINGLE_VPS_STAGING_COMPOSE_FILE:-deploy/single-vps/docker-compose.staging.yml}"
 COMPOSE_PROJECT="${SINGLE_VPS_STAGING_COMPOSE_PROJECT:-applyoverflow-staging}"
-BUILD_SERVICES="${SINGLE_VPS_STAGING_BUILD_SERVICES:-app-staging worker-ingestion-staging worker-source-workers-staging worker-maintenance-staging worker-top-picks-staging}"
+BUILD_SERVICES="${SINGLE_VPS_STAGING_BUILD_SERVICES:-app-staging worker-top-picks-staging}"
 SERVICES="${SINGLE_VPS_STAGING_SERVICES:-$BUILD_SERVICES}"
+DISABLED_SERVICES="${SINGLE_VPS_STAGING_DISABLED_SERVICES:-worker-ingestion-staging worker-source-workers-staging worker-maintenance-staging}"
 
 DOCKER_BUILD_CACHE_MAX_AGE="${DOCKER_BUILD_CACHE_MAX_AGE:-0}"
 PRUNE_UNUSED_IMAGES="${PRUNE_UNUSED_IMAGES:-0}"
@@ -53,6 +54,8 @@ echo
 
 COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
+docker network inspect applyoverflow-edge >/dev/null 2>&1 || docker network create applyoverflow-edge >/dev/null
+
 echo "Building staging services: $BUILD_SERVICES"
 "${COMPOSE[@]}" build $BUILD_SERVICES
 
@@ -60,10 +63,16 @@ echo "Starting staging Postgres"
 "${COMPOSE[@]}" up -d postgres-staging
 
 echo "Applying staging database migrations"
-"${COMPOSE[@]}" run --rm app-staging npx prisma migrate deploy
+"${COMPOSE[@]}" run -T --rm app-staging npx prisma migrate deploy </dev/null
 
 echo "Restarting staging services: $SERVICES"
 "${COMPOSE[@]}" up -d --force-recreate $SERVICES
+
+if [[ -n "$DISABLED_SERVICES" ]]; then
+  echo "Stopping staging-only disabled services: $DISABLED_SERVICES"
+  "${COMPOSE[@]}" stop $DISABLED_SERVICES || true
+  "${COMPOSE[@]}" rm -f $DISABLED_SERVICES || true
+fi
 
 echo
 echo "Pruning Docker build cache..."
@@ -97,9 +106,10 @@ printf -v quoted_compose_file "%q" "$COMPOSE_FILE"
 printf -v quoted_compose_project "%q" "$COMPOSE_PROJECT"
 printf -v quoted_build_services "%q" "$BUILD_SERVICES"
 printf -v quoted_services "%q" "$SERVICES"
+printf -v quoted_disabled_services "%q" "$DISABLED_SERVICES"
 printf -v quoted_cache_max_age "%q" "$DOCKER_BUILD_CACHE_MAX_AGE"
 printf -v quoted_prune_images "%q" "$PRUNE_UNUSED_IMAGES"
 
 ssh "$REMOTE_HOST" \
-  "REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file COMPOSE_PROJECT=$quoted_compose_project BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
+  "REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file COMPOSE_PROJECT=$quoted_compose_project BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services DISABLED_SERVICES=$quoted_disabled_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
   <<< "$remote_script"

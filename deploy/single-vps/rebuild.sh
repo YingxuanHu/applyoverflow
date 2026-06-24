@@ -52,11 +52,13 @@ echo
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
+docker network inspect applyoverflow-edge >/dev/null 2>&1 || docker network create applyoverflow-edge >/dev/null
+
 echo "Building: $BUILD_SERVICES"
 "${COMPOSE[@]}" build $BUILD_SERVICES
 
 echo "Applying database migrations"
-"${COMPOSE[@]}" run --rm app npx prisma migrate deploy
+"${COMPOSE[@]}" run -T --rm app npx prisma migrate deploy </dev/null
 
 echo "Restarting: $SERVICES"
 "${COMPOSE[@]}" up -d --force-recreate $SERVICES
