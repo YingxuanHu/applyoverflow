@@ -28,9 +28,18 @@ export function buildApplyableVisibilityWhere(): PrismaTypes.JobCanonicalWhereIn
       { applyUrl: { startsWith: "http://" } },
       { applyUrl: { startsWith: "https://" } },
     ],
-    applyUrlValidationStatus: {
-      notIn: [...BAD_APPLY_LINK_VALIDATION_STATUSES],
-    },
+    AND: [
+      {
+        OR: [
+          { applyUrlValidationStatus: null },
+          {
+            applyUrlValidationStatus: {
+              notIn: [...BAD_APPLY_LINK_VALIDATION_STATUSES],
+            },
+          },
+        ],
+      },
+    ],
   };
 }
 

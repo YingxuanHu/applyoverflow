@@ -203,6 +203,15 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const currentPage = jobsResult.page;
   const totalPages =
     jobsResult.total !== null ? Math.max(1, Math.ceil(jobsResult.total / jobsResult.pageSize)) : null;
+
+  if (totalPages !== null && currentPage > totalPages) {
+    redirect(
+      buildJobsHref(resolvedSearchParams, {
+        page: totalPages > 1 ? String(totalPages) : undefined,
+      })
+    );
+  }
+
   const navigationKey = buildSearchParamSignature(resolvedSearchParams);
   const clearFiltersHref = "/jobs?reset=1";
   const searchFormHiddenFields = buildSearchFormHiddenFields(filters);

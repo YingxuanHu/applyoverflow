@@ -55,7 +55,8 @@ test("session state restores before saved preferences when URL is empty", () => 
   });
 
   assert.equal(resolved.source, "session");
-  assert.equal(resolved.query, "searchScope=location&locationSearch=Toronto&page=2");
+  assert.equal(resolved.query, "searchScope=location&locationSearch=Toronto");
+  assert.equal(resolved.query.includes("page="), false);
 });
 
 test("reset URL clears session and saved jobs state", () => {

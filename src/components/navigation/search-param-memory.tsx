@@ -99,7 +99,7 @@ function getStateSearch(
 function normalizeStateSearch(search: string, normalizer?: SearchParamMemoryProps["normalizer"]) {
   if (!search) return "";
   if (normalizer === "jobs") {
-    return normalizeJobsStateQuery(search);
+    return normalizeJobsStateQuery(search, { includePage: false });
   }
   return search;
 }
