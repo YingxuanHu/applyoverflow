@@ -11,7 +11,7 @@ import {
   requireCurrentProfileId,
 } from "@/lib/current-user";
 import { checkSingleTrackedApplicationReminder } from "@/lib/reminders";
-import { invalidateTopPickForUserJob } from "@/lib/top-picks/invalidation";
+import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
 import { startOfUtcDay } from "@/lib/time-zone";
 
@@ -63,7 +63,7 @@ function shouldExcludeStatusFromTopPicks(status: TrackedApplicationStatus) {
   return status !== "WISHLIST" && status !== "PREPARING";
 }
 
-async function invalidateAppliedTopPick(input: {
+async function queueTopPicksRefreshForApplicationSignal(input: {
   profileId: string;
   canonicalJobId: string | null | undefined;
   status: TrackedApplicationStatus;
@@ -72,10 +72,10 @@ async function invalidateAppliedTopPick(input: {
     return;
   }
 
-  await invalidateTopPickForUserJob({
+  await enqueueDurableTopPicksRefresh({
     userId: input.profileId,
-    jobId: input.canonicalJobId,
     reason: "application_status_changed",
+    priorityScore: 60,
   });
 }
 
@@ -1020,7 +1020,7 @@ export async function upsertTrackedApplicationFromJob(input: {
     documentId: resumeDocumentId,
   });
 
-  await invalidateAppliedTopPick({
+  await queueTopPicksRefreshForApplicationSignal({
     profileId,
     canonicalJobId: job.id,
     status: nextStatus,
@@ -1230,7 +1230,7 @@ export async function updateTrackedApplicationStatus(input: {
   }
 
   if (existing.status === input.status) {
-    await invalidateAppliedTopPick({
+    await queueTopPicksRefreshForApplicationSignal({
       profileId,
       canonicalJobId: existing.canonicalJobId,
       status: input.status,
@@ -1255,7 +1255,7 @@ export async function updateTrackedApplicationStatus(input: {
     }),
   ]);
 
-  await invalidateAppliedTopPick({
+  await queueTopPicksRefreshForApplicationSignal({
     profileId,
     canonicalJobId: existing.canonicalJobId,
     status: input.status,
@@ -1923,7 +1923,7 @@ export async function syncTrackedApplicationFromSubmission(canonicalJobId: strin
     documentId: resumeDocumentId,
   });
 
-  await invalidateAppliedTopPick({
+  await queueTopPicksRefreshForApplicationSignal({
     profileId,
     canonicalJobId: job.id,
     status: nextStatus,

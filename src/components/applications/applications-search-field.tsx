@@ -35,6 +35,10 @@ const PLACEHOLDER_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
   tag: "Search tags by keyword",
 };
 
+function normalizeSubmittedSearchValue(value: string) {
+  return value.trim();
+}
+
 export function ApplicationsSearchField({
   initialScope,
   initialValues,
@@ -46,15 +50,25 @@ export function ApplicationsSearchField({
     initialScope === "reminder" || initialScope === "all"
       ? DEFAULT_SEARCH_SCOPE
       : initialScope;
-  const [scope, setScope] = useState<SelectableTrackerSearchScope>(initialVisibleScope);
-  const [values, setValues] = useState<SearchValues>(() => ({
+  const normalizedInitialValues = {
     ...initialValues,
     all: "",
     title:
       initialValues.title ||
       (initialScope === "all" ? initialValues.all : ""),
-  }));
+  };
+  const [scope, setScope] = useState<SelectableTrackerSearchScope>(initialVisibleScope);
+  const [committedValues] = useState<SearchValues>(() => normalizedInitialValues);
+  const [draftValue, setDraftValue] = useState(() => normalizedInitialValues[initialVisibleScope]);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
+  const submittedSearchValue = normalizeSubmittedSearchValue(draftValue);
+
+  function handleScopeChange(nextScope: SelectableTrackerSearchScope) {
+    setScope(nextScope);
+    setDraftValue((currentDraft) =>
+      currentDraft.trim() ? currentDraft : committedValues[nextScope]
+    );
+  }
 
   return (
     <div className="grid min-w-0 gap-1.5 text-sm">
@@ -62,8 +76,11 @@ export function ApplicationsSearchField({
         Search
       </span>
       <input name="searchScope" type="hidden" value={scope} />
+      {submittedSearchValue ? (
+        <input name={inputName} type="hidden" value={submittedSearchValue} />
+      ) : null}
       {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
-        const value = values[option.value].trim();
+        const value = normalizeSubmittedSearchValue(committedValues[option.value]);
         if (!value) return null;
         return (
           <input
@@ -74,8 +91,8 @@ export function ApplicationsSearchField({
           />
         );
       })}
-      {values.reminder.trim() ? (
-        <input name="reminderSearch" type="hidden" value={values.reminder.trim()} />
+      {committedValues.reminder.trim() ? (
+        <input name="reminderSearch" type="hidden" value={committedValues.reminder.trim()} />
       ) : null}
 
       <div className="flex min-w-0 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
@@ -86,7 +103,7 @@ export function ApplicationsSearchField({
           <select
             className="h-10 w-full appearance-none bg-transparent pl-3 pr-9 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
             id="applications-search-scope"
-            onChange={(event) => setScope(event.target.value as SelectableTrackerSearchScope)}
+            onChange={(event) => handleScopeChange(event.target.value as SelectableTrackerSearchScope)}
             style={{ textAlignLast: "left" }}
             value={scope}
           >
@@ -103,16 +120,10 @@ export function ApplicationsSearchField({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-10 rounded-none border-0 bg-transparent pl-9 pr-3 text-sm focus-visible:border-transparent focus-visible:ring-0"
-            name={inputName}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                [scope]: event.target.value,
-              }))
-            }
+            onChange={(event) => setDraftValue(event.target.value)}
             placeholder={PLACEHOLDER_BY_SCOPE[scope]}
             type="search"
-            value={values[scope]}
+            value={draftValue}
           />
         </div>
       </div>

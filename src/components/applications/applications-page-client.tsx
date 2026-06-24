@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentProps, type FormEvent } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { ApplicationFlowSection } from "@/components/applications/application-flow-section";
@@ -22,7 +22,6 @@ import {
 } from "@/lib/application-flow";
 import type { TrackerSearchScope, TrackerSortFilter } from "@/lib/queries/tracker";
 import { cn } from "@/lib/utils";
-import type { ComponentProps } from "react";
 
 type ApplicationListItem = ComponentProps<typeof ApplicationListCard>["application"];
 
@@ -371,23 +370,6 @@ function CountStat({
   );
 }
 
-function getPaginationItems(currentPage: number, pageCount: number) {
-  const pages = new Set<number>([1, pageCount, currentPage]);
-  for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
-    if (page >= 1 && page <= pageCount) pages.add(page);
-  }
-  const sortedPages = [...pages].sort((left, right) => left - right);
-  const items: Array<number | "gap"> = [];
-  for (const page of sortedPages) {
-    const previous = items[items.length - 1];
-    if (typeof previous === "number" && page - previous > 1) {
-      items.push("gap");
-    }
-    items.push(page);
-  }
-  return items;
-}
-
 function PaginationControls({
   currentPage,
   pageCount,
@@ -397,19 +379,63 @@ function PaginationControls({
   pageCount: number;
   onPageChange: (page: number) => void;
 }) {
-  const items = getPaginationItems(currentPage, pageCount);
+  const [pageError, setPageError] = useState<string | null>(null);
+
+  function submitPageJump(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const parsed = Number.parseInt(String(formData.get("page") ?? ""), 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > pageCount) {
+      setPageError(`Enter a page from 1 to ${pageCount.toLocaleString()}.`);
+      return;
+    }
+    onPageChange(parsed);
+  }
 
   return (
     <nav
       aria-label="Applications pagination"
-      className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4"
+      className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-end sm:justify-between"
     >
-      <p className="text-xs text-muted-foreground">
-        Page {currentPage} of {pageCount}
-      </p>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="min-w-0">
+        <p className="text-sm text-muted-foreground">
+          Page <span className="font-medium text-foreground">{currentPage.toLocaleString()}</span> of{" "}
+          <span className="font-medium text-foreground">{pageCount.toLocaleString()}</span>
+        </p>
+        <form className="mt-2 flex items-center gap-2" onSubmit={submitPageJump}>
+          <label className="text-sm text-muted-foreground" htmlFor="applications-page-jump">
+            Go to
+          </label>
+          <input
+            aria-describedby={pageError ? "applications-page-jump-error" : undefined}
+            aria-invalid={pageError ? true : undefined}
+            className="h-9 w-20 rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 aria-invalid:border-destructive/60 aria-invalid:ring-2 aria-invalid:ring-destructive/15"
+            id="applications-page-jump"
+            inputMode="numeric"
+            key={currentPage}
+            max={pageCount}
+            min={1}
+            name="page"
+            onChange={() => setPageError(null)}
+            type="number"
+            defaultValue={currentPage}
+          />
+          <button
+            className="inline-flex h-9 items-center rounded-[12px] border border-input/80 bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            type="submit"
+          >
+            Go
+          </button>
+        </form>
+        {pageError ? (
+          <p className="mt-1.5 text-xs text-destructive" id="applications-page-jump-error">
+            {pageError}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
         <Button
-          className="h-8 rounded-full px-2.5 text-xs"
+          className="h-9 rounded-[12px] px-3 text-sm"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
           size="sm"
@@ -419,37 +445,8 @@ function PaginationControls({
           <ChevronLeft className="size-3.5" />
           Previous
         </Button>
-        {items.map((item, index) => {
-          if (item === "gap") {
-            return (
-              <span
-                className="px-1 text-xs text-muted-foreground"
-                key={`gap-${index}`}
-              >
-                ...
-              </span>
-            );
-          }
-
-          return (
-            <span className="flex items-center gap-1.5" key={item}>
-              <button
-                aria-current={item === currentPage ? "page" : undefined}
-                className={`h-8 min-w-8 rounded-full px-2 text-xs font-medium transition-colors ${
-                  item === currentPage
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-                onClick={() => onPageChange(item)}
-                type="button"
-              >
-                {item}
-              </button>
-            </span>
-          );
-        })}
         <Button
-          className="h-8 rounded-full px-2.5 text-xs"
+          className="h-9 rounded-[12px] px-3 text-sm"
           disabled={currentPage >= pageCount}
           onClick={() => onPageChange(Math.min(pageCount, currentPage + 1))}
           size="sm"

@@ -50,6 +50,9 @@ test("applications dashboard search includes reminders, tags, and job fields", (
   assert.match(pageClientSource, /ApplicationsSearchField/);
   assert.match(pageSource, /buildActiveApplicationSearchChips/);
   assert.match(searchFieldSource, /name="searchScope"/);
+  assert.match(searchFieldSource, /const \[draftValue, setDraftValue\]/);
+  assert.match(searchFieldSource, /function handleScopeChange/);
+  assert.match(searchFieldSource, /currentDraft\.trim\(\) \? currentDraft : committedValues\[nextScope\]/);
   assert.match(searchFieldSource, /titleSearch/);
   assert.match(searchFieldSource, /companySearch/);
   assert.match(searchFieldSource, /locationSearch/);
