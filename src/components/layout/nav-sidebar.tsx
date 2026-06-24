@@ -21,8 +21,8 @@ const PRIMARY_NAV_ITEMS = [
 ];
 
 const JOBS_LINKS = [
-  { href: "/jobs/top-picks", label: "Picks for you" },
   { href: "/jobs", label: "Jobs" },
+  { href: "/jobs/top-picks", label: "Picks for you" },
 ];
 
 const PROFILE_LINKS = [

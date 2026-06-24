@@ -33,13 +33,8 @@ import {
   useNotifications,
 } from "@/components/ui/notification-provider";
 import { authClient } from "@/lib/auth-client";
-import {
-  JOBS_SEARCH_STATE_COOKIE,
-  JOBS_SEARCH_STATE_STORAGE_KEY,
-} from "@/lib/jobs/search-state";
+import { clearInAppSearchParamMemory } from "@/components/navigation/search-param-memory";
 import { cn } from "@/lib/utils";
-
-const APPLICATIONS_SEARCH_STATE_STORAGE_KEY = "autoapplication.applications.filters";
 
 type SessionSnapshot = {
   name: string;
@@ -172,7 +167,5 @@ export function UserMenu({ user }: { user: SessionSnapshot }) {
 }
 
 function clearSearchStateMemory() {
-  window.sessionStorage.removeItem(JOBS_SEARCH_STATE_STORAGE_KEY);
-  window.sessionStorage.removeItem(APPLICATIONS_SEARCH_STATE_STORAGE_KEY);
-  document.cookie = `${JOBS_SEARCH_STATE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+  clearInAppSearchParamMemory();
 }

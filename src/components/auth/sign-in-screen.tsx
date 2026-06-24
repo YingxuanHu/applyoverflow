@@ -6,6 +6,7 @@ import { SignInForm } from "@/components/auth/sign-in-form";
 type SignInScreenProps = {
   callbackUrl?: string;
   defaultEmail?: string;
+  emailVerificationError?: string;
   googleError?: string;
   justVerified?: boolean;
   googleEnabled?: boolean;
@@ -15,6 +16,7 @@ type SignInScreenProps = {
 export function SignInScreen({
   callbackUrl = "/jobs",
   defaultEmail = "",
+  emailVerificationError,
   googleError,
   justVerified = false,
   googleEnabled = false,
@@ -37,6 +39,7 @@ export function SignInScreen({
       <SignInForm
         callbackUrl={callbackUrl}
         defaultEmail={defaultEmail}
+        emailVerificationError={emailVerificationError}
         googleError={googleError}
         googleEnabled={googleEnabled}
         justVerified={justVerified}

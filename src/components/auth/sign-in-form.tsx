@@ -14,6 +14,7 @@ import { authClient } from "@/lib/auth-client";
 type SignInFormProps = {
   callbackUrl?: string;
   defaultEmail?: string;
+  emailVerificationError?: string;
   googleError?: string;
   justVerified?: boolean;
   googleEnabled?: boolean;
@@ -30,6 +31,7 @@ function getGoogleErrorMessage(error: string | undefined) {
 export function SignInForm({
   callbackUrl = "/jobs",
   defaultEmail = "",
+  emailVerificationError,
   googleError,
   justVerified,
   googleEnabled = false,
@@ -52,7 +54,7 @@ export function SignInForm({
     const result = await authClient.signIn.email({
       email,
       password,
-      callbackURL: callbackUrl,
+      callbackURL: "/sign-in?verified=true",
     });
 
     if (result.error) {
@@ -84,6 +86,11 @@ export function SignInForm({
         {justVerified ? (
           <p className="mb-4 rounded-[14px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-700 dark:text-emerald-400">
             Email verified. You can now sign in.
+          </p>
+        ) : null}
+        {emailVerificationError ? (
+          <p className="mb-4 rounded-[14px] border border-destructive/25 bg-destructive/5 px-3.5 py-3 text-sm text-destructive">
+            Verification link is invalid or expired. Request a new verification email.
           </p>
         ) : null}
         <form className="space-y-4" method="post" onSubmit={onSubmit}>

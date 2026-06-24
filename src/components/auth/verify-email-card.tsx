@@ -61,7 +61,7 @@ export function VerifyEmailCard({ defaultEmail = "" }: VerifyEmailCardProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        callbackURL: "/?verified=true",
+        callbackURL: "/sign-in?verified=true",
       }),
     });
     const result = (await response.json().catch(() => ({}))) as VerificationResponse;

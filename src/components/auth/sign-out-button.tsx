@@ -18,12 +18,7 @@ import {
   useNotifications,
 } from "@/components/ui/notification-provider";
 import { authClient } from "@/lib/auth-client";
-import {
-  JOBS_SEARCH_STATE_COOKIE,
-  JOBS_SEARCH_STATE_STORAGE_KEY,
-} from "@/lib/jobs/search-state";
-
-const APPLICATIONS_SEARCH_STATE_STORAGE_KEY = "autoapplication.applications.filters";
+import { clearInAppSearchParamMemory } from "@/components/navigation/search-param-memory";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -99,7 +94,5 @@ export function SignOutButton() {
 }
 
 function clearSearchStateMemory() {
-  window.sessionStorage.removeItem(JOBS_SEARCH_STATE_STORAGE_KEY);
-  window.sessionStorage.removeItem(APPLICATIONS_SEARCH_STATE_STORAGE_KEY);
-  document.cookie = `${JOBS_SEARCH_STATE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+  clearInAppSearchParamMemory();
 }

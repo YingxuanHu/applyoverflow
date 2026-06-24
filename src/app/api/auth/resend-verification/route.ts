@@ -7,18 +7,10 @@ import {
 } from "@/lib/api-utils";
 import {
   normalizeAuthEmail,
+  normalizeVerificationCallbackURL,
   sendVerificationEmailForUser,
 } from "@/lib/auth-verification";
 import { prisma } from "@/lib/db";
-
-function normalizeCallbackURL(value: unknown) {
-  const callbackURL = String(value ?? "/?verified=true").trim();
-  if (!callbackURL || !callbackURL.startsWith("/") || callbackURL.startsWith("//")) {
-    return "/?verified=true";
-  }
-
-  return callbackURL;
-}
 
 export async function POST(request: Request) {
   const rateLimit = consumeAuthRateLimit(request, "resend-verification", {
@@ -97,7 +89,7 @@ export async function POST(request: Request) {
 
   const result = await sendVerificationEmailForUser({
     user,
-    callbackURL: normalizeCallbackURL(body?.callbackURL),
+    callbackURL: normalizeVerificationCallbackURL(String(body?.callbackURL ?? "")),
     request,
   });
 

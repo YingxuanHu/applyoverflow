@@ -5,7 +5,7 @@ import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 
 type HomePageProps = {
-  searchParams: Promise<{ callbackUrl?: string; verified?: string }>;
+  searchParams: Promise<{ callbackUrl?: string; error?: string; verified?: string }>;
 };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
@@ -16,12 +16,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   }
 
   const params = await searchParams;
+  const emailVerificationError =
+    params.verified === "true" && "error" in params ? String(params.error ?? "") : undefined;
 
   return (
     <SignInScreen
       callbackUrl={params.callbackUrl || "/jobs"}
+      emailVerificationError={emailVerificationError}
       googleEnabled={isGoogleAuthEnabled()}
-      justVerified={params.verified === "true"}
+      justVerified={params.verified === "true" && !emailVerificationError}
       mobileMode="landing"
     />
   );

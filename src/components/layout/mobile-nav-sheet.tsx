@@ -35,19 +35,19 @@ type MobileNavItem = {
 
 const MOBILE_NAV_ITEMS: MobileNavItem[] = [
   {
-    href: "/jobs/top-picks",
-    label: "Picks for you",
-    icon: Sparkles,
-    isActive: (pathname) =>
-      pathname === "/jobs/top-picks" || pathname.startsWith("/jobs/top-picks/"),
-  },
-  {
     href: "/jobs",
     label: "Jobs",
     icon: Briefcase,
     isActive: (pathname) =>
       pathname === "/jobs" ||
       (pathname.startsWith("/jobs/") && !pathname.startsWith("/jobs/top-picks")),
+  },
+  {
+    href: "/jobs/top-picks",
+    label: "Picks for you",
+    icon: Sparkles,
+    isActive: (pathname) =>
+      pathname === "/jobs/top-picks" || pathname.startsWith("/jobs/top-picks/"),
   },
   {
     href: "/applications",
