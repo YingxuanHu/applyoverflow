@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { AIWorkspace } from "@/components/jobs/ai-workspace";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
 import { JobDetailActionGroup } from "@/components/jobs/job-detail-action-group";
+import { JobDetailScrollReset } from "@/components/jobs/job-detail-scroll-reset";
 import { JobMetaRow } from "@/components/jobs/job-meta-row";
 import {
   formatDeadlineValue,
@@ -89,6 +90,8 @@ export default async function JobDetailPage({
 
   return (
     <div className="app-page space-y-5">
+      <JobDetailScrollReset jobId={job.id} />
+
       {/* Breadcrumb */}
       <div>
         <Link

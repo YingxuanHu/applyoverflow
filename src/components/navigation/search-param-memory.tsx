@@ -1,24 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { normalizeJobsStateQuery } from "@/lib/jobs/search-state";
 
 type SearchParamMemoryProps = {
   basePath: string;
-  cookieName?: string;
   normalizer?: "jobs";
-  persistEndpoint?: string;
   stateParamKeys?: readonly string[];
   storageKey: string;
 };
 
+const inAppSearchParamMemory = new Map<string, string>();
+
 export function SearchParamMemory({
   basePath,
-  cookieName,
   normalizer,
-  persistEndpoint,
   stateParamKeys,
   storageKey,
 }: SearchParamMemoryProps) {
@@ -26,17 +24,17 @@ export function SearchParamMemory({
   const router = useRouter();
   const searchParams = useSearchParams();
   const search = searchParams.toString();
+  const mountedRef = useRef(false);
 
   useEffect(() => {
     if (pathname !== basePath) return;
 
+    const firstRunForRouteInstance = !mountedRef.current;
+    mountedRef.current = true;
+
     const reset = searchParams.get("reset");
     if (reset === "1") {
-      sessionStorage.removeItem(storageKey);
-      if (cookieName) expireCookie(cookieName);
-      if (persistEndpoint) {
-        void fetch(persistEndpoint, { method: "DELETE" }).catch(() => undefined);
-      }
+      clearInAppSearchParamMemory(storageKey);
       router.replace(basePath);
       return;
     }
@@ -46,28 +44,23 @@ export function SearchParamMemory({
       normalizer
     );
     if (stateSearch) {
-      sessionStorage.setItem(storageKey, stateSearch);
-      if (cookieName) setMemoryCookie(cookieName, stateSearch);
-      if (persistEndpoint) {
-        void fetch(persistEndpoint, {
-          body: JSON.stringify({ query: stateSearch }),
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        }).catch(() => undefined);
-      }
+      inAppSearchParamMemory.set(storageKey, stateSearch);
       return;
     }
 
-    const saved = normalizeStateSearch(sessionStorage.getItem(storageKey) ?? "", normalizer);
+    if (!firstRunForRouteInstance) {
+      clearInAppSearchParamMemory(storageKey);
+      return;
+    }
+
+    const saved = normalizeStateSearch(inAppSearchParamMemory.get(storageKey) ?? "", normalizer);
     if (saved) {
       router.replace(`${basePath}?${saved}`);
     }
   }, [
     basePath,
-    cookieName,
     normalizer,
     pathname,
-    persistEndpoint,
     router,
     search,
     searchParams,
@@ -76,6 +69,15 @@ export function SearchParamMemory({
   ]);
 
   return null;
+}
+
+export function clearInAppSearchParamMemory(storageKey?: string) {
+  if (storageKey) {
+    inAppSearchParamMemory.delete(storageKey);
+    return;
+  }
+
+  inAppSearchParamMemory.clear();
 }
 
 function getStateSearch(
@@ -102,12 +104,4 @@ function normalizeStateSearch(search: string, normalizer?: SearchParamMemoryProp
     return normalizeJobsStateQuery(search, { includePage: false });
   }
   return search;
-}
-
-function setMemoryCookie(name: string, value: string) {
-  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=2592000; Path=/; SameSite=Lax`;
-}
-
-function expireCookie(name: string) {
-  document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
 }

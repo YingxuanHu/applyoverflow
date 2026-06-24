@@ -3,14 +3,24 @@
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import { buildJobsReturnAnchorHash } from "@/lib/jobs/return-navigation";
+
 type ScrollPositionMemoryProps = {
   storageKeyPrefix: string;
   includeSearchParams?: boolean;
+  restoreSavedPosition?: boolean;
+  defaultScrollTop?: "preserve" | "top";
 };
 
 const RESTORE_ATTEMPTS = [0, 16, 80, 180, 360, 720, 1200];
 const ANCHOR_KEY_SUFFIX = ":anchor";
 const ANCHOR_MAX_AGE_MS = 10 * 60 * 1000;
+const USER_SCROLL_CANCEL_EVENTS = [
+  "wheel",
+  "touchstart",
+  "pointerdown",
+  "keydown",
+] as const;
 
 type ScrollAnchorState = {
   anchorId: string;
@@ -22,6 +32,8 @@ type ScrollAnchorState = {
 export function ScrollPositionMemory({
   storageKeyPrefix,
   includeSearchParams = true,
+  restoreSavedPosition = true,
+  defaultScrollTop = "preserve",
 }: ScrollPositionMemoryProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -39,24 +51,60 @@ export function ScrollPositionMemory({
     window.history.scrollRestoration = "manual";
     const scrollTarget = getScrollTarget();
     const saved = Number(sessionStorage.getItem(storageKey) ?? "");
-    const anchor = readScrollAnchor(storageKey);
-    const shouldRestore = Number.isFinite(saved) && saved > 0;
-    const timers: number[] = [];
-    let anchorRestored = false;
+    const anchor = readScrollAnchor(storageKey) ?? readLocationHashAnchor();
+    const shouldRestore =
+      Number.isFinite(saved) &&
+      saved > 0 &&
+      (restoreSavedPosition || Boolean(anchor));
+    const timers = new Set<number>();
+    let restoreCancelled = false;
+    let restoreCompleted = false;
+
+    const clearRestoreTimers = () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
+    };
+
+    const cancelPendingRestore = () => {
+      if (restoreCompleted) return;
+      restoreCancelled = true;
+      clearRestoreTimers();
+    };
 
     if (anchor || shouldRestore) {
-      for (const delay of RESTORE_ATTEMPTS) {
-        timers.push(
-          window.setTimeout(() => {
-            if (anchor && !anchorRestored && restoreScrollAnchor(scrollTarget, anchor)) {
-              anchorRestored = true;
-              sessionStorage.removeItem(`${storageKey}${ANCHOR_KEY_SUFFIX}`);
-              return;
+      const restoreAnchor = anchor;
+      for (const [index, delay] of RESTORE_ATTEMPTS.entries()) {
+        const timer = window.setTimeout(() => {
+          timers.delete(timer);
+          if (restoreCancelled || restoreCompleted) return;
+
+          const restoredAnchor = restoreAnchor
+            ? restoreScrollAnchor(scrollTarget, restoreAnchor)
+            : false;
+          if (restoredAnchor && restoreAnchor) {
+            restoreCompleted = true;
+            sessionStorage.removeItem(`${storageKey}${ANCHOR_KEY_SUFFIX}`);
+            clearLocationHashAnchor(restoreAnchor.anchorId);
+            clearRestoreTimers();
+            return;
+          }
+          if (shouldRestore && restoreSavedScroll(scrollTarget, saved)) {
+            restoreCompleted = true;
+            clearRestoreTimers();
+            return;
+          }
+
+          if (index === RESTORE_ATTEMPTS.length - 1) {
+            sessionStorage.removeItem(`${storageKey}${ANCHOR_KEY_SUFFIX}`);
+            if (restoreAnchor) {
+              clearLocationHashAnchor(restoreAnchor.anchorId);
             }
-            if (shouldRestore) setScrollTop(scrollTarget, saved);
-          }, delay)
-        );
+          }
+        }, delay);
+        timers.add(timer);
       }
+    } else if (defaultScrollTop === "top") {
+      setScrollTop(scrollTarget, 0);
     }
 
     let ticking = false;
@@ -73,17 +121,28 @@ export function ScrollPositionMemory({
     };
 
     scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    for (const eventName of USER_SCROLL_CANCEL_EVENTS) {
+      window.addEventListener(eventName, cancelPendingRestore, {
+        capture: true,
+        passive: true,
+      });
+    }
     window.addEventListener("pagehide", save);
     window.addEventListener("beforeunload", save);
 
     return () => {
       save();
-      for (const timer of timers) window.clearTimeout(timer);
+      clearRestoreTimers();
       scrollTarget.removeEventListener("scroll", onScroll);
+      for (const eventName of USER_SCROLL_CANCEL_EVENTS) {
+        window.removeEventListener(eventName, cancelPendingRestore, {
+          capture: true,
+        });
+      }
       window.removeEventListener("pagehide", save);
       window.removeEventListener("beforeunload", save);
     };
-  }, [storageKey]);
+  }, [defaultScrollTop, restoreSavedPosition, storageKey]);
 
   return null;
 }
@@ -117,6 +176,7 @@ export function rememberScrollAnchorForHref(input: {
 
   sessionStorage.setItem(storageKey, String(scrollTop));
   sessionStorage.setItem(`${storageKey}${ANCHOR_KEY_SUFFIX}`, JSON.stringify(state));
+  replaceCurrentHistoryAnchor(parsed, input.anchorId);
 }
 
 export function buildScrollMemoryStorageKey(input: {
@@ -137,8 +197,7 @@ function getScrollTarget(): Window | HTMLElement {
 
   const style = window.getComputedStyle(appScrollRoot);
   const canScroll =
-    (style.overflowY === "auto" || style.overflowY === "scroll") &&
-    appScrollRoot.scrollHeight > appScrollRoot.clientHeight + 1;
+    style.overflowY === "auto" || style.overflowY === "scroll";
 
   return canScroll ? appScrollRoot : window;
 }
@@ -153,6 +212,26 @@ function setScrollTop(target: Window | HTMLElement, value: number) {
     return;
   }
   target.scrollTo({ top: value, left: 0, behavior: "auto" });
+}
+
+function restoreSavedScroll(target: Window | HTMLElement, value: number) {
+  if (!canReachScrollTop(target, value)) return false;
+
+  setScrollTop(target, value);
+  return Math.abs(getScrollTop(target) - value) <= 8;
+}
+
+function canReachScrollTop(target: Window | HTMLElement, value: number) {
+  return getMaxScrollTop(target) + 8 >= value;
+}
+
+function getMaxScrollTop(target: Window | HTMLElement) {
+  if (!isWindowScrollTarget(target)) {
+    return Math.max(0, target.scrollHeight - target.clientHeight);
+  }
+
+  const scrollingElement = document.scrollingElement ?? document.documentElement;
+  return Math.max(0, scrollingElement.scrollHeight - window.innerHeight);
 }
 
 function isWindowScrollTarget(target: Window | HTMLElement): target is Window {
@@ -197,6 +276,24 @@ function readScrollAnchor(storageKey: string): ScrollAnchorState | null {
   }
 }
 
+function readLocationHashAnchor(): ScrollAnchorState | null {
+  const anchorId = parseJobsReturnAnchorHash(window.location.hash);
+  if (!anchorId) return null;
+
+  return {
+    anchorId,
+    anchorOffset: 24,
+    scrollTop: 0,
+    savedAt: Date.now(),
+  };
+}
+
+function parseJobsReturnAnchorHash(hash: string) {
+  if (!hash.startsWith("#job-")) return null;
+  const anchorId = hash.slice("#job-".length);
+  return anchorId ? anchorId : null;
+}
+
 function restoreScrollAnchor(target: Window | HTMLElement, anchor: ScrollAnchorState) {
   const offset = getAnchorOffset(target, anchor.anchorId);
   if (offset == null) return false;
@@ -205,6 +302,16 @@ function restoreScrollAnchor(target: Window | HTMLElement, anchor: ScrollAnchorS
   const targetTop = Math.max(0, Math.round(currentTop + offset - anchor.anchorOffset));
   setScrollTop(target, targetTop);
   return true;
+}
+
+function clearLocationHashAnchor(anchorId: string) {
+  if (parseJobsReturnAnchorHash(window.location.hash) !== anchorId) return;
+
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${window.location.pathname}${window.location.search}`
+  );
 }
 
 function getAnchorOffset(target: Window | HTMLElement, anchorId: string) {
@@ -218,7 +325,30 @@ function getAnchorOffset(target: Window | HTMLElement, anchorId: string) {
 }
 
 function findJobCardAnchor(anchorId: string) {
+  const idMatch = document.getElementById(
+    buildJobsReturnAnchorHash(anchorId).slice(1)
+  );
+  if (idMatch instanceof HTMLElement) return idMatch;
+
   return Array.from(
     document.querySelectorAll<HTMLElement>("[data-job-card-id]")
   ).find((element) => element.dataset.jobCardId === anchorId) ?? null;
+}
+
+function replaceCurrentHistoryAnchor(parsed: URL, anchorId: string) {
+  if (
+    parsed.pathname !== window.location.pathname ||
+    parsed.search !== window.location.search
+  ) {
+    return;
+  }
+
+  const hash = buildJobsReturnAnchorHash(anchorId);
+  if (!hash) return;
+
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${parsed.pathname}${parsed.search}${hash}`
+  );
 }

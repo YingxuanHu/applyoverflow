@@ -16,8 +16,11 @@ import {
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
+import { JobsNavigationPendingBoundary } from "@/components/jobs/jobs-navigation-pending-boundary";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
+import { NaturalLanguageJobSearch } from "@/components/jobs/natural-language-job-search";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
+import { PaginationControls } from "@/components/navigation/pagination-controls";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import { Button } from "@/components/ui/button";
@@ -41,12 +44,8 @@ import {
 } from "@/lib/job-metadata";
 import { formatPostedAge } from "@/lib/job-display";
 import {
-  hasJobsStateParamsRecord,
-  JOBS_SEARCH_STATE_COOKIE,
-  JOBS_SEARCH_STATE_PREFERENCE_KEY,
   JOBS_SEARCH_STATE_STORAGE_KEY,
   JOBS_STATE_PARAM_KEYS,
-  resolveJobsStateSource,
 } from "@/lib/jobs/search-state";
 import { formatJobResultCount } from "@/lib/jobs/result-count";
 import { serializeJobCardData } from "@/lib/job-serialization";
@@ -114,49 +113,12 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const authUserId = currentProfile.authUserId;
 
   const resolvedSearchParams = await searchParams;
-  const isResetRequest = getSearchParam(resolvedSearchParams, "reset") === "1";
-  const hasUrlJobsState = hasJobsStateParamsRecord(resolvedSearchParams);
   const cookieStore = await cookies();
-  const sessionJobsQuery = decodeJobsStateCookie(
-    cookieStore.get(JOBS_SEARCH_STATE_COOKIE)?.value
-  );
 
-  const [profileSettings, savedSearchPreference] = await Promise.all([
-    prisma.userProfile.findUnique({
-      where: { id: viewerProfileId },
-      select: { salaryCurrency: true },
-    }),
-    !isResetRequest && !hasUrlJobsState
-      ? prisma.userPreference.findUnique({
-          where: {
-            userId_key: {
-              key: JOBS_SEARCH_STATE_PREFERENCE_KEY,
-              userId: viewerProfileId,
-            },
-          },
-          select: { value: true },
-        })
-      : Promise.resolve(null),
-  ]);
-
-  if (isResetRequest) {
-    await prisma.userPreference.deleteMany({
-      where: {
-        key: JOBS_SEARCH_STATE_PREFERENCE_KEY,
-        userId: viewerProfileId,
-      },
-    });
-  } else if (!hasUrlJobsState) {
-    const restoredState = resolveJobsStateSource({
-      savedPreferenceValue: savedSearchPreference?.value,
-      sessionQuery: sessionJobsQuery,
-      urlParams: resolvedSearchParams,
-    });
-
-    if (restoredState.query) {
-      redirect(`/jobs?${restoredState.query}`);
-    }
-  }
+  const profileSettings = await prisma.userProfile.findUnique({
+    where: { id: viewerProfileId },
+    select: { salaryCurrency: true },
+  });
 
   const userTimeZone = normalizeUserTimeZone(
     cookieStore.get(USER_TIME_ZONE_COOKIE)?.value
@@ -203,6 +165,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const currentPage = jobsResult.page;
   const totalPages =
     jobsResult.total !== null ? Math.max(1, Math.ceil(jobsResult.total / jobsResult.pageSize)) : null;
+  const showPagination =
+    currentPage > 1 || jobsResult.hasNextPage || (totalPages !== null && totalPages > 1);
+  const pageJumpError = getPageJumpError(
+    getSearchParam(resolvedSearchParams, "page"),
+    totalPages
+  );
+  const searchFormInitialValues = buildSearchFormInitialValues(filters);
+  const searchFormStateKey = JSON.stringify({
+    scope: filters.searchScope ?? "all",
+    values: searchFormInitialValues,
+  });
 
   if (totalPages !== null && currentPage > totalPages) {
     redirect(
@@ -224,13 +197,15 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       />
       <SearchParamMemory
         basePath="/jobs"
-        cookieName={JOBS_SEARCH_STATE_COOKIE}
         normalizer="jobs"
-        persistEndpoint="/api/preferences/jobs-search-state"
         stateParamKeys={JOBS_STATE_PARAM_KEYS}
         storageKey={JOBS_SEARCH_STATE_STORAGE_KEY}
       />
-      <ScrollPositionMemory storageKeyPrefix="autoapplication.jobs.scroll" />
+      <ScrollPositionMemory
+        defaultScrollTop="top"
+        restoreSavedPosition={false}
+        storageKeyPrefix="autoapplication.jobs.scroll"
+      />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
       <header className="page-header">
@@ -244,56 +219,60 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
       <JobsSectionTabs active="jobs" />
 
-      <section className="surface-panel p-3.5 sm:p-6">
-        <div>
-          <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
-            {headlineCountLabel} {hasScopedResults ? "matching jobs" : "live jobs"}
-          </p>
-          {ingestionStatus.lastUpdatedAt ? (
-            <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
-              Updated {formatPostedAge(ingestionStatus.lastUpdatedAt)}
-              {ingestionStatus.activeSourceCount > 0
-                ? (
-                    <span className="hidden sm:inline">
-                      {" "}
-                      · {ingestionStatus.activeSourceCount} connector{ingestionStatus.activeSourceCount !== 1 ? "s" : ""} active
-                    </span>
-                  )
-                : null}
+      <JobsNavigationPendingBoundary>
+        <section className="surface-panel p-3.5 sm:p-6">
+          <div>
+            <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
+              {headlineCountLabel} {hasScopedResults ? "matching jobs" : "live jobs"}
             </p>
-          ) : null}
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[13px] sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1 sm:text-[15px]">
-            <span className="text-foreground">
-              <span className="font-medium">{jobsResult.summary.addedTodayCount.toLocaleString()}</span>{" "}
-              <span className="text-muted-foreground sm:text-foreground">new today</span>
-            </span>
-            <span className="text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {(
-                  jobsResult.summary.expiredTodayCount +
-                  jobsResult.summary.removedTodayCount
-                ).toLocaleString()}
-              </span>{" "}
-              closed today
-            </span>
+            {ingestionStatus.lastUpdatedAt ? (
+              <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
+                Updated {formatPostedAge(ingestionStatus.lastUpdatedAt)}
+                {ingestionStatus.activeSourceCount > 0
+                  ? (
+                      <span className="hidden sm:inline">
+                        {" "}
+                        · {ingestionStatus.activeSourceCount} connector{ingestionStatus.activeSourceCount !== 1 ? "s" : ""} active
+                      </span>
+                    )
+                  : null}
+              </p>
+            ) : null}
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[13px] sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1 sm:text-[15px]">
+              <span className="text-foreground">
+                <span className="font-medium">{jobsResult.summary.addedTodayCount.toLocaleString()}</span>{" "}
+                <span className="text-muted-foreground sm:text-foreground">new today</span>
+              </span>
+              <span className="text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {(
+                    jobsResult.summary.expiredTodayCount +
+                    jobsResult.summary.removedTodayCount
+                  ).toLocaleString()}
+                </span>{" "}
+                closed today
+              </span>
+            </div>
+            {hasScopedResults &&
+            jobsResult.total !== null &&
+            ingestionStatus.liveJobCount > jobsResult.total ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                From {ingestionStatus.liveJobCount.toLocaleString()} total live jobs in the pool
+              </p>
+            ) : null}
           </div>
-          {hasScopedResults &&
-          jobsResult.total !== null &&
-          ingestionStatus.liveJobCount > jobsResult.total ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              From {ingestionStatus.liveJobCount.toLocaleString()} total live jobs in the pool
-            </p>
-          ) : null}
-        </div>
 
-        <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+          <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
+            <NaturalLanguageJobSearch />
+
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
                 <JobsSearchForm
                   hiddenFields={searchFormHiddenFields}
                   initialScope={filters.searchScope ?? "all"}
-                  initialValues={buildSearchFormInitialValues(filters)}
+                  initialValues={searchFormInitialValues}
+                  key={searchFormStateKey}
                 />
 
                 <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
@@ -482,105 +461,89 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               ) : null}
             </div>
           </div>
-        </div>
-      </section>
-
-      <section>
-        {jobCards.length === 0 ? (
-          <div className="empty-state">
-            <p className="text-sm font-medium text-foreground">
-              {hasScopedResults ? "No jobs match these filters" : "No jobs available right now"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {hasScopedResults
-                ? "Try widening your search or clearing filters."
-                : "The live pool is refreshing. Check back in a moment."}
-            </p>
-            {hasScopedResults ? (
-              <Button className="mt-4" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
-                Clear filters
-              </Button>
-            ) : null}
           </div>
-        ) : (
-          <JobsFeedList
-            initialJobs={jobCards}
-            key={navigationKey}
-            referenceNow={renderReferenceNow}
-          />
-        )}
+        </section>
 
-        {(currentPage > 1 || jobsResult.hasNextPage || (totalPages !== null && totalPages > 1)) ? (
-          <div className="mt-5 flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              {totalPages !== null ? `Page ${currentPage} of ${totalPages}` : `Page ${currentPage}`}
-            </p>
-            <div className="flex items-center gap-2">
-              <PaginationLink
-                disabled={currentPage <= 1}
-                href={buildJobsHref(resolvedSearchParams, {
-                  page: currentPage > 1 ? String(currentPage - 1) : undefined,
-                })}
-              >
-                Previous
-              </PaginationLink>
-              <PaginationLink
-                disabled={totalPages !== null ? currentPage >= totalPages : !jobsResult.hasNextPage}
-                href={buildJobsHref(resolvedSearchParams, {
-                  page:
-                    totalPages !== null
-                      ? currentPage < totalPages
-                        ? String(currentPage + 1)
-                        : undefined
-                      : jobsResult.hasNextPage
-                        ? String(currentPage + 1)
-                        : undefined,
-                })}
-              >
-                Next
-              </PaginationLink>
+        <section>
+          {showPagination ? (
+            <PaginationControls
+              ariaLabel="Jobs top pagination"
+              basePath="/jobs"
+              currentPage={currentPage}
+              getPageHref={(page) =>
+                buildJobsHref(resolvedSearchParams, {
+                  page: page > 1 ? String(page) : undefined,
+                })
+              }
+              hasNextPage={jobsResult.hasNextPage}
+              pageError={pageJumpError}
+              placement="top"
+              searchParams={resolvedSearchParams}
+              totalPages={totalPages}
+            />
+          ) : null}
+
+          {jobCards.length === 0 ? (
+            <div className="empty-state">
+              <p className="text-sm font-medium text-foreground">
+                {hasScopedResults ? "No jobs match these filters" : "No jobs available right now"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {hasScopedResults
+                  ? "Try widening your search or clearing filters."
+                  : "The live pool is refreshing. Check back in a moment."}
+              </p>
+              {hasScopedResults ? (
+                <Button className="mt-4" render={<Link href={clearFiltersHref} />} size="sm" variant="outline">
+                  Clear filters
+                </Button>
+              ) : null}
             </div>
-          </div>
-        ) : null}
-      </section>
+          ) : (
+            <JobsFeedList
+              initialJobs={jobCards}
+              key={navigationKey}
+              referenceNow={renderReferenceNow}
+            />
+          )}
+
+          {showPagination ? (
+            <PaginationControls
+              ariaLabel="Jobs bottom pagination"
+              basePath="/jobs"
+              currentPage={currentPage}
+              getPageHref={(page) =>
+                buildJobsHref(resolvedSearchParams, {
+                  page: page > 1 ? String(page) : undefined,
+                })
+              }
+              hasNextPage={jobsResult.hasNextPage}
+              pageError={pageJumpError}
+              searchParams={resolvedSearchParams}
+              totalPages={totalPages}
+            />
+          ) : null}
+        </section>
+      </JobsNavigationPendingBoundary>
     </div>
   );
 }
 
-function PaginationLink({
-  children,
-  disabled,
-  href,
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  href: string;
-}) {
-  if (disabled) {
-    return (
-      <span className="inline-flex h-7 items-center rounded-md border border-input px-2.5 text-sm text-muted-foreground opacity-40">
-        {children}
-      </span>
-    );
-  }
+function getPageJumpError(rawPage: string | undefined, totalPages: number | null) {
+  if (rawPage === undefined) return null;
+  const trimmed = rawPage.trim();
+  const parsed = Number(trimmed);
+  const invalid =
+    !trimmed ||
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    (totalPages !== null && parsed > totalPages);
 
-  return (
-    <Link
-      className="inline-flex h-8 items-center rounded-lg border border-input/80 bg-background/70 px-3 text-sm text-foreground hover:bg-muted"
-      href={href}
-    >
-      {children}
-    </Link>
-  );
-}
+  if (!invalid) return null;
 
-function decodeJobsStateCookie(value?: string) {
-  if (!value) return "";
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return "";
-  }
+  return totalPages !== null
+    ? `Enter a page from 1 to ${totalPages.toLocaleString()}.`
+    : "Enter page 1 or higher.";
 }
 
 function parseJobFilters(

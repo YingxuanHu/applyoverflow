@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { JobsSearchForm } from "../src/components/jobs/jobs-search-form";
+
+function readRepoFile(path: string) {
+  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+}
 
 const emptyValues = {
   all: "",
@@ -102,4 +107,14 @@ test("submitting a new company search keeps the existing title search as a secon
 
   assert.match(html, /name="companySearch" value="OpenAI"/);
   assert.match(html, /name="titleSearch" value="backend"/);
+});
+
+test("job search keeps the visible draft when switching search scopes", () => {
+  const source = readRepoFile("src/components/jobs/jobs-search-form.tsx");
+
+  assert.match(source, /const \[draftValue, setDraftValue\]/);
+  assert.match(source, /function handleScopeChange/);
+  assert.match(source, /currentDraft\.trim\(\) \? currentDraft : committedValues\[nextScope\]/);
+  assert.match(source, /onChange=\{\(event\) => setDraftValue\(event\.target\.value\)\}/);
+  assert.match(source, /value=\{draftValue\}/);
 });

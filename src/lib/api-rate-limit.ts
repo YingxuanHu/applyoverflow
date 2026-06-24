@@ -33,6 +33,7 @@ export const API_RATE_LIMITS = {
   aiCoverLetter: { limit: 10, windowMs: 60 * 60_000, scope: "user-or-ip" },
   aiAssistant: { limit: 60, windowMs: 60 * 60_000, scope: "user-or-ip" },
   aiTailoredResume: { limit: 6, windowMs: 60 * 60_000, scope: "user-or-ip" },
+  naturalLanguageJobSearch: { limit: 60, windowMs: 60_000, scope: "user-or-ip" },
   documentUpload: { limit: 20, windowMs: 60 * 60_000, scope: "user-or-ip" },
   documentSync: { limit: 30, windowMs: 60 * 60_000, scope: "user-or-ip" },
   documentDownload: { limit: 120, windowMs: 60_000, scope: "user-or-ip" },

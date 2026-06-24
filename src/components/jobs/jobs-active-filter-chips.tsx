@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 
 type ActiveFilterGroup = {
@@ -21,42 +18,7 @@ export function JobsActiveFilterChips({
   clearHref: string;
   groups: ActiveFilterGroup[];
 }) {
-  const groupsSignature = useMemo(
-    () =>
-      JSON.stringify(
-        groups.map((group) => ({
-          key: group.key,
-          items: group.items.map((item) => ({
-            key: item.key,
-            href: item.href,
-            label: item.label,
-          })),
-        }))
-    ),
-    [groups]
-  );
-  const stateSignature = `${clearHref}:${groupsSignature}`;
-  const [optimisticState, setOptimisticState] = useState<{
-    clearingAll: boolean;
-    pendingItems: Set<string>;
-    signature: string;
-  }>(() => ({
-    clearingAll: false,
-    pendingItems: new Set(),
-    signature: "",
-  }));
-  const optimisticStateMatches = optimisticState.signature === stateSignature;
-  const pendingItems = optimisticStateMatches ? optimisticState.pendingItems : new Set<string>();
-  const clearingAll = optimisticStateMatches ? optimisticState.clearingAll : false;
-
-  const visibleGroups = clearingAll
-    ? []
-    : groups
-        .map((group) => ({
-          ...group,
-          items: group.items.filter((item) => !pendingItems.has(itemKey(group.key, item.key))),
-        }))
-        .filter((group) => group.items.length > 0);
+  const visibleGroups = groups.filter((group) => group.items.length > 0);
 
   if (visibleGroups.length === 0) return null;
 
@@ -70,50 +32,30 @@ export function JobsActiveFilterChips({
           >
             <span className="font-semibold text-foreground">{group.label}:</span>
             {group.items.map((item) => (
-              <Link
-                aria-label={`Remove ${group.label}: ${item.label}`}
-                className="group/filter-chip inline-flex h-6 max-w-full items-center gap-1 rounded-full px-1.5 transition hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                href={item.href}
+              <span
+                className="inline-flex h-6 max-w-full items-center gap-1 rounded-full px-1.5"
                 key={item.key}
-                onClick={() => {
-                  setOptimisticState((current) => {
-                    const next = new Set(
-                      current.signature === stateSignature ? current.pendingItems : undefined
-                    );
-                    next.add(itemKey(group.key, item.key));
-                    return {
-                      clearingAll: false,
-                      pendingItems: next,
-                      signature: stateSignature,
-                    };
-                  });
-                }}
               >
                 <span className="min-w-0 truncate">{item.label}</span>
-                <X className="h-3 w-3 shrink-0 transition-colors group-hover/filter-chip:text-white" />
-              </Link>
+                <Link
+                  aria-label={`Remove ${group.label}: ${item.label}`}
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
+                  href={item.href}
+                >
+                  <X className="h-3 w-3" />
+                </Link>
+              </span>
             ))}
           </div>
         ))}
       </div>
       <Link
-        className="group/filter-chip inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-input/80 bg-background/70 px-3 text-xs font-medium text-foreground transition hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 sm:ml-3"
+        className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-input/80 bg-background/70 px-3 text-xs font-medium text-foreground transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30 sm:ml-3"
         href={clearHref}
-        onClick={() =>
-          setOptimisticState({
-            clearingAll: true,
-            pendingItems: new Set(),
-            signature: stateSignature,
-          })
-        }
       >
-        <X className="h-3.5 w-3.5 transition-colors group-hover/filter-chip:text-white" />
+        <X className="h-3.5 w-3.5" />
         Clear all
       </Link>
     </div>
   );
-}
-
-function itemKey(groupKey: string, itemKeyValue: string) {
-  return `${groupKey}:${itemKeyValue}`;
 }

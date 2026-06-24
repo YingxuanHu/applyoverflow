@@ -24,9 +24,6 @@ test("high-risk API routes guard large request bodies before parsing", () => {
   const topPicksFeedbackRoute = readRepoFile(
     "src/app/api/jobs/top-picks/feedback/route.ts"
   );
-  const jobsSearchStateRoute = readRepoFile(
-    "src/app/api/preferences/jobs-search-state/route.ts"
-  );
 
   assert.match(apiUtils, /API_BODY_LIMITS/);
   assert.match(apiUtils, /requestSizeLimitResponse/);
@@ -42,13 +39,13 @@ test("high-risk API routes guard large request bodies before parsing", () => {
   assert.match(resendVerificationRoute, /parseJsonBodyWithLimit/);
   assert.match(resendVerificationRoute, /API_BODY_LIMITS\.authJson/);
   assert.match(topPicksFeedbackRoute, /parseJsonBodyWithLimit/);
-  assert.match(jobsSearchStateRoute, /parseJsonBodyWithLimit/);
 });
 
 test("removed delegated-application routes and scripts stay deleted", () => {
   const removedPaths = [
     ["src/app/api/jobs/[id]", "auto" + "-apply", "route.ts"].join("/"),
     ["src/app/jobs/[id]", "auto" + "-apply", "page.tsx"].join("/"),
+    ["src/app/api/preferences", "jobs-search-state", "route.ts"].join("/"),
     ["src", "lib", "autom" + "ation"].join("/"),
     ["scripts", "auto" + "-apply.ts"].join("/"),
   ];

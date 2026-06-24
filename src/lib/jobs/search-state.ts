@@ -1,8 +1,4 @@
 export const JOBS_SEARCH_STATE_STORAGE_KEY = "autoapplication.jobs.filters";
-export const JOBS_SEARCH_STATE_COOKIE = "applyoverflow.jobs.state";
-export const JOBS_SEARCH_STATE_PREFERENCE_KEY = "lastJobsSearchState";
-
-export type JobsStateSource = "url" | "session" | "savedPreference" | "default";
 
 const TEXT_PARAM_MAX_LENGTH = 120;
 const LIST_PARAM_MAX_LENGTH = 240;
@@ -94,29 +90,6 @@ const ORDERED_JOBS_STATE_KEYS = [
   "page",
 ] as const;
 
-type LastJobsSearchState = {
-  version: 1;
-  query: string;
-  q: string | null;
-  field: "all" | "title" | "company" | "location";
-  filters: {
-    jobFunction: string[];
-    industry: string[];
-    location: string[];
-    workMode: string[];
-    experienceLevel: string[];
-    employmentType: string[];
-    datePosted: string | null;
-    salaryMin: number | null;
-    salaryMax: number | null;
-    company: string[];
-    skills: string[];
-    source: string[];
-    sponsorship: string | null;
-  };
-  sort: string;
-};
-
 export function hasJobsStateParamsRecord(
   searchParams: Record<string, string | string[] | undefined>
 ) {
@@ -187,88 +160,6 @@ export function normalizeJobsStateQuery(
   }
 
   return output.toString();
-}
-
-export function resolveJobsStateSource(input: {
-  urlParams: Record<string, string | string[] | undefined>;
-  sessionQuery?: string | null;
-  savedPreferenceValue?: string | null;
-}) {
-  if (firstParamValue(input.urlParams.reset) === "1") {
-    return { source: "default" as const, query: "" };
-  }
-
-  if (hasJobsStateParamsRecord(input.urlParams)) {
-    return {
-      source: "url" as const,
-      query: normalizeJobsStateQuery(input.urlParams),
-    };
-  }
-
-  const sessionQuery = normalizeJobsStateQuery(input.sessionQuery ?? "", {
-    includePage: false,
-  });
-  if (sessionQuery) {
-    return { source: "session" as const, query: sessionQuery };
-  }
-
-  const savedPreferenceQuery = queryStringFromJobsPreferenceValue(
-    input.savedPreferenceValue
-  );
-  if (savedPreferenceQuery) {
-    return {
-      source: "savedPreference" as const,
-      query: savedPreferenceQuery,
-    };
-  }
-
-  return { source: "default" as const, query: "" };
-}
-
-export function jobsPreferenceValueFromQueryString(query: string) {
-  const normalizedQuery = normalizeJobsStateQuery(query, { includePage: false });
-  const params = new URLSearchParams(normalizedQuery);
-  const state: LastJobsSearchState = {
-    version: 1,
-    query: normalizedQuery,
-    q: getPrimarySearchText(params),
-    field: getPrimarySearchField(params),
-    filters: {
-      jobFunction: splitValues(params.get("jobFunction") ?? params.get("roleCategory")),
-      industry: splitValues(params.get("industry")),
-      location: splitValues(params.get("locationSearch") ?? params.get("location")),
-      workMode: splitValues(params.get("workMode")),
-      experienceLevel: splitValues(params.get("careerStage") ?? params.get("experienceLevel")),
-      employmentType: splitValues(params.get("employmentType")),
-      datePosted: params.get("posted") || null,
-      salaryMin: parsePositiveInt(params.get("salaryMin")),
-      salaryMax: parsePositiveInt(params.get("salaryMax")),
-      company: splitValues(params.get("companySearch")),
-      skills: [],
-      source: splitValues(params.get("source")),
-      sponsorship: null,
-    },
-    sort: params.get("sortBy") || "relevance",
-  };
-
-  return JSON.stringify(state);
-}
-
-export function queryStringFromJobsPreferenceValue(value?: string | null) {
-  if (!value) return "";
-  try {
-    const parsed = JSON.parse(value) as Partial<LastJobsSearchState>;
-    if (typeof parsed.query === "string") {
-      return normalizeJobsStateQuery(parsed.query, { includePage: false });
-    }
-  } catch {
-    return normalizeJobsStateQuery(value, { includePage: false });
-  }
-  return "";
-}
-
-export function isDefaultJobsStateQuery(query: string) {
-  return normalizeJobsStateQuery(query, { includePage: false }) === "";
 }
 
 function toURLSearchParams(
@@ -426,24 +317,6 @@ function parsePositiveInt(value?: string | null) {
   if (!value) return null;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function getPrimarySearchText(params: URLSearchParams) {
-  return (
-    params.get("search") ||
-    params.get("titleSearch") ||
-    params.get("companySearch") ||
-    params.get("locationSearch") ||
-    null
-  );
-}
-
-function getPrimarySearchField(params: URLSearchParams): LastJobsSearchState["field"] {
-  if (params.get("titleSearch")) return "title";
-  if (params.get("companySearch")) return "company";
-  if (params.get("locationSearch")) return "location";
-  if (params.get("search")) return DEFAULT_KEYWORD_SEARCH_FIELD;
-  return DEFAULT_KEYWORD_SEARCH_FIELD;
 }
 
 function inferSearchScope(params: URLSearchParams) {

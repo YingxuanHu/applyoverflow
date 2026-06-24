@@ -4,16 +4,16 @@ import { cn } from "@/lib/utils";
 
 const JOBS_SECTION_TABS = [
   {
-    href: "/jobs/top-picks",
-    key: "top-picks",
-    label: "Picks for you",
-    description: "Ranked matches from your profile",
-  },
-  {
     href: "/jobs",
     key: "jobs",
     label: "Jobs",
     description: "Full searchable job board",
+  },
+  {
+    href: "/jobs/top-picks",
+    key: "top-picks",
+    label: "Picks for you",
+    description: "Ranked matches from your profile",
   },
 ] as const;
 

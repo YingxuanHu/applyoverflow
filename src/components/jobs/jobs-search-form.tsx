@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -52,9 +52,13 @@ function normalizeSearchList(value: string) {
   return normalizeFilterValueList(value) ?? "";
 }
 
+function normalizeSubmittedSearchValue(scope: VisibleJobSearchScope, value: string) {
+  const normalizedValue = value.trim();
+  return scope === "location" ? normalizeSearchList(normalizedValue) : normalizedValue;
+}
+
 function getSubmittedValue(scope: VisibleJobSearchScope, values: SearchValues) {
-  const value = values[scope].trim();
-  return scope === "location" ? normalizeSearchList(value) : value;
+  return normalizeSubmittedSearchValue(scope, values[scope]);
 }
 
 export function JobsSearchForm({
@@ -68,35 +72,26 @@ export function JobsSearchForm({
 }) {
   const initialVisibleScope =
     initialScope === "all" ? DEFAULT_SEARCH_SCOPE : initialScope;
-  const normalizedInitialValues = useMemo(
-    () => ({
-      all: "",
-      title:
-        initialValues.title ||
-        (initialScope === "all" ? initialValues.all : ""),
-      company: initialValues.company,
-      location: initialValues.location,
-    }),
-    [
-      initialScope,
-      initialValues.all,
-      initialValues.company,
-      initialValues.location,
-      initialValues.title,
-    ]
-  );
+  const normalizedInitialValues = {
+    all: "",
+    title:
+      initialValues.title ||
+      (initialScope === "all" ? initialValues.all : ""),
+    company: initialValues.company,
+    location: initialValues.location,
+  };
   const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
-  const [values, setValues] = useState<SearchValues>(() => normalizedInitialValues);
+  const [committedValues] = useState<SearchValues>(() => normalizedInitialValues);
+  const [draftValue, setDraftValue] = useState(() => normalizedInitialValues[initialVisibleScope]);
   const inputName = SEARCH_PARAM_BY_SCOPE[scope];
-  const submittedSearchValue = getSubmittedValue(scope, values);
+  const submittedSearchValue = normalizeSubmittedSearchValue(scope, draftValue);
 
-  useEffect(() => {
-    setScope(initialVisibleScope);
-  }, [initialVisibleScope]);
-
-  useEffect(() => {
-    setValues(normalizedInitialValues);
-  }, [normalizedInitialValues]);
+  function handleScopeChange(nextScope: VisibleJobSearchScope) {
+    setScope(nextScope);
+    setDraftValue((currentDraft) =>
+      currentDraft.trim() ? currentDraft : committedValues[nextScope]
+    );
+  }
 
   return (
     <form className="flex min-w-0 flex-1 items-center gap-2" method="get">
@@ -117,7 +112,7 @@ export function JobsSearchForm({
         </>
       ) : null}
       {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
-        const value = getSubmittedValue(option.value, values);
+        const value = getSubmittedValue(option.value, committedValues);
         if (!value) return null;
         return (
           <input
@@ -137,7 +132,7 @@ export function JobsSearchForm({
           <select
             className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
             id="jobs-search-scope"
-            onChange={(event) => setScope(event.target.value as VisibleJobSearchScope)}
+            onChange={(event) => handleScopeChange(event.target.value as VisibleJobSearchScope)}
             style={{ textAlignLast: "left" }}
             value={scope}
           >
@@ -154,14 +149,9 @@ export function JobsSearchForm({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-10 rounded-none border-0 bg-transparent pl-9 pr-2 text-sm focus-visible:border-transparent focus-visible:ring-0 sm:pr-3"
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                [scope]: event.target.value,
-              }))
-            }
+            onChange={(event) => setDraftValue(event.target.value)}
             placeholder={PLACEHOLDER_BY_SCOPE[scope]}
-            value={values[scope]}
+            value={draftValue}
           />
         </div>
       </div>

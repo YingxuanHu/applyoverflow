@@ -179,9 +179,9 @@ export function assertJobFilterContract(
   if (violations.length === 0) return;
 
   const preview = violations.slice(0, 8);
-  const message = `[jobs-filter-contract] ${source} returned ${violations.length} row(s) that violate active role filters: ${JSON.stringify(preview)}`;
+  const message = `[jobs-filter-contract] ${source} returned ${violations.length} row(s) that violate active structured filters: ${JSON.stringify(preview)}`;
 
-  if (process.env.NODE_ENV !== "production" || process.env.JOB_FILTER_ASSERTIONS === "1") {
+  if (source === "test" || process.env.JOB_FILTER_ASSERTIONS === "1") {
     throw new Error(message);
   }
 

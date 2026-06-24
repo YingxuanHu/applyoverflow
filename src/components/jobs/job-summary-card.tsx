@@ -20,7 +20,10 @@ import {
   getNormalizedRoleCategoryLabel,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "@/lib/job-metadata";
-import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
+import {
+  buildJobDetailHref,
+  buildJobsReturnAnchorHash,
+} from "@/lib/jobs/return-navigation";
 import { rememberScrollAnchorForHref } from "@/components/navigation/scroll-position-memory";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
@@ -55,10 +58,12 @@ export function JobSummaryCard({
 
   // Lifecycle cue shown in the secondary row for non-LIVE jobs
   const lifecycleCue = getLifecycleCue(job.status);
+  const anchorId = buildJobsReturnAnchorHash(job.id).slice(1);
 
   return (
     <article
       data-job-card-id={job.id}
+      id={anchorId || undefined}
       className={cn(
         "flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row sm:gap-3",
         (job.status === "EXPIRED" || job.status === "REMOVED") && "opacity-60"
@@ -67,7 +72,7 @@ export function JobSummaryCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href={buildJobDetailHref(job.id, sourceHref)}
+            href={buildJobDetailHref(job.id, sourceHref, job.id)}
             onClick={() => {
               if (!scrollMemoryKeyPrefix) return;
               rememberScrollAnchorForHref({

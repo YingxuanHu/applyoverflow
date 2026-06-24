@@ -3,10 +3,7 @@ import test from "node:test";
 
 import {
   hasJobsStateParamsRecord,
-  jobsPreferenceValueFromQueryString,
   normalizeJobsStateQuery,
-  queryStringFromJobsPreferenceValue,
-  resolveJobsStateSource,
 } from "../src/lib/jobs/search-state";
 
 test("jobs URL params are detected and normalized for restore", () => {
@@ -34,67 +31,17 @@ test("legacy broad search state restores as title keyword search", () => {
   );
 });
 
-test("URL state wins over session and saved preferences", () => {
-  const saved = jobsPreferenceValueFromQueryString("companySearch=Amazon&sortBy=company");
-  const resolved = resolveJobsStateSource({
-    savedPreferenceValue: saved,
-    sessionQuery: "locationSearch=Toronto&page=2",
-    urlParams: { titleSearch: "backend", page: "4" },
-  });
-
-  assert.equal(resolved.source, "url");
-  assert.equal(resolved.query, "searchScope=title&titleSearch=backend&page=4");
-});
-
-test("session state restores before saved preferences when URL is empty", () => {
-  const saved = jobsPreferenceValueFromQueryString("companySearch=Amazon&sortBy=company");
-  const resolved = resolveJobsStateSource({
-    savedPreferenceValue: saved,
-    sessionQuery: "locationSearch=Toronto&page=2",
-    urlParams: {},
-  });
-
-  assert.equal(resolved.source, "session");
-  assert.equal(resolved.query, "searchScope=location&locationSearch=Toronto");
-  assert.equal(resolved.query.includes("page="), false);
-});
-
-test("reset URL clears session and saved jobs state", () => {
-  const saved = jobsPreferenceValueFromQueryString("companySearch=Amazon&sortBy=company");
-  const resolved = resolveJobsStateSource({
-    savedPreferenceValue: saved,
-    sessionQuery: "titleSearch=backend&page=2",
-    urlParams: { reset: "1" },
-  });
-
-  assert.deepEqual(resolved, { source: "default", query: "" });
-});
-
-test("saved jobs preference restores without old page number", () => {
-  const saved = jobsPreferenceValueFromQueryString(
-    "titleSearch=engineer&jobFunction=Software%20Engineering,AI%20%2F%20Machine%20Learning&industry=Finance%20%26%20Banking&page=7&sortBy=newest"
-  );
-  const resolved = resolveJobsStateSource({
-    savedPreferenceValue: saved,
-    sessionQuery: "",
-    urlParams: {},
-  });
-
-  assert.equal(resolved.source, "savedPreference");
+test("in-app restored jobs state omits stale page numbers", () => {
   assert.equal(
-    resolved.query,
+    normalizeJobsStateQuery(
+      "titleSearch=engineer&jobFunction=Software%20Engineering,AI%20%2F%20Machine%20Learning&industry=Finance%20%26%20Banking&page=7&sortBy=newest",
+      { includePage: false }
+    ),
     "searchScope=title&titleSearch=engineer&industry=Finance+%26+Banking&jobFunction=Software+Engineering%2CAI+%2F+Machine+Learning&sortBy=newest"
   );
-  assert.equal(resolved.query.includes("page="), false);
-  assert.equal(queryStringFromJobsPreferenceValue(saved), resolved.query);
 });
 
-test("empty or cleared jobs state resolves to default", () => {
-  const resolved = resolveJobsStateSource({
-    savedPreferenceValue: null,
-    sessionQuery: "",
-    urlParams: {},
-  });
-
-  assert.deepEqual(resolved, { source: "default", query: "" });
+test("empty or cleared jobs state normalizes to default", () => {
+  assert.equal(normalizeJobsStateQuery("", { includePage: false }), "");
+  assert.equal(normalizeJobsStateQuery("reset=1", { includePage: false }), "");
 });
