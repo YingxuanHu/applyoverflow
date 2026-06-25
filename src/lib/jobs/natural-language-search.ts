@@ -93,8 +93,13 @@ const ROLE_RULES: Array<Rule<NormalizedRoleCategory>> = [
   ]),
   rule("AI / Machine Learning", "AI_MACHINE_LEARNING", [
     /\bai\s*\/?\s*(?:and\s+)?machine\s+learning\b/i,
+    /\b(?:ai|artificial\s+intelligence)\b.{0,80}\bmachine\s+learning\b/i,
+    /\b(?:machine\s+learning|artificial\s+intelligence)\b.{0,80}\b(?:ai|artificial\s+intelligence)\b/i,
     /\b(?:machine\s+learning|ml)\s+(?:engineer|developer|scientist|roles?|jobs?)\b/i,
     /\bai\s+(?:engineer|developer|scientist|roles?|jobs?)\b/i,
+    /\bartificial\s+intelligence\s+(?:engineer|developer|scientist|roles?|jobs?)\b/i,
+    /\b(?:related\s+to|something\s+(?:related\s+to|to\s+do\s+with)|work(?:ing)?\s+(?:on|with)|focused\s+on)\s+(?:ai|artificial\s+intelligence|machine\s+learning|ml)\b/i,
+    /\b(?:ai|artificial\s+intelligence|machine\s+learning|ml)\s+(?:related|focused|work|roles?|jobs?)\b/i,
     /\bllm\s+(?:engineer|developer|roles?|jobs?)\b/i,
   ]),
   rule("Product Management", "PRODUCT_MANAGEMENT", [
@@ -503,14 +508,17 @@ function chooseTitleSearch(
 function inferCareerStages(text: string) {
   const values: ExperienceGroupFilter[] = [];
   const exclusions: ExperienceGroupFilter[] = [];
+  const wantsEntryToMid =
+    /\b(?:entry|entry[-\s]?level|junior|new\s+grad|early\s+career)\s*(?:-|to|through|or|\/)\s*(?:mid|mid[-\s]?level|intermediate|experienced)\b/.test(text) ||
+    /\b(?:mid|mid[-\s]?level|intermediate|experienced)\s*(?:-|to|through|or|\/)\s*(?:entry|entry[-\s]?level|junior|new\s+grad|early\s+career)\b/.test(text);
 
   if (/\b(?:internships?|intern|co[-\s]?op|student|summer\s+(?:analyst|associate|intern))\b/.test(text)) {
     values.push("STUDENT_INTERN");
   }
-  if (/\b(?:entry[-\s]?level|new\s+grad|graduate|junior|early\s+career|0\s*[-–]\s*2\s+years?)\b/.test(text)) {
+  if (wantsEntryToMid || /\b(?:entry[-\s]?level|new\s+grad|graduate|junior|early\s+career|0\s*[-–]\s*2\s+years?)\b/.test(text)) {
     values.push("ENTRY_JUNIOR");
   }
-  if (/\b(?:mid[-\s]?level|intermediate|experienced|3\s*[-–]\s*5\s+years?|3\+?\s+years?)\b/.test(text)) {
+  if (wantsEntryToMid || /\b(?:mid[-\s]?level|intermediate|experienced|3\s*[-–]\s*5\s+years?|3\+?\s+years?)\b/.test(text)) {
     values.push("MID_EXPERIENCED");
   }
   if (/\b(?:senior|sr\.?|staff|principal|lead)\b/.test(text) && !hasNegativeSeniority(text)) {

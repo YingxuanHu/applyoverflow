@@ -42,6 +42,25 @@ describe("parseNaturalLanguageJobSearch", () => {
     assert.equal(params.posted, "7d");
   });
 
+  it("understands loose voice-style AI and entry-to-mid phrasing", () => {
+    const result = parseNaturalLanguageJobSearch(
+      "find me jobs that's about software engineering or something related to AI something to do with you know machine learning as well and that's preferably based in Toronto and or anywhere in Ontario works as well the job should be like entry to mid level not some there somewhere that's too high I guess a best senior is fine too"
+    );
+
+    assert.equal(result.params.jobFunction, "SOFTWARE_ENGINEERING,AI_MACHINE_LEARNING");
+    assert.equal(result.params.careerStage, "ENTRY_JUNIOR,MID_EXPERIENCED,SENIOR_LEAD_STAFF");
+    assert.equal(result.params.locationSearch, "Toronto,Ontario");
+  });
+
+  it("does not require exact job-title nouns for AI and machine learning intent", () => {
+    const params = paramsFor(
+      "Looking for roles related to artificial intelligence or something to do with machine learning in Ontario."
+    );
+
+    assert.equal(params.jobFunction, "AI_MACHINE_LEARNING");
+    assert.equal(params.locationSearch, "Ontario");
+  });
+
   it("keeps company industry separate from job function", () => {
     const result = parseNaturalLanguageJobSearch(
       "I want software engineer jobs at banks or financial services companies in New York."
