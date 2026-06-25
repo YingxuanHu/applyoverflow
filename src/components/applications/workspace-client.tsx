@@ -1029,15 +1029,15 @@ function JobDescriptionField({
           <LoadingSpinner className="h-4 w-4" />
           <span className="text-sm text-muted-foreground">Importing and organizing...</span>
         </div>
+      ) : value ? (
+        <div className="mt-3 max-h-[12.5rem] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
+          {renderDescriptionSummary(value)}
+        </div>
       ) : (
         <div className="mt-3">
-          {value ? (
-            renderDescriptionSummary(value)
-          ) : (
-            <p className="text-sm italic text-muted-foreground">
-              No job description yet. Import it from the posting link, paste the posting text, or edit it manually.
-            </p>
-          )}
+          <p className="text-sm italic text-muted-foreground">
+            No job description yet. Import it from the posting link, paste the posting text, or edit it manually.
+          </p>
         </div>
       )}
     </div>
