@@ -96,6 +96,8 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(paginationSource, /pageError\?: string \| null/);
   assert.doesNotMatch(paginationSource, /PageNumberLink/);
   assert.match(pendingBoundarySource, /Loading jobs/);
+  assert.match(pendingBoundarySource, /sticky top-20/);
+  assert.doesNotMatch(pendingBoundarySource, /backdrop-blur-\[1px\]/);
   assert.match(pendingBoundarySource, /onClickCapture/);
   assert.match(pendingBoundarySource, /onSubmitCapture/);
   assert.match(pendingBoundarySource, /buildGetFormHref/);

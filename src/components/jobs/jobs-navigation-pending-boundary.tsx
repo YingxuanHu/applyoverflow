@@ -73,11 +73,13 @@ export function JobsNavigationPendingBoundary({
       {pending ? (
         <div
           aria-live="polite"
-          className="pointer-events-none absolute inset-0 z-30 flex min-h-[16rem] items-center justify-center bg-background/35 px-4 backdrop-blur-[1px]"
+          className="pointer-events-auto absolute inset-0 z-30 min-h-[16rem] bg-background/55 px-4"
           role="status"
         >
-          <div className="flex max-w-[22rem] items-center gap-3 rounded-2xl border border-border/70 bg-popover/95 px-4 py-3 text-left shadow-[0_18px_48px_rgba(0,0,0,0.22)]">
-            <LoadingSpinner className="h-4 w-4 shrink-0 text-primary" />
+          <div className="sticky top-20 mx-auto mt-6 flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-border/80 bg-popover px-4 py-3 text-left shadow-[0_18px_48px_rgba(0,0,0,0.26)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <LoadingSpinner className="h-4 w-4" />
+            </span>
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">{label}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
