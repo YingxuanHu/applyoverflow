@@ -42,6 +42,10 @@ import {
   finishSourceTask,
 } from "@/lib/ingestion/task-queue";
 import {
+  DEFAULT_ZERO_GROWTH_ACCEPTED_THRESHOLD,
+  shouldDeferZeroGrowthPollSource,
+} from "@/lib/ingestion/source-poll-growth-guards";
+import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
   resolveScaledInteger,
@@ -225,7 +229,7 @@ const CONNECTOR_POLL_CYCLE_CAPS: Record<string, number> = {
   ),
   workable: readConnectorPollCycleCapEnv(
     getConnectorPollCycleCapEnvName("workable"),
-    IN_RECOVERY_MODE ? RECOVERY_CONNECTOR_POLL_CYCLE_CAPS.workable : Number.MAX_SAFE_INTEGER
+    IN_RECOVERY_MODE ? RECOVERY_CONNECTOR_POLL_CYCLE_CAPS.workable : 3
   ),
   recruitee: readConnectorPollCycleCapEnv(
     getConnectorPollCycleCapEnvName("recruitee"),
@@ -254,11 +258,19 @@ const CONNECTOR_POLL_RUNTIME_CYCLE_CAPS: Record<string, number> = {
     "SMARTRECRUITERS_CONNECTOR_POLL_RUNTIME_CYCLE_CAP",
     IN_RECOVERY_MODE ? 1 : 2
   ),
+  workable: readConnectorPollCycleCapEnv(
+    "WORKABLE_CONNECTOR_POLL_RUNTIME_CYCLE_CAP",
+    IN_RECOVERY_MODE ? 1 : 3
+  ),
 };
 
 const CONNECTOR_POLL_RUNTIME_BATCH_CAPS: Record<string, number> = {
   recruitee: readConnectorPollCycleCapEnv(
     "RECRUITEE_CONNECTOR_POLL_RUNTIME_BATCH_CAP",
+    IN_RECOVERY_MODE ? 1 : 1
+  ),
+  workable: readConnectorPollCycleCapEnv(
+    "WORKABLE_CONNECTOR_POLL_RUNTIME_BATCH_CAP",
     IN_RECOVERY_MODE ? 1 : 1
   ),
 };
@@ -307,6 +319,14 @@ const COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS = Math.max(
   2,
   readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_COOLDOWN_HOURS") ?? 12
 );
+const COMPANY_SOURCE_ZERO_YIELD_BACKOFF_SUCCESS_THRESHOLD = Math.max(
+  3,
+  readNonNegativeIntegerEnv("INGEST_ZERO_YIELD_BACKOFF_SUCCESS_THRESHOLD") ?? 5
+);
+const COMPANY_SOURCE_ZERO_YIELD_BACKOFF_HOURS = Math.max(
+  6,
+  readNonNegativeIntegerEnv("INGEST_ZERO_YIELD_BACKOFF_HOURS") ?? 24
+);
 const COMPANY_SOURCE_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS = Math.max(
   2,
   readNonNegativeIntegerEnv("INGEST_TIMEOUT_ZERO_CREATE_COOLDOWN_HOURS") ?? 6
@@ -339,6 +359,11 @@ const COMPANY_SOURCE_SLOW_LOW_YIELD_MAX_CREATED_PER_MINUTE =
       readNonNegativeIntegerEnv("INGEST_SLOW_LOW_YIELD_MAX_CREATED_PER_100_MINUTES") ?? 5
     )
   ) / 100;
+const COMPANY_SOURCE_ZERO_GROWTH_ACCEPTED_THRESHOLD = Math.max(
+  5,
+  readNonNegativeIntegerEnv("INGEST_ZERO_GROWTH_PENDING_ACCEPTED_THRESHOLD") ??
+    DEFAULT_ZERO_GROWTH_ACCEPTED_THRESHOLD
+);
 const GROWTH_FRONTIER_WINDOW_HOURS = Math.max(
   24,
   readNonNegativeIntegerEnv("INGEST_GROWTH_FRONTIER_WINDOW_HOURS") ?? 120
@@ -371,9 +396,35 @@ const GROWTH_HARD_COOLDOWN_HOURS = Math.max(
   6,
   readNonNegativeIntegerEnv("INGEST_GROWTH_HARD_COOLDOWN_HOURS") ?? 24
 );
+const GROWTH_CHURN_HEAVY_REMOVED_THRESHOLD = Math.max(
+  10,
+  readNonNegativeIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_REMOVED_THRESHOLD") ?? 50
+);
+const GROWTH_CHURN_HEAVY_REMOVED_TO_CREATED_RATIO =
+  Math.max(
+    100,
+    readNonNegativeIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_REMOVED_TO_CREATED_RATIO_X100") ??
+      200
+  ) / 100;
+const GROWTH_CHURN_HEAVY_COOLDOWN_HOURS = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_COOLDOWN_HOURS") ?? 8
+);
+const GROWTH_CHURN_HEAVY_PRIORITY_PENALTY = Math.max(
+  0,
+  readNonNegativeIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_PRIORITY_PENALTY") ?? 380
+);
 const GROWTH_SOURCE_QUERY_MULTIPLIER = Math.max(
   3,
   readNonNegativeIntegerEnv("INGEST_GROWTH_SOURCE_QUERY_MULTIPLIER") ?? 8
+);
+const PRODUCTIVE_SOURCE_BACKFILL_QUERY_LIMIT = Math.max(
+  500,
+  readNonNegativeIntegerEnv("INGEST_PRODUCTIVE_SOURCE_BACKFILL_QUERY_LIMIT") ?? 2_500
+);
+const PRODUCTIVE_SOURCE_BACKFILL_LIMIT = Math.max(
+  50,
+  readNonNegativeIntegerEnv("INGEST_PRODUCTIVE_SOURCE_BACKFILL_LIMIT") ?? 600
 );
 const OFFICIAL_COMPANY_SOURCE_POLL_LIMIT = Math.max(
   100,
@@ -430,6 +481,27 @@ const GROWTH_REFRESH_HEAVY_SOURCE_TYPES = new Set([
   "COMPANY_JSON",
   "COMPANY_HTML",
 ]);
+
+function isCompanySourceOverdueForPoll(
+  source: {
+    createdAt: Date;
+    updatedAt: Date;
+    lastSuccessfulPollAt: Date | null;
+    pollingCadenceMinutes: number | null;
+  },
+  now: Date
+) {
+  const cadenceMinutes =
+    source.pollingCadenceMinutes ?? DEFAULT_SOURCE_POLL_CADENCE_MINUTES;
+  const lastPollReference =
+    source.lastSuccessfulPollAt ?? source.updatedAt ?? source.createdAt;
+
+  return (
+    now.getTime() - lastPollReference.getTime() >=
+    Math.max(30, cadenceMinutes) * 60 * 1000
+  );
+}
+
 // 2026-04-16: Raised defaults + hard caps for the top TIME_BUDGET offenders
 // (ashby/greenhouse/lever/workday). Big tenants like Coinbase, Affirm, Salesforce
 // Workday, etc. legitimately need more time for per-job detail fetches.
@@ -511,8 +583,12 @@ type WorkdayHostMetrics = {
 type RecentSourceYieldMetrics = {
   sourceName: string;
   canonicalCreatedCount7d: number;
+  removedCount7d: number;
   acceptedCount7d: number;
   runCount7d: number;
+  canonicalCreatedCount24h: number;
+  acceptedCount24h: number;
+  runCount24h: number;
 };
 
 type PollVelocitySignals = {
@@ -524,6 +600,11 @@ type PollVelocitySignals = {
 
 function clampScore(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function clampSourceQualityScore(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return clampScore(value, 0, 1);
 }
 
 function computeSourceYieldScore(input: {
@@ -1387,6 +1468,32 @@ export function computeGrowthModePollSignals(input: {
   };
 }
 
+function isGrowthChurnHeavySource(input: {
+  frontierCandidate: boolean;
+  recentCanonicalCreatedCount: number;
+  recentRemovedCount: number;
+  lastJobsCreatedCount: number;
+}) {
+  if (!GROWTH_MODE_ENABLED || input.frontierCandidate) {
+    return false;
+  }
+
+  if (input.recentRemovedCount < GROWTH_CHURN_HEAVY_REMOVED_THRESHOLD) {
+    return false;
+  }
+
+  const creationFloor = Math.max(
+    input.recentCanonicalCreatedCount,
+    input.lastJobsCreatedCount,
+    1
+  );
+
+  return (
+    input.recentRemovedCount >
+    creationFloor * GROWTH_CHURN_HEAVY_REMOVED_TO_CREATED_RATIO
+  );
+}
+
 function computePollAdmissionBudgetMs(
   maxWallClockMs: number = COMPANY_SOURCE_POLL_QUEUE_WALL_CLOCK_MS
 ) {
@@ -1866,20 +1973,48 @@ async function buildRecentSourceYieldMetrics(
   const cutoff = new Date(
     nowMs - COMPANY_SOURCE_RECENT_YIELD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
   );
-  const rows = await prisma.ingestionRun.groupBy({
-    by: ["sourceName"],
-    where: {
-      startedAt: { gte: cutoff },
-      sourceName: { in: missing },
-    },
-    _sum: {
-      canonicalCreatedCount: true,
-      acceptedCount: true,
-    },
-    _count: {
-      _all: true,
-    },
-  });
+  const cutoff24h = new Date(nowMs - 24 * 60 * 60 * 1000);
+  const [rows, rows24h] = await Promise.all([
+    prisma.ingestionRun.groupBy({
+      by: ["sourceName"],
+      where: {
+        startedAt: { gte: cutoff },
+        sourceName: { in: missing },
+      },
+      _sum: {
+        canonicalCreatedCount: true,
+        removedCount: true,
+        acceptedCount: true,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+    prisma.ingestionRun.groupBy({
+      by: ["sourceName"],
+      where: {
+        startedAt: { gte: cutoff24h },
+        sourceName: { in: missing },
+      },
+      _sum: {
+        canonicalCreatedCount: true,
+        acceptedCount: true,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+  ]);
+  const metrics24hBySource = new Map(
+    rows24h.map((row) => [
+      row.sourceName,
+      {
+        canonicalCreatedCount24h: row._sum.canonicalCreatedCount ?? 0,
+        acceptedCount24h: row._sum.acceptedCount ?? 0,
+        runCount24h: row._count._all,
+      },
+    ])
+  );
 
   const fetched = new Set<string>();
   const expiresAt = nowMs + RECENT_SOURCE_YIELD_TTL_MS;
@@ -1887,8 +2022,14 @@ async function buildRecentSourceYieldMetrics(
     const value: RecentSourceYieldMetrics = {
       sourceName: row.sourceName,
       canonicalCreatedCount7d: row._sum.canonicalCreatedCount ?? 0,
+      removedCount7d: row._sum.removedCount ?? 0,
       acceptedCount7d: row._sum.acceptedCount ?? 0,
       runCount7d: row._count._all,
+      canonicalCreatedCount24h:
+        metrics24hBySource.get(row.sourceName)?.canonicalCreatedCount24h ?? 0,
+      acceptedCount24h:
+        metrics24hBySource.get(row.sourceName)?.acceptedCount24h ?? 0,
+      runCount24h: metrics24hBySource.get(row.sourceName)?.runCount24h ?? 0,
     };
     result.set(row.sourceName, value);
     recentSourceYieldCache.set(row.sourceName, { value, expiresAt });
@@ -1902,8 +2043,12 @@ async function buildRecentSourceYieldMetrics(
     const empty: RecentSourceYieldMetrics = {
       sourceName,
       canonicalCreatedCount7d: 0,
+      removedCount7d: 0,
       acceptedCount7d: 0,
       runCount7d: 0,
+      canonicalCreatedCount24h: 0,
+      acceptedCount24h: 0,
+      runCount24h: 0,
     };
     result.set(sourceName, empty);
     recentSourceYieldCache.set(sourceName, { value: empty, expiresAt });
@@ -2487,7 +2632,7 @@ export async function enqueueSourceValidationTasks(options: {
     const priorityScore = computeValidationPriorityScore({
       now,
       priorityScore: source.priorityScore,
-      sourceQualityScore: source.sourceQualityScore,
+      sourceQualityScore: clampSourceQualityScore(source.sourceQualityScore),
       yieldScore: source.yieldScore,
       discoveryConfidence: source.company.discoveryConfidence,
       historicalYield,
@@ -2535,12 +2680,18 @@ export async function enqueueCompanySourcePollTasks(options: {
       : null;
   const admissionBudgetMs = computePollAdmissionBudgetMs();
   const workdayHostMetrics = await buildWorkdayHostMetrics(now);
-  const candidates = await prisma.companySource.findMany({
+  let candidates = await prisma.companySource.findMany({
     where: {
       status: { in: ["PROVISIONED", "ACTIVE", "DEGRADED"] },
       validationState: "VALIDATED",
       pollState: { in: ["READY", "ACTIVE", "BACKOFF"] },
       OR: [{ cooldownUntil: null }, { cooldownUntil: { lte: now } }],
+      tasks: {
+        none: {
+          kind: "CONNECTOR_POLL",
+          status: "RUNNING",
+        },
+      },
       ...(targetIds ? { id: { in: [...targetIds] } } : {}),
     },
     include: {
@@ -2564,6 +2715,62 @@ export async function enqueueCompanySourcePollTasks(options: {
         ? Math.max(pollLimit * GROWTH_SOURCE_QUERY_MULTIPLIER, pollLimit + 1_200)
         : Math.max(pollLimit * 6, pollLimit + 600),
   });
+  const productiveRefreshBackfillIds = new Set<string>();
+  if (!targetIds) {
+    const overdueProductiveCandidates = await prisma.companySource.findMany({
+      where: {
+        status: { in: ["ACTIVE", "DEGRADED"] },
+        validationState: "VALIDATED",
+        pollState: "READY",
+        OR: [{ cooldownUntil: null }, { cooldownUntil: { lte: now } }],
+        retainedLiveJobCount: { gt: 0 },
+        tasks: {
+          none: {
+            kind: "CONNECTOR_POLL",
+            status: { in: ["PENDING", "RUNNING"] },
+          },
+        },
+      },
+      include: {
+        company: {
+          select: {
+            id: true,
+            discoveryConfidence: true,
+            metadataJson: true,
+            jobs: {
+              where: { status: { in: ["LIVE", "AGING"] } },
+              select: { id: true },
+              take: 25,
+            },
+          },
+        },
+      },
+      orderBy: [
+        { lastSuccessfulPollAt: "asc" },
+        { retainedLiveJobCount: "desc" },
+        { sourceQualityScore: "desc" },
+      ],
+      take: PRODUCTIVE_SOURCE_BACKFILL_QUERY_LIMIT,
+    });
+
+    const candidateById = new Map(candidates.map((source) => [source.id, source]));
+    for (const source of overdueProductiveCandidates) {
+      if (productiveRefreshBackfillIds.size >= PRODUCTIVE_SOURCE_BACKFILL_LIMIT) {
+        break;
+      }
+
+      if (!isCompanySourceOverdueForPoll(source, now)) {
+        continue;
+      }
+
+      productiveRefreshBackfillIds.add(source.id);
+      if (!candidateById.has(source.id)) {
+        candidateById.set(source.id, source);
+      }
+    }
+
+    candidates = [...candidateById.values()];
+  }
   const recentYieldMetrics = await buildRecentSourceYieldMetrics(
     candidates.map((source) => source.sourceName),
     now
@@ -2572,11 +2779,20 @@ export async function enqueueCompanySourcePollTasks(options: {
   const scoredSources = candidates.map((source) => {
     const historicalYield = source.company.jobs.length;
     const recentYield = recentYieldMetrics.get(source.sourceName);
+    const recentCanonicalCreatedCount = recentYield?.canonicalCreatedCount7d ?? 0;
+    const recentRemovedCount = recentYield?.removedCount7d ?? 0;
+    const recentAcceptedCount = recentYield?.acceptedCount7d ?? 0;
+    const recentRunCount = recentYield?.runCount7d ?? 0;
+    const recentCanonicalCreatedCount24h =
+      recentYield?.canonicalCreatedCount24h ?? 0;
+    const recentAcceptedCount24h = recentYield?.acceptedCount24h ?? 0;
+    const recentNetCreatedCount =
+      recentCanonicalCreatedCount - recentRemovedCount;
     const basePriorityScore = computePollPriorityScore({
       now,
       connectorName: source.connectorName,
       priorityScore: source.priorityScore,
-      sourceQualityScore: source.sourceQualityScore,
+      sourceQualityScore: clampSourceQualityScore(source.sourceQualityScore),
       yieldScore: source.yieldScore,
       discoveryConfidence: source.company.discoveryConfidence,
       historicalYield,
@@ -2589,8 +2805,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       lastJobsAcceptedCount: source.lastJobsAcceptedCount,
       lastJobsCreatedCount: source.lastJobsCreatedCount,
       retainedLiveJobCount: source.retainedLiveJobCount,
-      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
-      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
+      recentCanonicalCreatedCount,
+      recentAcceptedCount,
       sourceType: source.sourceType,
       parserVersion: source.parserVersion,
       metadataJson: source.metadataJson,
@@ -2633,9 +2849,9 @@ export async function enqueueCompanySourcePollTasks(options: {
       hostMetrics,
     });
     const velocitySignals = computePollVelocitySignals({
-      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
-      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
-      recentRunCount: recentYield?.runCount7d ?? 0,
+      recentCanonicalCreatedCount,
+      recentAcceptedCount,
+      recentRunCount,
       estimatedRuntimeMs,
       pollAttemptCount: source.pollAttemptCount,
       pollSuccessCount: source.pollSuccessCount,
@@ -2646,7 +2862,7 @@ export async function enqueueCompanySourcePollTasks(options: {
       now,
       connectorName: source.connectorName,
       sourceType: source.sourceType,
-      sourceQualityScore: source.sourceQualityScore,
+      sourceQualityScore: clampSourceQualityScore(source.sourceQualityScore),
       yieldScore: source.yieldScore,
       pollAttemptCount: source.pollAttemptCount,
       pollSuccessCount: source.pollSuccessCount,
@@ -2655,8 +2871,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       lastJobsAcceptedCount: source.lastJobsAcceptedCount,
       lastJobsCreatedCount: source.lastJobsCreatedCount,
       retainedLiveJobCount: source.retainedLiveJobCount,
-      canonicalCreatedCount7d: recentYield?.canonicalCreatedCount7d ?? 0,
-      acceptedCount7d: recentYield?.acceptedCount7d ?? 0,
+      canonicalCreatedCount7d: recentCanonicalCreatedCount,
+      acceptedCount7d: recentAcceptedCount,
       metadataJson: source.metadataJson,
       companyMetadataJson: source.company.metadataJson,
       createdAt: source.createdAt,
@@ -2664,8 +2880,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       lastSuccessfulPollAt: source.lastSuccessfulPollAt,
     });
     const noveltyRatio = computeNoveltyRatio({
-      canonicalCreatedCount7d: recentYield?.canonicalCreatedCount7d ?? 0,
-      acceptedCount7d: recentYield?.acceptedCount7d ?? 0,
+      canonicalCreatedCount7d: recentCanonicalCreatedCount,
+      acceptedCount7d: recentAcceptedCount,
       jobsCreatedCount: source.jobsCreatedCount,
       jobsAcceptedCount: source.jobsAcceptedCount,
       lastJobsCreatedCount: source.lastJobsCreatedCount,
@@ -2683,8 +2899,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       retainedLiveJobCount: source.retainedLiveJobCount,
       blockedRisk,
       workdayTier,
-      canonicalCreatedCount7d: recentYield?.canonicalCreatedCount7d ?? 0,
-      acceptedCount7d: recentYield?.acceptedCount7d ?? 0,
+      canonicalCreatedCount7d: recentCanonicalCreatedCount,
+      acceptedCount7d: recentAcceptedCount,
       jobsAcceptedCount: source.jobsAcceptedCount,
       jobsCreatedCount: source.jobsCreatedCount,
       metadataJson: source.metadataJson,
@@ -2701,8 +2917,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       blockedRisk,
       recentSuccessRate,
       retainedLiveJobCount: source.retainedLiveJobCount,
-      canonicalCreatedCount7d: recentYield?.canonicalCreatedCount7d ?? 0,
-      acceptedCount7d: recentYield?.acceptedCount7d ?? 0,
+      canonicalCreatedCount7d: recentCanonicalCreatedCount,
+      acceptedCount7d: recentAcceptedCount,
       noveltyRatio,
       velocitySignals,
     });
@@ -2728,8 +2944,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       lastSuccessfulPollAt: source.lastSuccessfulPollAt,
       pollAttemptCount: source.pollAttemptCount,
       pollSuccessCount: source.pollSuccessCount,
-      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
-      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
+      recentAcceptedCount,
+      recentCanonicalCreatedCount,
       jobsAcceptedCount: source.jobsAcceptedCount,
       jobsCreatedCount: source.jobsCreatedCount,
       lastJobsCreatedCount: source.lastJobsCreatedCount,
@@ -2738,6 +2954,25 @@ export async function enqueueCompanySourcePollTasks(options: {
       metadataJson: source.metadataJson,
       companyMetadataJson: source.company.metadataJson,
     });
+    const churnHeavyCooldown =
+      targetIds === null &&
+      isGrowthChurnHeavySource({
+        frontierCandidate: growthSignals.frontierCandidate,
+        recentCanonicalCreatedCount,
+        recentRemovedCount,
+        lastJobsCreatedCount: source.lastJobsCreatedCount,
+      });
+    const churnPriorityPenalty = churnHeavyCooldown
+      ? GROWTH_CHURN_HEAVY_PRIORITY_PENALTY +
+        Math.min(1_200, Math.abs(Math.min(recentNetCreatedCount, 0)) * 4)
+      : 0;
+    const growthNetNegativePriorityPenalty =
+      growthMode && recentRunCount > 0 && recentNetCreatedCount < 0
+        ? Math.min(
+            1_800,
+            Math.abs(recentNetCreatedCount) * 45 + recentRemovedCount * 12
+          )
+        : 0;
     const slowLowYieldCooldown = shouldCooldownSlowLowYieldSource({
       connectorName: source.connectorName,
       sourceType: source.sourceType,
@@ -2745,18 +2980,60 @@ export async function enqueueCompanySourcePollTasks(options: {
       pollSuccessCount: source.pollSuccessCount,
       lastJobsCreatedCount: source.lastJobsCreatedCount,
       retainedLiveJobCount: source.retainedLiveJobCount,
-      recentCanonicalCreatedCount: recentYield?.canonicalCreatedCount7d ?? 0,
-      recentAcceptedCount: recentYield?.acceptedCount7d ?? 0,
-      recentRunCount: recentYield?.runCount7d ?? 0,
+      recentCanonicalCreatedCount,
+      recentAcceptedCount,
+      recentRunCount,
       estimatedRuntimeMs,
       blockedRisk,
       velocitySignals,
       frontierCandidate: growthSignals.frontierCandidate,
     });
+    const sourceOverdueForPoll = isCompanySourceOverdueForPoll(source, now);
+    const productiveRefreshBackfill = productiveRefreshBackfillIds.has(source.id);
+    const productiveRefreshBackfillBoost =
+      productiveRefreshBackfill && source.retainedLiveJobCount > 0
+        ? Math.min(
+            2_500,
+            240 +
+              Math.log1p(source.retainedLiveJobCount) * 120 +
+              Math.min(
+                480,
+                Math.max(
+                  0,
+                  now.getTime() -
+                    (source.lastSuccessfulPollAt ?? source.updatedAt ?? source.createdAt)
+                      .getTime()
+                ) /
+                  (60 * 60 * 1000) *
+                  4
+              )
+          )
+        : 0;
+    const zeroGrowthPollDefer =
+      growthMode &&
+      !productiveRefreshBackfill &&
+      shouldDeferZeroGrowthPollSource(
+        {
+          pollAttemptCount: source.pollAttemptCount,
+          lastJobsCreatedCount: source.lastJobsCreatedCount,
+          jobsCreatedCount: source.jobsCreatedCount,
+          recentAcceptedCount: recentAcceptedCount24h,
+          recentCanonicalCreatedCount: recentCanonicalCreatedCount24h,
+          retainedLiveJobCount: source.retainedLiveJobCount,
+          overdueByCadence: sourceOverdueForPoll,
+        },
+        { acceptedThreshold: COMPANY_SOURCE_ZERO_GROWTH_ACCEPTED_THRESHOLD }
+      );
 
     return {
       source,
-      priorityScore,
+      priorityScore: Math.max(
+        0,
+        priorityScore +
+          productiveRefreshBackfillBoost -
+          churnPriorityPenalty -
+          growthNetNegativePriorityPenalty
+      ),
       basePriorityScore,
       workdayValueScore,
       workdayTier,
@@ -2767,13 +3044,21 @@ export async function enqueueCompanySourcePollTasks(options: {
       estimatedRuntimeMs,
       expectedAcceptedJobs,
       blockedRisk,
-      efficiencyScore,
+      efficiencyScore:
+        efficiencyScore + Math.min(30, productiveRefreshBackfillBoost / 100),
       velocitySignals,
       noveltyRatio,
+      recentCanonicalCreatedCount,
+      recentRemovedCount,
+      recentNetCreatedCount,
       suppressedForLowNoveltyAts,
       frontierCandidate: growthSignals.frontierCandidate,
-      hardCooldownForGrowth: growthSignals.shouldHardCooldown,
-      slowLowYieldCooldown,
+      productiveRefreshBackfill,
+      hardCooldownForGrowth:
+        growthSignals.shouldHardCooldown && !productiveRefreshBackfill,
+      churnHeavyCooldown: churnHeavyCooldown && !productiveRefreshBackfill,
+      slowLowYieldCooldown: slowLowYieldCooldown && !productiveRefreshBackfill,
+      zeroGrowthPollDefer,
     };
   }).filter(({ hostMetrics, source, frontierCandidate }) => {
     if (SKIP_GENERIC_COMPANY_SITE_POLLS && source.connectorName === "company-site") {
@@ -2801,6 +3086,9 @@ export async function enqueueCompanySourcePollTasks(options: {
   const hardCooldownGrowthSourceIds = scoredSources
     .filter((candidate) => candidate.hardCooldownForGrowth)
     .map((candidate) => candidate.source.id);
+  const churnHeavyCooldownSourceIds = scoredSources
+    .filter((candidate) => candidate.churnHeavyCooldown)
+    .map((candidate) => candidate.source.id);
   const slowLowYieldCooldownSourceIds = targetIds
     ? []
     : scoredSources
@@ -2810,7 +3098,9 @@ export async function enqueueCompanySourcePollTasks(options: {
     (candidate) =>
       !candidate.suppressedForLowNoveltyAts &&
       !candidate.hardCooldownForGrowth &&
-      (!candidate.slowLowYieldCooldown || targetIds !== null)
+      !candidate.churnHeavyCooldown &&
+      (!candidate.slowLowYieldCooldown || targetIds !== null) &&
+      (!candidate.zeroGrowthPollDefer || targetIds !== null)
   );
 
   const orderedByTier = (tier: PollTier) =>
@@ -3015,6 +3305,36 @@ export async function enqueueCompanySourcePollTasks(options: {
     });
   }
 
+  if (churnHeavyCooldownSourceIds.length > 0) {
+    const suppressionUntil = new Date(
+      now.getTime() + GROWTH_CHURN_HEAVY_COOLDOWN_HOURS * 60 * 60 * 1000
+    );
+
+    await prisma.sourceTask.updateMany({
+      where: {
+        kind: "CONNECTOR_POLL",
+        status: "PENDING",
+        companySourceId: { in: churnHeavyCooldownSourceIds },
+      },
+      data: {
+        notBeforeAt: suppressionUntil,
+      },
+    });
+
+    await prisma.companySource.updateMany({
+      where: {
+        id: { in: churnHeavyCooldownSourceIds },
+        OR: [{ cooldownUntil: null }, { cooldownUntil: { lt: suppressionUntil } }],
+      },
+      data: {
+        cooldownUntil: suppressionUntil,
+        pollState: "BACKOFF",
+        validationMessage:
+          "Growth mode cooldown: source recently removed far more canonical jobs than it created; refresh later without crowding out net-new source polling.",
+      },
+    });
+  }
+
   if (slowLowYieldCooldownSourceIds.length > 0) {
     const suppressionUntil = new Date(
       now.getTime() + COMPANY_SOURCE_SLOW_LOW_YIELD_COOLDOWN_HOURS * 60 * 60 * 1000
@@ -3069,6 +3389,9 @@ export async function enqueueCompanySourcePollTasks(options: {
         tier: candidate.tier,
         workdayHost: candidate.workdayHost,
         workdayTier: candidate.workdayTier,
+        recentCanonicalCreatedCount7d: candidate.recentCanonicalCreatedCount,
+        recentRemovedCount7d: candidate.recentRemovedCount,
+        recentNetCreatedCount7d: candidate.recentNetCreatedCount,
       },
     });
   }
@@ -3077,6 +3400,7 @@ export async function enqueueCompanySourcePollTasks(options: {
     enqueuedCount: selectedSources.length,
     companySourceIds: selectedSources.map(({ source }) => source.id),
     suppressedLowNoveltyAtsCount: suppressedLowNoveltyAtsSourceIds.length,
+    churnHeavyCooldownCount: churnHeavyCooldownSourceIds.length,
     slowLowYieldCooldownCount: slowLowYieldCooldownSourceIds.length,
   };
 }
@@ -3393,9 +3717,15 @@ export async function runCompanySourcePollQueue(options: {
     );
 
     if (claimLimit === 0) {
-      console.log(
-        `[sourcePollQueue] Remaining budget too small to admit another poll batch (${Math.round(remainingWallClockMs / 1000)}s left) — stopping after ${processedCount} tasks`
-      );
+      if (previewTasks.length === 0) {
+        console.log(
+          `[sourcePollQueue] No eligible due connector poll tasks after cooldown and source-family caps — stopping after ${processedCount} tasks`
+        );
+      } else {
+        console.log(
+          `[sourcePollQueue] Remaining budget too small to admit another poll batch (${Math.round(remainingWallClockMs / 1000)}s left) — stopping after ${processedCount} tasks`
+        );
+      }
       break;
     }
 
@@ -4480,18 +4810,46 @@ async function pollCompanySource(
     retainedLiveJobCount === 0 &&
     nextPollSuccessCount >= 3 &&
     nextJobsCreatedCount === 0;
+  const repeatedZeroYieldNoRetained =
+    retainedLiveJobCount === 0 &&
+    nextPollSuccessCount >= COMPANY_SOURCE_ZERO_YIELD_BACKOFF_SUCCESS_THRESHOLD &&
+    nextJobsFetchedCount === 0 &&
+    nextJobsAcceptedCount === 0 &&
+    nextJobsCreatedCount === 0;
+  const runRemovedCount = summary.removedCount ?? 0;
+  const runChurnHeavy =
+    runRemovedCount >= GROWTH_CHURN_HEAVY_REMOVED_THRESHOLD &&
+    runRemovedCount >
+      Math.max(
+        summary.canonicalCreatedCount,
+        source.lastJobsCreatedCount,
+        1
+      ) *
+        GROWTH_CHURN_HEAVY_REMOVED_TO_CREATED_RATIO;
+  const runZeroFetchRemoval =
+    summary.fetchedCount === 0 &&
+    summary.acceptedCount === 0 &&
+    summary.canonicalCreatedCount === 0 &&
+    runRemovedCount >= 20;
+  const growthChurnBackoff =
+    GROWTH_MODE_ENABLED && (runChurnHeavy || runZeroFetchRemoval);
+  const currentSourceQualityScore = clampSourceQualityScore(source.sourceQualityScore);
   const nextYieldScore = computeSourceYieldScore({
-    sourceQualityScore: Math.max(
-      taleoZeroYield
+    sourceQualityScore: clampSourceQualityScore(Math.max(
+      growthChurnBackoff
+        ? Math.max(0.18, Math.min(currentSourceQualityScore, 0.45))
+        : taleoZeroYield
         ? Math.max(
             0.12,
-            Math.min(source.sourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
+            Math.min(currentSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
           )
-        : source.sourceQualityScore,
+        : repeatedZeroYieldNoRetained
+          ? Math.max(0.1, Math.min(currentSourceQualityScore, 0.18))
+        : currentSourceQualityScore,
       taleoZeroYield
         ? Math.min(0.38, predictedPriority / 1.5)
         : Math.min(0.99, predictedPriority / 1.5)
-    ),
+    )),
     pollAttemptCount: nextPollAttemptCount,
     pollSuccessCount: nextPollSuccessCount,
     jobsFetchedCount: nextJobsFetchedCount,
@@ -4503,10 +4861,14 @@ async function pollCompanySource(
   const hasPendingCheckpoint =
     summary.checkpointExhausted === false && summary.checkpoint != null;
   const successCooldownMinutes =
-    importedAtsLowYield
+    growthChurnBackoff
+      ? GROWTH_CHURN_HEAVY_COOLDOWN_HOURS * 60
+      : importedAtsLowYield
       ? 48 * 60
       : importedAtsZeroYield
         ? 24 * 60
+      : repeatedZeroYieldNoRetained
+        ? COMPANY_SOURCE_ZERO_YIELD_BACKOFF_HOURS * 60
       : taleoZeroYield
         ? repeatedTaleoZeroYield
           ? 24 * 60
@@ -4521,12 +4883,20 @@ async function pollCompanySource(
     where: { id: source.id },
     data: {
       status:
-        repeatedTaleoZeroYield || importedAtsZeroYield || importedAtsLowYield
+        growthChurnBackoff ||
+        repeatedTaleoZeroYield ||
+        importedAtsZeroYield ||
+        importedAtsLowYield ||
+        repeatedZeroYieldNoRetained
           ? "DEGRADED"
           : "ACTIVE",
       validationState: "VALIDATED",
       pollState:
-        taleoZeroYield || importedAtsZeroYield || importedAtsLowYield
+        growthChurnBackoff ||
+        taleoZeroYield ||
+        importedAtsZeroYield ||
+        importedAtsLowYield ||
+        repeatedZeroYieldNoRetained
           ? "BACKOFF"
           : "READY",
       lastValidatedAt: source.lastValidatedAt ?? now,
@@ -4550,25 +4920,36 @@ async function pollCompanySource(
       failureStreak: 0,
       lastFailureAt: null,
       priorityScore: predictedPriority,
-      sourceQualityScore:
-        importedAtsLowYield || importedAtsZeroYield
+      sourceQualityScore: clampSourceQualityScore(
+        growthChurnBackoff
+          ? Math.max(0.18, Math.min(currentSourceQualityScore, 0.45))
+          : importedAtsLowYield || importedAtsZeroYield
           ? Math.max(
               0.1,
-              Math.min(source.sourceQualityScore, importedAtsLowYield ? 0.18 : 0.26)
+              Math.min(currentSourceQualityScore, importedAtsLowYield ? 0.18 : 0.26)
             )
+          : repeatedZeroYieldNoRetained
+            ? Math.max(0.1, Math.min(currentSourceQualityScore, 0.18))
           : taleoZeroYield
             ? Math.max(
                 0.12,
-                Math.min(source.sourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
+                Math.min(currentSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
               )
-            : Math.max(source.sourceQualityScore, Math.min(0.99, predictedPriority / 1.5)),
+            : Math.max(currentSourceQualityScore, Math.min(0.99, predictedPriority / 1.5))
+      ),
       yieldScore: nextYieldScore,
       overlapRatio,
       validationMessage:
-        importedAtsLowYield
+        growthChurnBackoff
+          ? runZeroFetchRemoval
+            ? "Growth mode cooldown: source returned no jobs but removed live mappings; refresh later so net-new polling is not crowded out."
+            : "Growth mode cooldown: source removed far more canonical jobs than it created in the latest poll."
+          : importedAtsLowYield
           ? "Imported ATS source has produced no new canonicals after repeated successful polls and was cooled down aggressively."
           : importedAtsZeroYield
             ? "Imported ATS source validated but has not yielded accepted jobs after repeated polls and was backed off."
+            : repeatedZeroYieldNoRetained
+              ? "Source has produced no listings after repeated successful polls and was backed off so polling capacity can move to productive sources."
             : taleoZeroYield
               ? repeatedTaleoZeroYield
                 ? "Taleo source returned zero listings in consecutive polls and was cooled down aggressively."
@@ -4583,6 +4964,7 @@ async function pollCompanySource(
           canonicalUpdatedCount: summary.canonicalUpdatedCount,
           dedupedCount: summary.dedupedCount,
           fetchedCount: summary.fetchedCount,
+          removedCount: runRemovedCount,
           runtimeMs,
         },
         pollRuntime: {
@@ -4775,15 +5157,18 @@ async function handleCompanySourcePollFailure(
         : "BACKOFF";
   const statusMatch = errorMessage.match(/\b(401|403|404|410|429|500|502|503|504)\b/);
   const nextHttpStatus = statusMatch ? Number(statusMatch[1]) : null;
-  const nextSourceQualityScore = protectedHighValueWorkday
-    ? Math.max(0.45, source.sourceQualityScore * 0.88)
-    : infrastructureFailure
-      ? Math.max(0.5, source.sourceQualityScore * 0.98)
-    : timeoutZeroCreateRefresh
-      ? Math.max(0.22, source.sourceQualityScore * 0.82)
-    : timeoutFailure
-      ? Math.max(0.28, source.sourceQualityScore * 0.9)
-    : Math.max(0.02, source.failureStreak > 0 ? 0.12 : 0.2);
+  const currentSourceQualityScore = clampSourceQualityScore(source.sourceQualityScore);
+  const nextSourceQualityScore = clampSourceQualityScore(
+    protectedHighValueWorkday
+      ? Math.max(0.45, currentSourceQualityScore * 0.88)
+      : infrastructureFailure
+        ? Math.max(0.5, currentSourceQualityScore * 0.98)
+      : timeoutZeroCreateRefresh
+        ? Math.max(0.22, currentSourceQualityScore * 0.82)
+      : timeoutFailure
+        ? Math.max(0.28, currentSourceQualityScore * 0.9)
+      : Math.max(0.02, source.failureStreak > 0 ? 0.12 : 0.2)
+  );
   const nextYieldScore = computeSourceYieldScore({
     sourceQualityScore: nextSourceQualityScore,
     pollAttemptCount: nextPollAttemptCount,
@@ -5024,9 +5409,10 @@ async function handleCompanySourceValidationFailure(
   const nextFailureCount = source.consecutiveFailures + 1;
   const nextValidationAttemptCount = source.validationAttemptCount + 1;
   const statusMatch = errorMessage.match(/\b(401|403|404|410|429|500|502|503|504)\b/);
-  const nextSourceQualityScore = infrastructureFailure
-    ? Math.max(0.5, source.sourceQualityScore * 0.98)
-    : 0.1;
+  const currentSourceQualityScore = clampSourceQualityScore(source.sourceQualityScore);
+  const nextSourceQualityScore = clampSourceQualityScore(
+    infrastructureFailure ? Math.max(0.5, currentSourceQualityScore * 0.98) : 0.1
+  );
   const nextYieldScore = computeSourceYieldScore({
     sourceQualityScore: nextSourceQualityScore,
     pollAttemptCount: source.pollAttemptCount,

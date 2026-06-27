@@ -15,6 +15,13 @@ export type DetectedAtsTenant = {
   rootHost: string;
 };
 
+export type DetectedDirectSource = {
+  connectorName: "oraclecloud";
+  tenantKey: string;
+  normalizedBoardUrl: string;
+  rootHost: string;
+};
+
 function safeUrl(input: string) {
   try {
     return new URL(input);
@@ -53,6 +60,31 @@ function buildDetected(platform: AtsPlatform, tenantKey: string, boardUrl: strin
     normalizedBoardUrl: url.toString(),
     rootHost: url.hostname.replace(/^www\./i, "").toLowerCase(),
   } satisfies DetectedAtsTenant;
+}
+
+function buildOracleCloudDetectedSource(url: URL): DetectedDirectSource | null {
+  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+  if (!/^[a-z0-9.-]+\.oraclecloud\.com$/i.test(host)) return null;
+
+  const path = normalizePathSegments(url);
+  const sitesIndex = path.findIndex(
+    (segment, index) =>
+      segment.toLowerCase() === "sites" &&
+      index > 0 &&
+      path[index - 1]?.toLowerCase() === "en"
+  );
+  const site = (sitesIndex >= 0 ? path[sitesIndex + 1] : url.searchParams.get("siteNumber"))
+    ?.trim()
+    .toLowerCase() || "cx";
+  const tenantKey = `${host}|${site}`;
+  const boardUrl = `https://${host}/hcmUI/CandidateExperience/en/sites/${site}/requisitions`;
+
+  return {
+    connectorName: "oraclecloud",
+    tenantKey,
+    normalizedBoardUrl: boardUrl,
+    rootHost: host,
+  };
 }
 
 export function detectAtsTenantFromUrl(input: string): DetectedAtsTenant | null {
@@ -158,4 +190,11 @@ export function detectAtsTenantFromUrl(input: string): DetectedAtsTenant | null 
   }
 
   return null;
+}
+
+export function detectDirectSourceFromUrl(input: string): DetectedDirectSource | null {
+  const url = safeUrl(input);
+  if (!url) return null;
+
+  return buildOracleCloudDetectedSource(url);
 }

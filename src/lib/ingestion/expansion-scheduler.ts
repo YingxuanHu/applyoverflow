@@ -13,11 +13,27 @@ import {
 } from "@/lib/ingestion/staged-pipeline";
 import { upsertNormalizedJobRecordFromRawJob } from "@/lib/ingestion/normalized-records";
 import {
+  createCompanySiteConnector,
+  inspectCompanySiteRoute,
+} from "@/lib/ingestion/connectors";
+import {
   listSourceCandidatesForExploration,
   promoteSourceCandidate,
   rejectSourceCandidate,
 } from "@/lib/ingestion/discovery/source-registry";
-import { buildDiscoveredSourceName } from "@/lib/ingestion/discovery/sources";
+import {
+  buildDiscoveredSourceName,
+  createConnectorForCandidate,
+} from "@/lib/ingestion/discovery/sources";
+import { detectDirectSourceFromUrl } from "@/lib/ingestion/discovery/ats-tenant-detector";
+import { assessSourceCandidatePreview } from "@/lib/ingestion/source-candidate-validation";
+import {
+  getSourceCandidateValidationMissStatus,
+  getSourceCandidateValidationSkipReason,
+} from "@/lib/ingestion/source-candidate-validation-guard";
+import { computeExplorationPriorityScore } from "@/lib/ingestion/source-candidate-priority";
+import { buildSourceDiscoveryCandidateUpdate } from "@/lib/ingestion/source-candidate-discovery";
+import { normalizeSourceJob } from "@/lib/ingestion/normalize";
 import type {
   AtsPlatform,
   CompanySource,
@@ -26,8 +42,36 @@ import type {
   SourceCandidateType,
 } from "@/generated/prisma/client";
 import type { SupportedConnectorName } from "@/lib/ingestion/registry";
+import type { SourceConnector } from "@/lib/ingestion/types";
 
-function mapAtsPlatformToConnectorName(platform: AtsPlatform) {
+const SOURCE_CANDIDATE_PREVIEW_LIMIT = Math.max(
+  1,
+  Number.parseInt(process.env.SOURCE_CANDIDATE_PREVIEW_LIMIT ?? "5", 10) || 5
+);
+const SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS = Math.max(
+  5_000,
+  Number.parseInt(process.env.SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS ?? "15000", 10) ||
+    15_000
+);
+const SOURCE_CANDIDATE_SCHEDULER_SCAN_MULTIPLIER = Math.max(
+  1,
+  Number.parseInt(process.env.SOURCE_CANDIDATE_SCHEDULER_SCAN_MULTIPLIER ?? "50", 10) ||
+    50
+);
+const SOURCE_CANDIDATE_REVALIDATE_DAYS = Math.max(
+  1,
+  Number.parseInt(process.env.SOURCE_CANDIDATE_REVALIDATE_DAYS ?? "14", 10) ||
+    14
+);
+
+type SourceCandidateForValidation = Prisma.SourceCandidateGetPayload<{
+  include: {
+    atsTenant: true;
+    company: true;
+  };
+}>;
+
+function mapAtsPlatformToConnectorName(platform: AtsPlatform): SupportedConnectorName | null {
   switch (platform) {
     case "ASHBY":
       return "ashby";
@@ -60,52 +104,20 @@ function mapAtsPlatformToConnectorName(platform: AtsPlatform) {
   }
 }
 
-export function computeExplorationPriorityScore(input: {
-  noveltyScore: number;
-  coverageGapScore: number;
-  potentialYieldScore: number;
-  sourceQualityScore: number;
-  failureCount: number;
-  confidence: number;
-  candidateType: SourceCandidateType;
-  status: "NEW" | "VALIDATED" | "PROMOTED" | "REJECTED" | "STALE";
-  hasAtsTenant: boolean;
+async function markSourceCandidateValidationMiss(input: {
+  candidate: SourceCandidateForValidation;
+  message: string;
 }) {
-  const candidateTypeBonus = getExplorationCandidateTypeBonus(input.candidateType);
-  const statusBonus =
-    input.status === "VALIDATED" ? 35 : input.status === "STALE" ? -8 : 0;
-  const atsTenantBonus = input.hasAtsTenant ? 10 : 0;
-
-  return (
-    input.noveltyScore * 1.35 +
-    input.coverageGapScore * 1.2 +
-    input.potentialYieldScore * 1.15 +
-    input.sourceQualityScore * 0.7 +
-    input.confidence * 0.5 -
-    input.failureCount * 10 +
-    candidateTypeBonus +
-    statusBonus +
-    atsTenantBonus
-  );
-}
-
-function getExplorationCandidateTypeBonus(candidateType: SourceCandidateType) {
-  switch (candidateType) {
-    case "ATS_BOARD":
-      return 24;
-    case "CAREER_PAGE":
-      return 18;
-    case "SITEMAP":
-      return 10;
-    case "JOB_PAGE":
-      return 6;
-    case "COMPANY_ROOT":
-      return 2;
-    case "AGGREGATOR_LEAD":
-      return -6;
-    default:
-      return 0;
-  }
+  const status = getSourceCandidateValidationMissStatus(input.message);
+  return prisma.sourceCandidate.update({
+    where: { id: input.candidate.id },
+    data: {
+      status,
+      failureCount: { increment: 1 },
+      lastError: input.message,
+      lastValidatedAt: new Date(),
+    },
+  });
 }
 
 export function computeExploitationPriorityScore(input: Pick<
@@ -130,12 +142,118 @@ export function computeExploitationPriorityScore(input: Pick<
 }
 
 export async function scheduleExplorationPipeline(limit = 500) {
-  const candidates = await listSourceCandidatesForExploration(limit);
-  let queued = 0;
+  const candidates = await listSourceCandidatesForExploration(
+    Math.min(20_000, Math.max(limit, limit * SOURCE_CANDIDATE_SCHEDULER_SCAN_MULTIPLIER))
+  );
+  candidates.sort((a, b) => {
+    const aPriority = computeExplorationPriorityScore({
+      noveltyScore: a.noveltyScore,
+      coverageGapScore: a.coverageGapScore,
+      potentialYieldScore: a.potentialYieldScore,
+      sourceQualityScore: a.sourceQualityScore,
+      failureCount: a.failureCount,
+      confidence: a.confidence,
+      candidateType: a.candidateType,
+      status: a.status,
+      hasAtsTenant: Boolean(a.atsTenantId),
+    });
+    const bPriority = computeExplorationPriorityScore({
+      noveltyScore: b.noveltyScore,
+      coverageGapScore: b.coverageGapScore,
+      potentialYieldScore: b.potentialYieldScore,
+      sourceQualityScore: b.sourceQualityScore,
+      failureCount: b.failureCount,
+      confidence: b.confidence,
+      candidateType: b.candidateType,
+      status: b.status,
+      hasAtsTenant: Boolean(b.atsTenantId),
+    });
+    return bPriority - aPriority;
+  });
+  const candidateQueueKeys = new Map<string, string>();
+  const candidateIdsAndQueueKeys = new Set<string>();
 
   for (const candidate of candidates) {
+    const directSource = detectDirectSourceFromUrl(candidate.candidateUrl);
+    const validationKey = directSource
+      ? `direct:${directSource.connectorName}:${directSource.tenantKey.trim().toLowerCase()}`
+      : candidate.id;
+
+    candidateQueueKeys.set(candidate.id, validationKey);
+    candidateIdsAndQueueKeys.add(candidate.id);
+    candidateIdsAndQueueKeys.add(validationKey);
+  }
+
+  const taskRows =
+    candidates.length > 0
+      ? await prisma.pipelineTask.findMany({
+          where: {
+            queueName: { in: ["SOURCE_DISCOVERY", "SOURCE_VALIDATION"] },
+            idempotencyKey: { in: Array.from(candidateIdsAndQueueKeys) },
+          },
+          select: {
+            queueName: true,
+            status: true,
+            idempotencyKey: true,
+            attemptCount: true,
+            maxAttempts: true,
+            finishedAt: true,
+          },
+        })
+      : [];
+  const taskByCandidateAndQueue = new Map(
+    taskRows.map((task) => [`${task.queueName}:${task.idempotencyKey}`, task])
+  );
+  const revalidateSuccessfulBefore = new Date(
+    Date.now() - SOURCE_CANDIDATE_REVALIDATE_DAYS * 24 * 60 * 60 * 1000
+  );
+
+  let queued = 0;
+  let skippedAlreadyProcessed = 0;
+  let skippedInFlight = 0;
+  let skippedExhausted = 0;
+
+  for (const candidate of candidates) {
+    const directSourceValidationKey = candidateQueueKeys.get(candidate.id) ?? candidate.id;
+    const shouldDirectValidate = directSourceValidationKey !== candidate.id;
+    const discoveryTask = taskByCandidateAndQueue.get(
+      `SOURCE_DISCOVERY:${candidate.id}`
+    );
+    const validationTask = taskByCandidateAndQueue.get(
+      `SOURCE_VALIDATION:${directSourceValidationKey}`
+    );
     const queueName: PipelineQueueName =
-      candidate.status === "NEW" ? "SOURCE_DISCOVERY" : "SOURCE_VALIDATION";
+      shouldDirectValidate
+        ? "SOURCE_VALIDATION"
+        : candidate.status === "NEW" && discoveryTask?.status !== "SUCCESS"
+        ? "SOURCE_DISCOVERY"
+        : "SOURCE_VALIDATION";
+    const existingTask =
+      queueName === "SOURCE_DISCOVERY" ? discoveryTask : validationTask;
+
+    if (existingTask?.status === "PENDING" || existingTask?.status === "RUNNING") {
+      skippedInFlight += 1;
+      continue;
+    }
+
+    if (
+      existingTask?.status === "FAILED" &&
+      existingTask.attemptCount >= existingTask.maxAttempts
+    ) {
+      skippedExhausted += 1;
+      continue;
+    }
+
+    const shouldRevalidateSuccessfulTask =
+      existingTask?.status === "SUCCESS" &&
+      existingTask.finishedAt != null &&
+      existingTask.finishedAt < revalidateSuccessfulBefore;
+
+    if (existingTask?.status === "SUCCESS" && !shouldRevalidateSuccessfulTask) {
+      skippedAlreadyProcessed += 1;
+      continue;
+    }
+
     const priorityScore = computeExplorationPriorityScore({
       noveltyScore: candidate.noveltyScore,
       coverageGapScore: candidate.coverageGapScore,
@@ -152,17 +270,26 @@ export async function scheduleExplorationPipeline(limit = 500) {
       queueName,
       mode: "EXPLORATION",
       priorityScore,
-      idempotencyKey: candidate.id,
+      idempotencyKey:
+        queueName === "SOURCE_VALIDATION" ? directSourceValidationKey : candidate.id,
+      reactivateOnSuccess: shouldRevalidateSuccessfulTask,
       payloadJson: {
         sourceCandidateId: candidate.id,
       },
     });
     queued += 1;
+
+    if (queued >= limit) {
+      break;
+    }
   }
 
   return {
     considered: candidates.length,
     queued,
+    skippedAlreadyProcessed,
+    skippedInFlight,
+    skippedExhausted,
   };
 }
 
@@ -286,17 +413,26 @@ export async function scheduleExploitationPipeline(options: {
 }
 
 async function processSourceDiscoveryTask(taskId: string, sourceCandidateId: string) {
-  await prisma.sourceCandidate.update({
+  const candidate = await prisma.sourceCandidate.update({
     where: { id: sourceCandidateId },
-    data: {
-      status: "VALIDATED",
-      lastValidatedAt: new Date(),
-    },
+    data: buildSourceDiscoveryCandidateUpdate(),
   });
+  const priorityScore = computeExplorationPriorityScore({
+    noveltyScore: candidate.noveltyScore,
+    coverageGapScore: candidate.coverageGapScore,
+    potentialYieldScore: candidate.potentialYieldScore,
+    sourceQualityScore: candidate.sourceQualityScore,
+    failureCount: candidate.failureCount,
+    confidence: candidate.confidence,
+    candidateType: candidate.candidateType,
+    status: candidate.status,
+    hasAtsTenant: Boolean(candidate.atsTenantId),
+  });
+
   await enqueueUniquePipelineTask({
     queueName: "SOURCE_VALIDATION",
     mode: "EXPLORATION",
-    priorityScore: 100,
+    priorityScore,
     idempotencyKey: sourceCandidateId,
     payloadJson: {
       sourceCandidateId,
@@ -305,11 +441,134 @@ async function processSourceDiscoveryTask(taskId: string, sourceCandidateId: str
   await finishPipelineTask(taskId, "SUCCESS");
 }
 
+async function fetchConnectorPreviewStats(connector: SourceConnector) {
+  const now = new Date();
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(
+          new Error(
+            `Preview timed out after ${SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS}ms.`
+          )
+        );
+      }, SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS);
+      timeout.unref?.();
+    });
+    const result = await Promise.race([
+      connector.fetchJobs({
+        now,
+        limit: SOURCE_CANDIDATE_PREVIEW_LIMIT,
+        signal: controller.signal,
+        maxRuntimeMs: SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS,
+        deadlineAt: new Date(now.getTime() + SOURCE_CANDIDATE_PREVIEW_TIMEOUT_MS),
+        log: () => {},
+      }),
+      timeoutPromise,
+    ]);
+    let acceptedCount = 0;
+    const sampleTitles: string[] = [];
+
+    for (const job of result.jobs) {
+      if (sampleTitles.length < 3 && job.title.trim()) {
+        sampleTitles.push(job.title.trim());
+      }
+
+      const normalized = normalizeSourceJob({
+        job,
+        fetchedAt: now,
+        sourceName: connector.sourceName,
+      });
+      if (normalized.kind === "accepted") {
+        acceptedCount += 1;
+      }
+    }
+
+    return assessSourceCandidatePreview({
+      fetchedCount: result.jobs.length,
+      acceptedCount,
+      sampleTitles,
+    });
+  } catch (error) {
+    return assessSourceCandidatePreview({
+      error: error instanceof Error ? error.message : String(error),
+      fetchedCount: 0,
+      acceptedCount: 0,
+    });
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function validateAtsSourceCandidateBeforePromotion(input: {
+  candidate: SourceCandidateForValidation;
+  connectorName: SupportedConnectorName;
+  token: string;
+  sourceName: string;
+  boardUrl: string;
+}) {
+  const connector = createConnectorForCandidate({
+    input: input.candidate.candidateUrl,
+    connectorName: input.connectorName,
+    token: input.token,
+    sourceKey: `${input.connectorName}:${input.token}`.toLowerCase(),
+    sourceName: input.sourceName,
+    boardUrl: input.boardUrl,
+    source: "url",
+  });
+  return fetchConnectorPreviewStats(connector);
+}
+
+async function validateCompanySiteCandidateBeforePromotion(
+  candidate: SourceCandidateForValidation
+) {
+  try {
+    if (!candidate.company) {
+      return assessSourceCandidatePreview({
+        error: "Candidate has no company owner.",
+        fetchedCount: 0,
+        acceptedCount: 0,
+      });
+    }
+
+    const inspection = await inspectCompanySiteRoute(candidate.candidateUrl);
+    if (inspection.extractionRoute === "UNKNOWN") {
+      return assessSourceCandidatePreview({
+        error:
+          "Company site did not expose a stable ATS, structured feed, sitemap, or HTML job listing route.",
+        fetchedCount: 0,
+        acceptedCount: 0,
+      });
+    }
+
+    const connector = createCompanySiteConnector({
+      sourceName: `CompanySitePreview:${candidate.company.companyKey}`,
+      companyName: candidate.company.name,
+      boardUrl: inspection.finalUrl,
+      extractionRoute: inspection.extractionRoute,
+      parserVersion: inspection.parserVersion,
+    });
+    return fetchConnectorPreviewStats(connector);
+  } catch (error) {
+    return assessSourceCandidatePreview({
+      error: error instanceof Error ? error.message : String(error),
+      fetchedCount: 0,
+      acceptedCount: 0,
+    });
+  }
+}
+
 async function processSourceValidationTask(taskId: string, sourceCandidateId: string) {
   const candidate = await prisma.sourceCandidate.findUnique({
     where: { id: sourceCandidateId },
     include: {
       atsTenant: true,
+      company: true,
     },
   });
 
@@ -320,12 +579,28 @@ async function processSourceValidationTask(taskId: string, sourceCandidateId: st
     return;
   }
 
+  const skipReason = getSourceCandidateValidationSkipReason(candidate);
+  if (skipReason) {
+    await finishPipelineTask(taskId, "SKIPPED", {
+      lastError: skipReason,
+    });
+    return;
+  }
+
   let connectorName: SupportedConnectorName | "company-site" | null = "company-site";
   let token = candidate.rootDomain ?? candidate.id;
   let sourceName = `CompanySite:${candidate.rootDomain ?? candidate.id}`;
   let boardUrl = candidate.candidateUrl;
+  const directSource = candidate.atsTenant
+    ? null
+    : detectDirectSourceFromUrl(candidate.candidateUrl);
 
-  if (candidate.atsTenant && candidate.atsTenantKey && candidate.atsPlatform) {
+  if (directSource) {
+    connectorName = directSource.connectorName;
+    token = directSource.tenantKey;
+    sourceName = buildDiscoveredSourceName(connectorName, directSource.tenantKey);
+    boardUrl = directSource.normalizedBoardUrl;
+  } else if (candidate.atsTenant && candidate.atsTenantKey && candidate.atsPlatform) {
     connectorName = mapAtsPlatformToConnectorName(candidate.atsPlatform);
     if (!connectorName) {
       await rejectSourceCandidate(
@@ -344,6 +619,28 @@ async function processSourceValidationTask(taskId: string, sourceCandidateId: st
       candidate.atsTenant.tenantKey
     );
     boardUrl = candidate.atsTenant.normalizedBoardUrl;
+  }
+
+  const validation =
+    connectorName === "company-site"
+      ? await validateCompanySiteCandidateBeforePromotion(candidate)
+      : await validateAtsSourceCandidateBeforePromotion({
+          candidate,
+          connectorName,
+          token,
+          sourceName,
+          boardUrl,
+        });
+
+  if (!validation.passed) {
+    await markSourceCandidateValidationMiss({
+      candidate,
+      message: validation.message,
+    });
+    await finishPipelineTask(taskId, "SKIPPED", {
+      lastError: `${validation.kind}: ${validation.message}`,
+    });
+    return;
   }
 
   await promoteSourceCandidate({

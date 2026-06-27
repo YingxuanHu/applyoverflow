@@ -87,11 +87,37 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function runBacklogReconciliation(
+  label: string,
+  fn: () => Promise<unknown>
+) {
+  try {
+    await fn();
+  } catch (error) {
+    console.error(
+      `[recovery-worker] ${label} backlog reconciliation failed:`,
+      error instanceof Error ? error.message : error
+    );
+  }
+}
+
 async function getRelevantBacklog(role: WorkerRole, now: Date) {
-  await Promise.all([
-    reconcileConnectorPollTaskReadiness(now),
-    reconcileRediscoveryTaskReadiness(now),
-  ]);
+  const reconciliations: Promise<void>[] = [];
+  if (role === "poll" || role === "all") {
+    reconciliations.push(
+      runBacklogReconciliation("connector-poll", () =>
+        reconcileConnectorPollTaskReadiness(now)
+      )
+    );
+  }
+  if (role === "discovery" || role === "all") {
+    reconciliations.push(
+      runBacklogReconciliation("rediscovery", () =>
+        reconcileRediscoveryTaskReadiness(now)
+      )
+    );
+  }
+  await Promise.all(reconciliations);
 
   const whereBase = {
     status: "PENDING" as const,
@@ -232,7 +258,7 @@ async function main() {
 
     const backlog = await getRelevantBacklog(args.role, new Date()).catch((e: unknown) => {
       console.error(`[recovery-worker] backlog query failed:`, e instanceof Error ? e.message : e);
-      return -1;
+      return 1;
     });
     const elapsedMs = Date.now() - startedAt;
     const nextSleepMs =

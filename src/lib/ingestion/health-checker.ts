@@ -772,10 +772,10 @@ async function recordSourceApplyQualitySignal(input: {
     const adjustedQualityScore = Math.max(
       0,
       Math.min(
-        100,
+        1,
         input.outcome.result === "ALIVE"
-          ? source.sourceQualityScore + 0.2
-          : source.sourceQualityScore - Math.min(3, 0.5 + badRate * 2)
+          ? source.sourceQualityScore + 0.02
+          : source.sourceQualityScore - Math.min(0.3, 0.05 + badRate * 0.2)
       )
     );
 

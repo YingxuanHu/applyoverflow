@@ -223,7 +223,7 @@ export async function promoteSourceCandidate(input: {
 
   let source;
 
-  if (candidate.atsTenant && input.connectorName !== "company-site") {
+  if (input.connectorName !== "company-site") {
     source = await promoteDiscoveredAtsCompanySource(
       company.id,
       {
@@ -236,6 +236,7 @@ export async function promoteSourceCandidate(input: {
         directAtsUrls: [candidate.candidateUrl, input.boardUrl],
         matchedReasons: [
           "source-candidate-promotion",
+          `connector:${input.connectorName}`,
           ...(candidate.atsPlatform ? [`ats-platform:${candidate.atsPlatform.toLowerCase()}`] : []),
         ],
       },
@@ -318,10 +319,28 @@ export async function rejectSourceCandidate(
 }
 
 export async function listSourceCandidatesForExploration(limit: number) {
+  const staleRetryHours = Math.max(
+    1,
+    Number.parseInt(process.env.SOURCE_CANDIDATE_STALE_RETRY_HOURS ?? "24", 10) ||
+      24
+  );
+  const staleRetryBefore = new Date(
+    Date.now() - staleRetryHours * 60 * 60 * 1000
+  );
+
   return prisma.sourceCandidate.findMany({
     where: {
-      status: { in: ["NEW", "VALIDATED", "STALE"] },
       discoveryMode: "EXPLORATION",
+      OR: [
+        { status: { in: ["NEW", "VALIDATED"] } },
+        {
+          status: "STALE",
+          OR: [
+            { lastValidatedAt: null },
+            { lastValidatedAt: { lt: staleRetryBefore } },
+          ],
+        },
+      ],
     },
     orderBy: [
       { coverageGapScore: "desc" },

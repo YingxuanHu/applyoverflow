@@ -6,6 +6,8 @@ process.env.DATABASE_PROCESS_ROLE ??= "recovery_poll";
 process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ??= "10000";
 process.env.INGEST_GROWTH_MODE ??= "true";
 process.env.INGEST_FRONTIER_POLL_ONLY ??= "true";
+process.env.COMPANY_SITE_CONNECTOR_POLL_CYCLE_CAP ??= "6";
+process.env.COMPANY_SITE_CONNECTOR_POLL_RUNTIME_CYCLE_CAP ??= "3";
 
 const VISIBLE_STATUSES = ["LIVE", "AGING"] as const;
 
@@ -171,6 +173,10 @@ async function runCycle(args: ParsedArgs, cycle: number) {
     maxRuntimeMs: Math.min(args.maxWallClockMs, 180_000),
     concurrency: args.pollConcurrency,
   });
+  const pollDiagnostics =
+    poll.processedCount === 0 && pollEnqueue.companySourceIds.length > 0
+      ? await readPollEnqueueDiagnostics(pollEnqueue.companySourceIds)
+      : null;
 
   return {
     cycle,
@@ -181,7 +187,54 @@ async function runCycle(args: ParsedArgs, cycle: number) {
     processedPollCount: poll.processedCount,
     pollSuccessCount: poll.successCount,
     pollFailedCount: poll.failedCount,
+    pollDiagnostics,
   };
+}
+
+async function readPollEnqueueDiagnostics(companySourceIds: string[]) {
+  const { prisma } = await import("../src/lib/db");
+  const { Prisma } = await import("../src/generated/prisma/client");
+  const rows = await prisma.$queryRaw<
+    Array<{
+      connectorName: string;
+      sourceStatus: string;
+      pollState: string;
+      cooldownUntil: Date | null;
+      taskStatus: string | null;
+      notBeforeAt: Date | null;
+      lastError: string | null;
+      count: bigint | number;
+    }>
+  >`
+    SELECT
+      cs."connectorName" AS "connectorName",
+      cs."status"::text AS "sourceStatus",
+      cs."pollState"::text AS "pollState",
+      cs."cooldownUntil" AS "cooldownUntil",
+      st."status"::text AS "taskStatus",
+      st."notBeforeAt" AS "notBeforeAt",
+      st."lastError" AS "lastError",
+      COUNT(*) AS "count"
+    FROM "CompanySource" cs
+    LEFT JOIN "SourceTask" st
+      ON st."companySourceId" = cs."id"
+      AND st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" IN ('PENDING'::"SourceTaskStatus", 'RUNNING'::"SourceTaskStatus")
+    WHERE cs."id" IN (${Prisma.join(companySourceIds)})
+    GROUP BY 1,2,3,4,5,6,7
+    ORDER BY 1,2,3,5
+  `;
+
+  return rows.map((row) => ({
+    connectorName: row.connectorName,
+    sourceStatus: row.sourceStatus,
+    pollState: row.pollState,
+    cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
+    taskStatus: row.taskStatus,
+    notBeforeAt: row.notBeforeAt?.toISOString() ?? null,
+    lastError: row.lastError,
+    count: typeof row.count === "bigint" ? Number(row.count) : row.count ?? 0,
+  }));
 }
 
 async function main() {

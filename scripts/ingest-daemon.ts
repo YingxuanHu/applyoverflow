@@ -118,6 +118,10 @@ const FEED_INDEX_REPAIR_LIMIT =
   readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_LIMIT") ?? 500;
 const FEED_INDEX_REPAIR_CONCURRENCY =
   readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_CONCURRENCY") ?? 4;
+const TRANSIENT_DATABASE_RETRY_ATTEMPTS = Math.max(
+  1,
+  readNonNegativeIntegerEnv("INGEST_DAEMON_TRANSIENT_DB_RETRY_ATTEMPTS") ?? 3
+);
 
 type DaemonLock = {
   pid: number;
@@ -201,6 +205,67 @@ function getCycleQueueProfile(isFirstCycle: boolean): CycleQueueProfile {
     legacyBudgetMs: Math.max(baseProfile.legacyBudgetMs, 8 * 60 * 1000),
     legacyMaxRuns: Math.max(baseProfile.legacyMaxRuns, 96),
   };
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatErrorForLog(error: unknown) {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  return error;
+}
+
+function isRetryableDatabaseConflict(error: unknown) {
+  const message = getErrorMessage(error);
+  return (
+    message.includes("deadlock detected") ||
+    message.includes("Code: `40P01`") ||
+    message.includes("could not serialize access") ||
+    message.includes("Code: `40001`") ||
+    message.includes("canceling statement due to lock timeout") ||
+    message.includes("database system is shutting down") ||
+    message.includes("Can't reach database server") ||
+    message.includes("Server has closed the connection") ||
+    message.includes("ConnectionClosed")
+  );
+}
+
+async function sleepForRetry(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTransientDatabaseRetry<T>(
+  label: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= TRANSIENT_DATABASE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt >= TRANSIENT_DATABASE_RETRY_ATTEMPTS ||
+        !isRetryableDatabaseConflict(error)
+      ) {
+        throw error;
+      }
+
+      const delayMs = 350 * attempt * attempt + Math.floor(Math.random() * 250);
+      console.warn(
+        `[daemon] Retryable database conflict during ${label}; retry ${attempt}/${TRANSIENT_DATABASE_RETRY_ATTEMPTS} in ${delayMs}ms: ${getErrorMessage(error)}`
+      );
+      await sleepForRetry(delayMs);
+    }
+  }
+
+  throw lastError;
 }
 
 async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklog> {
@@ -466,42 +531,61 @@ async function main() {
       const shouldRunLifecycle =
         !RECOVERY_MODE_ENABLED ||
         cycleCount % RECOVERY_LIFECYCLE_EVERY_CYCLES === 0;
-      const scheduledQueues = await scheduleOperationalQueues({
-        now: cycleStart,
-        discoveryLimit: profile.discoveryLimit,
-        validationLimit: profile.validationLimit,
-        sourcePollLimit: profile.sourcePollLimit,
-        rediscoveryLimit: profile.rediscoveryLimit,
-        urlHealthLimit: profile.urlHealthLimit,
-      });
-      const queueResult = await runOperationalQueues({
-        now: cycleStart,
-        discoveryLimit: profile.discoveryLimit,
-        validationLimit: profile.validationLimit,
-        sourcePollLimit: profile.sourcePollLimit,
-        rediscoveryLimit: profile.rediscoveryLimit,
-        urlHealthLimit: profile.urlHealthLimit,
-      });
-      const atsTenantSync = await syncProductiveAtsTenantsToDiscoveryStore({
-        now: new Date(),
-      });
-      const companySourceBacklog = await getDueCompanySourceBacklog(new Date());
+      const scheduledQueues = await withTransientDatabaseRetry(
+        "schedule operational queues",
+        () =>
+          scheduleOperationalQueues({
+            now: cycleStart,
+            discoveryLimit: profile.discoveryLimit,
+            validationLimit: profile.validationLimit,
+            sourcePollLimit: profile.sourcePollLimit,
+            rediscoveryLimit: profile.rediscoveryLimit,
+            urlHealthLimit: profile.urlHealthLimit,
+          })
+      );
+      const queueResult = await withTransientDatabaseRetry(
+        "run operational queues",
+        () =>
+          runOperationalQueues({
+            now: cycleStart,
+            discoveryLimit: profile.discoveryLimit,
+            validationLimit: profile.validationLimit,
+            sourcePollLimit: profile.sourcePollLimit,
+            rediscoveryLimit: profile.rediscoveryLimit,
+            urlHealthLimit: profile.urlHealthLimit,
+          })
+      );
+      const atsTenantSync = await withTransientDatabaseRetry(
+        "sync ATS tenant discovery store",
+        () =>
+          syncProductiveAtsTenantsToDiscoveryStore({
+            now: new Date(),
+          })
+      );
+      const companySourceBacklog = await withTransientDatabaseRetry(
+        "read company-source backlog",
+        () => getDueCompanySourceBacklog(new Date())
+      );
       if (companySourceBacklog.total > 0) {
         console.log(
           `[daemon] Legacy registry deferred: company-source backlog remains (validation ${companySourceBacklog.validation}, source poll ${companySourceBacklog.connectorPoll}, rediscovery ${companySourceBacklog.rediscovery})`
         );
       }
-      const result = await runScheduledIngestion({
-        now: cycleStart,
-        force: isFirstCycle && args.force,
-        triggerLabel: "script.ingest.daemon",
-        maxCycleDurationMs:
-          companySourceBacklog.total > 0 ? 0 : profile.legacyBudgetMs,
-        maxConnectorRuns:
-          companySourceBacklog.total > 0 ? 0 : profile.legacyMaxRuns,
-        skipLifecycle: !shouldRunLifecycle,
-        lifecyclePerJobLimit: shouldRunLifecycle ? 3_000 : 0,
-      });
+      const result = await withTransientDatabaseRetry(
+        "run scheduled ingestion",
+        () =>
+          runScheduledIngestion({
+            now: cycleStart,
+            force: isFirstCycle && args.force,
+            triggerLabel: "script.ingest.daemon",
+            maxCycleDurationMs:
+              companySourceBacklog.total > 0 ? 0 : profile.legacyBudgetMs,
+            maxConnectorRuns:
+              companySourceBacklog.total > 0 ? 0 : profile.legacyMaxRuns,
+            skipLifecycle: !shouldRunLifecycle,
+            lifecyclePerJobLimit: shouldRunLifecycle ? 3_000 : 0,
+          })
+      );
 
       const executedCount = result.executedRuns.length;
       const skippedCount = result.skippedConnectors.length;
@@ -576,11 +660,15 @@ async function main() {
       }
 
       if (FEED_INDEX_REPAIR_LIMIT > 0) {
-        const feedIndexRepair = await repairJobFeedIndexBatch({
-          mode: "all",
-          limit: FEED_INDEX_REPAIR_LIMIT,
-          concurrency: FEED_INDEX_REPAIR_CONCURRENCY,
-        });
+        const feedIndexRepair = await withTransientDatabaseRetry(
+          "repair feed index",
+          () =>
+            repairJobFeedIndexBatch({
+              mode: "all",
+              limit: FEED_INDEX_REPAIR_LIMIT,
+              concurrency: FEED_INDEX_REPAIR_CONCURRENCY,
+            })
+        );
         if (feedIndexRepair.processed > 0 || feedIndexRepair.failed > 0) {
           console.log(
             `[daemon] Feed index repair: ${feedIndexRepair.succeeded}/${feedIndexRepair.processed} repaired, ${feedIndexRepair.failed} failed`
@@ -588,7 +676,10 @@ async function main() {
         }
       }
 
-      const dueBacklog = await getDueOperationalBacklog(new Date());
+      const dueBacklog = await withTransientDatabaseRetry(
+        "read operational backlog",
+        () => getDueOperationalBacklog(new Date())
+      );
       const operationalProcessedCount =
         queueResult.discovery.processedCount +
         queueResult.validation.processedCount +
@@ -612,7 +703,7 @@ async function main() {
     } catch (error) {
       console.error(
         `[daemon] Cycle #${cycleCount} failed:`,
-        error instanceof Error ? error.message : error
+        formatErrorForLog(error)
       );
     }
 

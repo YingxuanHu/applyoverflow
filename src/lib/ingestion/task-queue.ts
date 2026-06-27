@@ -8,12 +8,80 @@ import {
 
 export type SourceTaskPayload = Record<string, Prisma.InputJsonValue | null>;
 
+function readPositiveIntegerEnv(name: string, fallback: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const CONNECTOR_POLL_CHURN_HEAVY_REMOVED_THRESHOLD = Math.max(
+  10,
+  readPositiveIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_REMOVED_THRESHOLD", 50)
+);
+const CONNECTOR_POLL_CHURN_HEAVY_RATIO_X100 = Math.max(
+  100,
+  readPositiveIntegerEnv(
+    "INGEST_GROWTH_CHURN_HEAVY_REMOVED_TO_CREATED_RATIO_X100",
+    200
+  )
+);
+const CONNECTOR_POLL_CHURN_HEAVY_COOLDOWN_HOURS = Math.max(
+  2,
+  readPositiveIntegerEnv("INGEST_GROWTH_CHURN_HEAVY_COOLDOWN_HOURS", 8)
+);
+const CONNECTOR_POLL_ZERO_GROWTH_DEFER_HOURS = Math.max(
+  1,
+  readPositiveIntegerEnv("INGEST_ZERO_GROWTH_PENDING_DEFER_HOURS", 3)
+);
+const CONNECTOR_POLL_ZERO_GROWTH_ACCEPTED_THRESHOLD = Math.max(
+  5,
+  readPositiveIntegerEnv("INGEST_ZERO_GROWTH_PENDING_ACCEPTED_THRESHOLD", 25)
+);
+const CONNECTOR_POLL_FAMILY_CHURN_LOOKBACK_HOURS = Math.max(
+  1,
+  readPositiveIntegerEnv("INGEST_GROWTH_FAMILY_CHURN_LOOKBACK_HOURS", 2)
+);
+const CONNECTOR_POLL_FAMILY_CHURN_DEFER_HOURS = Math.max(
+  1,
+  readPositiveIntegerEnv("INGEST_GROWTH_FAMILY_CHURN_DEFER_HOURS", 2)
+);
+const CONNECTOR_POLL_FAMILY_CHURN_REMOVED_THRESHOLD = Math.max(
+  CONNECTOR_POLL_CHURN_HEAVY_REMOVED_THRESHOLD,
+  readPositiveIntegerEnv(
+    "INGEST_GROWTH_FAMILY_CHURN_REMOVED_THRESHOLD",
+    CONNECTOR_POLL_CHURN_HEAVY_REMOVED_THRESHOLD
+  )
+);
+const CONNECTOR_POLL_FAMILY_CHURN_RATIO_X100 = Math.max(
+  CONNECTOR_POLL_CHURN_HEAVY_RATIO_X100,
+  readPositiveIntegerEnv(
+    "INGEST_GROWTH_FAMILY_CHURN_REMOVED_TO_CREATED_RATIO_X100",
+    CONNECTOR_POLL_CHURN_HEAVY_RATIO_X100
+  )
+);
+
 const STALE_RUNNING_TASK_WINDOW_MINUTES: Record<SourceTaskKind, number> = {
-  COMPANY_DISCOVERY: 180,
-  REDISCOVERY: 180,
-  SOURCE_VALIDATION: 60,
-  CONNECTOR_POLL: 20,
-  URL_HEALTH: 45,
+  COMPANY_DISCOVERY: Math.max(
+    30,
+    readPositiveIntegerEnv("SOURCE_TASK_STALE_COMPANY_DISCOVERY_MINUTES", 60)
+  ),
+  REDISCOVERY: Math.max(
+    30,
+    readPositiveIntegerEnv("SOURCE_TASK_STALE_REDISCOVERY_MINUTES", 60)
+  ),
+  SOURCE_VALIDATION: Math.max(
+    30,
+    readPositiveIntegerEnv("SOURCE_TASK_STALE_VALIDATION_MINUTES", 60)
+  ),
+  CONNECTOR_POLL: Math.max(
+    10,
+    readPositiveIntegerEnv("SOURCE_TASK_STALE_CONNECTOR_POLL_MINUTES", 20)
+  ),
+  URL_HEALTH: Math.max(
+    15,
+    readPositiveIntegerEnv("SOURCE_TASK_STALE_URL_HEALTH_MINUTES", 45)
+  ),
 };
 
 const ACTIVE_UNIQUE_SOURCE_TASK_STATUSES: SourceTaskStatus[] = [
@@ -164,7 +232,10 @@ async function recoverStaleRunningSourceTasks(
       where: {
         ...buildSourceTaskUniquenessWhere(task),
         id: { not: task.id },
-        status: { in: ACTIVE_UNIQUE_SOURCE_TASK_STATUSES },
+        OR: [
+          { status: "PENDING" },
+          { status: "RUNNING", startedAt: { gte: staleCutoff } },
+        ],
       },
       select: { id: true },
     });
@@ -236,9 +307,166 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND st."notBeforeAt" < cs."cooldownUntil"
   `);
 
+  const churnCooldownUntil = new Date(
+    now.getTime() + CONNECTOR_POLL_CHURN_HEAVY_COOLDOWN_HOURS * 60 * 60 * 1000
+  );
+  const churnDeferred = await prisma.$executeRaw(Prisma.sql`
+    WITH recent_runs AS (
+      SELECT
+        "sourceName",
+        COALESCE(SUM("canonicalCreatedCount"), 0)::bigint AS "createdCount",
+        COALESCE(SUM("removedCount"), 0)::bigint AS "removedCount"
+      FROM "IngestionRun"
+      WHERE "startedAt" >= ${new Date(now.getTime() - 24 * 60 * 60 * 1000)}
+      GROUP BY "sourceName"
+    ),
+    churn_sources AS (
+      SELECT cs."id"
+      FROM "CompanySource" cs
+      JOIN recent_runs rr ON rr."sourceName" = cs."sourceName"
+      WHERE
+        rr."removedCount" >= ${CONNECTOR_POLL_CHURN_HEAVY_REMOVED_THRESHOLD}
+        AND rr."removedCount" * 100 >
+          GREATEST(rr."createdCount", cs."lastJobsCreatedCount"::bigint, 1::bigint) *
+          ${CONNECTOR_POLL_CHURN_HEAVY_RATIO_X100}
+    )
+    UPDATE "SourceTask" st
+    SET
+      "notBeforeAt" = ${churnCooldownUntil},
+      "lastError" = 'Deferred connector poll because the source recently removed far more jobs than it created.'
+    FROM churn_sources cs
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND st."notBeforeAt" < ${churnCooldownUntil}
+  `);
+
+  const churnSourcesDeferred = await prisma.$executeRaw(Prisma.sql`
+    WITH recent_runs AS (
+      SELECT
+        "sourceName",
+        COALESCE(SUM("canonicalCreatedCount"), 0)::bigint AS "createdCount",
+        COALESCE(SUM("removedCount"), 0)::bigint AS "removedCount"
+      FROM "IngestionRun"
+      WHERE "startedAt" >= ${new Date(now.getTime() - 24 * 60 * 60 * 1000)}
+      GROUP BY "sourceName"
+    )
+    UPDATE "CompanySource" cs
+    SET
+      "cooldownUntil" = ${churnCooldownUntil},
+      "pollState" = 'BACKOFF'::"CompanySourcePollState",
+      "validationMessage" =
+        'Growth mode cooldown: source recently removed far more canonical jobs than it created; refresh later without crowding out net-new source polling.'
+    FROM recent_runs rr
+    WHERE
+      rr."sourceName" = cs."sourceName"
+      AND rr."removedCount" >= ${CONNECTOR_POLL_CHURN_HEAVY_REMOVED_THRESHOLD}
+      AND rr."removedCount" * 100 >
+        GREATEST(rr."createdCount", cs."lastJobsCreatedCount"::bigint, 1::bigint) *
+        ${CONNECTOR_POLL_CHURN_HEAVY_RATIO_X100}
+      AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" < ${churnCooldownUntil})
+  `);
+
+  const familyChurnNotBefore = new Date(
+    now.getTime() + CONNECTOR_POLL_FAMILY_CHURN_DEFER_HOURS * 60 * 60 * 1000
+  );
+  const familyChurnDeferred = await prisma.$executeRaw(Prisma.sql`
+    WITH recent_families AS (
+      SELECT
+        LOWER(split_part("sourceName", ':', 1)) AS "connectorName",
+        COALESCE(SUM("canonicalCreatedCount"), 0)::bigint AS "createdCount",
+        COALESCE(SUM("removedCount"), 0)::bigint AS "removedCount"
+      FROM "IngestionRun"
+      WHERE "startedAt" >= ${new Date(
+        now.getTime() - CONNECTOR_POLL_FAMILY_CHURN_LOOKBACK_HOURS * 60 * 60 * 1000
+      )}
+      GROUP BY 1
+    ),
+    churn_families AS (
+      SELECT "connectorName"
+      FROM recent_families
+      WHERE
+        "removedCount" >= ${CONNECTOR_POLL_FAMILY_CHURN_REMOVED_THRESHOLD}
+        AND "removedCount" * 100 >
+          GREATEST("createdCount", 1::bigint) *
+          ${CONNECTOR_POLL_FAMILY_CHURN_RATIO_X100}
+    ),
+    recent_sources AS (
+      SELECT
+        "sourceName",
+        COALESCE(SUM("canonicalCreatedCount"), 0)::bigint AS "createdCount",
+        COALESCE(SUM("removedCount"), 0)::bigint AS "removedCount"
+      FROM "IngestionRun"
+      WHERE "startedAt" >= ${new Date(
+        now.getTime() - CONNECTOR_POLL_FAMILY_CHURN_LOOKBACK_HOURS * 60 * 60 * 1000
+      )}
+      GROUP BY "sourceName"
+    )
+    UPDATE "SourceTask" st
+    SET
+      "notBeforeAt" = ${familyChurnNotBefore},
+      "lastError" =
+        'Deferred connector poll because this connector family is currently removing far more jobs than it creates.'
+    FROM "CompanySource" cs
+    JOIN churn_families cf ON cf."connectorName" = LOWER(cs."connectorName")
+    LEFT JOIN recent_sources rs ON rs."sourceName" = cs."sourceName"
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND st."notBeforeAt" < ${familyChurnNotBefore}
+      AND NOT (
+        COALESCE(rs."createdCount", 0) > 0
+        AND COALESCE(rs."createdCount", 0) >= COALESCE(rs."removedCount", 0)
+      )
+      AND NOT (
+        cs."lastJobsCreatedCount" > 0
+        AND cs."jobsCreatedCount" >= 25
+      )
+  `);
+
+  const zeroGrowthNotBefore = new Date(
+    now.getTime() + CONNECTOR_POLL_ZERO_GROWTH_DEFER_HOURS * 60 * 60 * 1000
+  );
+  const zeroGrowthDeferred = await prisma.$executeRaw(Prisma.sql`
+    WITH recent_runs AS (
+      SELECT
+        "sourceName",
+        COALESCE(SUM("canonicalCreatedCount"), 0)::bigint AS "createdCount",
+        COALESCE(SUM("acceptedCount"), 0)::bigint AS "acceptedCount"
+      FROM "IngestionRun"
+      WHERE "startedAt" >= ${new Date(now.getTime() - 24 * 60 * 60 * 1000)}
+      GROUP BY "sourceName"
+    )
+    UPDATE "SourceTask" st
+    SET
+      "notBeforeAt" = ${zeroGrowthNotBefore},
+      "lastError" = 'Deferred connector poll because the source has refreshed recently without creating new jobs.'
+    FROM "CompanySource" cs
+    LEFT JOIN recent_runs rr ON rr."sourceName" = cs."sourceName"
+    WHERE
+      st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+      AND st."companySourceId" = cs."id"
+      AND st."notBeforeAt" <= ${new Date(now.getTime() + 30 * 60 * 1000)}
+      AND cs."pollAttemptCount" >= 2
+      AND cs."lastJobsCreatedCount" = 0
+      AND COALESCE(rr."createdCount", 0) = 0
+      AND (
+        COALESCE(rr."acceptedCount", 0) >= ${CONNECTOR_POLL_ZERO_GROWTH_ACCEPTED_THRESHOLD}
+        OR cs."jobsCreatedCount" <= 10
+      )
+      AND st."notBeforeAt" < ${zeroGrowthNotBefore}
+  `);
+
   return {
     skipped,
-    deferred,
+    deferred: deferred + churnDeferred + familyChurnDeferred + zeroGrowthDeferred,
+    churnDeferred,
+    churnSourcesDeferred,
+    familyChurnDeferred,
+    zeroGrowthDeferred,
   };
 }
 
@@ -546,6 +774,12 @@ export async function claimSourceTasks(
         ...buildSourceTaskUniquenessWhere(task),
         id: { not: task.id },
         status: "RUNNING",
+        startedAt: {
+          gte: new Date(
+            now.getTime() -
+              (STALE_RUNNING_TASK_WINDOW_MINUTES[kind] ?? 120) * 60 * 1000
+          ),
+        },
       },
       select: { id: true },
     });

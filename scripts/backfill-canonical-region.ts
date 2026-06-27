@@ -29,6 +29,7 @@ async function main() {
   const usIds: string[] = [];
   const caIds: string[] = [];
   const unknownByScope = new Map<string, number>();
+  const feedRegionOutOfSync = await countFeedIndexRegionMismatches();
 
   for (const canonical of canonicals) {
     const region = inferRegion(canonical.location);
@@ -48,6 +49,7 @@ async function main() {
   if (args.apply) {
     await updateRegionBatch(usIds, "US", args.batchSize);
     await updateRegionBatch(caIds, "CA", args.batchSize);
+    await syncFeedIndexRegions();
   }
 
   console.log(
@@ -58,6 +60,8 @@ async function main() {
         updatedUs: usIds.length,
         updatedCa: caIds.length,
         stillUnknown: canonicals.length - usIds.length - caIds.length,
+        feedRegionOutOfSync,
+        feedRegionSyncApplied: args.apply,
         unknownByScope: Object.fromEntries(
           [...unknownByScope.entries()].sort((left, right) => right[1] - left[1])
         ),
@@ -83,6 +87,27 @@ async function updateRegionBatch(
       data: { region },
     });
   }
+}
+
+async function countFeedIndexRegionMismatches() {
+  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*)::bigint AS count
+    FROM "JobFeedIndex" jfi
+    JOIN "JobCanonical" jc ON jc.id = jfi."canonicalJobId"
+    WHERE jfi.region IS DISTINCT FROM jc.region
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function syncFeedIndexRegions() {
+  await prisma.$executeRaw`
+    UPDATE "JobFeedIndex" jfi
+    SET region = jc.region
+    FROM "JobCanonical" jc
+    WHERE jfi."canonicalJobId" = jc.id
+      AND jfi.region IS DISTINCT FROM jc.region
+  `;
 }
 
 function parseArgs(argv: string[]): CliArgs {
