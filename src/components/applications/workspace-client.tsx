@@ -871,6 +871,7 @@ function JobDescriptionField({
 
   const importActionState = importState as ActionState & { fetchFailed?: boolean };
   const needsPaste = showPaste || importActionState.fetchFailed;
+  const compactReadOnlyPreview = Boolean(value) && !editing && !needsPaste && !importing;
 
   function handleCancel() {
     setDraft(value);
@@ -893,7 +894,11 @@ function JobDescriptionField({
   }
 
   return (
-    <div className="surface-panel p-3.5 sm:p-5">
+    <div
+      className={`surface-panel p-3.5 sm:p-5 ${
+        compactReadOnlyPreview ? "xl:h-[14.5rem] xl:overflow-hidden" : ""
+      }`}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className={WORKSPACE_FIELD_TITLE_CLASS}>Job description</h3>
         <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:items-center sm:gap-1">
@@ -1030,7 +1035,7 @@ function JobDescriptionField({
           <span className="text-sm text-muted-foreground">Importing and organizing...</span>
         </div>
       ) : value ? (
-        <div className="mt-3 max-h-[12.5rem] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
+        <div className="mt-3 max-h-[12.5rem] overflow-y-auto pr-2 [scrollbar-gutter:stable] xl:max-h-[7.75rem]">
           {renderDescriptionSummary(value)}
         </div>
       ) : (
