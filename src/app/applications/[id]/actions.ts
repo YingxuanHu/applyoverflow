@@ -13,11 +13,11 @@ import {
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import {
+  fetchFormattedJobDescriptionFromUrl,
   formatJobDescriptionText,
   isJobDescriptionSummaryUsable,
   isLowQualityJobDescription,
   parseJobDescriptionBlocks,
-  pickBestFormattedJobDescription,
 } from "@/lib/job-description-format";
 import { inferProfileDocumentMimeType } from "@/lib/profile-resume-service";
 import {
@@ -101,32 +101,6 @@ function toActionState(error: unknown): ActionState {
     error: error instanceof Error ? error.message : "Request failed.",
     success: null,
   };
-}
-
-function stripHtmlToText(html: string) {
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
-    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
-    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|section|article|main|aside|ul|ol|table|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "\n• ")
-    .replace(/<\/li>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function inferDocumentMimeType(fileName: string, browserMime: string): string {
@@ -671,78 +645,17 @@ export async function importJobDescription(
     if (pastedContent && pastedContent.length >= 30) {
       content = pastedContent;
     } else if (application.roleUrl) {
-      try {
-        const response = await fetch(application.roleUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; ApplicationTracker/1.0)",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          },
-          signal: AbortSignal.timeout(15000),
-        });
-
-        if (!response.ok) {
-          const statusMessage =
-            response.status === 403
-              ? "The site blocked our request (403 Forbidden)."
-              : response.status === 404
-                ? "The job posting page was not found (404)."
-                : response.status >= 500
-                  ? `The job site returned a server error (${response.status}).`
-                  : `The site returned HTTP ${response.status}.`;
-
-          return {
-            error: `Could not fetch the job posting. ${statusMessage} Paste the content below instead.`,
-            success: null,
-            fetchFailed: true,
-          };
-        }
-
-        const html = await response.text();
-        const formattedFromHtml = formatJobDescriptionText(html);
-        const formattedFromPlainText = formatJobDescriptionText(stripHtmlToText(html));
-        const bestFormatted = pickBestFormattedJobDescription([
-          formattedFromHtml,
-          formattedFromPlainText,
-        ]);
-
-        const jsPageSignals = [
-          "requires JavaScript",
-          "enable JavaScript",
-          "noscript",
-          "__NEXT_DATA__",
-          "window.__remixContext",
-          "application/json",
-        ];
-        const looksLikeJsPage = jsPageSignals.some((signal) =>
-          html.toLowerCase().includes(signal.toLowerCase())
-        ) && !bestFormatted;
-
-        if (!bestFormatted || looksLikeJsPage) {
-          return {
-            error: "This job posting requires JavaScript to load. Paste the content below instead.",
-            success: null,
-            fetchFailed: true,
-          };
-        }
-
-        content = bestFormatted;
-      } catch (fetchError) {
-        const reason = fetchError instanceof Error ? fetchError.message : "Unknown error";
-        const friendlyReason =
-          reason.includes("timeout") || reason.includes("abort")
-            ? "The request timed out — the site took too long to respond."
-            : reason.includes("ENOTFOUND") || reason.includes("getaddrinfo")
-              ? "Could not resolve the URL — check that the posting link is correct."
-              : reason.includes("ECONNREFUSED")
-                ? "Connection refused by the job site."
-                : `Network error: ${reason}.`;
-
+      const fetchedDescription = await fetchFormattedJobDescriptionFromUrl(application.roleUrl);
+      if (!fetchedDescription) {
         return {
-          error: `${friendlyReason} Paste the content below instead.`,
+          error:
+            "The fetched page didn't contain enough job details. Paste the full posting text below instead.",
           success: null,
           fetchFailed: true,
         };
       }
+
+      content = fetchedDescription;
     } else if (!pastedContent) {
       return {
         error: "No posting URL set. Paste the job posting content below instead.",

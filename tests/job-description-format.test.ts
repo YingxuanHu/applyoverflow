@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatJobDescriptionText,
   getCleanJobDescriptionDisplayBlocks,
   isJobDescriptionSummaryUsable,
   isLowQualityJobDescription,
@@ -88,4 +89,50 @@ test("rejects short location or authorization notes as full descriptions", () =>
 
   assert.equal(isLowQualityJobDescription(raw), true);
   assert.equal(isJobDescriptionSummaryUsable(raw), false);
+});
+
+test("prefers JobPosting schema description over leaked page title bullets", () => {
+  const raw = `
+    • Software Engineer @ Kong
+    •
+    {"@context":"https://schema.org/","@type":"JobPosting","title":"Software Engineer","description":" Are you ready to unlock intelligence?\\n\\nAbout the role\\nKong is looking for a Software Engineer to build reliable developer-facing systems.\\n\\nResponsibilities\\n- Build APIs and distributed services used by engineering teams.\\n- Partner with product and infrastructure teams to improve reliability.\\n\\nRequirements\\n- Experience with TypeScript, Go, or distributed systems. "}
+  `;
+
+  const formatted = formatJobDescriptionText(raw);
+
+  assert.match(formatted, /^Are you ready to unlock intelligence\?/);
+  assert.match(formatted, /About the role/);
+  assert.match(formatted, /Build APIs and distributed services/);
+  assert.doesNotMatch(formatted, /Software Engineer @ Kong/);
+  assert.doesNotMatch(formatted, /"@context"/);
+  assert.equal(isJobDescriptionSummaryUsable(formatted), true);
+});
+
+test("extracts JobPosting schema description from HTML script content", () => {
+  const html = `
+    <html>
+      <head>
+        <title>Software Engineer @ Kong</title>
+        <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": "Software Engineer",
+            "description": "<p>About the role</p><p>Kong is looking for a Software Engineer to build reliable platform features for customers.</p><ul><li>Own backend services and APIs.</li><li>Improve observability and deployment safety.</li></ul><p>Requirements include TypeScript, Go, and distributed systems experience.</p>"
+          }
+        </script>
+      </head>
+      <body>
+        <h1>Software Engineer @ Kong</h1>
+      </body>
+    </html>
+  `;
+
+  const formatted = formatJobDescriptionText(html);
+
+  assert.match(formatted, /^About the role/);
+  assert.match(formatted, /Own backend services and APIs/);
+  assert.doesNotMatch(formatted, /application\/ld\+json/);
+  assert.doesNotMatch(formatted, /"@type"/);
+  assert.equal(isJobDescriptionSummaryUsable(formatted), true);
 });

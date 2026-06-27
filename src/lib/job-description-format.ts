@@ -252,7 +252,126 @@ function decodeEmbeddedJsonString(value: string) {
   }
 }
 
+function scanJsonObjectAt(text: string, startIndex: number) {
+  if (text[startIndex] !== "{") {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function findJsonObjectStartsNearJobPosting(raw: string) {
+  const starts = new Set<number>();
+  const markers = ['"@context"', '"@type"', "JobPosting", "schema.org"];
+
+  for (const marker of markers) {
+    let index = raw.indexOf(marker);
+    while (index !== -1) {
+      const start = raw.lastIndexOf("{", index);
+      if (start !== -1) {
+        starts.add(start);
+      }
+      index = raw.indexOf(marker, index + marker.length);
+    }
+  }
+
+  return [...starts].sort((left, right) => left - right);
+}
+
+function extractJobPostingDescriptionFromValue(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const description = extractJobPostingDescriptionFromValue(entry);
+      if (description) return description;
+    }
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const typeValue = record["@type"];
+  const types = Array.isArray(typeValue) ? typeValue : [typeValue];
+  const isJobPosting = types.some(
+    (entry) => typeof entry === "string" && entry.toLowerCase() === "jobposting"
+  );
+  const description = record.description;
+
+  if (isJobPosting && typeof description === "string" && description.trim().length >= 80) {
+    return description.trim();
+  }
+
+  for (const key of ["@graph", "mainEntity", "itemListElement"]) {
+    const nested = extractJobPostingDescriptionFromValue(record[key]);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
+function extractStructuredJobPostingDescription(raw: string) {
+  const candidates = [raw, decodeHtmlEntitiesFull(raw)];
+
+  for (const candidate of candidates) {
+    for (const start of findJsonObjectStartsNearJobPosting(candidate)) {
+      const objectText = scanJsonObjectAt(candidate, start);
+      if (!objectText) continue;
+
+      try {
+        const parsed = JSON.parse(objectText) as unknown;
+        const description = extractJobPostingDescriptionFromValue(parsed);
+        if (description) return description;
+      } catch {
+        // Fall through to the string-regex fallback below. Some sites emit
+        // nearly-JSON script data with unescaped line breaks in description.
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractEmbeddedDescription(raw: string) {
+  const structured = extractStructuredJobPostingDescription(raw);
+  if (structured) {
+    return structured;
+  }
+
   const anchors = ['window["az_details"]', "window['az_details']", '"az_details"'];
 
   for (const anchor of anchors) {
@@ -282,6 +401,30 @@ function extractEmbeddedDescription(raw: string) {
   }
 
   return null;
+}
+
+function stripLeadingTitleBullets(raw: string) {
+  const lines = raw.replace(/\r/g, "").split("\n");
+  let index = 0;
+  let removed = 0;
+
+  while (index < lines.length && removed < 4) {
+    const line = lines[index]?.trim() ?? "";
+    const normalized = line.replace(/^[•*–·-]\s*/, "").trim();
+    const looksLikeEmptyBullet = /^[•*–·-]\s*$/.test(line);
+    const looksLikeTitleByCompany =
+      /^[A-Z0-9][^.!?]{2,90}\s+@\s+[A-Z0-9][^.!?]{1,80}$/i.test(normalized);
+
+    if (!line || looksLikeEmptyBullet || looksLikeTitleByCompany) {
+      index += 1;
+      removed += 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return lines.slice(index).join("\n");
 }
 
 function stripNoiseLines(raw: string) {
@@ -522,7 +665,8 @@ function splitInlineHeadingValues(raw: string) {
 }
 
 function cleanupJobDescription(raw: string) {
-  let cleaned = (looksLikeStructuredDescription(raw) ? raw : extractPrimaryDescription(raw))
+  const embeddedDescription = extractEmbeddedDescription(raw);
+  let cleaned = (embeddedDescription ?? (looksLikeStructuredDescription(raw) ? raw : extractPrimaryDescription(raw)))
     .replace(/\r/g, "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|section|article|li|ul|ol|h1|h2|h3|h4|h5|h6)>/gi, "\n")
@@ -538,6 +682,7 @@ function cleanupJobDescription(raw: string) {
 
   cleaned = normalizeCommonMojibake(cleaned);
   cleaned = decodeHtmlEntitiesFull(cleaned);
+  cleaned = stripLeadingTitleBullets(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
 
