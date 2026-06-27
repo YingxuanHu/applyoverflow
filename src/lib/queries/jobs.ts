@@ -7,6 +7,7 @@ import {
   type TrackedApplicationStatus,
 } from "@/generated/prisma/client";
 import { splitFilterValues } from "@/lib/filter-values";
+import { expandLocationSearchTerm } from "@/lib/location-search";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
 import {
   sanitizeCompanyName,
@@ -732,14 +733,15 @@ async function getJobsFromFeedIndex(input: {
   // hundreds of thousands of high-rank non-matching rows per page (e.g.
   // company "google" → ~21s). When the term is selective we pull its full
   // ordered match set through the trigram index and paginate it in app, which
-  // is fast and yields an exact total. Gated to the sole-text-search,
-  // no-structured-filter case so the id list IS the whole ordered result.
+  // is fast and yields an exact total. With structured filters, we still use
+  // the selective id list as a prefilter and let the normal indexed query apply
+  // the hard filters. Only the sole-text-search case can paginate the id list
+  // directly because then the id list is the whole ordered result.
   let acceleratedScopedField: "title" | "company" | null = null;
   if (
     searchPrefilterIds === null &&
     !filters.search &&
-    !filters.locationSearch &&
-    canSlicePrefilterIds
+    !filters.locationSearch
   ) {
     const soleScopedSearch =
       filters.titleSearch && !filters.companySearch
@@ -756,7 +758,7 @@ async function getJobsFromFeedIndex(input: {
       if (orderedIds !== null) {
         searchPrefilterIds = orderedIds;
         acceleratedScopedField = soleScopedSearch.field;
-        useDirectPrefilterSlice = true;
+        useDirectPrefilterSlice = canSlicePrefilterIds;
       }
     }
   }
@@ -861,7 +863,7 @@ async function getJobsFromFeedIndex(input: {
   }
 
   if (filters.location) {
-    where.location = { contains: filters.location, mode: "insensitive" };
+    appendFeedIndexLocationSearchWhere(where, filters.location);
   }
 
   if (filters.employmentType) {
@@ -1561,25 +1563,24 @@ function buildLocationSearchWhere(
   if (locations.length === 0) return null;
 
   const clauses = locations.flatMap((location) => {
+    const expanded = expandLocationSearchTerm(location);
     const textCondition = buildScopedTextSearchWhere("location", location, "all-terms");
-    if (!textCondition) return [];
+    const locationClauses: PrismaTypes.JobCanonicalWhereInput[] = [];
 
-    const region = inferProfileRegion(location);
-    if (!region) return [textCondition];
+    if (textCondition) locationClauses.push(textCondition);
 
-    return [
-      textCondition,
-      {
-        AND: [
-          { region },
-          {
-            workMode: {
-              in: ["REMOTE", "FLEXIBLE"],
-            },
-          },
-        ],
-      } satisfies PrismaTypes.JobCanonicalWhereInput,
-    ];
+    for (const term of expanded.containsTerms) {
+      locationClauses.push({
+        location: { contains: term, mode: "insensitive" },
+      });
+    }
+
+    if (expanded.region) {
+      locationClauses.push({ region: expanded.region });
+    }
+
+    if (locationClauses.length === 0) return [];
+    return locationClauses.length === 1 ? locationClauses : [{ OR: locationClauses }];
   });
 
   if (clauses.length === 0) return null;
@@ -1601,25 +1602,24 @@ function buildFeedIndexLocationSearchWhere(
   if (locations.length === 0) return null;
 
   const clauses = locations.flatMap((location) => {
+    const expanded = expandLocationSearchTerm(location);
     const textCondition = buildFeedIndexTextSearchWhere("location", location, "all-terms");
-    if (!textCondition) return [];
+    const locationClauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
 
-    const region = inferProfileRegion(location);
-    if (!region) return [textCondition];
+    if (textCondition) locationClauses.push(textCondition);
 
-    return [
-      textCondition,
-      {
-        AND: [
-          { region },
-          {
-            workMode: {
-              in: ["REMOTE", "FLEXIBLE"],
-            },
-          },
-        ],
-      } satisfies PrismaTypes.JobFeedIndexWhereInput,
-    ];
+    for (const term of expanded.containsTerms) {
+      locationClauses.push({
+        location: { contains: term, mode: "insensitive" },
+      });
+    }
+
+    if (expanded.region) {
+      locationClauses.push({ region: expanded.region });
+    }
+
+    if (locationClauses.length === 0) return [];
+    return locationClauses.length === 1 ? locationClauses : [{ OR: locationClauses }];
   });
 
   if (clauses.length === 0) return null;
@@ -1944,32 +1944,6 @@ function normalizeProfileMatchText(value: string) {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function inferProfileRegion(value: string | null | undefined): "US" | "CA" | null {
-  const normalized = normalizeProfileMatchText(value ?? "");
-
-  if (!normalized) {
-    return null;
-  }
-
-  if (
-    /\b(canada|ontario|toronto|vancouver|british columbia|alberta|quebec|montreal|calgary|ottawa)\b/.test(
-      normalized
-    )
-  ) {
-    return "CA";
-  }
-
-  if (
-    /\b(usa|united states|us|new york|california|texas|washington|illinois|florida|massachusetts|remote us)\b/.test(
-      normalized
-    )
-  ) {
-    return "US";
-  }
-
-  return null;
 }
 
 function extractProfileTokens(values: string[]) {
@@ -3336,9 +3310,7 @@ export async function getJobs(
     appendLocationSearchWhere(where, filters.locationSearch);
 
     if (filters.location) {
-      appendAndCondition(where, {
-        location: { contains: filters.location, mode: "insensitive" },
-      });
+      appendLocationSearchWhere(where, filters.location);
     }
 
     if (filters.region) {

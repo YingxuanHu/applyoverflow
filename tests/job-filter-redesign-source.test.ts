@@ -31,7 +31,8 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(querySource, /includeUnknownSalary\?: boolean/);
   assert.match(querySource, /posted\?: string/);
   assert.match(querySource, /salaryMax\?: number/);
-  assert.match(querySource, /location:\s*\{\s*contains: filters\.location/);
+  assert.match(querySource, /expandLocationSearchTerm/);
+  assert.match(querySource, /appendFeedIndexLocationSearchWhere\(where, filters\.location\)/);
   assert.match(querySource, /appendScopedTextSearchWhere\(where, "title", filters\.titleSearch\)/);
   assert.match(querySource, /appendScopedTextSearchWhere\(where, "company", filters\.companySearch\)/);
   assert.match(querySource, /appendLocationSearchWhere\(where, filters\.locationSearch\)/);
@@ -58,6 +59,9 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(querySource, /loadSalaryComparisonCurrency/);
   assert.match(querySource, /shouldUseJobFeedIndex\(filters: JobFilterParams, viewerProfileId: string \| null\)/);
   assert.match(querySource, /JOB_FEED_INDEX_COUNT_TIMEOUT_MS/);
+  assert.match(querySource, /getSelectiveScopedSearchIds/);
+  assert.match(querySource, /structured filters, we still use[\s\S]*selective id list as a prefilter/);
+  assert.match(querySource, /useDirectPrefilterSlice = canSlicePrefilterIds/);
   assert.match(querySource, /appendFeedIndexTextSearchWhere\(where, "company", filters\.companySearch\)/);
   assert.match(querySource, /appendFeedIndexTextSearchWhere\(where, "title", filters\.titleSearch\)/);
   assert.match(querySource, /appendFeedIndexLocationSearchWhere\(where, filters\.locationSearch\)/);
@@ -137,7 +141,14 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(filterFieldSource, /setSelectedValues/);
   assert.match(filterFieldSource, /selectedLabels\.length/);
   assert.doesNotMatch(pageSource, /title="Deadline"/);
-  assert.match(searchFormSource, /name="searchScope"/);
+  assert.match(searchFormSource, /name: "searchScope"/);
+  assert.match(searchFormSource, /filterFormId\?: string/);
+  assert.match(searchFormSource, /form=\{filterFormId\}/);
+  assert.match(searchFormSource, /action="\/jobs"/);
+  assert.match(pageSource, /const JOBS_FILTER_FORM_ID = "jobs-filter-form"/);
+  assert.match(pageSource, /filterFormId=\{JOBS_FILTER_FORM_ID\}/);
+  assert.match(pageSource, /id=\{JOBS_FILTER_FORM_ID\}/);
+  assert.match(pageSource, /action="\/jobs"/);
   assert.match(searchFormSource, /const SEARCH_SCOPE_OPTIONS/);
   assert.doesNotMatch(searchFormSource, /\{ label: "All", value: "all" \}/);
   assert.match(searchFormSource, /submittedSearchValue/);

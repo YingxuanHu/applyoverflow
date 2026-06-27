@@ -62,10 +62,12 @@ function getSubmittedValue(scope: VisibleJobSearchScope, values: SearchValues) {
 }
 
 export function JobsSearchForm({
+  filterFormId,
   hiddenFields,
   initialScope,
   initialValues,
 }: {
+  filterFormId?: string;
   hiddenFields: HiddenField[];
   initialScope: JobSearchScope;
   initialValues: SearchValues;
@@ -83,7 +85,6 @@ export function JobsSearchForm({
   const [scope, setScope] = useState<VisibleJobSearchScope>(initialVisibleScope);
   const [committedValues] = useState<SearchValues>(() => normalizedInitialValues);
   const [draftValue, setDraftValue] = useState(() => normalizedInitialValues[initialVisibleScope]);
-  const inputName = SEARCH_PARAM_BY_SCOPE[scope];
   const submittedSearchValue = normalizeSubmittedSearchValue(scope, draftValue);
 
   function handleScopeChange(nextScope: VisibleJobSearchScope) {
@@ -93,8 +94,18 @@ export function JobsSearchForm({
     );
   }
 
+  const submittedHiddenFields = buildSubmittedSearchHiddenFields(
+    scope,
+    submittedSearchValue,
+    committedValues
+  );
+
   return (
-    <form className="flex min-w-0 flex-1 items-center gap-2" method="get">
+    <form
+      action="/jobs"
+      className="flex min-w-0 flex-1 items-center gap-2"
+      method="get"
+    >
       {hiddenFields
         .filter((field) => !SEARCH_FIELD_PARAM_NAMES.has(field.name))
         .map((field) => (
@@ -105,24 +116,25 @@ export function JobsSearchForm({
             value={field.value}
           />
         ))}
-      {submittedSearchValue ? (
-        <>
-          <input name="searchScope" type="hidden" value={scope} />
-          <input name={inputName} type="hidden" value={submittedSearchValue} />
-        </>
-      ) : null}
-      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
-        const value = getSubmittedValue(option.value, committedValues);
-        if (!value) return null;
-        return (
-          <input
-            key={option.value}
-            name={SEARCH_PARAM_BY_SCOPE[option.value]}
-            type="hidden"
-            value={value}
-          />
-        );
-      })}
+      {submittedHiddenFields.map((field) => (
+        <input
+          key={`${field.name}:${field.value}`}
+          name={field.name}
+          type="hidden"
+          value={field.value}
+        />
+      ))}
+      {filterFormId
+        ? submittedHiddenFields.map((field) => (
+            <input
+              form={filterFormId}
+              key={`filter:${field.name}:${field.value}`}
+              name={field.name}
+              type="hidden"
+              value={field.value}
+            />
+          ))
+        : null}
 
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
         <label className="sr-only" htmlFor="jobs-search-scope">
@@ -162,4 +174,26 @@ export function JobsSearchForm({
       </Button>
     </form>
   );
+}
+
+function buildSubmittedSearchHiddenFields(
+  scope: VisibleJobSearchScope,
+  submittedSearchValue: string,
+  committedValues: SearchValues
+): HiddenField[] {
+  const fields: HiddenField[] = [];
+
+  if (submittedSearchValue) {
+    fields.push({ name: "searchScope", value: scope });
+    fields.push({ name: SEARCH_PARAM_BY_SCOPE[scope], value: submittedSearchValue });
+  }
+
+  for (const option of SEARCH_SCOPE_OPTIONS) {
+    if (option.value === scope) continue;
+    const value = getSubmittedValue(option.value, committedValues);
+    if (!value) continue;
+    fields.push({ name: SEARCH_PARAM_BY_SCOPE[option.value], value });
+  }
+
+  return fields;
 }

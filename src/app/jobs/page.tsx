@@ -98,6 +98,7 @@ const SORT_OPTIONS: Array<{ label: string; value: JobSortBy | undefined }> = [
   { label: "Expiring soon", value: "deadline" },
   { label: "Company A-Z", value: "company" },
 ];
+const JOBS_FILTER_FORM_ID = "jobs-filter-form";
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   // Note: `await searchParams` below already makes this page dynamic. We
@@ -268,14 +269,15 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
-                <JobsSearchForm
-                  hiddenFields={searchFormHiddenFields}
-                  initialScope={filters.searchScope ?? "all"}
-                  initialValues={searchFormInitialValues}
-                  key={searchFormStateKey}
-                />
+                  <JobsSearchForm
+                    filterFormId={JOBS_FILTER_FORM_ID}
+                    hiddenFields={searchFormHiddenFields}
+                    initialScope={filters.searchScope ?? "all"}
+                    initialValues={searchFormInitialValues}
+                    key={searchFormStateKey}
+                  />
 
-                <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                  <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
                   <details className="group static sm:relative" name="jobs-toolbar-dropdown">
                     <summary className="inline-flex h-10 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
                       <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
@@ -289,7 +291,12 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     </summary>
 
                     <div className="fixed inset-x-2 bottom-3 z-40 flex max-h-[calc(100dvh-1.5rem)] origin-bottom overflow-hidden rounded-[20px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+0.6rem)] sm:max-h-[min(76dvh,36rem)] sm:w-[min(36rem,calc(100vw-2rem))] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
-                      <form className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,36rem)]" method="get">
+                      <form
+                        action="/jobs"
+                        className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,36rem)]"
+                        id={JOBS_FILTER_FORM_ID}
+                        method="get"
+                      >
                         {buildFilterPanelHiddenFields(filters).map((field) => (
                           <input
                             key={`${field.name}:${field.value}`}
@@ -990,11 +997,6 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
 function buildFilterPanelHiddenFields(filters: JobFilterParams) {
   return buildHiddenFields([
     ["sortBy", filters.sortBy],
-    ["search", filters.search],
-    ["titleSearch", filters.titleSearch],
-    ["companySearch", filters.companySearch],
-    ["locationSearch", filters.locationSearch],
-    ["searchScope", hasActiveSearch(filters) ? filters.searchScope : undefined],
     // Preserve legacy/admin params from shared URLs without exposing them as
     // primary user-facing filter controls.
     ["location", filters.location],
