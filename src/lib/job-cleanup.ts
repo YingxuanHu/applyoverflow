@@ -60,6 +60,68 @@ const UNKNOWN_COMPANY_NAMES = new Set([
   "your company",
 ]);
 
+/**
+ * Placeholder "company" the JobBank CSV connector used to invent when the
+ * real employer was anonymized by Job Bank.
+ */
+export const JOBBANK_PLACEHOLDER_COMPANY_NAME = "Job Bank Employer";
+
+/**
+ * NAICS industry sector names that connectors (JobBank in particular) have
+ * attributed jobs to when the real employer is unavailable. These are never
+ * legitimate employer names on their own, so they classify as
+ * unresolved-generic: the feed gate hides them and dedupe refuses to
+ * fuzzy-match on them.
+ */
+export const NAICS_SECTOR_COMPANY_PLACEHOLDERS: readonly string[] = [
+  "Accommodation and food services",
+  "Administrative and support, waste management and remediation services",
+  "Agriculture, forestry, fishing and hunting",
+  "Arts, entertainment and recreation",
+  "Construction",
+  "Educational services",
+  "Finance and insurance",
+  "Health care and social assistance",
+  "Information and cultural industries",
+  "Management of companies and enterprises",
+  "Manufacturing",
+  "Mining, quarrying, and oil and gas extraction",
+  "Other services (except public administration)",
+  "Professional, scientific and technical services",
+  "Public administration",
+  "Real estate and rental and leasing",
+  "Repair and maintenance",
+  "Retail trade",
+  "Transportation and warehousing",
+  "Utilities",
+  "Wholesale trade",
+];
+
+/**
+ * All connector-invented placeholder company names. Exported for cleanup
+ * tooling (scripts/cleanup-placeholder-company-jobs.ts) so DB matching and
+ * runtime detection share one list.
+ */
+export const PLACEHOLDER_COMPANY_NAMES: readonly string[] = [
+  JOBBANK_PLACEHOLDER_COMPANY_NAME,
+  ...NAICS_SECTOR_COMPANY_PLACEHOLDERS,
+];
+
+const PLACEHOLDER_COMPANY_NAME_SET = new Set(
+  PLACEHOLDER_COMPANY_NAMES.map((name) => normalizePlaceholderComparable(name))
+);
+
+export function isPlaceholderCompanyName(company: string) {
+  return PLACEHOLDER_COMPANY_NAME_SET.has(normalizePlaceholderComparable(company));
+}
+
+function normalizePlaceholderComparable(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 const GENERIC_ATS_COMPANY_HOST_PATTERNS: Array<{
   company: string;
   hostPattern: RegExp;
@@ -331,6 +393,10 @@ export function hasUnresolvedGenericCompanyName(
 ) {
   const normalizedCompany = normalizeComparable(company);
   if (UNKNOWN_COMPANY_NAMES.has(normalizedCompany)) {
+    return true;
+  }
+
+  if (isPlaceholderCompanyName(company)) {
     return true;
   }
 

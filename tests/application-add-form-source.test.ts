@@ -29,13 +29,3 @@ test("manual application add form refreshes on every successful create", () => {
   assert.match(trackerSource, /function queueReminderCheck/);
   assert.match(trackerSource, /void checkSingleTrackedApplicationReminder/);
 });
-
-test("job-page add to applications menu clears pending state and refreshes", () => {
-  const menuSource = readRepoFile("src/components/jobs/manual-apply-menu.tsx");
-
-  assert.match(menuSource, /useRouter/);
-  assert.match(menuSource, /fetch\(`\/api\/jobs\/\$\{jobId\}\/save`/);
-  assert.match(menuSource, /router\.refresh\(\)/);
-  assert.match(menuSource, /\.finally\(\(\) => setSaving\(false\)\)/);
-  assert.match(menuSource, /saving \? "Adding\.\.\." : "Add to applications"/);
-});

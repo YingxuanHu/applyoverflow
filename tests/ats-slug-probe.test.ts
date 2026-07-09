@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  SHARED_HOST_SLUG_BLOCKLIST,
   buildCompanySlugCandidates,
   classifyIdentity,
   computeCompanyNameSimilarity,
+  createProbeRunContext,
   probeAtsSlugsForCompany,
   type FetchLike,
 } from "@/lib/ingestion/discovery/ats-slug-probe";
@@ -71,6 +73,7 @@ test("probe reports hits with job counts and stops per platform at first hit", a
     platforms: ["greenhouse", "workable", "lever"],
     fetchImpl,
     minJobCount: 1,
+    requestDelayMs: 0,
   });
 
   const platforms = summary.hits.map((hit) => hit.platform).sort();
@@ -98,6 +101,7 @@ test("empty boards below minJobCount are not reported as hits", async () => {
     platforms: ["greenhouse"],
     fetchImpl,
     minJobCount: 1,
+    requestDelayMs: 0,
   });
 
   assert.deepEqual(summary.hits, []);
@@ -113,6 +117,7 @@ test("429/403 responses classify as blocked, not miss", async () => {
     domain: "acme.com",
     platforms: ["lever"],
     fetchImpl,
+    requestDelayMs: 0,
   });
 
   assert.equal(summary.hits.length, 0);
@@ -157,6 +162,7 @@ test("greenhouse hits verify identity via the board meta endpoint", async () => 
     domain: "acme.com",
     platforms: ["greenhouse"],
     fetchImpl,
+    requestDelayMs: 0,
   });
 
   assert.equal(summary.hits.length, 1);
@@ -181,6 +187,7 @@ test("slug collisions are segregated as identity mismatches, not hits", async ()
     domain: "setpoint.io",
     platforms: ["greenhouse"],
     fetchImpl,
+    requestDelayMs: 0,
   });
 
   assert.equal(summary.hits.length, 0);
@@ -202,6 +209,7 @@ test("identity endpoint failure degrades to unverified, hit is kept", async () =
     domain: "acme.com",
     platforms: ["greenhouse"],
     fetchImpl,
+    requestDelayMs: 0,
   });
 
   assert.equal(summary.hits.length, 1);
@@ -222,9 +230,177 @@ test("network failures classify as errors and do not abort other platforms", asy
     domain: "acme.com",
     platforms: ["lever", "greenhouse"],
     fetchImpl,
+    requestDelayMs: 0,
   });
 
   assert.ok(summary.errors.length >= 1);
   assert.equal(summary.hits.length, 1);
   assert.equal(summary.hits[0].platform, "greenhouse");
+});
+
+test("shared-host domain labels never derive a slug (name path still applies)", () => {
+  // Zepto's recorded domain is its incubator's page — probing
+  // ashby:ycombinator would "hit" Y Combinator's own board.
+  const slugs = buildCompanySlugCandidates({
+    name: "Zepto",
+    domain: "ycombinator.com",
+  });
+  assert.ok(!slugs.includes("ycombinator"));
+  assert.ok(slugs.includes("zepto"));
+
+  // Jobvite-hosted careers domain must not yield lever:jobvite.
+  const hosted = buildCompanySlugCandidates({
+    name: "Northerntool",
+    domain: "northerntool.jobvite.com",
+  });
+  assert.ok(!hosted.includes("jobvite"));
+  assert.ok(hosted.includes("northerntool"));
+
+  assert.ok(SHARED_HOST_SLUG_BLOCKLIST.has("ycombinator"));
+  assert.ok(SHARED_HOST_SLUG_BLOCKLIST.has("jobvite"));
+});
+
+test("blocklisted-slug hits without identity match are segregated", async () => {
+  // Lever exposes no organization name, so this hit stays "unverified" — the
+  // blocklist guard must still keep the shared-host slug out of `hits` even
+  // when it arrives via the name path.
+  const fetchImpl = fakeFetch({
+    "https://api.lever.co/v0/postings/jobvite?mode=json": {
+      status: 200,
+      body: [{ id: 1 }, { id: 2 }],
+    },
+  });
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Jobvite",
+    platforms: ["lever"],
+    fetchImpl,
+    requestDelayMs: 0,
+  });
+
+  assert.deepEqual(summary.hits, []);
+  assert.equal(summary.identityMismatches.length, 1);
+  assert.equal(summary.identityMismatches[0].slug, "jobvite");
+});
+
+test("blocklisted-slug hits WITH identity match are kept", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/jobvite/jobs": {
+      status: 200,
+      body: { jobs: [{ id: 1 }] },
+    },
+    "https://boards-api.greenhouse.io/v1/boards/jobvite": {
+      status: 200,
+      body: { name: "Jobvite" },
+    },
+  });
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Jobvite",
+    platforms: ["greenhouse"],
+    fetchImpl,
+    requestDelayMs: 0,
+  });
+
+  assert.equal(summary.hits.length, 1);
+  assert.equal(summary.hits[0].slug, "jobvite");
+  assert.equal(summary.hits[0].identityVerdict, "match");
+  assert.deepEqual(summary.identityMismatches, []);
+});
+
+test("a blocked platform is benched for subsequent companies in the run", async () => {
+  const benchedEvents: string[] = [];
+  const runContext = createProbeRunContext({
+    onPlatformBenched: (platform) => benchedEvents.push(platform),
+  });
+
+  const calls: string[] = [];
+  const fetchImpl: FetchLike = async (url) => {
+    calls.push(url);
+    if (url.includes("lever")) return { status: 429, json: async () => ({}) };
+    return { status: 404, json: async () => ({}) };
+  };
+
+  const first = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["lever", "greenhouse"],
+    fetchImpl,
+    requestDelayMs: 0,
+    runContext,
+  });
+  assert.equal(first.blocked.length, 1);
+  assert.deepEqual(first.skippedPlatforms, []);
+  assert.deepEqual(benchedEvents, ["lever"]);
+  const leverCallsAfterFirstCompany = calls.filter((url) =>
+    url.includes("lever")
+  ).length;
+  assert.ok(leverCallsAfterFirstCompany >= 1);
+
+  const second = await probeAtsSlugsForCompany({
+    name: "Globex",
+    domain: "globex.com",
+    platforms: ["lever", "greenhouse"],
+    fetchImpl,
+    requestDelayMs: 0,
+    runContext,
+  });
+
+  // Second company must not hit the benched platform again...
+  assert.equal(
+    calls.filter((url) => url.includes("lever")).length,
+    leverCallsAfterFirstCompany
+  );
+  // ...the skip is counted, and the bench callback did not re-fire.
+  assert.deepEqual(second.skippedPlatforms, ["lever"]);
+  assert.deepEqual(benchedEvents, ["lever"]);
+  // Non-benched platforms are still probed.
+  assert.ok(calls.some((url) => url.includes("greenhouse.io/v1/boards/globex")));
+});
+
+test("probe requests carry a browser-ish user-agent plus the accept header", async () => {
+  let seenHeaders: Record<string, string> | undefined;
+  const fetchImpl: FetchLike = async (_url, init) => {
+    seenHeaders = init.headers;
+    return { status: 404, json: async () => ({}) };
+  };
+
+  await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse"],
+    fetchImpl,
+    requestDelayMs: 0,
+  });
+
+  assert.equal(seenHeaders?.accept, "application/json");
+  assert.match(seenHeaders?.["user-agent"] ?? "", /^Mozilla\/5\.0 /);
+});
+
+test("requestDelayMs pacing option is accepted (0 disables, small delays work)", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/acme/jobs": {
+      status: 200,
+      body: { jobs: [{ id: 1 }] },
+    },
+  });
+
+  const unpaced = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse"],
+    fetchImpl,
+    requestDelayMs: 0,
+  });
+  assert.equal(unpaced.hits.length, 1);
+
+  const paced = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse", "lever"],
+    fetchImpl,
+    requestDelayMs: 1,
+  });
+  assert.equal(paced.hits.length, 1);
+  assert.ok(paced.attempts >= 2);
 });

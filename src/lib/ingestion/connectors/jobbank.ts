@@ -218,17 +218,18 @@ function parseJobRow(
 
   const description = descParts.join("\n");
 
-  // Company is not in the CSV — Job Bank anonymizes employers.
-  // Use NAICS industry description when available, otherwise "Job Bank Employer"
-  // to satisfy the normalization pipeline's company requirement.
+  // Company is not in the CSV — Job Bank anonymizes employers. Do NOT invent
+  // a placeholder name ("Job Bank Employer" / NAICS sector names pollute the
+  // feed as fake employers — see PLACEHOLDER_COMPANY_NAMES in
+  // src/lib/job-cleanup.ts). Leave it empty so normalization falls back to
+  // "Unknown" and treats the company as unresolved.
   const naics = getField(fields, headerIndex, "NAICS");
-  const company = naics || "Job Bank Employer";
 
   return {
     sourceId: `jobbank:${snapshotId}`,
     sourceUrl: applyUrl,
     title,
-    company,
+    company: "",
     location,
     description,
     applyUrl,
@@ -242,6 +243,7 @@ function parseJobRow(
     metadata: {
       nocCode: getField(fields, headerIndex, "NOC21 Code") || getField(fields, headerIndex, "NOC 2016 Code"),
       nocCodeName: nocCode,
+      naicsSector: naics || null,
       province,
       city,
       salaryPer,

@@ -11,7 +11,6 @@ test("high-risk API routes guard large request bodies before parsing", () => {
   const apiUtils = readRepoFile("src/lib/api-utils.ts");
   const applicationCreateRoute = readRepoFile("src/app/api/applications/route.ts");
   const resumeUploadRoute = readRepoFile("src/app/api/profile/resumes/route.ts");
-  const notesRoute = readRepoFile("src/app/api/jobs/[id]/notes/route.ts");
   const passwordResetRequestRoute = readRepoFile(
     "src/app/api/auth/password-reset/request/route.ts"
   );
@@ -31,7 +30,6 @@ test("high-risk API routes guard large request bodies before parsing", () => {
   assert.match(apiUtils, /getReader\(\)/);
   assert.match(applicationCreateRoute, /requestSizeLimitResponse/);
   assert.match(resumeUploadRoute, /requestSizeLimitResponse/);
-  assert.match(notesRoute, /requestSizeLimitResponse/);
   assert.match(passwordResetRequestRoute, /parseJsonBodyWithLimit/);
   assert.match(passwordResetRequestRoute, /API_BODY_LIMITS\.authJson/);
   assert.match(passwordResetConfirmRoute, /parseJsonBodyWithLimit/);

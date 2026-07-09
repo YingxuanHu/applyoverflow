@@ -820,6 +820,19 @@ export async function claimSourceTasks(
   }
 
   const generalLimit = Math.max(0, limit - retentionClaimed.length);
+
+  // URL_HEALTH drains oldest-first instead of priority-first. Unlike
+  // CONNECTOR_POLL, its priorityScore spread is not meaningful: every enqueue
+  // cycle recomputes scores in the same narrow band, so under priority-first
+  // ordering each fresh batch outbids the previous one and older tasks starve
+  // indefinitely (production: 9k+ pending with tasks six weeks past their
+  // notBeforeAt). Oldest-first gives every task a bounded wait — the whole
+  // point of URL_HEALTH is refreshing the stalest liveness evidence — with
+  // priorityScore only breaking ties within the same readiness instant.
+  const generalClaimOrdering =
+    kind === "URL_HEALTH"
+      ? Prisma.sql`st."notBeforeAt" ASC, st."priorityScore" DESC`
+      : Prisma.sql`st."priorityScore" DESC, st."createdAt" ASC`;
   const generalClaimed =
     generalLimit > 0
       ? await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -834,7 +847,7 @@ export async function claimSourceTasks(
         ${excludedConnectorFilter}
         ${connectorPollSourceReadinessFilter}
         ${rediscoverySourceReadinessFilter}
-      ORDER BY st."priorityScore" DESC, st."createdAt" ASC
+      ORDER BY ${generalClaimOrdering}
       LIMIT ${generalLimit}
       FOR UPDATE SKIP LOCKED
     )

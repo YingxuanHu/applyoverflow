@@ -21,6 +21,7 @@ import "dotenv/config";
 import { prisma } from "../src/lib/db";
 import {
   PROBEABLE_ATS_PLATFORMS,
+  createProbeRunContext,
   probeAtsSlugsForCompany,
   type AtsSlugProbeResult,
   type ProbeableAtsPlatform,
@@ -36,6 +37,7 @@ type CliArgs = {
   concurrency: number;
   platforms: ProbeableAtsPlatform[];
   minJobCount: number;
+  requestDelayMs: number;
   apply: boolean;
 };
 
@@ -44,9 +46,10 @@ function parseArgs(argv: string[]): CliArgs {
     mode: "coverage",
     names: [],
     limit: 100,
-    concurrency: 4,
+    concurrency: 2,
     platforms: PROBEABLE_ATS_PLATFORMS,
     minJobCount: 1,
+    requestDelayMs: 250,
     apply: false,
   };
 
@@ -69,8 +72,11 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (raw.startsWith("--concurrency=")) {
       args.concurrency = Math.min(
         16,
-        Math.max(1, Number.parseInt(raw.slice("--concurrency=".length), 10) || 4)
+        Math.max(1, Number.parseInt(raw.slice("--concurrency=".length), 10) || 2)
       );
+    } else if (raw.startsWith("--request-delay-ms=")) {
+      const parsed = Number.parseInt(raw.slice("--request-delay-ms=".length), 10);
+      if (Number.isFinite(parsed)) args.requestDelayMs = Math.max(0, parsed);
     } else if (raw.startsWith("--min-job-count=")) {
       args.minJobCount = Math.max(
         0,
@@ -212,8 +218,19 @@ async function main() {
   let totalHits = 0;
   let totalMismatches = 0;
   let totalBlocked = 0;
+  let totalPlatformSkips = 0;
   let totalRegistered = 0;
   const queue = [...targets];
+
+  // One context per run: the first blocked verdict benches the platform for
+  // every remaining company instead of hammering it another N times.
+  const runContext = createProbeRunContext({
+    onPlatformBenched: (platform) => {
+      console.warn(
+        `[probe] platform ${platform} benched for the rest of this run (blocked)`
+      );
+    },
+  });
 
   const workers = Array.from(
     { length: Math.min(args.concurrency, queue.length) },
@@ -227,11 +244,14 @@ async function main() {
           domain: company.domain,
           platforms: args.platforms,
           minJobCount: args.minJobCount,
+          requestDelayMs: args.requestDelayMs,
+          runContext,
         });
         processed += 1;
         totalHits += summary.hits.length;
         totalMismatches += summary.identityMismatches.length;
         totalBlocked += summary.blocked.length;
+        totalPlatformSkips += summary.skippedPlatforms.length;
 
         for (const mismatch of summary.identityMismatches) {
           console.warn(
@@ -272,7 +292,7 @@ async function main() {
   await Promise.all(workers);
 
   console.log(
-    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} identityMismatches=${totalMismatches} blocked=${totalBlocked}${
+    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} identityMismatches=${totalMismatches} blocked=${totalBlocked} platformSkips=${totalPlatformSkips}${
       args.apply ? "" : " (dry run — pass --apply to register hits)"
     }`
   );

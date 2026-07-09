@@ -4,6 +4,10 @@ import test from "node:test";
 import {
   deriveJobTitleFromUrls,
   hasUnresolvedGenericCompanyName,
+  isPlaceholderCompanyName,
+  JOBBANK_PLACEHOLDER_COMPANY_NAME,
+  NAICS_SECTOR_COMPANY_PLACEHOLDERS,
+  PLACEHOLDER_COMPANY_NAMES,
   sanitizeCompanyName,
   selectBestJobTitle,
   sanitizeJobTitle,
@@ -95,6 +99,50 @@ test("treats generic ATS and public-board host slugs as unresolved company names
       "Teamtailor",
       "https://synthesized.teamtailor.com/jobs/7634610-account-executive-apac"
     ),
+    true
+  );
+});
+
+test("treats JobBank placeholder and NAICS sector names as unresolved company names", () => {
+  assert.equal(
+    hasUnresolvedGenericCompanyName(
+      "Job Bank Employer",
+      "https://www.jobbank.gc.ca/jobsearch/jobposting/49523704"
+    ),
+    true
+  );
+  // Placeholder detection must not depend on the apply URL.
+  assert.equal(hasUnresolvedGenericCompanyName("Job Bank Employer"), true);
+  assert.equal(hasUnresolvedGenericCompanyName("Retail trade"), true);
+  assert.equal(
+    hasUnresolvedGenericCompanyName("HEALTH CARE and Social Assistance"),
+    true
+  );
+  // Punctuation variants of sector names still classify as placeholders.
+  assert.equal(
+    hasUnresolvedGenericCompanyName("Mining quarrying and oil and gas extraction"),
+    true
+  );
+  for (const sector of NAICS_SECTOR_COMPANY_PLACEHOLDERS) {
+    assert.equal(hasUnresolvedGenericCompanyName(sector), true, sector);
+  }
+});
+
+test("does not flag real employers that contain sector words", () => {
+  assert.equal(hasUnresolvedGenericCompanyName("Retail Trade Solutions Inc."), false);
+  assert.equal(hasUnresolvedGenericCompanyName("PCL Construction"), false);
+  assert.equal(hasUnresolvedGenericCompanyName("Canadian Manufacturing Ltd"), false);
+});
+
+test("isPlaceholderCompanyName matches case- and punctuation-insensitively", () => {
+  assert.equal(isPlaceholderCompanyName("job bank employer"), true);
+  assert.equal(
+    isPlaceholderCompanyName("Other services except public administration"),
+    true
+  );
+  assert.equal(isPlaceholderCompanyName("Shopify"), false);
+  assert.equal(
+    PLACEHOLDER_COMPANY_NAMES.includes(JOBBANK_PLACEHOLDER_COMPANY_NAME),
     true
   );
 });

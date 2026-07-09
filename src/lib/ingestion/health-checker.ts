@@ -15,6 +15,10 @@ import {
   claimSourceTasks,
   finishSourceTask,
 } from "@/lib/ingestion/task-queue";
+import {
+  resolveUrlHealthEnqueueBudget,
+  resolveUrlHealthPendingCeiling,
+} from "@/lib/ingestion/url-health-backlog-policy";
 import type {
   JobUrlHealthResult,
   JobUrlHealthUrlType,
@@ -79,7 +83,24 @@ export async function enqueuePriorityUrlHealthTasks(options: {
     return { enqueuedCount: 0, candidateIds: [] as string[] };
   }
   const limit = options.limit ?? URL_HEALTH_ENQUEUE_DEFAULT_LIMIT;
-  const candidates = await selectHealthCandidates(limit, now);
+
+  // Backlog ceiling: only enqueue into the headroom under the pending-task
+  // ceiling. Enqueueing faster than the drain rate just grows a backlog the
+  // next cycle's candidate selection would re-derive anyway; the candidates
+  // skipped here are picked up by a later cycle once the backlog drains.
+  const pendingCount = await prisma.sourceTask.count({
+    where: { kind: "URL_HEALTH", status: "PENDING" },
+  });
+  const enqueueBudget = resolveUrlHealthEnqueueBudget(
+    limit,
+    pendingCount,
+    resolveUrlHealthPendingCeiling()
+  );
+  if (enqueueBudget <= 0) {
+    return { enqueuedCount: 0, candidateIds: [] as string[] };
+  }
+
+  const candidates = await selectHealthCandidates(enqueueBudget, now);
 
   if (candidates.length === 0) {
     return { enqueuedCount: 0, candidateIds: [] as string[] };

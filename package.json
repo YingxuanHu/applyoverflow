@@ -84,6 +84,7 @@
     "jobs:export-company-industry-candidates": "tsx -r dotenv/config scripts/export-company-industry-candidates.ts",
     "jobs:backfill-feed-index": "tsx -r dotenv/config scripts/backfill-job-feed-index.ts",
     "jobs:repair-feed-visibility": "tsx -r dotenv/config scripts/repair-job-feed-visibility.ts",
+    "jobs:cleanup-placeholder-companies": "tsx -r dotenv/config scripts/cleanup-placeholder-company-jobs.ts",
     "jobs:refresh-feed-summary": "tsx -r dotenv/config scripts/refresh-job-feed-summary.ts",
     "jobs:diagnose-apply-link": "tsx -r dotenv/config scripts/diagnose-apply-link-quality.ts",
     "jobs:url-health-cycle": "tsx -r dotenv/config scripts/url-health-cycle.ts",
