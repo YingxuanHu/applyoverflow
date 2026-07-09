@@ -166,3 +166,32 @@ test("explicit NA names beat foreign evidence in multi-location strings", async 
     false
   );
 });
+
+test("NA towns named after foreign places stay American", async () => {
+  const inferRegion = await loadInferRegion();
+  for (const [location, expected] of [
+    ["Peru, IN", "US"],
+    ["Turkey, TX", "US"],
+    ["Moscow, ID", "US"],
+    ["Warsaw, IN", "US"],
+    ["Greece, NY", "US"],
+  ] as const) {
+    assert.equal(isClearlyNonNorthAmericanLocation(location), false, location);
+    assert.equal(inferRegion(location), expected, location);
+  }
+});
+
+test("homonym-free foreign cities beat colliding codes; homonym countries still detected without NA codes", async () => {
+  const inferRegion = await loadInferRegion();
+  for (const location of [
+    "Jakarta, ID",
+    "South Jakarta, ID",
+    "Jakarta, JK, ID - Remote",
+    "Warsaw, Poland",
+    "Mexico City, Mexico",
+    "Lima, Peru",
+  ]) {
+    assert.equal(isClearlyNonNorthAmericanLocation(location), true, location);
+    assert.equal(inferRegion(location), null, location);
+  }
+});

@@ -629,6 +629,7 @@ const NON_NA_CITY_MARKERS = [
 const FOREIGN_ADMIN_REGION_MARKERS = [
   "DKI JAKARTA",
   "JAKARTA RAYA",
+  "DAERAH KHUSUS",
   "WEST JAVA",
   "EAST JAVA",
   "JAWA BARAT",
@@ -830,18 +831,107 @@ function buildStandaloneMarkerPattern(markers: readonly string[]): RegExp {
 }
 
 const NA_QUALIFIER_PATTERN = buildStandaloneMarkerPattern(NA_QUALIFIER_MARKERS);
-// STRONG foreign evidence (country + admin-region names, and collision-free
-// country-code segments) outranks NA state/province CODE segments; weak
-// evidence (city names) does not — so "Paris, TX" stays American while
-// "Jakarta Selatan, DKI Jakarta, ID" cannot hide behind Idaho's code.
-const STRONG_NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern([
+// Foreign place names (cities AND countries) that share a name with a real
+// US/CA municipality. These stay WEAK evidence — an accompanying NA
+// state/province code wins, because "Paris, TX", "Moscow, ID", "Warsaw, IN",
+// "Peru, IN", "Turkey, TX", "London, ON" are genuine North American towns.
+// Everything else foreign is STRONG evidence: "Jakarta, ID" has no Idaho
+// homonym, so the trailing-code collision is exactly how foreign rows got
+// stamped US in production.
+const NA_HOMONYM_GEO_MARKERS = new Set([
+  "PARIS",
+  "LONDON",
+  "CAMBRIDGE",
+  "BRISTOL",
+  "MANCHESTER",
+  "BIRMINGHAM",
+  "DUBLIN",
+  "ATHENS",
+  "ROME",
+  "NAPLES",
+  "BERLIN",
+  "MOSCOW",
+  "ODESSA",
+  "VIENNA",
+  "TOLEDO",
+  "LIMA",
+  "MELBOURNE",
+  "HAMBURG",
+  "FRANKFURT",
+  "WARSAW",
+  "MILAN",
+  "FLORENCE",
+  "GENEVA",
+  "OXFORD",
+  "YORK",
+  "DELHI",
+  "CAIRO",
+  "AMSTERDAM",
+  "SYDNEY",
+  "PERTH",
+  "GLASGOW",
+  "EDINBURGH",
+  "BELFAST",
+  "LEEDS",
+  "SHEFFIELD",
+  "VALENCIA",
+  "BARCELONA",
+  "BATH",
+  "BRIGHTON",
+  "DOVER",
+  "DRESDEN",
+  "LANCASTER",
+  "LISBON",
+  "MADRID",
+  "MEDINA",
+  "MEXICO",
+  "SEVILLE",
+  "TORONTO",
+  "WATERLOO",
+  // Countries that are also US town names.
+  "MEXICO",
+  "PERU",
+  "BRAZIL",
+  "TURKEY",
+  "POLAND",
+  "NORWAY",
+  "DENMARK",
+  "FINLAND",
+  "SWEDEN",
+  "IRELAND",
+  "SCOTLAND",
+  "WALES",
+  "ENGLAND",
+  "EGYPT",
+  "CHINA",
+  "GREECE",
+]);
+
+const ALL_NON_NA_NAME_MARKERS = [
   ...OUT_OF_SCOPE_GEO_MARKERS,
   ...ADDITIONAL_NON_NA_COUNTRY_MARKERS,
   ...FOREIGN_ADMIN_REGION_MARKERS,
-]);
-const WEAK_NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern([
   ...NON_NA_CITY_MARKERS,
-]);
+];
+const STRONG_NON_NA_NAME_MARKERS = ALL_NON_NA_NAME_MARKERS.filter(
+  (marker) => !NA_HOMONYM_GEO_MARKERS.has(marker)
+);
+const WEAK_NON_NA_NAME_MARKERS = ALL_NON_NA_NAME_MARKERS.filter((marker) =>
+  NA_HOMONYM_GEO_MARKERS.has(marker)
+);
+
+// STRONG foreign evidence (homonym-free country/region/city names, and
+// collision-free country-code segments) outranks NA state/province CODE
+// segments; WEAK evidence (NA-homonym names) does not — so "Paris, TX" and
+// "Peru, IN" stay American while "Jakarta Selatan, DKI Jakarta, ID" cannot
+// hide behind Idaho's code.
+const STRONG_NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern(
+  STRONG_NON_NA_NAME_MARKERS
+);
+const WEAK_NON_NA_MARKER_PATTERN =
+  WEAK_NON_NA_NAME_MARKERS.length > 0
+    ? buildStandaloneMarkerPattern(WEAK_NON_NA_NAME_MARKERS)
+    : /$^/;
 
 function splitCommaSegments(folded: string): string[] {
   return folded
