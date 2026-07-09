@@ -156,7 +156,7 @@ async function loadCandidates(
     { lastValidatedAt: "desc" },
     { lastSeenAt: "desc" },
   ] satisfies Prisma.SourceCandidateOrderByWithRelationInput[];
-  const [validatedRows, newOrStaleRows] = await Promise.all([
+  const [validatedRows, newOrStaleRows, promotedOrphanRows] = await Promise.all([
     prisma.sourceCandidate.findMany({
       where: {
         ...candidateQualityWhere,
@@ -175,9 +175,22 @@ async function loadCandidates(
       orderBy,
       take: Math.max(limit * 3, 600),
     }),
+    prisma.sourceCandidate.findMany({
+      where: {
+        ...candidateQualityWhere,
+        status: "PROMOTED",
+        atsTenantId: { not: null },
+        companyId: { not: null },
+        atsTenant: { is: { companySource: { is: null } } },
+      },
+      include,
+      orderBy,
+      take: Math.max(limit * 2, 400),
+    }),
   ]);
   const seenIds = new Set<string>();
-  const rows = [...validatedRows, ...newOrStaleRows]
+  const orphanIds = new Set(promotedOrphanRows.map((row) => row.id));
+  const rows = [...promotedOrphanRows, ...validatedRows, ...newOrStaleRows]
     .filter((row) => {
       if (seenIds.has(row.id)) return false;
       seenIds.add(row.id);
@@ -204,6 +217,7 @@ async function loadCandidates(
     sourceQualityScore: Number(row.sourceQualityScore ?? 0),
     failureCount: Number(row.failureCount ?? 0),
     lastValidatedAt: row.lastValidatedAt,
+    repairMissingSource: orphanIds.has(row.id),
   }));
 }
 
@@ -268,6 +282,9 @@ async function applyPromotions(
           sourceCandidateId: action.candidateId,
           actionKind: action.kind,
           candidateUrl: action.candidateUrl,
+          allowPromotedRepair: action.evidence.includes(
+            "repair-missing-company-source"
+          ),
           reason: action.reason,
           evidence: toJsonValue(action.evidence),
         },

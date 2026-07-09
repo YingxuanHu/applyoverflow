@@ -217,12 +217,74 @@ function scoreSemanticText(intent: UserJobIntent, job: NormalizedJobMatchFields)
   return clamp((matched.length / Math.min(targets.length, 12)) * 100);
 }
 
+function scoreTopApplicantFit(input: {
+  intent: UserJobIntent;
+  job: NormalizedJobMatchFields;
+  roleGate: RoleGateResult;
+  seniorityGate: SeniorityGateResult;
+  skillFit: { score: number; matched: string[] };
+  history: TopPickUserHistory;
+}) {
+  const role = roleScore(input.roleGate);
+  const seniority = seniorityScore(input.seniorityGate);
+  const skill = input.skillFit.score;
+  let requirementFit = 62;
+
+  if (
+    input.job.minYearsRequired != null &&
+    input.intent.maxRequiredYears != null
+  ) {
+    const yearsGap = input.job.minYearsRequired - input.intent.maxRequiredYears;
+    if (yearsGap <= 0) requirementFit = 92;
+    else if (yearsGap === 1) requirementFit = 64;
+    else requirementFit = 34;
+  } else if (input.job.seniorityLevel && input.seniorityGate.strength !== "weak") {
+    requirementFit = 78;
+  }
+
+  let behaviorFit = 50;
+  if (input.history.savedJobIds.has(input.job.jobId)) behaviorFit += 18;
+  if (
+    input.job.roleCategory &&
+    input.intent.positiveSignals.likedRoleCategories.includes(input.job.roleCategory)
+  ) {
+    behaviorFit += 18;
+  }
+  if (
+    input.job.roleCategory &&
+    (input.history.suppressedRoleCategories.has(input.job.roleCategory) ||
+      input.intent.negativeSignals.dislikedRoleCategories.includes(input.job.roleCategory))
+  ) {
+    behaviorFit -= 30;
+  }
+
+  const sourceReliability = clamp(input.job.sourceQualityScore ?? 52);
+  const profileConfidence = clamp(
+    ((input.intent.confidence.roleIntent +
+      input.intent.confidence.seniorityIntent +
+      input.intent.confidence.skillIntent) /
+      3) *
+      100
+  );
+
+  return clamp(
+    role * 0.28 +
+      seniority * 0.28 +
+      skill * 0.2 +
+      requirementFit * 0.1 +
+      behaviorFit * 0.07 +
+      sourceReliability * 0.04 +
+      profileConfidence * 0.03
+  );
+}
+
 function generateReasons(input: {
   intent: UserJobIntent;
   job: NormalizedJobMatchFields;
   roleGate: RoleGateResult;
   seniorityGate: SeniorityGateResult;
   skillFit: { score: number; matched: string[] };
+  topApplicantFit: number;
   locationWorkModeFit: number;
   salaryFit: { score: number; unknown: boolean };
   freshness: number;
@@ -236,6 +298,14 @@ function generateReasons(input: {
   }
   if (input.skillFit.matched.length > 0) {
     reasons.push(`Skill match: ${input.skillFit.matched.slice(0, 4).join(", ")}.`);
+  }
+  if (
+    input.topApplicantFit >= 82 &&
+    reasons.length < 3 &&
+    (input.roleGate.strength === "exact" || input.roleGate.strength === "strong") &&
+    input.seniorityGate.strength !== "weak"
+  ) {
+    reasons.push("Strong applicant fit for this posting.");
   }
   if (input.locationWorkModeFit >= 78) {
     reasons.push("Location or work mode matches your preferences.");
@@ -311,6 +381,14 @@ export function scoreJobForUser(
   }
 
   const skillFit = scoreSkillFit(intent, job);
+  const topApplicantFit = scoreTopApplicantFit({
+    intent,
+    job,
+    roleGate,
+    seniorityGate,
+    skillFit,
+    history,
+  });
   const semanticFit = scoreSemanticText(intent, job);
   const preferenceFit = scorePreferenceFit(intent, job, history);
   const locationWorkModeFit = scoreLocationWorkMode(intent, job);
@@ -322,6 +400,7 @@ export function scoreJobForUser(
     roleFit: rounded(roleScore(roleGate)),
     seniorityFit: rounded(seniorityScore(seniorityGate)),
     skillFit: rounded(skillFit.score),
+    topApplicantFit: rounded(topApplicantFit),
     semanticFit: rounded(semanticFit),
     preferenceFit: rounded(preferenceFit),
     locationWorkModeFit: rounded(locationWorkModeFit),
@@ -335,6 +414,7 @@ export function scoreJobForUser(
     (components.roleFit * TOP_PICK_SCORING_WEIGHTS.roleFit +
       components.seniorityFit * TOP_PICK_SCORING_WEIGHTS.seniorityFit +
       components.skillFit * TOP_PICK_SCORING_WEIGHTS.skillFit +
+      components.topApplicantFit * TOP_PICK_SCORING_WEIGHTS.topApplicantFit +
       components.semanticFit * TOP_PICK_SCORING_WEIGHTS.semanticFit +
       components.preferenceFit * TOP_PICK_SCORING_WEIGHTS.preferenceFit +
       components.locationWorkModeFit * TOP_PICK_SCORING_WEIGHTS.locationWorkModeFit +
@@ -374,6 +454,7 @@ export function scoreJobForUser(
     scoreCap,
     scoreBreakdown: {
       version: "top-picks-v2",
+      strategy: "linkedin-style-preferences-profile-top-applicant-proxy",
       candidateChannels: context.candidateChannels ?? [],
       components,
       rawScore: rounded(rawScore),
@@ -396,6 +477,7 @@ export function scoreJobForUser(
       roleGate,
       seniorityGate,
       skillFit,
+      topApplicantFit,
       locationWorkModeFit,
       salaryFit,
       freshness: freshnessFit,

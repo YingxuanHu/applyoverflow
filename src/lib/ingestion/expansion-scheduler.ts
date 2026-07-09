@@ -563,7 +563,11 @@ async function validateCompanySiteCandidateBeforePromotion(
   }
 }
 
-async function processSourceValidationTask(taskId: string, sourceCandidateId: string) {
+async function processSourceValidationTask(
+  taskId: string,
+  sourceCandidateId: string,
+  options: { allowPromotedRepair?: boolean } = {}
+) {
   const candidate = await prisma.sourceCandidate.findUnique({
     where: { id: sourceCandidateId },
     include: {
@@ -579,7 +583,10 @@ async function processSourceValidationTask(taskId: string, sourceCandidateId: st
     return;
   }
 
-  const skipReason = getSourceCandidateValidationSkipReason(candidate);
+  const skipReason = getSourceCandidateValidationSkipReason({
+    ...candidate,
+    allowPromotedRepair: options.allowPromotedRepair,
+  });
   if (skipReason) {
     await finishPipelineTask(taskId, "SKIPPED", {
       lastError: skipReason,
@@ -709,7 +716,9 @@ export async function runPipelineWorker(options: {
               if (typeof payload.sourceCandidateId !== "string") {
                 throw new Error("Missing sourceCandidateId payload.");
               }
-              await processSourceValidationTask(task.id, payload.sourceCandidateId);
+              await processSourceValidationTask(task.id, payload.sourceCandidateId, {
+                allowPromotedRepair: payload.allowPromotedRepair === true,
+              });
               break;
             case "RAW_PARSE":
               if (typeof payload.rawJobId !== "string") {

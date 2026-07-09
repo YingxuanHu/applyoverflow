@@ -13,6 +13,7 @@ type SourceCandidateValidationGuardInput = {
   status: string;
   failureCount: number;
   lastValidatedAt: Date | null;
+  allowPromotedRepair?: boolean;
 };
 
 export function getSourceCandidateValidationMissStatus(message: string) {
@@ -31,7 +32,10 @@ export function getSourceCandidateValidationSkipReason(
   candidate: SourceCandidateValidationGuardInput,
   now: Date = new Date()
 ) {
-  if (candidate.status === "PROMOTED" || candidate.status === "REJECTED") {
+  if (
+    (candidate.status === "PROMOTED" && !candidate.allowPromotedRepair) ||
+    candidate.status === "REJECTED"
+  ) {
     return `Skipped ${candidate.status.toLowerCase()} source candidate.`;
   }
 

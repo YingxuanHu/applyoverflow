@@ -64,6 +64,19 @@ test("source validation skips exhausted and terminal candidates", () => {
   );
 });
 
+test("source validation permits an explicit promoted-source repair", () => {
+  assert.equal(
+    getSourceCandidateValidationSkipReason(
+      {
+        ...candidate({ status: "PROMOTED" }),
+        allowPromotedRepair: true,
+      },
+      NOW
+    ),
+    null
+  );
+});
+
 test("source validation rejects hard missing candidate pages", () => {
   assert.equal(
     getSourceCandidateValidationMissStatus(

@@ -46,6 +46,7 @@ export type PromotionCandidate = {
   sourceQualityScore: number;
   failureCount: number;
   lastValidatedAt: Date | null;
+  repairMissingSource?: boolean;
 };
 
 export type ExistingPromotionSource = {
@@ -362,7 +363,12 @@ function candidateBaseScore(candidate: PromotionCandidate, ownership: CandidateO
 }
 
 function hasRecentSourceCandidateValidation(candidate: PromotionCandidate) {
-  if (candidate.status !== "VALIDATED" || !candidate.lastValidatedAt) return false;
+  if (
+    (candidate.status !== "VALIDATED" && !candidate.repairMissingSource) ||
+    !candidate.lastValidatedAt
+  ) {
+    return false;
+  }
 
   const validationAgeMs = Date.now() - candidate.lastValidatedAt.getTime();
   const maxAgeMs = AUTO_PROMOTION_VALIDATION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
@@ -446,7 +452,7 @@ function planCandidate(
     `lastValidatedAt=${candidate.lastValidatedAt?.toISOString() ?? "never"}`,
   ];
 
-  if (candidate.status === "PROMOTED") {
+  if (candidate.status === "PROMOTED" && !candidate.repairMissingSource) {
     return buildAction({
       kind: "SKIP_DUPLICATE",
       candidate,
@@ -456,6 +462,10 @@ function planCandidate(
       reason: "Candidate has already been promoted.",
       evidence,
     });
+  }
+
+  if (candidate.repairMissingSource) {
+    evidence.push("repair-missing-company-source");
   }
 
   if (candidate.status === "REJECTED" || isLowQualityCandidate(candidate)) {

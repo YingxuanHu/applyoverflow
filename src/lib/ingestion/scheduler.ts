@@ -21,6 +21,10 @@ import {
   getScheduledConnectors,
   type ScheduledConnectorDefinition,
 } from "@/lib/ingestion/registry";
+import {
+  shouldDeferLegacySources,
+  type CompanySourceBacklog,
+} from "@/lib/ingestion/scheduled-source-backlog-policy";
 import type { IngestionSummary } from "@/lib/ingestion/types";
 
 export type ScheduledIngestionResult = {
@@ -103,7 +107,6 @@ const LEGACY_AGGREGATOR_DEFER_FAMILIES = new Set([
   "jobbank-live",
   "usajobs",
 ]);
-
 function readPositiveIntEnv(name: string) {
   const raw = process.env[name]?.trim() ?? "";
   const parsed = Number.parseInt(raw, 10);
@@ -168,15 +171,14 @@ function isDeferrableLegacyAggregator(sourceName: string) {
   return LEGACY_AGGREGATOR_DEFER_FAMILIES.has(getSourceFamily(sourceName));
 }
 
-async function countDueCompanySourceBacklog(now: Date) {
-  return prisma.sourceTask.count({
+async function countDueCompanySourceBacklog(now: Date): Promise<CompanySourceBacklog> {
+  const rows = await prisma.sourceTask.groupBy({
+    by: ["kind"],
     where: {
       status: "PENDING",
       notBeforeAt: { lte: now },
       companySourceId: { not: null },
-      kind: {
-        in: ["SOURCE_VALIDATION", "CONNECTOR_POLL", "REDISCOVERY"],
-      },
+      kind: { in: ["CONNECTOR_POLL", "REDISCOVERY"] },
       companySource: {
         connectorName: {
           notIn: [
@@ -195,7 +197,17 @@ async function countDueCompanySourceBacklog(now: Date) {
         },
       },
     },
+    _count: { _all: true },
   });
+
+  return rows.reduce<CompanySourceBacklog>(
+    (backlog, row) => {
+      if (row.kind === "CONNECTOR_POLL") backlog.connectorPoll = row._count._all;
+      if (row.kind === "REDISCOVERY") backlog.rediscovery = row._count._all;
+      return backlog;
+    },
+    { connectorPoll: 0, rediscovery: 0 }
+  );
 }
 
 /**
@@ -324,14 +336,15 @@ export async function runScheduledIngestion(options: {
   });
   const dueCompanySourceBacklog =
     options.connectorKeys && options.connectorKeys.length > 0
-      ? 0
+      ? { connectorPoll: 0, rediscovery: 0 }
       : await countDueCompanySourceBacklog(now).catch((error: unknown) => {
           console.warn(
             "[scheduler] Company-source backlog lookup failed; legacy aggregators will not be deferred.",
             error instanceof Error ? error.message : error
           );
-          return 0;
+          return { connectorPoll: 0, rediscovery: 0 };
         });
+  const deferLegacySources = shouldDeferLegacySources(dueCompanySourceBacklog);
 
   // Run legacy-only connectors (aggregator feeds, job boards) FIRST.
   // There are only ~14 of these but they contribute 80k+ jobs. Without this
@@ -387,7 +400,7 @@ export async function runScheduledIngestion(options: {
     }
 
     if (
-      dueCompanySourceBacklog > 0 &&
+      deferLegacySources &&
       isDeferrableLegacyAggregator(definition.connector.sourceName)
     ) {
       skippedConnectors.push({

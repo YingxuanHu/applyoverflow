@@ -109,6 +109,30 @@ test("buildSourceCandidatePromotionPlan promotes strong owned ATS candidates", (
   assert.equal(action?.detectedSource?.connectorName, "ashby");
 });
 
+test("buildSourceCandidatePromotionPlan repairs promoted ATS candidates missing their source", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        status: "PROMOTED",
+        repairMissingSource: true,
+      }),
+    ],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "PROMOTE_ATS_SOURCE");
+  assert.ok(action?.evidence.includes("repair-missing-company-source"));
+});
+
+test("buildSourceCandidatePromotionPlan still skips intact promoted candidates", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [candidate({ status: "PROMOTED" })],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "SKIP_DUPLICATE");
+});
+
 test("buildSourceCandidatePromotionPlan promotes validated owned Oracle Cloud sources", () => {
   const oracleUrl =
     "https://fa-ewgu-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/cx/requisitions";

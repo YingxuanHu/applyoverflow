@@ -13,16 +13,17 @@ export const TOP_PICKS_RESULT_TTL_MS =
   TOP_PICKS_REFRESH_MAX_AGE_MINUTES * 60_000;
 
 export const TOP_PICK_SCORING_WEIGHTS = {
-  roleFit: 34,
-  seniorityFit: 24,
-  skillFit: 18,
-  semanticFit: 8,
+  roleFit: 30,
+  seniorityFit: 22,
+  skillFit: 15,
+  topApplicantFit: 16,
+  semanticFit: 6,
   preferenceFit: 6,
   locationWorkModeFit: 6,
   salaryFit: 3,
   freshnessFit: 3,
-  sourceQualityFit: 3,
-  feedbackFit: 3,
+  sourceQualityFit: 4,
+  feedbackFit: 5,
 } as const;
 
 export const TOP_PICK_MIN_SCORE =

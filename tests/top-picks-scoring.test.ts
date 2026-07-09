@@ -195,6 +195,42 @@ describe("scoreJobForUser v2", () => {
     ok(result.matchReasons.some((reason) => reason.includes("Strong role match")));
   });
 
+  it("stores LinkedIn-style top applicant proxy metadata for explainable ranking", () => {
+    const result = scoreJobForUser(intent(), job(), emptyHistory);
+    const breakdown = result.scoreBreakdown as {
+      strategy?: string;
+      components?: Record<string, number>;
+    };
+
+    strictEqual(
+      breakdown.strategy,
+      "linkedin-style-preferences-profile-top-applicant-proxy"
+    );
+    ok((breakdown.components?.topApplicantFit ?? 0) >= 80);
+  });
+
+  it("ranks stronger applicant-fit jobs above shallow role-only matches", () => {
+    const strongFit = scoreJobForUser(intent(), job(), emptyHistory);
+    const shallowFit = scoreJobForUser(
+      intent(),
+      job({
+        id: "job_shallow",
+        title: "Junior Software Engineer",
+        shortSummary: "Build product features with a modern engineering team.",
+        experienceLevelEvidenceJson: [],
+        salaryMin: null,
+        salaryMax: null,
+        qualityScore: 55,
+        trustScore: 55,
+      }),
+      emptyHistory
+    );
+
+    strictEqual(strongFit.excluded, false);
+    strictEqual(shallowFit.excluded, false);
+    ok(strongFit.score > shallowFit.score);
+  });
+
   it("rejects wrong-role jobs even when they mention matching skills", () => {
     const result = scoreJobForUser(
       intent(),

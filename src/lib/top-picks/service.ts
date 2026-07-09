@@ -546,11 +546,12 @@ export async function retrieveTopPickCandidates(
     .map((title) => normalizeIntentText(title))
     .filter((title) => title.length >= 4)
     .slice(0, 4);
-  if (titleTerms.length > 0 && allowedRoles.length === 0) {
+  if (titleTerms.length > 0) {
     candidateBatchPromises.push(
       fetchCandidateIds(
         "target_title",
         andFeedWhere(baseWhere, {
+          ...seniorityWhere,
           OR: titleTerms.map((term) => ({
             title: { contains: term, mode: "insensitive" as const },
           })),
@@ -563,7 +564,21 @@ export async function retrieveTopPickCandidates(
   const skills = [...intent.mustHaveSkills, ...intent.strongSkills]
     .filter((skill) => normalizeText(skill).length >= 3)
     .slice(0, MAX_TEXT_SKILL_TERMS);
-  if (skills.length > 0 && allowedRoles.length === 0) {
+  if (skills.length > 0 && allowedRoles.length > 0) {
+    candidateBatchPromises.push(
+      fetchCandidateIds(
+        "skill_inside_compatible_role",
+        andFeedWhere(baseWhere, {
+          ...roleCompatibleWhere,
+          ...seniorityWhere,
+          OR: skills.map((skill) => ({
+            searchText: { contains: skill, mode: "insensitive" as const },
+          })),
+        }),
+        smallChannelLimit
+      )
+    );
+  } else if (skills.length > 0) {
     candidateBatchPromises.push(
       fetchCandidateIds(
         "skill_text_fallback",
@@ -589,6 +604,25 @@ export async function retrieveTopPickCandidates(
           normalizedRoleCategory: { in: intent.positiveSignals.likedRoleCategories },
           normalizedRoleCategoryConfidence: { gte: 0.66 },
           ...seniorityWhere,
+        }),
+        smallChannelLimit
+      )
+    );
+  }
+
+  const likedTitleTerms = intent.positiveSignals.likedTitles
+    .map((title) => normalizeIntentText(title))
+    .filter((title) => title.length >= 4)
+    .slice(0, 4);
+  if (likedTitleTerms.length > 0) {
+    candidateBatchPromises.push(
+      fetchCandidateIds(
+        "positive_feedback_title",
+        andFeedWhere(baseWhere, {
+          ...seniorityWhere,
+          OR: likedTitleTerms.map((title) => ({
+            title: { contains: title, mode: "insensitive" as const },
+          })),
         }),
         smallChannelLimit
       )
@@ -622,6 +656,18 @@ export async function retrieveTopPickCandidates(
   }
 
   if (allowedRoles.length > 0) {
+    candidateBatchPromises.push(
+      fetchCandidateIds(
+        "top_applicant_proxy",
+        andFeedWhere(baseWhere, {
+          ...roleCompatibleWhere,
+          ...seniorityWhere,
+          qualityScore: { gte: 55 },
+          trustScore: { gte: 50 },
+        }),
+        largestChannelLimit
+      )
+    );
     candidateBatchPromises.push(
       fetchCandidateIds(
         "fresh_quality_inside_role",
