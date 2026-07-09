@@ -13,6 +13,11 @@ import {
   getDeadlineUrgency,
   getExpiringSoonMeta,
 } from "@/lib/job-display";
+import {
+  describeApplyPlatform,
+  describeVerification,
+  pickApplyPlatformSourceName,
+} from "@/lib/job-trust-display";
 import { cn } from "@/lib/utils";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
@@ -65,6 +70,13 @@ export default async function JobDetailPage({
   const deadlineValue = formatDeadlineValue(job.deadline);
   const applyModeLabel =
     reviewState === "NOT_ELIGIBLE" ? "Unavailable" : "Employer site";
+  const verification = describeVerification({
+    lastConfirmedAliveAt: job.lastConfirmedAliveAt,
+    lastSourceSeenAt: job.lastSourceSeenAt,
+  });
+  const applyPlatformLabel = describeApplyPlatform(
+    pickApplyPlatformSourceName(job.sourceMappings)
+  );
   const manualApplyHref =
     job.primaryExternalLink?.href ?? job.sourcePostingLink?.href ?? job.applyUrl;
   const displaySalary = resolveJobSalaryRange({
@@ -201,6 +213,12 @@ export default async function JobDetailPage({
           </p>
         </div>
         <Field label="Apply method" value={applyModeLabel} />
+        {applyPlatformLabel ? (
+          <Field label="Application platform" value={applyPlatformLabel} />
+        ) : null}
+        {verification ? (
+          <Field label="Last verified" value={verification.label} />
+        ) : null}
       </div>
 
       {latestSubmission ? (

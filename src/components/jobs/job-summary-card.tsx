@@ -17,6 +17,11 @@ import {
   getExpiringSoonMetaAt,
 } from "@/lib/job-display";
 import {
+  describeApplyPlatform,
+  describeVerification,
+  pickApplyPlatformSourceName,
+} from "@/lib/job-trust-display";
+import {
   getNormalizedRoleCategoryLabel,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "@/lib/job-metadata";
@@ -58,6 +63,14 @@ export function JobSummaryCard({
 
   // Lifecycle cue shown in the secondary row for non-LIVE jobs
   const lifecycleCue = getLifecycleCue(job.status);
+  const verification = describeVerification({
+    lastConfirmedAliveAt: job.lastConfirmedAliveAt,
+    lastSourceSeenAt: job.lastSourceSeenAt,
+    now: referenceNow,
+  });
+  const applyPlatformLabel = describeApplyPlatform(
+    pickApplyPlatformSourceName(job.sourceMappings)
+  );
   const anchorId = buildJobsReturnAnchorHash(job.id).slice(1);
 
   return (
@@ -123,6 +136,14 @@ export function JobSummaryCard({
               value={salaryLabel}
             />
           ) : null}
+          {applyPlatformLabel ? (
+            <span
+              title="Where the application is hosted"
+              className="rounded-full border border-border/70 bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground"
+            >
+              {applyPlatformLabel}
+            </span>
+          ) : null}
         </div>
 
         {summary ? (
@@ -133,6 +154,25 @@ export function JobSummaryCard({
 
         <p className="mt-2 truncate text-xs leading-5 text-muted-foreground sm:mt-3">
           Posted {formatPostedAge(job.postedAt, referenceNow)}
+          {verification ? (
+            <>
+              <Sep />
+              <span
+                title={
+                  verification.label.startsWith("Verified")
+                    ? "This posting was confirmed live on the employer's site"
+                    : "This posting was recently seen in a job source feed"
+                }
+                className={
+                  verification.tone === "fresh"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : undefined
+                }
+              >
+                {verification.label}
+              </span>
+            </>
+          ) : null}
           {roleLabel ? (
             <>
               <Sep />

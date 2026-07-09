@@ -234,6 +234,8 @@ const JOB_FEED_CARD_SELECT = (
     applyUrl: true,
     postedAt: true,
     deadline: true,
+    lastConfirmedAliveAt: true,
+    lastSourceSeenAt: true,
     eligibility: {
       select: {
         submissionCategory: true,

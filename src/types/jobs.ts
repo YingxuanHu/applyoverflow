@@ -66,6 +66,8 @@ export type JobCardData = {
   applyUrl: string;
   postedAt: string;
   deadline: string | null;
+  lastConfirmedAliveAt: string | null;
+  lastSourceSeenAt: string | null;
   isSaved: boolean;
   hasApplied: boolean;
   eligibility: JobCardEligibility;

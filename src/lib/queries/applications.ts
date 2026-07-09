@@ -555,6 +555,8 @@ function serializeJobDetail(job: {
   applyUrl: string;
   postedAt: Date;
   deadline: Date | null;
+  lastConfirmedAliveAt: Date | null;
+  lastSourceSeenAt: Date | null;
   description: string;
   region: JobDetailData["region"];
   employmentType: JobDetailData["employmentType"];

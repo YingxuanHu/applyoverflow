@@ -38,6 +38,8 @@ type JobSerializationInput = {
   applyUrl: string;
   postedAt: Date;
   deadline: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+  lastSourceSeenAt?: Date | null;
   eligibility: JobCardEligibility;
   sourceMappings: Array<{
     sourceName: string;
@@ -101,6 +103,8 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     applyUrl: job.applyUrl,
     postedAt: job.postedAt.toISOString(),
     deadline: job.deadline?.toISOString() ?? null,
+    lastConfirmedAliveAt: job.lastConfirmedAliveAt?.toISOString() ?? null,
+    lastSourceSeenAt: job.lastSourceSeenAt?.toISOString() ?? null,
     isSaved: job.isSaved,
     hasApplied: Boolean(job.hasApplied),
     eligibility: job.eligibility,

@@ -74,6 +74,8 @@ export const TOP_PICK_JOB_SELECT = (
     applyUrl: true,
     postedAt: true,
     deadline: true,
+    lastConfirmedAliveAt: true,
+    lastSourceSeenAt: true,
     qualityScore: true,
     trustScore: true,
     freshnessScore: true,
