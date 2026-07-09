@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   buildCompanySlugCandidates,
+  classifyIdentity,
+  computeCompanyNameSimilarity,
   probeAtsSlugsForCompany,
   type FetchLike,
 } from "@/lib/ingestion/discovery/ats-slug-probe";
@@ -116,6 +118,94 @@ test("429/403 responses classify as blocked, not miss", async () => {
   assert.equal(summary.hits.length, 0);
   assert.equal(summary.blocked.length, 1);
   assert.equal(summary.blocked[0].platform, "lever");
+});
+
+test("name similarity: containment, suffix noise, and zero overlap", () => {
+  assert.equal(computeCompanyNameSimilarity("Acme", "Acme Robotics, Inc."), 1);
+  assert.equal(
+    computeCompanyNameSimilarity("Acme Robotics", "ACME ROBOTICS LLC"),
+    1
+  );
+  assert.equal(computeCompanyNameSimilarity("Setpoint", "Blue Origin"), 0);
+  assert.ok(
+    computeCompanyNameSimilarity("Acme Widgets", "Acme Rockets") > 0 &&
+      computeCompanyNameSimilarity("Acme Widgets", "Acme Rockets") < 1
+  );
+});
+
+test("identity classification: match, mismatch, unverified", () => {
+  assert.equal(classifyIdentity("Acme", "Acme, Inc.").verdict, "match");
+  assert.equal(classifyIdentity("Setpoint", "Blue Origin").verdict, "mismatch");
+  assert.equal(classifyIdentity("Acme", null).verdict, "unverified");
+  assert.equal(classifyIdentity(null, "Acme").verdict, "unverified");
+});
+
+test("greenhouse hits verify identity via the board meta endpoint", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/acme/jobs": {
+      status: 200,
+      body: { jobs: [{ id: 1 }] },
+    },
+    "https://boards-api.greenhouse.io/v1/boards/acme": {
+      status: 200,
+      body: { name: "Acme Robotics" },
+    },
+  });
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse"],
+    fetchImpl,
+  });
+
+  assert.equal(summary.hits.length, 1);
+  assert.equal(summary.hits[0].identityVerdict, "match");
+  assert.equal(summary.hits[0].companyNameHint, "Acme Robotics");
+});
+
+test("slug collisions are segregated as identity mismatches, not hits", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/setpoint/jobs": {
+      status: 200,
+      body: { jobs: [{ id: 1 }, { id: 2 }] },
+    },
+    "https://boards-api.greenhouse.io/v1/boards/setpoint": {
+      status: 200,
+      body: { name: "Completely Different Corp" },
+    },
+  });
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Setpoint",
+    domain: "setpoint.io",
+    platforms: ["greenhouse"],
+    fetchImpl,
+  });
+
+  assert.equal(summary.hits.length, 0);
+  assert.equal(summary.identityMismatches.length, 1);
+  assert.equal(summary.identityMismatches[0].identityVerdict, "mismatch");
+});
+
+test("identity endpoint failure degrades to unverified, hit is kept", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/acme/jobs": {
+      status: 200,
+      body: { jobs: [{ id: 1 }] },
+    },
+    // identity URL not mocked -> 404 -> reported name unavailable
+  });
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse"],
+    fetchImpl,
+  });
+
+  assert.equal(summary.hits.length, 1);
+  assert.equal(summary.hits[0].identityVerdict, "unverified");
 });
 
 test("network failures classify as errors and do not abort other platforms", async () => {

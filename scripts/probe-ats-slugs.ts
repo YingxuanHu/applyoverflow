@@ -157,14 +157,20 @@ function probeConfidence(hit: AtsSlugProbeResult): number {
   const jobCount = hit.jobCount ?? 0;
   // Live board with real postings: strong lead. Bounded below auto-promotion
   // territory — validation and ownership scoring make the final call.
-  return Math.min(0.85, 0.45 + Math.log1p(jobCount) * 0.07);
+  const base = Math.min(0.85, 0.45 + Math.log1p(jobCount) * 0.07);
+  // Identity-verified boards (board self-reports the expected company name)
+  // earn a bump; unverified ones stay at base and are settled downstream.
+  return Math.min(0.9, hit.identityVerdict === "match" ? base + 0.08 : base);
 }
 
 async function registerHit(company: ProbeTargetCompany, hit: AtsSlugProbeResult) {
   await registerSourceCandidate({
     candidateUrl: hit.boardUrl,
     candidateType: "ATS_BOARD",
-    companyNameHint: hit.companyNameHint ?? company.name,
+    // Always attribute to the company we probed for — the board-reported name
+    // is recorded as evidence, not used for attribution, so a formatting
+    // variant ("Acme" vs "Acme, Inc.") can never mint a duplicate company.
+    companyNameHint: company.name,
     confidence: probeConfidence(hit),
     potentialYieldScore: Math.min(1, (hit.jobCount ?? 0) / 50),
     sourceQualityScore: 0.6,
@@ -176,6 +182,9 @@ async function registerHit(company: ProbeTargetCompany, hit: AtsSlugProbeResult)
         probeUrl: hit.probeUrl,
         jobCount: hit.jobCount,
         probedCompanyId: company.id,
+        reportedCompanyName: hit.companyNameHint,
+        identityVerdict: hit.identityVerdict,
+        identitySimilarity: hit.identitySimilarity,
       },
     },
   });
@@ -201,6 +210,7 @@ async function main() {
 
   let processed = 0;
   let totalHits = 0;
+  let totalMismatches = 0;
   let totalBlocked = 0;
   let totalRegistered = 0;
   const queue = [...targets];
@@ -220,11 +230,18 @@ async function main() {
         });
         processed += 1;
         totalHits += summary.hits.length;
+        totalMismatches += summary.identityMismatches.length;
         totalBlocked += summary.blocked.length;
+
+        for (const mismatch of summary.identityMismatches) {
+          console.warn(
+            `[probe] IDENTITY-MISMATCH ${company.name} -> ${mismatch.platform}:${mismatch.slug} reports "${mismatch.companyNameHint}" — skipped (slug collision)`
+          );
+        }
 
         for (const hit of summary.hits) {
           console.log(
-            `[probe] HIT ${company.name} -> ${hit.platform}:${hit.slug} (${hit.jobCount} jobs) ${hit.boardUrl}`
+            `[probe] HIT ${company.name} -> ${hit.platform}:${hit.slug} (${hit.jobCount} jobs, identity ${hit.identityVerdict}${hit.companyNameHint ? `: "${hit.companyNameHint}"` : ""}) ${hit.boardUrl}`
           );
           if (args.apply) {
             try {
@@ -255,7 +272,7 @@ async function main() {
   await Promise.all(workers);
 
   console.log(
-    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} blocked=${totalBlocked}${
+    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} identityMismatches=${totalMismatches} blocked=${totalBlocked}${
       args.apply ? "" : " (dry run — pass --apply to register hits)"
     }`
   );

@@ -110,6 +110,16 @@ export function buildCompanySlugCandidates(input: {
 
 export type AtsSlugProbeStatus = "hit" | "miss" | "blocked" | "error";
 
+// Identity verification verdict for a hit: does the board's self-reported
+// organization name correspond to the company we probed for? A slug can
+// collide with an unrelated company (boards.greenhouse.io/acme belonging to a
+// different "Acme"), and ownership scoring alone can be fooled by the slug
+// itself — the board's own metadata is the stronger signal.
+//   match      — reported name overlaps the expected name
+//   mismatch   — reported name shares no tokens with the expected name
+//   unverified — the platform exposed no organization name to compare
+export type AtsSlugIdentityVerdict = "match" | "mismatch" | "unverified";
+
 export type AtsSlugProbeResult = {
   platform: ProbeableAtsPlatform;
   connectorName: string;
@@ -119,14 +129,61 @@ export type AtsSlugProbeResult = {
   boardUrl: string;
   jobCount: number | null;
   companyNameHint: string | null;
+  identityVerdict: AtsSlugIdentityVerdict;
+  identitySimilarity: number | null;
   detail?: string;
 };
+
+// Token-containment similarity between an expected company name and a
+// board-reported one, after normalizing and stripping legal suffixes.
+// "Acme" vs "Acme Robotics, Inc." scores 1.0 (full containment); unrelated
+// names score 0. Used with a conservative rule: only a ZERO overlap is
+// treated as a mismatch — partial overlaps stay eligible and are settled by
+// ownership scoring downstream.
+export function computeCompanyNameSimilarity(
+  expected: string,
+  reported: string
+): number {
+  const expectedTokens = new Set(stripSuffixTokens(normalizeTokens(expected)));
+  const reportedTokens = new Set(stripSuffixTokens(normalizeTokens(reported)));
+  if (expectedTokens.size === 0 || reportedTokens.size === 0) return 0;
+
+  let shared = 0;
+  for (const token of expectedTokens) {
+    if (reportedTokens.has(token)) shared += 1;
+  }
+  return shared / Math.min(expectedTokens.size, reportedTokens.size);
+}
+
+const IDENTITY_MATCH_THRESHOLD = 0.5;
+
+export function classifyIdentity(
+  expectedName: string | null | undefined,
+  reportedName: string | null | undefined
+): { verdict: AtsSlugIdentityVerdict; similarity: number | null } {
+  const expected = expectedName?.trim() ?? "";
+  const reported = reportedName?.trim() ?? "";
+  if (!expected || !reported) return { verdict: "unverified", similarity: null };
+
+  const similarity = computeCompanyNameSimilarity(expected, reported);
+  if (similarity >= IDENTITY_MATCH_THRESHOLD) {
+    return { verdict: "match", similarity };
+  }
+  if (similarity === 0) {
+    return { verdict: "mismatch", similarity };
+  }
+  return { verdict: "unverified", similarity };
+}
 
 type PlatformProbeSpec = {
   connectorName: string;
   buildProbeUrl: (slug: string) => string;
   buildBoardUrl: (slug: string) => string;
   classify: (payload: unknown) => { jobCount: number; companyNameHint?: string } | null;
+  // Optional follow-up request that returns the organization's self-reported
+  // name (used for identity verification when the jobs payload lacks one).
+  buildIdentityUrl?: (slug: string) => string;
+  extractIdentityName?: (payload: unknown) => string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -146,6 +203,14 @@ const PLATFORM_PROBES: Record<ProbeableAtsPlatform, PlatformProbeSpec> = {
       if (!record || !Array.isArray(record.jobs)) return null;
       return { jobCount: record.jobs.length };
     },
+    buildIdentityUrl: (slug) =>
+      `https://boards-api.greenhouse.io/v1/boards/${slug}`,
+    extractIdentityName: (payload) => {
+      const record = asRecord(payload);
+      return record && typeof record.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : null;
+    },
   },
   lever: {
     connectorName: "lever",
@@ -164,7 +229,16 @@ const PLATFORM_PROBES: Record<ProbeableAtsPlatform, PlatformProbeSpec> = {
     classify: (payload) => {
       const record = asRecord(payload);
       if (!record || !Array.isArray(record.jobs)) return null;
-      return { jobCount: record.jobs.length };
+      // Ashby's posting API includes the org's display name on jobs.
+      const firstJob = asRecord(record.jobs[0]);
+      const organizationName =
+        (typeof record.organizationName === "string" && record.organizationName.trim()) ||
+        (firstJob && typeof firstJob.organizationName === "string" && firstJob.organizationName.trim()) ||
+        undefined;
+      return {
+        jobCount: record.jobs.length,
+        companyNameHint: organizationName || undefined,
+      };
     },
   },
   smartrecruiters: {
@@ -175,7 +249,15 @@ const PLATFORM_PROBES: Record<ProbeableAtsPlatform, PlatformProbeSpec> = {
     classify: (payload) => {
       const record = asRecord(payload);
       if (!record || typeof record.totalFound !== "number") return null;
-      return { jobCount: record.totalFound };
+      // Postings embed the company identity — use it for verification.
+      const content = Array.isArray(record.content) ? record.content : [];
+      const firstPosting = asRecord(content[0]);
+      const company = firstPosting ? asRecord(firstPosting.company) : null;
+      const companyNameHint =
+        company && typeof company.name === "string" && company.name.trim()
+          ? company.name.trim()
+          : undefined;
+      return { jobCount: record.totalFound, companyNameHint };
     },
   },
   workable: {
@@ -226,6 +308,8 @@ async function probeOne(
       slug,
       probeUrl,
       boardUrl: spec.buildBoardUrl(slug),
+      identityVerdict: "unverified",
+      identitySimilarity: null,
     };
 
   const controller = new AbortController();
@@ -304,15 +388,49 @@ async function probeOne(
 export type CompanySlugProbeSummary = {
   slugCandidates: string[];
   hits: AtsSlugProbeResult[];
+  // Boards that exist and have jobs but whose self-reported organization name
+  // shares nothing with the expected company — slug collisions. Kept out of
+  // `hits` so callers cannot accidentally register a wrong-company board.
+  identityMismatches: AtsSlugProbeResult[];
   blocked: AtsSlugProbeResult[];
   errors: AtsSlugProbeResult[];
   attempts: number;
 };
 
+// Fetches the board's self-reported organization name via the platform's
+// identity endpoint when the jobs payload did not already include one.
+async function resolveReportedCompanyName(
+  hit: AtsSlugProbeResult,
+  options: { fetchImpl: FetchLike; timeoutMs: number }
+): Promise<string | null> {
+  if (hit.companyNameHint) return hit.companyNameHint;
+
+  const spec = PLATFORM_PROBES[hit.platform];
+  if (!spec.buildIdentityUrl || !spec.extractIdentityName) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const response = await options.fetchImpl(spec.buildIdentityUrl(hit.slug), {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+    if (response.status < 200 || response.status >= 300) return null;
+    return spec.extractIdentityName(await response.json());
+  } catch {
+    // Identity lookup failures degrade to "unverified", never to a hard fail.
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Probes every requested platform, trying slug candidates in order and
 // stopping at the first hit per platform (a company rarely runs two boards on
 // the same ATS). Platforms are independent — a company can legitimately show
 // up on more than one, and downstream ownership scoring decides which to keep.
+// Every hit is identity-verified against the expected company name when the
+// platform exposes an organization name.
 export async function probeAtsSlugsForCompany(input: {
   name?: string | null;
   domain?: string | null;
@@ -328,6 +446,7 @@ export async function probeAtsSlugsForCompany(input: {
   const minJobCount = input.minJobCount ?? 1;
 
   const hits: AtsSlugProbeResult[] = [];
+  const identityMismatches: AtsSlugProbeResult[] = [];
   const blocked: AtsSlugProbeResult[] = [];
   const errors: AtsSlugProbeResult[] = [];
   let attempts = 0;
@@ -338,7 +457,22 @@ export async function probeAtsSlugsForCompany(input: {
       const result = await probeOne(platform, slug, { fetchImpl, timeoutMs });
       if (result.status === "hit") {
         if ((result.jobCount ?? 0) >= minJobCount) {
-          hits.push(result);
+          const reportedName = await resolveReportedCompanyName(result, {
+            fetchImpl,
+            timeoutMs,
+          });
+          const identity = classifyIdentity(input.name, reportedName);
+          const verified: AtsSlugProbeResult = {
+            ...result,
+            companyNameHint: reportedName ?? result.companyNameHint,
+            identityVerdict: identity.verdict,
+            identitySimilarity: identity.similarity,
+          };
+          if (identity.verdict === "mismatch") {
+            identityMismatches.push(verified);
+          } else {
+            hits.push(verified);
+          }
         }
         break;
       }
@@ -353,5 +487,5 @@ export async function probeAtsSlugsForCompany(input: {
     }
   }
 
-  return { slugCandidates, hits, blocked, errors, attempts };
+  return { slugCandidates, hits, identityMismatches, blocked, errors, attempts };
 }
