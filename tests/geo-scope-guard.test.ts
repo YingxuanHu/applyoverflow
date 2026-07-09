@@ -110,3 +110,59 @@ test("does not match markers embedded inside longer words", () => {
 test("a US city qualified by a foreign country is still clearly foreign", () => {
   assert.equal(isClearlyNonNorthAmericanLocation("San Jose, Costa Rica"), true);
 });
+
+// ── Strong-evidence ordering regressions (production 2026-07-09) ───────────
+// Trailing two-letter country codes collide with US state codes (Indonesia's
+// ID = Idaho, India's IN = Indiana), and foreign-city strings collide with
+// US city markers ("Cambridge, UK"). Spelled-out foreign countries and admin
+// regions must beat code segments; codes still beat foreign CITY names so
+// "Paris, TX" stays American.
+
+import { hasStrongNonNorthAmericanGeoEvidence } from "@/lib/geo-scope";
+
+// normalize.ts transitively touches the db module at import time; stub the
+// connection string before the lazy import (same pattern as
+// tests/global-ingestion-scope.test.ts).
+process.env.DATABASE_URL ??= "postgresql://unit:test@localhost:5432/unit";
+async function loadInferRegion() {
+  const { inferRegion } = await import("@/lib/ingestion/normalize");
+  return inferRegion;
+}
+
+test("foreign admin regions beat colliding trailing state codes", async () => {
+  const inferRegion = await loadInferRegion();
+  for (const location of [
+    "Jakarta Selatan, DKI Jakarta, ID",
+    "India, Bengaluru; Bengaluru, KA, IN",
+    "Bristol, UK; Cambridge, UK; London, UK",
+    "Al Jubail, Eastern Province, Saudi Arabia",
+  ]) {
+    assert.equal(isClearlyNonNorthAmericanLocation(location), true, location);
+    assert.equal(inferRegion(location), null, location);
+  }
+});
+
+test("NA codes still beat foreign city names, and real NA rows still resolve", async () => {
+  const inferRegion = await loadInferRegion();
+  assert.equal(isClearlyNonNorthAmericanLocation("Paris, TX"), false);
+  assert.equal(isClearlyNonNorthAmericanLocation("London, ON"), false);
+  assert.equal(inferRegion("Paris, TX"), "US");
+  assert.equal(inferRegion("London, ON"), "CA");
+  assert.equal(inferRegion("Boise, ID"), "US");
+  assert.equal(inferRegion("Gary, IN"), "US");
+});
+
+test("explicit NA names beat foreign evidence in multi-location strings", async () => {
+  const inferRegion = await loadInferRegion();
+  // A posting genuinely offered in both the US and India stays US-visible.
+  assert.equal(
+    inferRegion("Fort Wayne, Indiana, United States; Mumbai, India"),
+    "US"
+  );
+  assert.equal(
+    hasStrongNonNorthAmericanGeoEvidence(
+      "Fort Wayne, Indiana, United States; Mumbai, India"
+    ),
+    false
+  );
+});

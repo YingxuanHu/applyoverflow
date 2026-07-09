@@ -13,6 +13,7 @@ import {
   CA_PROVINCE_NAMES,
   US_STATE_CODES,
   US_STATE_NAMES,
+  hasStrongNonNorthAmericanGeoEvidence,
   isClearlyNonNorthAmericanLocation,
 } from "@/lib/geo-scope";
 import { buildCanonicalDedupeFields } from "@/lib/ingestion/dedupe";
@@ -924,6 +925,15 @@ export function inferRegion(location: string): Region | null {
 
   if (normalizedLocation.includes("CANADA")) {
     return "CA";
+  }
+
+  // Unambiguous foreign country/admin-region names beat everything below:
+  // both the city markers and the trailing-code parsing collide with foreign
+  // strings ("Cambridge, UK" tripping the US Cambridge marker; "..., DKI
+  // Jakarta, ID" reading Indonesia's country code as Idaho — production had
+  // thousands of foreign jobs stamped US/CA this way).
+  if (hasStrongNonNorthAmericanGeoEvidence(location)) {
+    return null;
   }
 
   const loweredLocation = location.toLowerCase();

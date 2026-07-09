@@ -619,6 +619,48 @@ const NON_NA_CITY_MARKERS = [
   "CHRISTCHURCH",
 ];
 
+// Foreign first-level administrative regions (states/provinces) that are
+// unambiguous versus NA place names. These are STRONG evidence: ATS feeds
+// commonly emit "City, Region, CC" where the trailing two-letter country
+// code collides with a US state code ("Jakarta Selatan, DKI Jakarta, ID"
+// reads ID as Idaho; "Bengaluru, KA, IN" reads IN as Indiana — production
+// had thousands of foreign rows stamped US/CA this way). Names colliding
+// with NA places (Victoria, Ontario) are deliberately absent.
+const FOREIGN_ADMIN_REGION_MARKERS = [
+  "DKI JAKARTA",
+  "JAKARTA RAYA",
+  "WEST JAVA",
+  "EAST JAVA",
+  "JAWA BARAT",
+  "KARNATAKA",
+  "MAHARASHTRA",
+  "TAMIL NADU",
+  "TELANGANA",
+  "GUJARAT",
+  "RAJASTHAN",
+  "MADHYA PRADESH",
+  "UTTAR PRADESH",
+  "ANDHRA PRADESH",
+  "WEST BENGAL",
+  "KERALA",
+  "HARYANA",
+  "EASTERN PROVINCE",
+  "MECCA PROVINCE",
+  "MEDINA PROVINCE",
+  "RIYADH PROVINCE",
+  "NEW SOUTH WALES",
+  "QUEENSLAND",
+  "BAVARIA",
+  "BADEN-WURTTEMBERG",
+  "ILE-DE-FRANCE",
+  "CATALONIA",
+  "ANDALUSIA",
+  "LOMBARDY",
+  "GAUTENG",
+  "MINDANAO",
+  "LUZON",
+];
+
 // Country codes accepted only as standalone comma-separated segments
 // ("Warsaw, PL"). Codes that collide with US state or CA province codes
 // (DE, IN, ID, IL, CO, AR, LA, MA, MN, MT, NE, PA, SC, SD, TN, NL, PE, SK,
@@ -788,9 +830,16 @@ function buildStandaloneMarkerPattern(markers: readonly string[]): RegExp {
 }
 
 const NA_QUALIFIER_PATTERN = buildStandaloneMarkerPattern(NA_QUALIFIER_MARKERS);
-const NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern([
+// STRONG foreign evidence (country + admin-region names, and collision-free
+// country-code segments) outranks NA state/province CODE segments; weak
+// evidence (city names) does not — so "Paris, TX" stays American while
+// "Jakarta Selatan, DKI Jakarta, ID" cannot hide behind Idaho's code.
+const STRONG_NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern([
   ...OUT_OF_SCOPE_GEO_MARKERS,
   ...ADDITIONAL_NON_NA_COUNTRY_MARKERS,
+  ...FOREIGN_ADMIN_REGION_MARKERS,
+]);
+const WEAK_NON_NA_MARKER_PATTERN = buildStandaloneMarkerPattern([
   ...NON_NA_CITY_MARKERS,
 ]);
 
@@ -807,20 +856,47 @@ function splitCommaSegments(folded: string): string[] {
 // the string itself also wins. When in doubt this returns false: ambiguous
 // values ("Remote", "", "Sales Department", bare "Toronto") are never
 // flagged.
+// Strong foreign evidence: unambiguous country/admin-region names or
+// collision-free country-code segments, unless an explicit NA NAME
+// (country/state/province spelled out — not a two-letter code) appears.
+// Exported for inferRegion (normalize.ts), whose city-marker and
+// trailing-code parsing must not run on strings that name a foreign
+// geography outright.
+export function hasStrongNonNorthAmericanGeoEvidence(location: string): boolean {
+  const folded = foldLocationText(location);
+  if (!folded) return false;
+
+  if (NA_QUALIFIER_PATTERN.test(folded)) return false;
+  if (STRONG_NON_NA_MARKER_PATTERN.test(folded)) return true;
+
+  return splitCommaSegments(folded).some((segment) =>
+    NON_NA_COUNTRY_CODE_SEGMENTS.has(segment)
+  );
+}
+
 export function isClearlyNonNorthAmericanLocation(location: string): boolean {
   const folded = foldLocationText(location);
   if (!folded) return false;
 
   if (NA_QUALIFIER_PATTERN.test(folded)) return false;
 
+  // Strong evidence beats NA state/province CODE segments: two-letter codes
+  // collide with country codes (ID/IN/DE), so a spelled-out foreign country
+  // or admin region wins over them.
+  if (STRONG_NON_NA_MARKER_PATTERN.test(folded)) return true;
+
   const segments = splitCommaSegments(folded);
+  if (segments.some((segment) => NON_NA_COUNTRY_CODE_SEGMENTS.has(segment))) {
+    return true;
+  }
+
+  // NA code segments beat weak (city-name) evidence, keeping "Paris, TX"
+  // and "London, ON" American.
   if (segments.some((segment) => NA_QUALIFIER_CODE_SEGMENTS.has(segment))) {
     return false;
   }
 
-  if (NON_NA_MARKER_PATTERN.test(folded)) return true;
-
-  return segments.some((segment) => NON_NA_COUNTRY_CODE_SEGMENTS.has(segment));
+  return WEAK_NON_NA_MARKER_PATTERN.test(folded);
 }
 
 export function formatGeoScopeLabel(scope: GeoScope) {
