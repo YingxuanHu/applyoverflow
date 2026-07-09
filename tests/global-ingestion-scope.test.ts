@@ -31,19 +31,30 @@ async function loadNormalizeSourceJob() {
   return normalizeModule.normalizeSourceJob;
 }
 
-test("normalization accepts legitimate non-North-American onsite jobs", async () => {
+test("normalization rejects clearly non-North-American onsite jobs", async () => {
+  // NA-only product scope: region-less jobs whose location explicitly names
+  // a non-NA geography are rejected at intake (see
+  // isClearlyNonNorthAmericanLocation in src/lib/geo-scope.ts).
   const normalizeSourceJob = await loadNormalizeSourceJob();
   const result = normalizeSourceJob({
     job: buildJob({}),
     fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
   });
 
+  assert.deepEqual(result, {
+    kind: "rejected",
+    reason: "out_of_scope_geography",
+  });
+});
+
+test("normalization keeps ambiguous region-less locations eligible", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  const result = normalizeSourceJob({
+    job: buildJob({ location: "Remote", workMode: "REMOTE" }),
+    fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
+  });
+
   assert.equal(result.kind, "accepted");
-  if (result.kind === "accepted") {
-    assert.equal(result.job.location, "Warsaw, Poland");
-    assert.equal(result.job.region, null);
-    assert.equal(result.job.workMode, "ONSITE");
-  }
 });
 
 test("normalization keeps global jobs applyable while still rejecting junk URLs", async () => {

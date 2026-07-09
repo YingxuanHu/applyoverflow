@@ -8,6 +8,13 @@ import type {
   NormalizedJobInput,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
+import {
+  CA_PROVINCE_CODES,
+  CA_PROVINCE_NAMES,
+  US_STATE_CODES,
+  US_STATE_NAMES,
+  isClearlyNonNorthAmericanLocation,
+} from "@/lib/geo-scope";
 import { buildCanonicalDedupeFields } from "@/lib/ingestion/dedupe";
 import { extractNormalizedJobFacts } from "@/lib/ingestion/extraction/quality-gates";
 import { mapNormalizedEmploymentTypeToLegacy } from "@/lib/ingestion/extraction/job-metadata-extractor";
@@ -19,145 +26,9 @@ import { assessJobDataQuality } from "@/lib/ingestion/job-data-quality";
 import { classifyNonJobPosting } from "@/lib/job-integrity";
 import { classifyJobMetadata } from "@/lib/job-metadata";
 
-const US_STATE_CODES = new Set([
-  "AL",
-  "AK",
-  "AZ",
-  "AR",
-  "CA",
-  "CO",
-  "CT",
-  "DE",
-  "FL",
-  "GA",
-  "HI",
-  "ID",
-  "IL",
-  "IN",
-  "IA",
-  "KS",
-  "KY",
-  "LA",
-  "ME",
-  "MD",
-  "MA",
-  "MI",
-  "MN",
-  "MS",
-  "MO",
-  "MT",
-  "NE",
-  "NV",
-  "NH",
-  "NJ",
-  "NM",
-  "NY",
-  "NC",
-  "ND",
-  "OH",
-  "OK",
-  "OR",
-  "PA",
-  "RI",
-  "SC",
-  "SD",
-  "TN",
-  "TX",
-  "UT",
-  "VT",
-  "VA",
-  "WA",
-  "WV",
-  "WI",
-  "WY",
-  "DC",
-]);
-
-const US_STATE_NAMES = new Set([
-  "ALABAMA",
-  "ALASKA",
-  "ARIZONA",
-  "ARKANSAS",
-  "CALIFORNIA",
-  "COLORADO",
-  "CONNECTICUT",
-  "DELAWARE",
-  "FLORIDA",
-  "GEORGIA",
-  "HAWAII",
-  "IDAHO",
-  "ILLINOIS",
-  "INDIANA",
-  "IOWA",
-  "KANSAS",
-  "KENTUCKY",
-  "LOUISIANA",
-  "MAINE",
-  "MARYLAND",
-  "MASSACHUSETTS",
-  "MICHIGAN",
-  "MINNESOTA",
-  "MISSISSIPPI",
-  "MISSOURI",
-  "MONTANA",
-  "NEBRASKA",
-  "NEVADA",
-  "NEW HAMPSHIRE",
-  "NEW JERSEY",
-  "NEW MEXICO",
-  "NEW YORK",
-  "NORTH CAROLINA",
-  "NORTH DAKOTA",
-  "OHIO",
-  "OKLAHOMA",
-  "OREGON",
-  "PENNSYLVANIA",
-  "RHODE ISLAND",
-  "SOUTH CAROLINA",
-  "SOUTH DAKOTA",
-  "TENNESSEE",
-  "TEXAS",
-  "UTAH",
-  "VERMONT",
-  "VIRGINIA",
-  "WASHINGTON",
-  "WEST VIRGINIA",
-  "WISCONSIN",
-  "WYOMING",
-  "DISTRICT OF COLUMBIA",
-]);
-
-const CA_PROVINCE_CODES = new Set([
-  "AB",
-  "BC",
-  "MB",
-  "NB",
-  "NL",
-  "NS",
-  "NT",
-  "NU",
-  "ON",
-  "PE",
-  "QC",
-  "SK",
-  "YT",
-]);
-
-const CA_PROVINCE_NAMES = new Set([
-  "ALBERTA",
-  "BRITISH COLUMBIA",
-  "MANITOBA",
-  "NEW BRUNSWICK",
-  "NEWFOUNDLAND AND LABRADOR",
-  "NOVA SCOTIA",
-  "NORTHWEST TERRITORIES",
-  "NUNAVUT",
-  "ONTARIO",
-  "PRINCE EDWARD ISLAND",
-  "QUEBEC",
-  "SASKATCHEWAN",
-  "YUKON",
-]);
+// US/CA state, province, and country marker sets live in src/lib/geo-scope.ts
+// (imported above) so the NA-scope guard can share them without pulling
+// server-only ingestion modules into client bundles.
 
 const US_CITY_MARKERS = [
   "albuquerque",
@@ -877,6 +748,17 @@ export function normalizeSourceJob({
   const location = normalizedLocation;
 
   const region = inferRegion(location);
+
+  // NA-only product scope: when no US/CA region could be inferred and the
+  // location explicitly names a non-NA geography ("Jakarta", "Berlin,
+  // Germany"), the job is out of scope. Ambiguous region-less locations
+  // ("Remote") stay eligible.
+  if (region === UNKNOWN_REGION && isClearlyNonNorthAmericanLocation(location)) {
+    return {
+      kind: "rejected",
+      reason: "out_of_scope_geography",
+    };
+  }
 
   const roleProfile = inferRoleProfile(title);
   const roleFamily = roleProfile?.roleFamily ?? "Unknown";

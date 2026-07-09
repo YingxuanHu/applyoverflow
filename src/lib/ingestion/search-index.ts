@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
+import { isClearlyNonNorthAmericanLocation } from "@/lib/geo-scope";
 import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
 import { assessJobDataQuality } from "@/lib/ingestion/job-data-quality";
 import {
@@ -71,6 +72,13 @@ function shouldExcludeFromFeedIndex(input: {
       applyUrl: input.applyUrl,
     }).severity === "reject"
   ) {
+    return true;
+  }
+
+  // NA-only product scope: region-less jobs whose location explicitly names
+  // a non-NA geography never belong in the feed. Ambiguous region-less
+  // locations ("Remote") keep their existing visibility.
+  if (input.region === null && isClearlyNonNorthAmericanLocation(input.location)) {
     return true;
   }
 
