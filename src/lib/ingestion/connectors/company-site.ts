@@ -11,6 +11,10 @@ import type {
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
 import {
+  extractDisplayedJobCount,
+  isJobCountCompletenessSuspect,
+} from "@/lib/ingestion/extraction/displayed-count";
+import {
   STRIP_TAGS_RE,
   decodeHtmlEntitiesFull,
   decodeHtmlEntitiesFull as decodeHtmlEntities,
@@ -251,6 +255,9 @@ async function fetchCompanySiteJobs(
   }
 
   const listingPages = await crawlListingPages(options.boardUrl, fetchOptions.signal);
+  // The listing HTML is already in hand on this path, so reconcile the job
+  // total the page displays against how many jobs actually get extracted.
+  const displayedJobCount = extractDisplayedJobCountFromPages(listingPages);
   const jobsById = new Map<string, SourceConnectorJob>();
 
   for (const listingPage of listingPages) {
@@ -263,13 +270,13 @@ async function fetchCompanySiteJobs(
     for (const job of structuredJobs) {
       jobsById.set(job.sourceId, job);
       if (typeof fetchOptions.limit === "number" && jobsById.size >= fetchOptions.limit) {
-        return buildFetchResult(options, jobsById, listingPages.length, true);
+        return buildFetchResult(options, jobsById, listingPages.length, true, displayedJobCount, true);
       }
     }
   }
 
   if (jobsById.size > 0 && options.extractionRoute !== "HTML_FALLBACK") {
-    return buildFetchResult(options, jobsById, listingPages.length, true);
+    return buildFetchResult(options, jobsById, listingPages.length, true, displayedJobCount);
   }
 
   const detailLinks = collectDetailLinks(listingPages);
@@ -291,12 +298,12 @@ async function fetchCompanySiteJobs(
     for (const job of extracted) {
       jobsById.set(job.sourceId, job);
       if (typeof fetchOptions.limit === "number" && jobsById.size >= fetchOptions.limit) {
-        return buildFetchResult(options, jobsById, listingPages.length, false);
+        return buildFetchResult(options, jobsById, listingPages.length, false, displayedJobCount, true);
       }
     }
   }
 
-  return buildFetchResult(options, jobsById, listingPages.length, false);
+  return buildFetchResult(options, jobsById, listingPages.length, false, displayedJobCount);
 }
 
 async function fetchCompanySiteJobsFromSitemap(
@@ -323,20 +330,37 @@ async function fetchCompanySiteJobsFromSitemap(
     for (const job of extracted) {
       jobsById.set(job.sourceId, job);
       if (typeof fetchOptions.limit === "number" && jobsById.size >= fetchOptions.limit) {
-        return buildFetchResult(options, jobsById, sitemap.scannedCount, true);
+        // The sitemap route never fetches the board landing page, so no
+        // displayed count is available to reconcile against.
+        return buildFetchResult(options, jobsById, sitemap.scannedCount, true, null, true);
       }
     }
   }
 
-  return buildFetchResult(options, jobsById, sitemap.scannedCount, true);
+  return buildFetchResult(options, jobsById, sitemap.scannedCount, true, null);
 }
 
 function buildFetchResult(
   options: CompanySiteConnectorOptions,
   jobsById: Map<string, SourceConnectorJob>,
   listingPageCount: number,
-  usedStructuredRoute: boolean
+  usedStructuredRoute: boolean,
+  displayedJobCount: number | null,
+  // True when the fetch stopped because the caller's fetchOptions.limit was
+  // reached (validation previews use small limits). A deliberate truncation
+  // must never be flagged as an extraction-completeness problem.
+  limitTruncated = false
 ): SourceConnectorFetchResult {
+  const fetchedJobCount = jobsById.size;
+  const completenessSuspect =
+    !limitTruncated &&
+    isJobCountCompletenessSuspect(displayedJobCount, fetchedJobCount);
+  if (completenessSuspect) {
+    console.warn(
+      `[company-site] completeness suspect: ${options.sourceName} shows ${displayedJobCount} but extracted ${fetchedJobCount}`
+    );
+  }
+
   return {
     jobs: [...jobsById.values()],
     metadata: {
@@ -345,9 +369,22 @@ function buildFetchResult(
       parserVersion: options.parserVersion ?? "company-site:v1",
       listingPageCount,
       usedStructuredRoute,
-      totalFetched: jobsById.size,
+      totalFetched: fetchedJobCount,
+      displayedJobCount,
+      fetchedJobCount,
+      completenessSuspect,
     } as Prisma.InputJsonValue,
   };
+}
+
+function extractDisplayedJobCountFromPages(listingPages: HtmlFetchResult[]) {
+  // The board landing page is crawled first and is the page most likely to
+  // display the authoritative total; later pages are pagination/navigation.
+  for (const page of listingPages) {
+    const count = extractDisplayedJobCount(page.html);
+    if (count !== null) return count;
+  }
+  return null;
 }
 
 async function crawlListingPages(url: string, signal?: AbortSignal) {

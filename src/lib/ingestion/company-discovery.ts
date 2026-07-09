@@ -50,6 +50,11 @@ import {
   computeRetentionUrgency,
   shouldExemptFromGrowthPenalties,
 } from "@/lib/ingestion/retention-poll-policy";
+import { shouldProbeOnRediscovery } from "@/lib/ingestion/rediscovery-probe-policy";
+import {
+  probeAtsSlugsForCompany,
+  type AtsSlugProbeResult,
+} from "@/lib/ingestion/discovery/ats-slug-probe";
 import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
@@ -92,6 +97,9 @@ const DEFAULT_SOURCE_POLL_CADENCE_MINUTES = 180;
 const MAX_CAREER_PAGE_INSPECTIONS = 6;
 const MAX_CAREER_PAGE_INSPECTIONS_CSV_IMPORT = 10;
 const REDISCOVERY_FAILURE_THRESHOLD = 3;
+// Per-request cap for the post-rediscovery ATS slug probe so the follow-up
+// can never stall the rediscovery worker on a slow platform endpoint.
+const REDISCOVERY_SLUG_PROBE_TIMEOUT_MS = 6_000;
 const DEFAULT_COMPANY_CATALOG_SEED_LIMIT = 1_000;
 const DEFAULT_COMPANY_CORPUS_SEED_LIMIT = 5_000;
 const DEFAULT_COMPANY_INVENTORY_SEED_LIMIT = 8_000;
@@ -4029,6 +4037,20 @@ async function runDiscoveryTasks(tasks: SourceTask[], now: Date, isRediscovery: 
         await discoverCompanySurface(task.companyId, now, isRediscovery);
         successCount += 1;
         await finishSourceTask(task.id, "SUCCESS", { finishedAt: now });
+
+        // Best-effort follow-up after the task outcome is recorded: probe the
+        // ATS platforms directly for a moved/renamed board. Never allowed to
+        // fail or retry the rediscovery task itself.
+        if (isRediscovery) {
+          try {
+            await probeAtsBoardsAfterRediscovery(task);
+          } catch (error) {
+            console.warn(
+              `[rediscovery] slug probe failed for company ${task.companyId}:`,
+              error instanceof Error ? error.message : error
+            );
+          }
+        }
       } catch (error) {
         failedCount += 1;
         await finishSourceTask(task.id, "FAILED", {
@@ -4051,6 +4073,85 @@ async function runDiscoveryTasks(tasks: SourceTask[], now: Date, isRediscovery: 
     successCount,
     failedCount,
   };
+}
+
+// Mirrors probeConfidence in scripts/probe-ats-slugs.ts: bounded below
+// auto-promotion territory, with a bump for identity-verified boards.
+function rediscoveryProbeConfidence(hit: AtsSlugProbeResult): number {
+  const jobCount = hit.jobCount ?? 0;
+  const base = Math.min(0.85, 0.45 + Math.log1p(jobCount) * 0.07);
+  return Math.min(0.9, hit.identityVerdict === "match" ? base + 0.08 : base);
+}
+
+// Page-based rediscovery cannot find a board that migrated to a different ATS
+// platform (see rediscovery-probe-policy.ts). After the page pass, probe the
+// clean-application platforms for the broken source's company and register
+// every identity-clean hit as a SourceCandidate — the normal validation +
+// promotion pipeline makes the final call, never this probe.
+async function probeAtsBoardsAfterRediscovery(task: SourceTask) {
+  if (!task.companySourceId) return;
+
+  const source = await prisma.companySource.findUnique({
+    where: { id: task.companySourceId },
+    select: {
+      connectorName: true,
+      consecutiveFailures: true,
+      company: { select: { id: true, name: true, domain: true } },
+    },
+  });
+  if (!source) return;
+
+  const companyName = source.company.name.trim() || null;
+  const companyDomain = source.company.domain?.trim() || null;
+  const shouldProbe = shouldProbeOnRediscovery({
+    hasCompanyIdentity: Boolean(companyName || companyDomain),
+    connectorName: source.connectorName,
+    consecutiveFailures: source.consecutiveFailures,
+  });
+  if (!shouldProbe) return;
+
+  const summary = await probeAtsSlugsForCompany({
+    name: companyName,
+    domain: companyDomain,
+    minJobCount: 1,
+    timeoutMs: REDISCOVERY_SLUG_PROBE_TIMEOUT_MS,
+  });
+
+  // Lazy import: source-registry statically imports this module for candidate
+  // promotion, so a static import here would close a module cycle.
+  const { registerSourceCandidate } = await import(
+    "@/lib/ingestion/discovery/source-registry"
+  );
+
+  for (const hit of summary.hits) {
+    console.log(
+      `[rediscovery] slug-probe HIT ${companyName ?? companyDomain} -> ${hit.platform}:${hit.slug} (${hit.jobCount} jobs, identity ${hit.identityVerdict})`
+    );
+    await registerSourceCandidate({
+      candidateUrl: hit.boardUrl,
+      candidateType: "ATS_BOARD",
+      // Attribute to the probed company's name — the board-reported name is
+      // recorded as evidence only, so a formatting variant cannot mint a
+      // duplicate company.
+      companyNameHint: companyName,
+      confidence: rediscoveryProbeConfidence(hit),
+      potentialYieldScore: Math.min(1, (hit.jobCount ?? 0) / 50),
+      sourceQualityScore: 0.6,
+      metadataJson: {
+        discovery: {
+          method: "rediscovery-slug-probe",
+          platform: hit.platform,
+          slug: hit.slug,
+          probeUrl: hit.probeUrl,
+          jobCount: hit.jobCount,
+          probedCompanyId: source.company.id,
+          reportedCompanyName: hit.companyNameHint,
+          identityVerdict: hit.identityVerdict,
+          identitySimilarity: hit.identitySimilarity,
+        },
+      },
+    });
+  }
 }
 
 async function discoverCompanySurface(

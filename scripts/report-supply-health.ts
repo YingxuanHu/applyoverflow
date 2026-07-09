@@ -1,8 +1,8 @@
 // Supply-health scorecard: answers "why is the job board shrinking?" in one
 // pass. Reports the add/expire/remove waterfall, evidence-age of the LIVE
-// pool against the feed's visibility windows, poll coverage, jobs-at-risk,
-// expiry attribution (real closures vs stale-evidence starvation), queue
-// backlog, and zombie sources.
+// pool against the feed's visibility windows, poll coverage, retention
+// effectiveness, jobs-at-risk, expiry attribution (real closures vs
+// stale-evidence starvation), queue backlog, and zombie sources.
 //
 // Usage:
 //   npm run supply:health
@@ -157,6 +157,47 @@ async function pollCoverage() {
   return row;
 }
 
+// Retention effectiveness: proves whether the retention claim quota is
+// actually re-polling stale sources. For each successful run in the last
+// 24h, staleness is the gap since the previous run of the same sourceName
+// (LAG over an 8-day lookback so a 7d+ gap is still observable).
+async function retentionEffectiveness() {
+  const [row] = await prisma.$queryRaw<
+    Array<{
+      polls_24h: bigint;
+      fresh_under_3d: bigint;
+      d3_to_7: bigint;
+      over_7d: bigint;
+      first_in_window: bigint;
+    }>
+  >(Prisma.sql`
+    WITH runs AS (
+      SELECT "sourceName", "startedAt", status,
+        LAG("startedAt") OVER (PARTITION BY "sourceName" ORDER BY "startedAt") AS prev
+      FROM "IngestionRun"
+      WHERE "startedAt" > now() - interval '8 days'
+    )
+    SELECT
+      COUNT(*) AS polls_24h,
+      COUNT(*) FILTER (
+        WHERE prev IS NOT NULL AND "startedAt" - prev < interval '3 days'
+      ) AS fresh_under_3d,
+      COUNT(*) FILTER (
+        WHERE prev IS NOT NULL
+          AND "startedAt" - prev >= interval '3 days'
+          AND "startedAt" - prev <= interval '7 days'
+      ) AS d3_to_7,
+      COUNT(*) FILTER (
+        WHERE prev IS NOT NULL AND "startedAt" - prev > interval '7 days'
+      ) AS over_7d,
+      COUNT(*) FILTER (WHERE prev IS NULL) AS first_in_window
+    FROM runs
+    WHERE "startedAt" > now() - interval '24 hours'
+      AND status = 'SUCCESS'
+  `);
+  return row;
+}
+
 async function jobsAtRisk() {
   const [row] = await prisma.$queryRaw<
     Array<{ sources: bigint; retained_live_jobs: bigint }>
@@ -272,6 +313,7 @@ async function main() {
     evidence,
     hiddenLive,
     coverage,
+    retention,
     atRisk,
     expiry,
     backlog,
@@ -284,6 +326,7 @@ async function main() {
     liveEvidenceBuckets(),
     hiddenButLive(),
     pollCoverage(),
+    retentionEffectiveness(),
     jobsAtRisk(),
     expiryAttribution(),
     queueBacklog(),
@@ -298,6 +341,8 @@ async function main() {
   const polled7d = toNumber(coverage?.polled_7d);
   const expired14 = toNumber(expiry?.expired_14d);
   const starved = toNumber(expiry?.evidence_starved);
+  const retentionPolls24h = toNumber(retention?.polls_24h);
+  const retentionOver7d = toNumber(retention?.over_7d);
 
   const recentFlow = flow.slice(-4).map((row) => ({
     week: row.week.toISOString().slice(0, 10),
@@ -326,6 +371,11 @@ async function main() {
   if (expired14 > 0 && starved / expired14 > 0.5) {
     warnings.push(
       `${formatPercent(starved, expired14)} of expiries in the last 14d were evidence-starved (we stopped looking), not confirmed closures.`
+    );
+  }
+  if (retentionPolls24h >= 50 && retentionOver7d / retentionPolls24h < 0.1) {
+    warnings.push(
+      `Retention quota ineffective: only ${formatPercent(retentionOver7d, retentionPolls24h)} of executed polls went to 7d+ stale sources.`
     );
   }
   const lastNet = recentFlow[recentFlow.length - 1]?.net ?? 0;
@@ -393,6 +443,13 @@ async function main() {
       polled14d: toNumber(coverage?.polled_14d),
       neverPolled: toNumber(coverage?.never_polled),
     },
+    retentionEffectiveness: {
+      polls24h: retentionPolls24h,
+      freshUnder3d: toNumber(retention?.fresh_under_3d),
+      d3to7: toNumber(retention?.d3_to_7),
+      over7d: retentionOver7d,
+      firstInWindow: toNumber(retention?.first_in_window),
+    },
     jobsAtRisk: {
       staleSources: toNumber(atRisk?.sources),
       retainedLiveJobs: toNumber(atRisk?.retained_live_jobs),
@@ -453,6 +510,9 @@ async function main() {
   );
   console.log(
     `Poll coverage: pollable ${pollable} | 24h ${toNumber(coverage?.polled_24h)} | 3d ${toNumber(coverage?.polled_3d)} | 7d ${polled7d} (${formatPercent(polled7d, pollable)}) | 14d ${toNumber(coverage?.polled_14d)} | never ${toNumber(coverage?.never_polled)}`
+  );
+  console.log(
+    `Retention effectiveness (24h): ${retentionPolls24h} successful polls | prev-poll <3d ${toNumber(retention?.fresh_under_3d)} (${formatPercent(toNumber(retention?.fresh_under_3d), retentionPolls24h)}) | 3-7d ${toNumber(retention?.d3_to_7)} (${formatPercent(toNumber(retention?.d3_to_7), retentionPolls24h)}) | >7d ${retentionOver7d} (${formatPercent(retentionOver7d, retentionPolls24h)}) | first-in-window ${toNumber(retention?.first_in_window)}`
   );
   console.log(
     `Jobs at risk: ${toNumber(atRisk?.retained_live_jobs)} live jobs on ${toNumber(atRisk?.sources)} sources not polled in 7d+`

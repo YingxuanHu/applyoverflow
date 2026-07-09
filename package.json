@@ -49,6 +49,7 @@
     "source:sync-ats-tenants": "tsx -r dotenv/config scripts/sync-productive-ats-tenants.ts",
     "source:expand-ats-frontier": "tsx -r dotenv/config scripts/expand-ats-frontier.ts",
     "source:analyze-families": "tsx -r dotenv/config scripts/analyze-source-families.ts",
+    "source:report-coverage-gaps": "tsx -r dotenv/config scripts/report-coverage-gaps.ts",
     "source:report-growth": "tsx -r dotenv/config scripts/report-supply-growth.ts",
     "source:report-efficiency": "tsx -r dotenv/config scripts/report-source-efficiency.ts",
     "source:intelligence-baseline": "tsx -r dotenv/config scripts/source-intelligence-baseline.ts",
