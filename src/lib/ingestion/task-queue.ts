@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import { ReconcileGate } from "@/lib/ingestion/readiness-reconcile-gate";
 import {
+  RETENTION_CLAIM_STALENESS_HOURS,
+  computeRetentionClaimSplit,
+} from "@/lib/ingestion/retention-poll-policy";
+import {
   Prisma,
   SourceTask,
   SourceTaskKind,
@@ -769,7 +773,56 @@ export async function claimSourceTasks(
       `
       : Prisma.empty;
 
-  const claimCandidates = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+  // Reserved retention pass: a structural share of each CONNECTOR_POLL claim
+  // batch goes to tasks whose source holds live jobs but has gone more than
+  // half the evidence window without a successful poll, claimed earliest-
+  // deadline-first. Priority ordering alone cannot guarantee these ever run:
+  // stored priorityScores reach ~165k in production and fresh elite sources
+  // are re-enqueued continuously, so any bounded boost gets outbid. Targeted
+  // claims (companySourceIds) bypass the quota.
+  const retentionSplit =
+    kind === "CONNECTOR_POLL" && !filters.companySourceIds
+      ? computeRetentionClaimSplit(limit)
+      : { reserved: 0, general: limit };
+
+  let retentionClaimed: Array<{ id: string }> = [];
+  if (retentionSplit.reserved > 0) {
+    const staleCutoff = new Date(
+      now.getTime() - RETENTION_CLAIM_STALENESS_HOURS * 60 * 60 * 1000
+    );
+    retentionClaimed = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      WITH retention_tasks AS (
+        SELECT st."id"
+        FROM "SourceTask" st
+        JOIN "CompanySource" cs ON cs."id" = st."companySourceId"
+        WHERE
+          st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+          AND st."status" = 'PENDING'::"SourceTaskStatus"
+          AND st."notBeforeAt" <= ${now}
+          ${excludedConnectorFilter}
+          AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+          AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+          AND cs."retainedLiveJobCount" > 0
+          AND COALESCE(cs."lastSuccessfulPollAt", cs."createdAt") <= ${staleCutoff}
+        ORDER BY COALESCE(cs."lastSuccessfulPollAt", cs."createdAt") ASC
+        LIMIT ${retentionSplit.reserved}
+        FOR UPDATE OF st SKIP LOCKED
+      )
+      UPDATE "SourceTask" st
+      SET
+        "status" = 'RUNNING'::"SourceTaskStatus",
+        "startedAt" = ${now},
+        "attemptCount" = st."attemptCount" + 1
+      FROM retention_tasks
+      WHERE st."id" = retention_tasks."id"
+      RETURNING st."id"
+    `);
+  }
+
+  const generalLimit = Math.max(0, limit - retentionClaimed.length);
+  const generalClaimed =
+    generalLimit > 0
+      ? await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     WITH next_tasks AS (
       SELECT st."id"
       FROM "SourceTask" st
@@ -782,7 +835,7 @@ export async function claimSourceTasks(
         ${connectorPollSourceReadinessFilter}
         ${rediscoverySourceReadinessFilter}
       ORDER BY st."priorityScore" DESC, st."createdAt" ASC
-      LIMIT ${limit}
+      LIMIT ${generalLimit}
       FOR UPDATE SKIP LOCKED
     )
     UPDATE "SourceTask" st
@@ -793,7 +846,10 @@ export async function claimSourceTasks(
     FROM next_tasks
     WHERE st."id" = next_tasks."id"
     RETURNING st."id"
-  `);
+  `)
+      : [];
+
+  const claimCandidates = [...retentionClaimed, ...generalClaimed];
 
   if (claimCandidates.length === 0) {
     return [];

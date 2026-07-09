@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  RETENTION_CLAIM_STALENESS_HOURS,
   RETENTION_EVIDENCE_WINDOW_HOURS,
+  computeRetentionClaimSplit,
   computeRetentionPriorityBoost,
   computeRetentionUrgency,
   shouldExemptFromGrowthPenalties,
@@ -107,6 +109,43 @@ test("never-polled sources fall back to the provided reference date", () => {
     retainedLiveJobCount: 40,
   });
   assert.equal(noReference.urgency, 0);
+});
+
+test("claim split reserves a share and never consumes the whole batch", () => {
+  assert.deepEqual(computeRetentionClaimSplit(120, 0.4), {
+    reserved: 48,
+    general: 72,
+  });
+  // Tiny batches: always leave at least one general slot.
+  assert.deepEqual(computeRetentionClaimSplit(2, 0.9), {
+    reserved: 1,
+    general: 1,
+  });
+  // Share floor: any positive share on a real batch reserves at least one.
+  assert.deepEqual(computeRetentionClaimSplit(10, 0.01), {
+    reserved: 1,
+    general: 9,
+  });
+  // Degenerate limits reserve nothing.
+  assert.deepEqual(computeRetentionClaimSplit(1, 0.5), {
+    reserved: 0,
+    general: 1,
+  });
+  assert.deepEqual(computeRetentionClaimSplit(0, 0.5), {
+    reserved: 0,
+    general: 0,
+  });
+  assert.deepEqual(computeRetentionClaimSplit(50, 0), {
+    reserved: 0,
+    general: 50,
+  });
+});
+
+test("claim staleness threshold matches the urgency ramp start", () => {
+  assert.equal(
+    RETENTION_CLAIM_STALENESS_HOURS,
+    RETENTION_EVIDENCE_WINDOW_HOURS / 2
+  );
 });
 
 test("growth-penalty exemption applies only near or past the cliff", () => {

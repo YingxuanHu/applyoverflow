@@ -122,3 +122,44 @@ export function shouldExemptFromGrowthPenalties(
     hoursUntilEvidenceCliff <= RETENTION_PENALTY_EXEMPTION_HOURS
   );
 }
+
+// ── Claim-side retention quota ──────────────────────────────────────────────
+//
+// Priority boosts alone cannot guarantee execution: live queues carry stored
+// priorityScores up to ~165k (measured in production), so any bounded boost
+// can be outbid indefinitely by freshly re-enqueued elite sources. Instead of
+// a numeric arms race, a structural share of every claim batch is reserved
+// for tasks whose company source is retention-stale (holds live jobs, no
+// successful poll in more than half the evidence window), claimed earliest-
+// deadline-first. The general claim fills whatever the reserved pass left.
+
+// A source becomes claim-reserved once it has gone half the evidence window
+// without a successful poll — the same point the enqueue-side urgency ramp
+// starts.
+export const RETENTION_CLAIM_STALENESS_HOURS =
+  RETENTION_EVIDENCE_WINDOW_HOURS / 2;
+
+const DEFAULT_RETENTION_CLAIM_SHARE = 0.4;
+
+function readRetentionClaimShare() {
+  const parsed = Number.parseFloat(
+    process.env.INGEST_RETENTION_CLAIM_SHARE ?? ""
+  );
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 0.9
+    ? parsed
+    : DEFAULT_RETENTION_CLAIM_SHARE;
+}
+
+export function computeRetentionClaimSplit(
+  limit: number,
+  share: number = readRetentionClaimShare()
+): { reserved: number; general: number } {
+  if (!Number.isFinite(limit) || limit <= 1 || share <= 0) {
+    return { reserved: 0, general: Math.max(0, Math.floor(limit)) };
+  }
+  const reserved = Math.min(
+    Math.floor(limit) - 1,
+    Math.max(1, Math.floor(limit * share))
+  );
+  return { reserved, general: Math.floor(limit) - reserved };
+}
