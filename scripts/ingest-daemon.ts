@@ -31,6 +31,7 @@ import { installProcessDiagnostics } from "./_process-diagnostics";
 import { syncProductiveAtsTenantsToDiscoveryStore } from "../src/lib/ingestion/ats-tenant-store";
 import { repairJobFeedIndexBatch } from "../src/lib/ingestion/search-index";
 import { runScheduledIngestion } from "../src/lib/ingestion/scheduler";
+import { shouldDeferLegacySources } from "../src/lib/ingestion/scheduled-source-backlog-policy";
 import {
   countDueSourceTasks,
   reconcileConnectorPollTaskReadiness,
@@ -269,9 +270,11 @@ async function withTransientDatabaseRetry<T>(
 }
 
 async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklog> {
+  // Cycle boundary: force a fresh readiness pass so backlog counts reflect
+  // current eligibility even when worker claims recently ran a gated pass.
   await Promise.all([
-    reconcileConnectorPollTaskReadiness(now),
-    reconcileRediscoveryTaskReadiness(now),
+    reconcileConnectorPollTaskReadiness(now, { force: true }),
+    reconcileRediscoveryTaskReadiness(now, { force: true }),
   ]);
   const grouped = await prisma.sourceTask.groupBy({
     by: ["kind"],
@@ -566,7 +569,11 @@ async function main() {
         "read company-source backlog",
         () => getDueCompanySourceBacklog(new Date())
       );
-      if (companySourceBacklog.total > 0) {
+      const deferLegacySources = shouldDeferLegacySources({
+        connectorPoll: companySourceBacklog.connectorPoll,
+        rediscovery: companySourceBacklog.rediscovery,
+      });
+      if (deferLegacySources) {
         console.log(
           `[daemon] Legacy registry deferred: company-source backlog remains (validation ${companySourceBacklog.validation}, source poll ${companySourceBacklog.connectorPoll}, rediscovery ${companySourceBacklog.rediscovery})`
         );
@@ -579,9 +586,9 @@ async function main() {
             force: isFirstCycle && args.force,
             triggerLabel: "script.ingest.daemon",
             maxCycleDurationMs:
-              companySourceBacklog.total > 0 ? 0 : profile.legacyBudgetMs,
+              deferLegacySources ? 0 : profile.legacyBudgetMs,
             maxConnectorRuns:
-              companySourceBacklog.total > 0 ? 0 : profile.legacyMaxRuns,
+              deferLegacySources ? 0 : profile.legacyMaxRuns,
             skipLifecycle: !shouldRunLifecycle,
             lifecyclePerJobLimit: shouldRunLifecycle ? 3_000 : 0,
           })

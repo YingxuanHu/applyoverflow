@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ReconcileGate } from "@/lib/ingestion/readiness-reconcile-gate";
 import {
   Prisma,
   SourceTask,
@@ -276,8 +277,52 @@ async function recoverStaleRunningSourceTasks(
   return recoveredCount;
 }
 
-export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()) {
-  const skipped = await prisma.$executeRaw(Prisma.sql`
+// Readiness reconciliation is expensive hygiene (CTE aggregations over a day
+// of IngestionRun rows) and used to run on every claim batch, throttling poll
+// throughput. Claims independently re-check eligibility/cooldowns in SQL, so
+// running reconciliation at most once per gate interval per process is safe.
+const readinessReconcileGate = new ReconcileGate();
+
+const EMPTY_CONNECTOR_POLL_RECONCILE_RESULT = {
+  skipped: 0,
+  deferred: 0,
+  churnDeferred: 0,
+  churnSourcesDeferred: 0,
+  familyChurnDeferred: 0,
+  zeroGrowthDeferred: 0,
+};
+
+export async function reconcileConnectorPollTaskReadiness(
+  now: Date = new Date(),
+  options: { force?: boolean } = {}
+) {
+  if (
+    !readinessReconcileGate.shouldRun("connector-poll", {
+      force: options.force,
+    })
+  ) {
+    return EMPTY_CONNECTOR_POLL_RECONCILE_RESULT;
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const [lock] = await tx.$queryRaw<Array<{ acquired: boolean }>>(Prisma.sql`
+      SELECT pg_try_advisory_xact_lock(
+        hashtext('applyoverflow:connector-poll-readiness')
+      ) AS acquired
+    `);
+
+    if (!lock?.acquired) {
+      return {
+        skipped: 0,
+        deferred: 0,
+        churnDeferred: 0,
+        churnSourcesDeferred: 0,
+        familyChurnDeferred: 0,
+        zeroGrowthDeferred: 0,
+      };
+    }
+
+    const skipped = await tx.$executeRaw(Prisma.sql`
     UPDATE "SourceTask" st
     SET
       "status" = 'SKIPPED'::"SourceTaskStatus",
@@ -291,7 +336,7 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND NOT (${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL})
   `);
 
-  const deferred = await prisma.$executeRaw(Prisma.sql`
+    const deferred = await tx.$executeRaw(Prisma.sql`
     UPDATE "SourceTask" st
     SET
       "notBeforeAt" = cs."cooldownUntil",
@@ -307,10 +352,10 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND st."notBeforeAt" < cs."cooldownUntil"
   `);
 
-  const churnCooldownUntil = new Date(
-    now.getTime() + CONNECTOR_POLL_CHURN_HEAVY_COOLDOWN_HOURS * 60 * 60 * 1000
-  );
-  const churnDeferred = await prisma.$executeRaw(Prisma.sql`
+    const churnCooldownUntil = new Date(
+      now.getTime() + CONNECTOR_POLL_CHURN_HEAVY_COOLDOWN_HOURS * 60 * 60 * 1000
+    );
+    const churnDeferred = await tx.$executeRaw(Prisma.sql`
     WITH recent_runs AS (
       SELECT
         "sourceName",
@@ -342,7 +387,7 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND st."notBeforeAt" < ${churnCooldownUntil}
   `);
 
-  const churnSourcesDeferred = await prisma.$executeRaw(Prisma.sql`
+    const churnSourcesDeferred = await tx.$executeRaw(Prisma.sql`
     WITH recent_runs AS (
       SELECT
         "sourceName",
@@ -368,10 +413,10 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" < ${churnCooldownUntil})
   `);
 
-  const familyChurnNotBefore = new Date(
-    now.getTime() + CONNECTOR_POLL_FAMILY_CHURN_DEFER_HOURS * 60 * 60 * 1000
-  );
-  const familyChurnDeferred = await prisma.$executeRaw(Prisma.sql`
+    const familyChurnNotBefore = new Date(
+      now.getTime() + CONNECTOR_POLL_FAMILY_CHURN_DEFER_HOURS * 60 * 60 * 1000
+    );
+    const familyChurnDeferred = await tx.$executeRaw(Prisma.sql`
     WITH recent_families AS (
       SELECT
         LOWER(split_part("sourceName", ':', 1)) AS "connectorName",
@@ -426,10 +471,10 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       )
   `);
 
-  const zeroGrowthNotBefore = new Date(
-    now.getTime() + CONNECTOR_POLL_ZERO_GROWTH_DEFER_HOURS * 60 * 60 * 1000
-  );
-  const zeroGrowthDeferred = await prisma.$executeRaw(Prisma.sql`
+    const zeroGrowthNotBefore = new Date(
+      now.getTime() + CONNECTOR_POLL_ZERO_GROWTH_DEFER_HOURS * 60 * 60 * 1000
+    );
+    const zeroGrowthDeferred = await tx.$executeRaw(Prisma.sql`
     WITH recent_runs AS (
       SELECT
         "sourceName",
@@ -460,17 +505,30 @@ export async function reconcileConnectorPollTaskReadiness(now: Date = new Date()
       AND st."notBeforeAt" < ${zeroGrowthNotBefore}
   `);
 
-  return {
-    skipped,
-    deferred: deferred + churnDeferred + familyChurnDeferred + zeroGrowthDeferred,
-    churnDeferred,
-    churnSourcesDeferred,
-    familyChurnDeferred,
-    zeroGrowthDeferred,
-  };
+    return {
+      skipped,
+      deferred: deferred + churnDeferred + familyChurnDeferred + zeroGrowthDeferred,
+      churnDeferred,
+      churnSourcesDeferred,
+      familyChurnDeferred,
+      zeroGrowthDeferred,
+    };
+  }, {
+    maxWait: 5_000,
+    timeout: 45_000,
+  });
 }
 
-export async function reconcileRediscoveryTaskReadiness(now: Date = new Date()) {
+export async function reconcileRediscoveryTaskReadiness(
+  now: Date = new Date(),
+  options: { force?: boolean } = {}
+) {
+  if (
+    !readinessReconcileGate.shouldRun("rediscovery", { force: options.force })
+  ) {
+    return { skipped: 0, deferred: 0 };
+  }
+
   const skipped = await prisma.$executeRaw(Prisma.sql`
     UPDATE "SourceTask" st
     SET

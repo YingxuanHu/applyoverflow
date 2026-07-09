@@ -46,6 +46,11 @@ import {
   shouldDeferZeroGrowthPollSource,
 } from "@/lib/ingestion/source-poll-growth-guards";
 import {
+  computeRetentionPriorityBoost,
+  computeRetentionUrgency,
+  shouldExemptFromGrowthPenalties,
+} from "@/lib/ingestion/retention-poll-policy";
+import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
   resolveScaledInteger,
@@ -307,6 +312,17 @@ const COMPANY_SOURCE_POLL_END_STAGE_WINDOW_MS = 2 * 60 * 1000;
 const COMPANY_SOURCE_STALE_RUN_RECOVERY_INTERVAL_MS = 60 * 1000;
 const COMPANY_SOURCE_POLL_ADMISSION_BUDGET_RATIO = 0.88;
 const COMPANY_SOURCE_POLL_SOFT_STOP_RATIO = 0.88;
+// Share of the poll admission budget reserved for the deadline-driven
+// retention lane (sources whose retained live jobs are approaching the feed's
+// 14-day evidence window). Ordered earliest-deadline-first, so re-confirmation
+// polls cannot be starved by novelty/efficiency ordering.
+const RETENTION_ADMISSION_BUDGET_RATIO = (() => {
+  const parsed = Number.parseFloat(
+    process.env.INGEST_RETENTION_ADMISSION_BUDGET_RATIO ?? ""
+  );
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.35;
+})();
+
 const COMPANY_SOURCE_POLL_TIER_1_BUDGET_RATIO = 0.65;
 const COMPANY_SOURCE_POLL_TIER_2_BUDGET_RATIO = 0.25;
 const COMPANY_SOURCE_POLL_TIER_3_BUDGET_RATIO = 0.1;
@@ -2721,7 +2737,10 @@ export async function enqueueCompanySourcePollTasks(options: {
       where: {
         status: { in: ["ACTIVE", "DEGRADED"] },
         validationState: "VALIDATED",
-        pollState: "READY",
+        // BACKOFF sources hold real live supply too (73k jobs at the time of
+        // the July 2026 decline investigation); once their cooldown expires
+        // they must be reachable by the retention lane, not stranded.
+        pollState: { in: ["READY", "BACKOFF"] },
         OR: [{ cooldownUntil: null }, { cooldownUntil: { lte: now } }],
         retainedLiveJobCount: { gt: 0 },
         tasks: {
@@ -2954,8 +2973,26 @@ export async function enqueueCompanySourcePollTasks(options: {
       metadataJson: source.metadataJson,
       companyMetadataJson: source.company.metadataJson,
     });
+    // Deadline-driven retention pressure: every source whose retained live
+    // jobs are approaching the feed's 14-day evidence window gains urgency —
+    // not just the capped backfill lane. Near the cliff the source is also
+    // exempt from growth churn penalties: its "churn" is usually our own
+    // stale-evidence removals, and penalizing it creates a death spiral
+    // (staler -> more removals -> lower priority -> staler).
+    const retentionPolicyInput = {
+      now,
+      lastSuccessfulPollAt: source.lastSuccessfulPollAt,
+      fallbackReferenceAt: source.updatedAt ?? source.createdAt,
+      retainedLiveJobCount: source.retainedLiveJobCount,
+    };
+    const retentionUrgency = computeRetentionUrgency(retentionPolicyInput);
+    const retentionPriorityBoost =
+      computeRetentionPriorityBoost(retentionPolicyInput);
+    const retentionPenaltyExempt =
+      shouldExemptFromGrowthPenalties(retentionPolicyInput);
     const churnHeavyCooldown =
       targetIds === null &&
+      !retentionPenaltyExempt &&
       isGrowthChurnHeavySource({
         frontierCandidate: growthSignals.frontierCandidate,
         recentCanonicalCreatedCount,
@@ -2967,7 +3004,10 @@ export async function enqueueCompanySourcePollTasks(options: {
         Math.min(1_200, Math.abs(Math.min(recentNetCreatedCount, 0)) * 4)
       : 0;
     const growthNetNegativePriorityPenalty =
-      growthMode && recentRunCount > 0 && recentNetCreatedCount < 0
+      growthMode &&
+      !retentionPenaltyExempt &&
+      recentRunCount > 0 &&
+      recentNetCreatedCount < 0
         ? Math.min(
             1_800,
             Math.abs(recentNetCreatedCount) * 45 + recentRemovedCount * 12
@@ -2990,28 +3030,17 @@ export async function enqueueCompanySourcePollTasks(options: {
     });
     const sourceOverdueForPoll = isCompanySourceOverdueForPoll(source, now);
     const productiveRefreshBackfill = productiveRefreshBackfillIds.has(source.id);
-    const productiveRefreshBackfillBoost =
-      productiveRefreshBackfill && source.retainedLiveJobCount > 0
-        ? Math.min(
-            2_500,
-            240 +
-              Math.log1p(source.retainedLiveJobCount) * 120 +
-              Math.min(
-                480,
-                Math.max(
-                  0,
-                  now.getTime() -
-                    (source.lastSuccessfulPollAt ?? source.updatedAt ?? source.createdAt)
-                      .getTime()
-                ) /
-                  (60 * 60 * 1000) *
-                  4
-              )
-          )
-        : 0;
+    // The deadline-driven retention boost supersedes the old lane-only
+    // formula; lane members keep a small floor so freshly-overdue productive
+    // sources still rank ahead of zero-history candidates.
+    const productiveRefreshBackfillBoost = Math.max(
+      retentionPriorityBoost,
+      productiveRefreshBackfill && source.retainedLiveJobCount > 0 ? 240 : 0
+    );
     const zeroGrowthPollDefer =
       growthMode &&
       !productiveRefreshBackfill &&
+      !retentionPenaltyExempt &&
       shouldDeferZeroGrowthPollSource(
         {
           pollAttemptCount: source.pollAttemptCount,
@@ -3051,13 +3080,22 @@ export async function enqueueCompanySourcePollTasks(options: {
       recentCanonicalCreatedCount,
       recentRemovedCount,
       recentNetCreatedCount,
-      suppressedForLowNoveltyAts,
+      suppressedForLowNoveltyAts:
+        suppressedForLowNoveltyAts && !retentionPenaltyExempt,
       frontierCandidate: growthSignals.frontierCandidate,
       productiveRefreshBackfill,
+      retentionUrgency: retentionUrgency.urgency,
+      retentionHoursUntilCliff: retentionUrgency.hoursUntilEvidenceCliff,
+      retentionPenaltyExempt,
       hardCooldownForGrowth:
-        growthSignals.shouldHardCooldown && !productiveRefreshBackfill,
+        growthSignals.shouldHardCooldown &&
+        !productiveRefreshBackfill &&
+        !retentionPenaltyExempt,
       churnHeavyCooldown: churnHeavyCooldown && !productiveRefreshBackfill,
-      slowLowYieldCooldown: slowLowYieldCooldown && !productiveRefreshBackfill,
+      slowLowYieldCooldown:
+        slowLowYieldCooldown &&
+        !productiveRefreshBackfill &&
+        !retentionPenaltyExempt,
       zeroGrowthPollDefer,
     };
   }).filter(({ hostMetrics, source, frontierCandidate }) => {
@@ -3129,6 +3167,53 @@ export async function enqueueCompanySourcePollTasks(options: {
   const selectedSources: typeof scoredSources = [];
   const selectedIds = new Set<string>();
   let carryBudgetMs = 0;
+
+  // Retention lane: reserved admission slice for sources whose retained live
+  // jobs are approaching the evidence cliff, ordered earliest-deadline-first.
+  // Tier admission below orders by efficiency (yield per runtime), which
+  // structurally starves pure re-confirmation polls; this lane guarantees
+  // they are admitted before the feed hides supply that is still live.
+  const retentionBudgetMs = Math.round(
+    admissionBudgetMs * RETENTION_ADMISSION_BUDGET_RATIO
+  );
+  if (retentionBudgetMs > 0) {
+    let retentionUsedMs = 0;
+    const retentionLaneCandidates = eligibleScoredSources
+      .filter((candidate) => candidate.retentionUrgency > 0)
+      .sort(
+        (left, right) =>
+          left.retentionHoursUntilCliff - right.retentionHoursUntilCliff
+      );
+
+    for (const candidate of retentionLaneCandidates) {
+      if (selectedSources.length >= pollLimit) break;
+      if (selectedIds.has(candidate.source.id)) continue;
+
+      const connectorCap =
+        CONNECTOR_POLL_CYCLE_CAPS[candidate.source.connectorName];
+      const currentConnectorCount =
+        connectorCounts.get(candidate.source.connectorName) ?? 0;
+      if (
+        typeof connectorCap === "number" &&
+        currentConnectorCount >= connectorCap
+      ) {
+        continue;
+      }
+
+      const projectedMs = retentionUsedMs + candidate.estimatedRuntimeMs;
+      if (projectedMs > retentionBudgetMs && retentionUsedMs > 0) {
+        continue;
+      }
+
+      selectedSources.push(candidate);
+      selectedIds.add(candidate.source.id);
+      connectorCounts.set(
+        candidate.source.connectorName,
+        currentConnectorCount + 1
+      );
+      retentionUsedMs = projectedMs;
+    }
+  }
 
   const tierConfigs: Array<{ tier: PollTier; budgetRatio: number }> = [
     { tier: "TIER_1", budgetRatio: COMPANY_SOURCE_POLL_TIER_1_BUDGET_RATIO },
