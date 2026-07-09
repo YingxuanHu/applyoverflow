@@ -680,9 +680,66 @@ const steadyWorkerApps = [
     },
 ];
 
+// Continuous supply-growth lanes: proactive ATS slug-probe discovery
+// (coverage + repair) and the zombie-source circuit-breaker sweep. Opt-in:
+// set INGEST_AUTO_DISCOVERY_ENABLED=1 to enable. Kept off by default so a
+// deploy never starts hitting external ATS endpoints or mutating source
+// state until retention/health is confirmed stable.
+function buildAutoDiscoveryShellApp(name, args, output, error) {
+  return withWorkerGroups({
+    name,
+    script: "bash",
+    args,
+    cwd: __dirname,
+    autorestart: true,
+    max_restarts: 10,
+    min_uptime: "30s",
+    restart_delay: 10000,
+    output,
+    error,
+    log_date_format: "YYYY-MM-DD HH:mm:ss",
+    merge_logs: true,
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || "production",
+      DATABASE_PROCESS_ROLE: "recovery_discovery",
+      DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
+        process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "2",
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+        process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+    },
+    max_memory_restart: "384M",
+  }, ["source-workers"]);
+}
+
+const autoDiscoveryApps =
+  process.env.INGEST_AUTO_DISCOVERY_ENABLED === "1"
+    ? [
+        buildAutoDiscoveryShellApp(
+          "ingest-slug-probe-repair",
+          `-lc 'sleep ${process.env.SLUG_PROBE_REPAIR_INITIAL_DELAY_SECONDS || 300}; while true; do timeout ${process.env.SLUG_PROBE_REPAIR_TIMEOUT_SECONDS || 3600}s node_modules/.bin/tsx -r dotenv/config scripts/probe-ats-slugs.ts --mode=repair --limit=${process.env.SLUG_PROBE_REPAIR_LIMIT || 300} --concurrency=${process.env.SLUG_PROBE_CONCURRENCY || 3} --apply || true; sleep ${process.env.SLUG_PROBE_REPAIR_INTERVAL_SECONDS || 21600}; done'`,
+          "./logs/slug-probe-repair-out.log",
+          "./logs/slug-probe-repair-err.log"
+        ),
+        buildAutoDiscoveryShellApp(
+          "ingest-slug-probe-coverage",
+          `-lc 'sleep ${process.env.SLUG_PROBE_COVERAGE_INITIAL_DELAY_SECONDS || 1800}; while true; do timeout ${process.env.SLUG_PROBE_COVERAGE_TIMEOUT_SECONDS || 7200}s node_modules/.bin/tsx -r dotenv/config scripts/probe-ats-slugs.ts --mode=coverage --limit=${process.env.SLUG_PROBE_COVERAGE_LIMIT || 600} --concurrency=${process.env.SLUG_PROBE_CONCURRENCY || 3} --apply || true; sleep ${process.env.SLUG_PROBE_COVERAGE_INTERVAL_SECONDS || 43200}; done'`,
+          "./logs/slug-probe-coverage-out.log",
+          "./logs/slug-probe-coverage-err.log"
+        ),
+        buildAutoDiscoveryShellApp(
+          "ingest-zombie-sweep",
+          `-lc 'sleep ${process.env.ZOMBIE_SWEEP_INITIAL_DELAY_SECONDS || 900}; while true; do timeout ${process.env.ZOMBIE_SWEEP_TIMEOUT_SECONDS || 1800}s node_modules/.bin/tsx -r dotenv/config scripts/sweep-zombie-sources.ts --limit=${process.env.ZOMBIE_SWEEP_LIMIT || 500} --apply || true; sleep ${process.env.ZOMBIE_SWEEP_INTERVAL_SECONDS || 43200}; done'`,
+          "./logs/zombie-sweep-out.log",
+          "./logs/zombie-sweep-err.log"
+        ),
+      ]
+    : [];
+
 module.exports = {
   apps: selectWorkerApps([
     ...steadyWorkerApps,
+    ...autoDiscoveryApps,
     ...maintenanceApps,
     ...topPicksApps,
     ...overnightAccelerationApps,
