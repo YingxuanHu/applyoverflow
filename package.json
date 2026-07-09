@@ -80,6 +80,7 @@
     "jobs:backfill-experience-level": "tsx -r dotenv/config scripts/backfill-job-experience-level.ts",
     "jobs:backfill-company-industry": "tsx -r dotenv/config scripts/backfill-company-industry.ts",
     "jobs:backfill-job-function": "tsx -r dotenv/config scripts/backfill-job-function-labels.ts",
+    "jobs:backfill-labels-ai": "tsx -r dotenv/config scripts/backfill-labels-ai.ts",
     "jobs:import-company-industry-labels": "tsx -r dotenv/config scripts/import-company-industry-labels.ts",
     "jobs:export-company-industry-candidates": "tsx -r dotenv/config scripts/export-company-industry-candidates.ts",
     "jobs:backfill-feed-index": "tsx -r dotenv/config scripts/backfill-job-feed-index.ts",
