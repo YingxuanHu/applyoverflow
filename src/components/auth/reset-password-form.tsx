@@ -51,26 +51,30 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
       return;
     }
 
-    const response = await fetch("/api/auth/password-reset/confirm", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        newPassword: password,
-        token,
-      }),
-    });
+    try {
+      const response = await fetch("/api/auth/password-reset/confirm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          newPassword: password,
+          token,
+        }),
+      });
 
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(body?.error ?? "Unable to reset password. Request a new link and try again.");
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(body?.error ?? "Unable to reset password. Request a new link and try again.");
+        return;
+      }
+
+      setMessage("Password reset successful. Sign in with your new password.");
+    } catch {
+      setError("Unable to reset password. Request a new link and try again.");
+    } finally {
       setPending(false);
-      return;
     }
-
-    setMessage("Password reset successful. Sign in with your new password.");
-    setPending(false);
   };
 
   return (

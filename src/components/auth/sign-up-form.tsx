@@ -148,7 +148,18 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
       return;
     }
 
-    const verificationResult = await requestVerificationEmail(email);
+    let verificationResult: Awaited<ReturnType<typeof requestVerificationEmail>>;
+    try {
+      verificationResult = await requestVerificationEmail(email);
+    } catch {
+      setExistingEmail(email);
+      setExistingEmailVerified(false);
+      setError(
+        "Account created, but the verification email failed to send — you can resend it from the sign-in page."
+      );
+      setPending(false);
+      return;
+    }
 
     if (!verificationResult.ok || verificationResult.status !== "sent") {
       setExistingEmail(email);

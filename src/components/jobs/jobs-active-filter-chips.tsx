@@ -39,7 +39,7 @@ export function JobsActiveFilterChips({
                 <span className="min-w-0 truncate">{item.label}</span>
                 <Link
                   aria-label={`Remove ${group.label}: ${item.label}`}
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
                   href={item.href}
                 >
                   <X className="h-3 w-3" />

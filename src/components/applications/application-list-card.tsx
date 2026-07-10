@@ -157,34 +157,46 @@ export function ApplicationListCard({ application }: { application: ApplicationL
           {editing ? (
             <div className="space-y-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <label
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  htmlFor="app-role-title"
+                >
                   Job title
                 </label>
                 <Input
                   autoFocus
                   className="h-9 text-base font-semibold"
+                  id="app-role-title"
                   onChange={(event) => setRoleTitleDraft(event.target.value)}
                   placeholder="Job title"
                   value={roleTitleDraft}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <label
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  htmlFor="app-company"
+                >
                   Company
                 </label>
                 <Input
                   className="h-9 font-semibold"
+                  id="app-company"
                   onChange={(event) => setCompanyDraft(event.target.value)}
                   placeholder="Company name"
                   value={companyDraft}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <label
+                  className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  htmlFor="app-role-url"
+                >
                   Job link
                 </label>
                 <Input
                   className="h-9"
+                  id="app-role-url"
                   onChange={(event) => setRoleUrlDraft(event.target.value)}
                   placeholder="https://..."
                   type="url"

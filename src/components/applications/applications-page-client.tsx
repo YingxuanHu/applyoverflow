@@ -75,13 +75,20 @@ export function ApplicationsPageClient({
   filters,
 }: ApplicationsPageClientProps) {
   const pageStorageKey = `autoapplication.applications.page:${stateKey}`;
-  const [currentPage, setCurrentPage] = useState(() => readStoredPage(pageStorageKey));
+  const [currentPage, setCurrentPage] = useState(1);
   const [showFlow, setShowFlow] = useState(false);
   const [flowRange, setFlowRange] = useState<ApplicationFlowRange>("all");
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlow | null>(null);
   // Captured once so the chart's relative time-range windows stay stable across
   // re-renders (only recomputed when the range or dataset changes).
   const [nowMs] = useState(() => Date.now());
+
+  // Restore the persisted page only after mount. Reading sessionStorage during
+  // the initial render would diverge from the server (which always renders page
+  // 1) and cause a hydration mismatch of the list.
+  useEffect(() => {
+    setCurrentPage(readStoredPage(pageStorageKey));
+  }, [pageStorageKey]);
 
   const flowData = useMemo(
     () => buildApplicationFlowData(flowApplications, { range: flowRange, now: nowMs }),

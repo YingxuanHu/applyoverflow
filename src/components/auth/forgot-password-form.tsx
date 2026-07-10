@@ -32,21 +32,25 @@ export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProp
       return;
     }
 
-    const response = await fetch("/api/auth/password-reset/request", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email }),
-    });
+    try {
+      const response = await fetch("/api/auth/password-reset/request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
 
-    if (!response.ok && response.status !== 429) {
+      if (!response.ok && response.status !== 429) {
+        setError("Unable to send reset instructions right now. Try again.");
+      } else {
+        setMessage("If an account exists for this email, we sent reset instructions.");
+      }
+    } catch {
       setError("Unable to send reset instructions right now. Try again.");
-    } else {
-      setMessage("If an account exists for this email, we sent reset instructions.");
+    } finally {
+      setPending(false);
     }
-
-    setPending(false);
   };
 
   return (

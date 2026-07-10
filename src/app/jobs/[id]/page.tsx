@@ -128,7 +128,7 @@ export default async function JobDetailPage({
                   "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium tracking-normal",
                   expiringSoon.severity === "critical"
                     ? "border-destructive/15 bg-destructive/[0.04] text-destructive/80"
-                    : "border-amber-500/15 bg-amber-500/[0.04] text-amber-700/80"
+                    : "border-amber-500/15 bg-amber-500/[0.04] text-amber-700/80 dark:text-amber-300/80"
                 )}
               >
                 {expiringSoon.label}

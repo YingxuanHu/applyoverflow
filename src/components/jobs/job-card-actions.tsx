@@ -109,8 +109,8 @@ export function JobCardActions({
             "gap-1.5",
             compact &&
               !isSaved &&
-              "h-8 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-            compact && isSaved && "h-8 rounded-full px-3 text-[13px] font-medium"
+              "h-10 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-8",
+            compact && isSaved && "h-10 rounded-full px-3 text-[13px] font-medium sm:h-8"
           )}
           disabled={isSaving}
           onClick={handleSaveClick}

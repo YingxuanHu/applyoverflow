@@ -200,6 +200,7 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
             {renaming ? (
               <input
                 ref={renameInputRef}
+                aria-label={`Rename ${resume.title}`}
                 className="h-8 min-w-0 rounded-[10px] border border-input bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
                 onBlur={submitRename}
                 onChange={(event) => setRenameValue(event.target.value)}
@@ -356,6 +357,7 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
             {renaming ? (
               <input
                 ref={renameInputRef}
+                aria-label={`Rename ${template.title}`}
                 className="h-8 min-w-0 rounded-[10px] border border-input bg-card px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
                 onBlur={submitRename}
                 onChange={(event) => setRenameValue(event.target.value)}
