@@ -6,6 +6,7 @@ import {
   unauthorizedResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { isAiFeatureAllowed } from "@/lib/ai-access";
 import { requireCurrentUserProfile } from "@/lib/current-user";
 import { syncStoredResumeForProfile } from "@/lib/profile-resume-service";
 import { revalidateProfileViews } from "@/lib/revalidation";
@@ -28,6 +29,7 @@ export async function POST(
     const result = await syncStoredResumeForProfile({
       user,
       documentId: id,
+      allowAiParse: isAiFeatureAllowed(user.email),
     });
 
     revalidateProfileViews();

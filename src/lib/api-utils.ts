@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { type ApiRateLimitRule, enforceApiRateLimit } from "@/lib/api-rate-limit";
-import { UnauthorizedError } from "@/lib/current-user";
+import { AiAccessDeniedError, UnauthorizedError } from "@/lib/current-user";
 
 export const API_BODY_LIMITS = {
   authJson: 8 * 1024,
@@ -32,6 +32,16 @@ export function unauthorizedResponse(message = "Unauthorized") {
 
 export function isUnauthorizedApiError(error: unknown) {
   return error instanceof UnauthorizedError;
+}
+
+export function isAiAccessDeniedApiError(error: unknown) {
+  return error instanceof AiAccessDeniedError;
+}
+
+export function aiAccessDeniedResponse(
+  message = "AI features are not enabled for this account."
+) {
+  return errorResponse(message, 403);
 }
 
 export async function rateLimitResponse(
@@ -139,6 +149,12 @@ export function handleApiRouteError(
 ) {
   if (isUnauthorizedApiError(error)) {
     return unauthorizedResponse(options?.unauthorizedMessage);
+  }
+
+  if (isAiAccessDeniedApiError(error)) {
+    return aiAccessDeniedResponse(
+      error instanceof AiAccessDeniedError ? error.message : undefined
+    );
   }
 
   console.error(`${logLabel} error:`, error);

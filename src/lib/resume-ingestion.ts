@@ -245,11 +245,17 @@ export async function ingestResumeIntoProfile(input: {
   fileName: string;
   mimeType: string;
   fileBuffer: Buffer;
+  /**
+   * When false, skip the OpenAI extraction path and use the local heuristic
+   * parser instead (cost gate for non-allowlisted accounts). Defaults to true.
+   */
+  allowAi?: boolean;
 }) {
   const extraction = await extractStructuredResume({
     fileBuffer: input.fileBuffer,
     fileName: input.fileName,
     mimeType: input.mimeType,
+    allowAi: input.allowAi ?? true,
   });
 
   const mergeResult = mergeResumeProfile({
@@ -289,11 +295,12 @@ async function extractStructuredResume(input: {
   fileBuffer: Buffer;
   fileName: string;
   mimeType: string;
+  allowAi: boolean;
 }): Promise<ExtractedResumePayload> {
   const localText = await extractLocalText(input.fileBuffer, input.fileName, input.mimeType);
   const openAIReadiness = getOpenAIReadiness();
 
-  if (openAIReadiness.configured) {
+  if (input.allowAi && openAIReadiness.configured) {
     try {
       const extractionMode = await chooseExtractionMode({
         fileBuffer: input.fileBuffer,

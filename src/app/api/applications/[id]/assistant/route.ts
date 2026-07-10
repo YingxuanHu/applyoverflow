@@ -3,13 +3,16 @@ import { NextResponse } from "next/server";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import {
   API_BODY_LIMITS,
+  aiAccessDeniedResponse,
   errorResponse,
   rateLimitResponse,
   requestSizeLimitResponse,
   unauthorizedResponse,
 } from "@/lib/api-utils";
 import {
+  AiAccessDeniedError,
   UnauthorizedError,
+  requireAiFeatureAccess,
   requireCurrentAuthUserId,
   requireCurrentUserProfile,
 } from "@/lib/current-user";
@@ -319,6 +322,8 @@ export async function POST(request: Request, context: RouteContext) {
       requireCurrentUserProfile(),
     ]);
 
+    await requireAiFeatureAccess();
+
     const readiness = getOpenAIReadiness();
     if (!readiness.configured) {
       return NextResponse.json({ error: "OpenAI is not configured." }, { status: 503 });
@@ -524,6 +529,10 @@ ${applicationContext}`,
 
     return NextResponse.json({ answer, profileNotice: profileReadiness.profileNotice });
   } catch (error) {
+    if (error instanceof AiAccessDeniedError) {
+      return aiAccessDeniedResponse(error.message);
+    }
+
     if (error instanceof UnauthorizedError) {
       return unauthorizedResponse();
     }

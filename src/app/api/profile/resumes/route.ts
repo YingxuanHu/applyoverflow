@@ -10,6 +10,7 @@ import {
   unauthorizedResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { isAiFeatureAllowed } from "@/lib/ai-access";
 import { requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { importUploadedResumeForProfile } from "@/lib/profile-resume-service";
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       file,
       titleRaw: String(formData.get("title") ?? "").trim(),
       makePrimary: formData.get("makePrimary") === "on",
+      allowAiParse: isAiFeatureAllowed(user.email),
     });
 
     revalidateProfileViews();

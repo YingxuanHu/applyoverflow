@@ -7,7 +7,9 @@ import { buildAiGeneratedDocumentTitle } from "@/lib/ai-document-naming";
 import { buildProfileContext } from "@/lib/ai/context-builders";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 import {
+  AiAccessDeniedError,
   UnauthorizedError,
+  requireAiFeatureAccess,
   requireCurrentAuthUserId,
   requireCurrentUserProfile,
 } from "@/lib/current-user";
@@ -383,6 +385,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       requireCurrentAuthUserId(),
       requireCurrentUserProfile(),
     ]);
+
+    await requireAiFeatureAccess();
 
     const readiness = getOpenAIReadiness();
     if (!readiness.configured) {
@@ -855,6 +859,10 @@ ${JSON.stringify(
       profileNotice: profileReadiness.profileNotice,
     });
   } catch (error) {
+    if (error instanceof AiAccessDeniedError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: "Sign in required." }, { status: 401 });
     }

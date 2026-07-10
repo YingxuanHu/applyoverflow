@@ -4,7 +4,7 @@ import { buildProfileContext } from "@/lib/ai/context-builders";
 import { formatFitAnalysisForStorage } from "@/lib/ai/fit-analysis-format";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
-import { requireCurrentAuthUserId } from "@/lib/current-user";
+import { requireAiFeatureAccess, requireCurrentAuthUserId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { revalidateApplicationWorkspaceViews } from "@/lib/revalidation";
 
@@ -76,6 +76,8 @@ export async function POST(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
+
+    await requireAiFeatureAccess();
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);

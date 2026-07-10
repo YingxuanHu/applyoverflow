@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { isAiFeatureAllowed } from "@/lib/ai-access";
 import {
   getSensitiveActionSessionFailure,
   getVerifiedSessionTokenFromHeaders,
@@ -24,6 +25,13 @@ export class ReauthenticationRequiredError extends Error {
     super("For security, sign in again before continuing.");
     this.name = "ReauthenticationRequiredError";
     this.reason = reason;
+  }
+}
+
+export class AiAccessDeniedError extends Error {
+  constructor(message = "AI features are not enabled for this account.") {
+    super(message);
+    this.name = "AiAccessDeniedError";
   }
 }
 
@@ -177,4 +185,18 @@ export async function requireCurrentAuthUserId() {
     throw new UnauthorizedError();
   }
   return userId;
+}
+
+export async function requireAiFeatureAccess() {
+  const sessionUser = await getSessionUser();
+
+  if (!sessionUser) {
+    throw new UnauthorizedError();
+  }
+
+  if (!isAiFeatureAllowed(sessionUser.email)) {
+    throw new AiAccessDeniedError();
+  }
+
+  return sessionUser;
 }

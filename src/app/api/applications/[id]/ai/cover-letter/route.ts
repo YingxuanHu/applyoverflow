@@ -6,7 +6,11 @@ import { getCoverLetterJobContextIssue } from "@/lib/ai/cover-letter-readiness";
 import { persistGeneratedCoverLetterDocument } from "@/lib/ai/generated-cover-letter-document";
 import type { JobContext } from "@/lib/ai/job-fit";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
-import { requireCurrentAuthUserId, requireCurrentUserProfile } from "@/lib/current-user";
+import {
+  requireAiFeatureAccess,
+  requireCurrentAuthUserId,
+  requireCurrentUserProfile,
+} from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 
 async function buildTrackedApplicationJobContext(
@@ -70,6 +74,8 @@ export async function POST(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
+
+    await requireAiFeatureAccess();
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);

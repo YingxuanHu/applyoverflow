@@ -1,6 +1,7 @@
 "use server";
 
 import { Prisma } from "@/generated/prisma/client";
+import { isAiFeatureAllowed } from "@/lib/ai-access";
 import {
   ReauthenticationRequiredError,
   requireCurrentUserProfile,
@@ -572,6 +573,7 @@ export async function importDocumentToProfile(
     const result = await syncStoredResumeForProfile({
       user,
       documentId,
+      allowAiParse: isAiFeatureAllowed(user.email),
     });
 
     revalidateProfileViews();

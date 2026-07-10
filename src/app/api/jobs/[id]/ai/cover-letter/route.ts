@@ -7,7 +7,7 @@ import {
   successResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
-import { requireCurrentUserProfile } from "@/lib/current-user";
+import { requireAiFeatureAccess, requireCurrentUserProfile } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 import { readCoverLetterRequestOptions } from "@/lib/ai/cover-letter-request";
 import { getCoverLetterJobContextIssue } from "@/lib/ai/cover-letter-readiness";
@@ -34,6 +34,8 @@ export async function POST(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
+
+    await requireAiFeatureAccess();
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);

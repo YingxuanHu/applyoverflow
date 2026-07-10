@@ -1,5 +1,6 @@
 import { errorResponse, handleApiRouteError, rateLimitResponse, successResponse } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+import { requireAiFeatureAccess } from "@/lib/current-user";
 import { buildJobContext, buildProfileContext } from "@/lib/ai/context-builders";
 import { assessProfileForAi } from "@/lib/ai/profile-context";
 
@@ -16,6 +17,8 @@ export async function POST(
     if (rateLimited) return rateLimited;
 
     const { id } = await params;
+
+    await requireAiFeatureAccess();
 
     if (!process.env.OPENAI_API_KEY) {
       return errorResponse("OPENAI_API_KEY not configured", 503);

@@ -144,6 +144,8 @@ export async function importUploadedResumeForProfile(input: {
   file: File;
   titleRaw: string;
   makePrimary: boolean;
+  /** When false, resume parsing skips OpenAI and uses the local heuristic parser. */
+  allowAiParse: boolean;
 }) {
   if (input.file.size === 0) {
     throw resumeUploadError(`Choose a supported resume file (${supportedResumeAcceptValue}).`);
@@ -168,6 +170,7 @@ export async function importUploadedResumeForProfile(input: {
     fileBuffer,
     fileName: input.file.name,
     mimeType,
+    allowAi: input.allowAiParse,
   });
 
   const title = input.titleRaw || baseResumeTitle(input.file.name);
@@ -295,6 +298,8 @@ export async function importUploadedResumeForProfile(input: {
 export async function syncStoredResumeForProfile(input: {
   user: ProfileUser;
   documentId: string;
+  /** When false, resume parsing skips OpenAI and uses the local heuristic parser. */
+  allowAiParse: boolean;
 }) {
   const document = await prisma.document.findFirst({
     where: {
@@ -332,6 +337,7 @@ export async function syncStoredResumeForProfile(input: {
     fileBuffer,
     fileName: document.originalFileName,
     mimeType: document.mimeType,
+    allowAi: input.allowAiParse,
   });
 
   await prisma.$transaction(async (tx) => {
