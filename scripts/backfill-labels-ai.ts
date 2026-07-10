@@ -139,6 +139,16 @@ type Args = {
   limit: number;
   concurrency: number;
   minRoleConfidence: number;
+  // Batched mode (>1): classify this many jobs per OpenAI request using
+  // title+company only. Amortizes the system prompt and drops per-job tokens
+  // ~20x vs the one-job-with-description path — the cost-safe default.
+  batchSize: number;
+  // Target tokens-per-minute ceiling; the pacer sleeps to stay under it so no
+  // request is wasted on a 429 (default sits below a 20k TPM account cap).
+  tpmLimit: number;
+  // Hard total-token budget; the run stops before exceeding it so it can never
+  // run away. null = no cap (explicit opt-out).
+  maxTokens: number | null;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -147,6 +157,9 @@ function parseArgs(argv: string[]): Args {
     limit: 2000,
     concurrency: 6,
     minRoleConfidence: AI_LABEL_MIN_CONFIDENCE,
+    batchSize: 30,
+    tpmLimit: 18_000,
+    maxTokens: null,
   };
 
   for (const arg of argv) {
@@ -156,6 +169,12 @@ function parseArgs(argv: string[]): Args {
       args.limit = parsePositiveInt(arg.slice("--limit=".length), "limit");
     } else if (arg.startsWith("--concurrency=")) {
       args.concurrency = parsePositiveInt(arg.slice("--concurrency=".length), "concurrency");
+    } else if (arg.startsWith("--batch-size=")) {
+      args.batchSize = parsePositiveInt(arg.slice("--batch-size=".length), "batch-size");
+    } else if (arg.startsWith("--tpm-limit=")) {
+      args.tpmLimit = parsePositiveInt(arg.slice("--tpm-limit=".length), "tpm-limit");
+    } else if (arg.startsWith("--max-tokens=")) {
+      args.maxTokens = parsePositiveInt(arg.slice("--max-tokens=".length), "max-tokens");
     } else if (arg.startsWith("--min-role-confidence=")) {
       const value = Number.parseFloat(arg.slice("--min-role-confidence=".length));
       if (!Number.isFinite(value) || value < 0 || value > 1) {
@@ -281,6 +300,91 @@ async function classifyJob(
     throw new Error("model returned no parsed classification");
   }
   return parsed;
+}
+
+// ── Batched (cost-safe) classification ─────────────────────────────────────
+
+const batchLabelSchema = z.object({
+  labels: z.array(
+    z.object({
+      index: z.number(),
+      roleCategory: z.enum(ROLE_CATEGORY_VALUES),
+      roleConfidence: z.number(),
+      careerStage: z.enum(CAREER_STAGE_GROUP_VALUES),
+      careerStageConfidence: z.number(),
+    })
+  ),
+});
+
+const BATCH_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You will receive a numbered list of job postings (title and company only).
+Return one label object per posting, echoing its exact "index". Classify from
+the title as an expert recruiter would; a title alone is usually sufficient.`;
+
+// Title + company only — the description is intentionally omitted: it is ~10x
+// the tokens and rarely changes the role/seniority call for a titled posting.
+function buildBatchPrompt(jobs: TargetJob[]): string {
+  return jobs
+    .map((job, index) => `${index}. ${job.title} — ${job.company}`)
+    .join("\n");
+}
+
+async function classifyBatch(
+  client: ReturnType<typeof getOpenAIClient>,
+  model: string,
+  jobs: TargetJob[]
+): Promise<Map<number, JobLabelClassification>> {
+  const completion = await client.chat.completions.parse({
+    model,
+    temperature: 0,
+    messages: [
+      { role: "system", content: BATCH_SYSTEM_PROMPT },
+      { role: "user", content: buildBatchPrompt(jobs) },
+    ],
+    response_format: zodResponseFormat(batchLabelSchema, "job_label_batch"),
+  });
+
+  const message = completion.choices[0]?.message;
+  if (message?.refusal) {
+    throw new Error(`model refused batch classification: ${message.refusal}`);
+  }
+  const parsed = message?.parsed;
+  if (!parsed) {
+    throw new Error("model returned no parsed batch classification");
+  }
+  const byIndex = new Map<number, JobLabelClassification>();
+  for (const label of parsed.labels) {
+    if (label.index >= 0 && label.index < jobs.length) {
+      byIndex.set(label.index, label);
+    }
+  }
+  return byIndex;
+}
+
+// Token-per-minute pacer: keeps a rolling 60s ledger of token spend and sleeps
+// before a request that would breach the TPM ceiling, so requests never 429.
+class TpmPacer {
+  private readonly events: Array<{ at: number; tokens: number }> = [];
+  constructor(private readonly tpmLimit: number) {}
+  private windowTokens(now: number): number {
+    const cutoff = now - 60_000;
+    while (this.events.length > 0 && this.events[0].at < cutoff) {
+      this.events.shift();
+    }
+    return this.events.reduce((sum, event) => sum + event.tokens, 0);
+  }
+  async reserve(tokens: number): Promise<void> {
+    for (;;) {
+      const now = Date.now();
+      if (this.windowTokens(now) + tokens <= this.tpmLimit || this.events.length === 0) {
+        this.events.push({ at: now, tokens });
+        return;
+      }
+      const waitMs = Math.max(500, 60_000 - (now - this.events[0].at));
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────
@@ -439,14 +543,13 @@ async function main() {
     await upsertJobFeedIndexes(batch);
   };
 
-  const processJob = async (job: TargetJob) => {
-    estimatedTokens +=
-      Math.ceil((SYSTEM_PROMPT.length + buildUserPrompt(job).length) / 4) +
-      ESTIMATED_OUTPUT_TOKENS_PER_JOB;
-
-    const classification = await classifyJob(client, model, job);
+  // Shared decision + persistence for one job's classification (used by both
+  // the per-job and batched paths).
+  const applyClassification = async (
+    job: TargetJob,
+    classification: JobLabelClassification
+  ) => {
     stats.classified += 1;
-
     const roleDecision = shouldPersistAiRoleLabel({
       category: classification.roleCategory,
       confidence: classification.roleConfidence,
@@ -503,27 +606,78 @@ async function main() {
     }
   };
 
-  const worker = async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= jobs.length) return;
-      const job = jobs[index];
-      try {
-        await processJob(job);
-      } catch (error) {
-        stats.errors += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[backfill-labels-ai] job ${job.id} failed: ${message}`);
-      }
-      processed += 1;
-      if (processed % PROGRESS_LOG_EVERY === 0) logProgress();
-    }
-  };
+  if (args.batchSize > 1) {
+    // Cost-safe path: title-only, batched, TPM-paced, hard-capped.
+    const pacer = new TpmPacer(args.tpmLimit);
+    for (let start = 0; start < jobs.length; start += args.batchSize) {
+      const batch = jobs.slice(start, start + args.batchSize);
+      const batchTokens =
+        Math.ceil(
+          (BATCH_SYSTEM_PROMPT.length + buildBatchPrompt(batch).length) / 4
+        ) +
+        batch.length * ESTIMATED_OUTPUT_TOKENS_PER_JOB;
 
-  const workerCount = Math.max(1, Math.min(args.concurrency, jobs.length));
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  await flushReindex(true);
+      if (args.maxTokens !== null && estimatedTokens + batchTokens > args.maxTokens) {
+        console.log(
+          `[backfill-labels-ai] token cap reached (${Math.round(estimatedTokens).toLocaleString()}` +
+            `/${args.maxTokens.toLocaleString()}) — stopping after ${processed} jobs`
+        );
+        break;
+      }
+
+      await pacer.reserve(batchTokens);
+      estimatedTokens += batchTokens;
+
+      try {
+        const labels = await classifyBatch(client, model, batch);
+        for (let i = 0; i < batch.length; i += 1) {
+          const classification = labels.get(i);
+          if (!classification) {
+            stats.errors += 1;
+            continue;
+          }
+          await applyClassification(batch[i], classification);
+        }
+      } catch (error) {
+        stats.errors += batch.length;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[backfill-labels-ai] batch @${start} failed: ${message}`);
+      }
+      processed += batch.length;
+      if (processed % PROGRESS_LOG_EVERY < args.batchSize) logProgress();
+    }
+    await flushReindex(true);
+  } else {
+    const processJob = async (job: TargetJob) => {
+      estimatedTokens +=
+        Math.ceil((SYSTEM_PROMPT.length + buildUserPrompt(job).length) / 4) +
+        ESTIMATED_OUTPUT_TOKENS_PER_JOB;
+      const classification = await classifyJob(client, model, job);
+      await applyClassification(job, classification);
+    };
+
+    const worker = async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= jobs.length) return;
+        const job = jobs[index];
+        try {
+          await processJob(job);
+        } catch (error) {
+          stats.errors += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`[backfill-labels-ai] job ${job.id} failed: ${message}`);
+        }
+        processed += 1;
+        if (processed % PROGRESS_LOG_EVERY === 0) logProgress();
+      }
+    };
+
+    const workerCount = Math.max(1, Math.min(args.concurrency, jobs.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    await flushReindex(true);
+  }
 
   logProgress();
   if (!args.apply && samples.length > 0) {
