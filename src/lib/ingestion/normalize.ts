@@ -903,6 +903,11 @@ export function normalizeSourceJob({
   };
 }
 
+// "USA"/"US" must match as standalone tokens, never as substrings: the naive
+// includes("USA") stamped every "Jakarta Pusat" (p-USA-t), "Jerusalem", etc.
+// as United States. Word boundaries keep genuine ", USA" / ", US" suffixes.
+const US_NAME_PATTERN = /(?<![A-Z])(?:UNITED STATES|U\.?S\.?A\.?|U\.S\.)(?![A-Z])/;
+
 export function inferRegion(location: string): Region | null {
   const normalizedLocation = location.toUpperCase();
   if (
@@ -915,25 +920,18 @@ export function inferRegion(location: string): Region | null {
     return "CA";
   }
 
-  if (
-    normalizedLocation.includes("UNITED STATES") ||
-    normalizedLocation.includes("USA") ||
-    normalizedLocation.includes("U.S.")
-  ) {
+  // Foreign names outrank the US spelling check: "Jakarta Pusat, ..., ID" and
+  // "London, UK; ..." must not resolve US off a substring or city marker.
+  if (hasStrongNonNorthAmericanGeoEvidence(location)) {
+    return null;
+  }
+
+  if (US_NAME_PATTERN.test(normalizedLocation)) {
     return "US";
   }
 
   if (normalizedLocation.includes("CANADA")) {
     return "CA";
-  }
-
-  // Unambiguous foreign country/admin-region names beat everything below:
-  // both the city markers and the trailing-code parsing collide with foreign
-  // strings ("Cambridge, UK" tripping the US Cambridge marker; "..., DKI
-  // Jakarta, ID" reading Indonesia's country code as Idaho — production had
-  // thousands of foreign jobs stamped US/CA this way).
-  if (hasStrongNonNorthAmericanGeoEvidence(location)) {
-    return null;
   }
 
   const loweredLocation = location.toLowerCase();

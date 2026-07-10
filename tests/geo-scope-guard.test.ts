@@ -195,3 +195,15 @@ test("homonym-free foreign cities beat colliding codes; homonym countries still 
     assert.equal(inferRegion(location), null, location);
   }
 });
+
+test("US-name detection is token-bounded, not a substring match", async () => {
+  const inferRegion = await loadInferRegion();
+  // "USA" as a substring of a foreign city ("Jakarta Pusat" = p-USA-t,
+  // "Jerusalem" = jer-USA-lem) must NOT resolve United States.
+  assert.equal(inferRegion("Jakarta Pusat, DKI Jakarta, ID"), null);
+  assert.equal(inferRegion("Jerusalem, Israel"), null);
+  // Genuine ", USA" / ", US" suffixes still resolve US.
+  assert.equal(inferRegion("New York City, USA"), "US");
+  assert.equal(inferRegion("Austin, TX, USA"), "US");
+  assert.equal(inferRegion("Remote, US"), "US");
+});
