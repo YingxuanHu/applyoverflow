@@ -151,6 +151,26 @@ type CanonicalStatusTally = {
   updatedCount: number;
 };
 
+// Full-snapshot freshness removal marks every mapping the connector did NOT
+// report this run as removed. It is only safe when the fetch is authoritative:
+// a full snapshot (not a bounded/limited fetch), fully paginated, and not an
+// errored fetch. Connectors surface upstream failures as `metadata.error`
+// without throwing, returning an empty job list — treating that as a snapshot
+// would wipe a whole source's live jobs on a single 429/5xx blip.
+export function shouldRunFreshnessRemovalFor(input: {
+  freshnessMode: SourceConnector["freshnessMode"];
+  limit: number | undefined;
+  fetchExhausted: boolean;
+  fetchHadError: boolean;
+}): boolean {
+  return (
+    input.freshnessMode === "FULL_SNAPSHOT" &&
+    input.limit === undefined &&
+    input.fetchExhausted &&
+    !input.fetchHadError
+  );
+}
+
 export async function ingestConnector(
   connector: SourceConnector,
   options: IngestConnectorOptions = {}
@@ -497,22 +517,30 @@ export async function bulkSyncCanonicalStatuses(options: {
           SELECT id
           FROM "JobCanonical"
           WHERE status != 'REMOVED'::"JobStatus"
+            -- Select rows whose stored status disagrees with the authoritative
+            -- bulk status (this CASE MUST stay identical to the SET below), or
+            -- that are confirmation-live but below the score floor. A recent
+            -- alive-confirmation is authoritative only when no fresher dead
+            -- signal or passed deadline contradicts it — otherwise the fast
+            -- bulk path would leave a dead/expired job marked LIVE.
             AND (
-              (
-                "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
-                AND (
-                  "availabilityScore" < ${liveConfirmationFloor}
-                  OR status != 'LIVE'::"JobStatus"
-                )
-              )
+              status IS DISTINCT FROM CASE
+                WHEN "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+                  AND "deadSignalAt" IS NULL
+                  AND ("deadline" IS NULL OR "deadline" > ${now})
+                  THEN 'LIVE'::"JobStatus"
+                WHEN ("deadline" IS NOT NULL AND "deadline" <= ${now})
+                  THEN 'EXPIRED'::"JobStatus"
+                WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
+                WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
+                WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
+                ELSE                                'EXPIRED'::"JobStatus"
+              END
               OR (
-                ("lastConfirmedAliveAt" IS NULL OR "lastConfirmedAliveAt" < ${confirmationLiveCutoff})
-                AND status IS DISTINCT FROM CASE
-                  WHEN "availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
-                  WHEN "availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
-                  WHEN "availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
-                  ELSE                                'EXPIRED'::"JobStatus"
-                END
+                "lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+                AND "deadSignalAt" IS NULL
+                AND ("deadline" IS NULL OR "deadline" > ${now})
+                AND "availabilityScore" < ${liveConfirmationFloor}
               )
             )
           ORDER BY "updatedAt" ASC
@@ -522,11 +550,20 @@ export async function bulkSyncCanonicalStatuses(options: {
         SET
           "availabilityScore" = CASE
             WHEN jc."lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+              AND jc."deadSignalAt" IS NULL
+              AND (jc."deadline" IS NULL OR jc."deadline" > ${now})
               THEN GREATEST(jc."availabilityScore", ${liveConfirmationFloor})
             ELSE jc."availabilityScore"
           END,
           status = CASE
-            WHEN jc."lastConfirmedAliveAt" >= ${confirmationLiveCutoff} THEN 'LIVE'::"JobStatus"
+            -- Confirmation-live override only when no fresher dead signal or
+            -- passed deadline contradicts it (matches computeLifecycleState).
+            WHEN jc."lastConfirmedAliveAt" >= ${confirmationLiveCutoff}
+              AND jc."deadSignalAt" IS NULL
+              AND (jc."deadline" IS NULL OR jc."deadline" > ${now})
+              THEN 'LIVE'::"JobStatus"
+            WHEN (jc."deadline" IS NOT NULL AND jc."deadline" <= ${now})
+              THEN 'EXPIRED'::"JobStatus"
             WHEN jc."availabilityScore" >= ${liveMinScore} THEN 'LIVE'::"JobStatus"
             WHEN jc."availabilityScore" >= ${agingMinScore} THEN 'AGING'::"JobStatus"
             WHEN jc."availabilityScore" >= ${staleMinScore} THEN 'STALE'::"JobStatus"
@@ -729,6 +766,16 @@ async function performConnectorIngestion(
         ])
       : await fetchResultPromise;
   const fetchExhausted = fetchResult.exhausted ?? fetchResult.checkpoint == null;
+  // Connectors return `metadata.error` (without throwing) when the upstream
+  // responded non-OK (429 rate-limit, 5xx outage). Such a fetch yields an
+  // empty job list that is NOT authoritative: treating it as a full snapshot
+  // would mark every one of the source's mappings removed and drive the whole
+  // company's canonical jobs to REMOVED on a single transient blip.
+  const fetchHadError =
+    typeof fetchResult.metadata === "object" &&
+    fetchResult.metadata !== null &&
+    "error" in fetchResult.metadata &&
+    Boolean((fetchResult.metadata as { error?: unknown }).error);
   summary.checkpoint = fetchResult.checkpoint ?? null;
   summary.checkpointExhausted = fetchExhausted;
   await onHeartbeat?.({
@@ -950,10 +997,12 @@ async function performConnectorIngestion(
     }
   }
 
-  const shouldRunFreshnessRemoval =
-    connector.freshnessMode === "FULL_SNAPSHOT" &&
-    limit === undefined &&
-    fetchExhausted;
+  const shouldRunFreshnessRemoval = shouldRunFreshnessRemovalFor({
+    freshnessMode: connector.freshnessMode,
+    limit,
+    fetchExhausted,
+    fetchHadError,
+  });
 
   if (shouldRunFreshnessRemoval) {
     const removalResult = await markMissingSourceMappingsRemoved({
