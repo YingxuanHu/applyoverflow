@@ -1,3 +1,5 @@
+import { convertSalaryAmount } from "@/lib/currency-conversion";
+
 import {
   TOP_PICK_SCORING_WEIGHTS,
   TOP_PICK_UNKNOWN_ROLE_SCORE_CAP,
@@ -183,8 +185,19 @@ function scoreSalaryFit(intent: UserJobIntent, job: NormalizedJobMatchFields) {
 
   const targetMin = intent.targetSalaryMin ?? 0;
   const targetMax = intent.targetSalaryMax ?? Number.MAX_SAFE_INTEGER;
-  const jobMin = job.salaryMin ?? job.salaryMax ?? 0;
-  const jobMax = job.salaryMax ?? job.salaryMin ?? Number.MAX_SAFE_INTEGER;
+  // Compare like-for-like: convert the job salary into the intent's target
+  // currency before measuring overlap. A missing job currency is assumed to
+  // already be in the target currency (identity conversion). When a rate is
+  // unavailable (unsupported currency on either side), skip the salary
+  // component and treat fit as unknown rather than comparing mismatched units.
+  const targetCurrency = intent.targetSalaryCurrency ?? "USD";
+  const jobCurrency = job.salaryCurrency ?? targetCurrency;
+  const rawJobMin = job.salaryMin ?? job.salaryMax ?? 0;
+  const rawJobMax = job.salaryMax ?? job.salaryMin ?? Number.MAX_SAFE_INTEGER;
+  const jobMin = convertSalaryAmount(rawJobMin, jobCurrency, targetCurrency);
+  const jobMax = convertSalaryAmount(rawJobMax, jobCurrency, targetCurrency);
+  if (jobMin == null || jobMax == null) return { score: 52, unknown: true };
+
   const overlap = Math.max(0, Math.min(targetMax, jobMax) - Math.max(targetMin, jobMin));
   const targetWidth = Math.max(1, targetMax - targetMin);
   if (overlap > 0) return { score: clamp(74 + (overlap / targetWidth) * 26), unknown: false };

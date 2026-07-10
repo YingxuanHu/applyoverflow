@@ -15,6 +15,13 @@ const PLAIN_AMOUNT_RE = /\b\d[\d,]*(?:\.\d+)?\s*[kKmM]?\b/g;
 const BAD_CONTEXT_RE =
   /\b(401k|401\(k\)|years? of experience|founded in|employees|users|customers|revenue|valuation|funding|series [a-z]|job id|requisition)\b/i;
 
+// Any annualized salary below this floor is implausible as a yearly figure and
+// almost certainly a shorter-period value (hourly/weekly/etc.); above the
+// ceiling it is noise. Both the structured and text/regex branches share these
+// bounds so they guard consistently.
+const ANNUAL_SALARY_FLOOR = 10_000;
+const ANNUAL_SALARY_CEILING = 5_000_000;
+
 const PERIOD_HINTS: Array<{ period: NonNullable<SalaryPeriod>; pattern: RegExp; multiplier: number }> = [
   { period: "hour", pattern: /\b(per\s+hour|\/\s*hour|hourly|per\s+hr|\/\s*hr)\b/i, multiplier: 2080 },
   { period: "day", pattern: /\b(per\s+day|\/\s*day|daily)\b/i, multiplier: 260 },
@@ -33,6 +40,14 @@ export function extractSalaryV2(input: {
   if (input.salaryMin != null || input.salaryMax != null) {
     const min = input.salaryMin ?? input.salaryMax ?? null;
     const max = input.salaryMax ?? input.salaryMin ?? null;
+    // Structured min/max carry no period, so they are treated as annual. A
+    // value below the annual floor (e.g. an hourly 45) would otherwise be
+    // emitted as $45/year. Refuse to annualize it — mark it ambiguous instead —
+    // mirroring the plausibility floor the text/regex branch applies. Genuine
+    // annual values pass through untouched.
+    if ([min, max].some((value) => value != null && value < ANNUAL_SALARY_FLOOR)) {
+      return emptySalary("ambiguous", ["structured_salary_below_annual_floor"]);
+    }
     return {
       min,
       max,
@@ -116,7 +131,9 @@ function parseSalarySnippet(
   const period = detectSalaryPeriod(snippet);
   const multiplier = periodToMultiplier(period);
   const annualized = numericAmounts.map((amount) => Math.round(amount * multiplier));
-  const plausible = annualized.filter((amount) => amount >= 10_000 && amount <= 5_000_000);
+  const plausible = annualized.filter(
+    (amount) => amount >= ANNUAL_SALARY_FLOOR && amount <= ANNUAL_SALARY_CEILING
+  );
   if (plausible.length === 0) return null;
 
   const min = numericAmounts[0] ?? null;

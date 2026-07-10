@@ -425,3 +425,48 @@ describe("scoreJobForUser v2", () => {
     strictEqual(softwareResult.excluded, true);
   });
 });
+
+describe("scoreJobForUser salary currency conversion", () => {
+  function salaryFitComponent(result: ReturnType<typeof scoreJobForUser>) {
+    const breakdown = result.scoreBreakdown as {
+      components?: Record<string, number>;
+    };
+    return breakdown.components?.salaryFit ?? 0;
+  }
+
+  it("converts the job salary into the intent currency before measuring overlap", () => {
+    // Intent targets CAD 80k-150k. A USD 55k-65k range is below target when
+    // compared as raw numbers, but overlaps once converted to CAD (~76k-90k).
+    const usdResult = scoreJobForUser(
+      intent(),
+      job({ id: "job_usd", salaryMin: 55_000, salaryMax: 65_000, salaryCurrency: "USD" }),
+      emptyHistory
+    );
+    // Same raw numbers already in CAD do not overlap the CAD target range.
+    const cadResult = scoreJobForUser(
+      intent(),
+      job({ id: "job_cad", salaryMin: 55_000, salaryMax: 65_000, salaryCurrency: "CAD" }),
+      emptyHistory
+    );
+
+    ok(
+      salaryFitComponent(usdResult) >= 72,
+      `expected converted USD salary to overlap target, got ${salaryFitComponent(usdResult)}`
+    );
+    ok(salaryFitComponent(cadResult) < 50);
+    ok(salaryFitComponent(usdResult) > salaryFitComponent(cadResult));
+  });
+
+  it("degrades gracefully when the exchange rate is unavailable", () => {
+    const result = scoreJobForUser(
+      intent(),
+      job({ id: "job_unsupported_currency", salaryMin: 90_000, salaryMax: 130_000, salaryCurrency: "INR" }),
+      emptyHistory
+    );
+
+    strictEqual(result.excluded, false);
+    // Unconvertible currency -> salary component is skipped (unknown neutral).
+    strictEqual(salaryFitComponent(result), 52);
+    ok(result.concerns.some((concern) => concern.includes("Salary is not listed")));
+  });
+});

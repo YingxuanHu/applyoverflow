@@ -164,49 +164,41 @@ async function collapseDuplicatePendingSourceTasks(
   kind: SourceTaskKind,
   now: Date
 ) {
-  const pendingTasks = await prisma.sourceTask.findMany({
-    where: { kind, status: "PENDING" },
-    select: {
-      id: true,
-      kind: true,
-      companyId: true,
-      companySourceId: true,
-      canonicalJobId: true,
-    },
-    orderBy: [{ priorityScore: "desc" }, { createdAt: "asc" }],
-  });
+  // Collapse equivalent PENDING tasks to a single winner entirely in the
+  // database so we never materialize the full pending backlog in memory. The
+  // partition key mirrors buildSourceTaskUniquenessKey; within a single kind the
+  // highest-priority (then oldest) task in each group is kept and the rest are
+  // SKIPPED, which is exactly the previous in-memory dedupe outcome.
+  const collapsed = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "SourceTask" st
+    SET
+      "status" = 'SKIPPED'::"SourceTaskStatus",
+      "finishedAt" = ${now},
+      "lastError" = 'Skipped duplicate pending source task because an equivalent task was already queued.'
+    FROM (
+      SELECT
+        "id",
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE
+              WHEN "companySourceId" IS NOT NULL THEN 'source:' || "companySourceId"
+              WHEN "canonicalJobId" IS NOT NULL THEN 'canonical:' || "canonicalJobId"
+              ELSE 'company:' || COALESCE("companyId", 'none')
+            END
+          ORDER BY "priorityScore" DESC, "createdAt" ASC
+        ) AS rn
+      FROM "SourceTask"
+      WHERE
+        "kind" = ${kind}::"SourceTaskKind"
+        AND "status" = 'PENDING'::"SourceTaskStatus"
+    ) ranked
+    WHERE
+      st."id" = ranked."id"
+      AND ranked."rn" > 1
+      AND st."status" = 'PENDING'::"SourceTaskStatus"
+  `);
 
-  const seen = new Set<string>();
-  const duplicateIds: string[] = [];
-
-  for (const task of pendingTasks) {
-    const key = buildSourceTaskUniquenessKey(task);
-    if (seen.has(key)) {
-      duplicateIds.push(task.id);
-      continue;
-    }
-
-    seen.add(key);
-  }
-
-  if (duplicateIds.length === 0) {
-    return 0;
-  }
-
-  const result = await prisma.sourceTask.updateMany({
-    where: {
-      id: { in: duplicateIds },
-      status: "PENDING",
-    },
-    data: {
-      status: "SKIPPED",
-      finishedAt: now,
-      lastError:
-        "Skipped duplicate pending source task because an equivalent task was already queued.",
-    },
-  });
-
-  return result.count;
+  return collapsed;
 }
 
 async function recoverStaleRunningSourceTasks(

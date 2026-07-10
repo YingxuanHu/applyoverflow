@@ -5,7 +5,12 @@ import {
   type SourceIdentitySnapshot,
 } from "@/lib/ingestion/source-quality";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
-import type { Prisma, Region, WorkMode } from "@/generated/prisma/client";
+import type {
+  ExperienceLevel,
+  Prisma,
+  Region,
+  WorkMode,
+} from "@/generated/prisma/client";
 
 const TITLE_CORE_STOP_WORDS = new Set([
   "senior",
@@ -94,6 +99,10 @@ export type CanonicalMatchCandidate = {
   descriptionFingerprint: string;
   locationKey: string;
   applyUrlKey: string | null;
+  // Optional: not every caller (e.g. the staged pipeline's raw-mapping path)
+  // supplies it. Absent/unknown is treated as unresolved by
+  // seniorityLevelsConflict, preserving pre-existing merge behavior.
+  experienceLevel?: ExperienceLevel | null;
   roleFamily: string;
   workMode: WorkMode;
 };
@@ -127,6 +136,31 @@ export type CanonicalMatchResult = {
   evidence: CanonicalMatchEvidence;
 };
 
+const RESOLVED_EXPERIENCE_LEVELS = new Set<ExperienceLevel>([
+  "ENTRY",
+  "MID",
+  "SENIOR",
+  "LEAD",
+  "EXECUTIVE",
+]);
+
+/**
+ * True only when both postings carry a confidently-resolved seniority/experience
+ * level and those levels clearly differ. UNKNOWN / null / undefined is treated as
+ * unresolved, so the common case (at least one side unresolved) never conflicts and
+ * dedupe behavior is preserved.
+ */
+export function seniorityLevelsConflict(
+  a: ExperienceLevel | null | undefined,
+  b: ExperienceLevel | null | undefined
+): boolean {
+  if (!a || !b) return false;
+  if (!RESOLVED_EXPERIENCE_LEVELS.has(a) || !RESOLVED_EXPERIENCE_LEVELS.has(b)) {
+    return false;
+  }
+  return a !== b;
+}
+
 export function isCanonicalMatchCompatible(
   normalizedJob: NormalizedJobInput,
   candidate: CanonicalMatchCandidate
@@ -137,6 +171,16 @@ export function isCanonicalMatchCompatible(
     normalizedJob.applyUrlKey === candidate.applyUrlKey
   ) {
     return true;
+  }
+
+  // normalizeTitleCoreKey strips seniority tokens, so "Senior Software Engineer"
+  // and "Software Engineer" collapse to the same titleCoreKey. When both sides
+  // carry a confidently-resolved experience level and those levels clearly differ,
+  // a seniority-stripped titleCoreKey + location match is not enough to treat them
+  // as the same posting. The only exact identifier available here (applyUrlKey) is
+  // checked above, so a confident conflict at this point means distinct postings.
+  if (seniorityLevelsConflict(candidate.experienceLevel, normalizedJob.experienceLevel)) {
+    return false;
   }
 
   if (
@@ -431,6 +475,7 @@ const canonicalMatchSelect = {
   descriptionFingerprint: true,
   locationKey: true,
   applyUrlKey: true,
+  experienceLevel: true,
   roleFamily: true,
   workMode: true,
 } as const;

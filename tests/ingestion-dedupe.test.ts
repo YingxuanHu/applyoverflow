@@ -90,6 +90,7 @@ function buildCandidate(job: NormalizedJobInput): CanonicalMatchCandidate {
     descriptionFingerprint: job.descriptionFingerprint,
     locationKey: job.locationKey,
     applyUrlKey: job.applyUrlKey,
+    experienceLevel: job.experienceLevel,
     roleFamily: job.roleFamily,
     workMode: job.workMode,
   };
@@ -241,6 +242,111 @@ test("first-party source compatibility requires exact apply URL identity", () =>
     ),
     false
   );
+    }
+  );
+});
+
+test("seniorityLevelsConflict only flags two confidently-resolved differing levels", () => {
+  return loadDedupeModule().then(({ seniorityLevelsConflict }) => {
+    assert.equal(seniorityLevelsConflict("SENIOR", "MID"), true);
+    assert.equal(seniorityLevelsConflict("SENIOR", "ENTRY"), true);
+    assert.equal(seniorityLevelsConflict("MID", "SENIOR"), true);
+    assert.equal(seniorityLevelsConflict("SENIOR", "SENIOR"), false);
+    assert.equal(seniorityLevelsConflict("UNKNOWN", "MID"), false);
+    assert.equal(seniorityLevelsConflict("SENIOR", "UNKNOWN"), false);
+    assert.equal(seniorityLevelsConflict(null, "MID"), false);
+    assert.equal(seniorityLevelsConflict("SENIOR", null), false);
+    assert.equal(seniorityLevelsConflict(undefined, undefined), false);
+  });
+});
+
+test("dedupe splits seniority-stripped title+location match when levels confidently conflict", () => {
+  return loadDedupeModule().then(
+    ({ isCanonicalMatchCompatible, buildCanonicalDedupeFields }) => {
+      const candidateJob = buildNormalizedJob(
+        {
+          title: "Senior Software Engineer",
+          experienceLevel: "SENIOR",
+          applyUrl: "https://example.com/jobs/one",
+        },
+        buildCanonicalDedupeFields
+      );
+      const incomingJob = buildNormalizedJob(
+        {
+          title: "Software Engineer",
+          experienceLevel: "MID",
+          applyUrl: "https://example.com/jobs/two",
+        },
+        buildCanonicalDedupeFields
+      );
+
+      // Same company + seniority-stripped titleCoreKey + location, but distinct
+      // apply URLs and confidently conflicting seniority => distinct postings.
+      assert.equal(candidateJob.titleCoreKey, incomingJob.titleCoreKey);
+      assert.notEqual(candidateJob.applyUrlKey, incomingJob.applyUrlKey);
+      assert.equal(
+        isCanonicalMatchCompatible(incomingJob, buildCandidate(candidateJob)),
+        false
+      );
+    }
+  );
+});
+
+test("dedupe still merges conflicting seniority when apply URL identity matches exactly", () => {
+  return loadDedupeModule().then(
+    ({ isCanonicalMatchCompatible, buildCanonicalDedupeFields }) => {
+      const candidateJob = buildNormalizedJob(
+        {
+          title: "Senior Software Engineer",
+          experienceLevel: "SENIOR",
+          applyUrl: "https://example.com/jobs/shared",
+        },
+        buildCanonicalDedupeFields
+      );
+      const incomingJob = buildNormalizedJob(
+        {
+          title: "Software Engineer",
+          experienceLevel: "MID",
+          applyUrl: "https://example.com/jobs/shared",
+        },
+        buildCanonicalDedupeFields
+      );
+
+      assert.equal(candidateJob.applyUrlKey, incomingJob.applyUrlKey);
+      assert.equal(
+        isCanonicalMatchCompatible(incomingJob, buildCandidate(candidateJob)),
+        true
+      );
+    }
+  );
+});
+
+test("dedupe preserves seniority-stripped match when a level is unresolved", () => {
+  return loadDedupeModule().then(
+    ({ isCanonicalMatchCompatible, buildCanonicalDedupeFields }) => {
+      const candidateJob = buildNormalizedJob(
+        {
+          title: "Senior Software Engineer",
+          experienceLevel: "SENIOR",
+          applyUrl: "https://example.com/jobs/one",
+        },
+        buildCanonicalDedupeFields
+      );
+      const incomingJob = buildNormalizedJob(
+        {
+          title: "Software Engineer",
+          experienceLevel: "UNKNOWN",
+          applyUrl: "https://example.com/jobs/two",
+        },
+        buildCanonicalDedupeFields
+      );
+
+      // One side unresolved (UNKNOWN) => preserve today's behavior (still a match).
+      assert.notEqual(candidateJob.applyUrlKey, incomingJob.applyUrlKey);
+      assert.equal(
+        isCanonicalMatchCompatible(incomingJob, buildCandidate(candidateJob)),
+        true
+      );
     }
   );
 });

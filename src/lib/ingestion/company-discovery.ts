@@ -2103,22 +2103,23 @@ function computeQueuePriorityScore(input: {
   return tierBoost + input.efficiencyScore * 100 + input.basePriorityScore;
 }
 
-async function buildWorkdayHostMetrics(now: Date) {
+type WorkdayHostMetricSource = {
+  token: string;
+  boardUrl: string;
+  cooldownUntil: Date | null;
+  lastFailureAt: Date | null;
+  lastSuccessfulPollAt: Date | null;
+  lastHttpStatus: number | null;
+  consecutiveFailures: number;
+  metadataJson: Prisma.JsonValue | null;
+};
+
+export function computeWorkdayHostMetrics(
+  sources: WorkdayHostMetricSource[],
+  now: Date
+) {
   const recentFailureCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const recentSuccessCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const sources = await prisma.companySource.findMany({
-    where: { connectorName: "workday" },
-    select: {
-      token: true,
-      boardUrl: true,
-      cooldownUntil: true,
-      lastFailureAt: true,
-      lastSuccessfulPollAt: true,
-      lastHttpStatus: true,
-      consecutiveFailures: true,
-      metadataJson: true,
-    },
-  });
 
   const runtimeTotals = new Map<string, { totalMs: number; samples: number }>();
   const metrics = new Map<string, WorkdayHostMetrics>();
@@ -2180,6 +2181,38 @@ async function buildWorkdayHostMetrics(now: Date) {
   }
 
   return metrics;
+}
+
+// Only load the Workday sources that share a host with a source being polled
+// this cycle instead of scanning the entire Workday table (metadataJson blobs
+// included) every poll. Per-host aggregate meaning is preserved because we
+// still read every source on each polled host via the token host-prefix,
+// matching the sibling-cooldown query elsewhere in this module.
+async function buildWorkdayHostMetrics(now: Date, hostKeys: Set<string>) {
+  if (hostKeys.size === 0) {
+    return new Map<string, WorkdayHostMetrics>();
+  }
+
+  const sources = await prisma.companySource.findMany({
+    where: {
+      connectorName: "workday",
+      OR: [...hostKeys].map((host) => ({
+        token: { startsWith: `${host}|` },
+      })),
+    },
+    select: {
+      token: true,
+      boardUrl: true,
+      cooldownUntil: true,
+      lastFailureAt: true,
+      lastSuccessfulPollAt: true,
+      lastHttpStatus: true,
+      consecutiveFailures: true,
+      metadataJson: true,
+    },
+  });
+
+  return computeWorkdayHostMetrics(sources, now);
 }
 
 function estimateClaimablePollTaskCountFromPreview(
@@ -2703,7 +2736,6 @@ export async function enqueueCompanySourcePollTasks(options: {
       ? new Set(options.companySourceIds)
       : null;
   const admissionBudgetMs = computePollAdmissionBudgetMs();
-  const workdayHostMetrics = await buildWorkdayHostMetrics(now);
   let candidates = await prisma.companySource.findMany({
     where: {
       status: { in: ["PROVISIONED", "ACTIVE", "DEGRADED"] },
@@ -2798,6 +2830,18 @@ export async function enqueueCompanySourcePollTasks(options: {
 
     candidates = [...candidateById.values()];
   }
+  const workdayHostKeys = new Set<string>();
+  for (const source of candidates) {
+    const host = getWorkdayHostKey({
+      connectorName: source.connectorName,
+      token: source.token,
+      boardUrl: source.boardUrl,
+    });
+    if (host) {
+      workdayHostKeys.add(host);
+    }
+  }
+  const workdayHostMetrics = await buildWorkdayHostMetrics(now, workdayHostKeys);
   const recentYieldMetrics = await buildRecentSourceYieldMetrics(
     candidates.map((source) => source.sourceName),
     now

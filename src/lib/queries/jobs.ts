@@ -56,6 +56,10 @@ import {
   type SalaryExchangeRates,
 } from "@/lib/currency-conversion";
 import { loadSalaryExchangeRates } from "@/lib/salary-exchange-rates";
+import {
+  buildCanonicalFeedOrderBy,
+  buildJobFeedIndexOrderBy,
+} from "@/lib/queries/job-feed-order";
 
 // ─── Full-text search ────────────────────────────────────────────────────────
 
@@ -974,31 +978,7 @@ async function getJobsFromFeedIndex(input: {
     };
   }
 
-  let orderBy:
-    | Prisma.JobFeedIndexOrderByWithRelationInput
-    | Prisma.JobFeedIndexOrderByWithRelationInput[] = [
-    { rankingScore: "desc" },
-    { freshnessScore: "desc" },
-    { qualityScore: "desc" },
-    { trustScore: "desc" },
-    { postedAt: "desc" },
-  ];
-
-  if (filters.sortBy === "deadline") {
-    orderBy = [
-      { deadline: { sort: "asc", nulls: "last" } },
-      { rankingScore: "desc" },
-      { freshnessScore: "desc" },
-      { postedAt: "desc" },
-    ];
-  } else if (filters.sortBy === "newest") {
-    orderBy = { postedAt: "desc" };
-  } else if (filters.sortBy === "company") {
-    orderBy = [
-      { company: "asc" },
-      { postedAt: "desc" },
-    ];
-  }
+  const orderBy = buildJobFeedIndexOrderBy(filters.sortBy);
 
   const totalPromise = includeExactTotal
     ? withCountTimeout(
@@ -2966,7 +2946,7 @@ async function getJobsByRelevance(
     const jobs = await prisma.jobCanonical.findMany({
       where,
       select: JOB_FEED_CARD_SELECT(viewerProfileId, authUserId),
-      orderBy: { postedAt: "desc" },
+      orderBy: buildCanonicalFeedOrderBy(undefined),
       skip,
       take: PAGE_SIZE * 3,
     });
@@ -3044,7 +3024,7 @@ async function getJobsByRelevance(
         },
       },
     },
-    orderBy: { postedAt: "desc" },
+    orderBy: buildCanonicalFeedOrderBy(undefined),
     take: scoringWindowSize,
   });
 
@@ -3537,19 +3517,7 @@ export async function getJobs(
       );
     }
 
-    let orderBy:
-      | Prisma.JobCanonicalOrderByWithRelationInput
-      | Prisma.JobCanonicalOrderByWithRelationInput[] = {
-      postedAt: "desc",
-    };
-    if (filters.sortBy === "deadline") {
-      orderBy = [
-        { deadline: { sort: "asc", nulls: "last" } },
-        { postedAt: "desc" },
-      ];
-    } else if (filters.sortBy === "company") {
-      orderBy = [{ company: "asc" }, { postedAt: "desc" }];
-    }
+    const orderBy = buildCanonicalFeedOrderBy(filters.sortBy);
 
     const jobs = await prisma.jobCanonical.findMany({
       where,
