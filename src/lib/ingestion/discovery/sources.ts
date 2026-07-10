@@ -31,6 +31,7 @@ import {
   parseOfficialCompanySourceToken,
 } from "@/lib/ingestion/connectors";
 import { extractUrlsFromText } from "@/lib/ingestion/discovery/rippling";
+import { fetchGuarded } from "@/lib/ingestion/net/ssrf-guard";
 import { previewConnectorIngestion } from "@/lib/ingestion/pipeline";
 import type { SupportedConnectorName } from "@/lib/ingestion/registry";
 
@@ -1167,7 +1168,8 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
   }
 
   if (
-    (hostname.startsWith("jobs.") || hostname.startsWith("careers.")) &&
+    (hostname.endsWith(".successfactors.com") ||
+      hostname.endsWith(".successfactors.eu")) &&
     (pathSegments[0] === "search" ||
       pathSegments[0] === "job" ||
       pathSegments[0] === "talentcommunity")
@@ -1557,13 +1559,15 @@ async function fetchBoardTitle(boardUrl: string) {
 }
 
 async function fetchPageText(url: string, accept: string) {
-  const response = await fetch(url, {
+  // Route arbitrary discovery/crawler URLs through the SSRF guard: it rejects
+  // internal hosts/IPs and re-validates each redirect hop so a page can't be
+  // used to reach IMDS (169.254.169.254) or other internal services.
+  const response = await fetchGuarded(url, {
     signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
     headers: {
       Accept: accept,
       "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-source-discovery/1.0)",
     },
-    redirect: "follow",
   });
 
   if (!response.ok) {

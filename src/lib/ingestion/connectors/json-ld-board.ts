@@ -18,7 +18,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { EmploymentType, WorkMode } from "@/generated/prisma/client";
 
-import { throwIfAborted } from "@/lib/ingestion/runtime-control";
+import { buildTimeoutSignal, throwIfAborted } from "@/lib/ingestion/runtime-control";
 import type {
   SourceConnector,
   SourceConnectorFetchOptions,
@@ -123,7 +123,9 @@ async function fetchJsonLdBoardJobs(input: {
   const now = input.fetchOptions.now ?? new Date();
 
   const response = await fetch(input.boardUrl, {
-    signal: input.fetchOptions.signal,
+    // Apply an explicit timeout so a hung server can't stall the fetch forever
+    // when the caller passes no AbortSignal, mirroring greenhouse.ts.
+    signal: buildTimeoutSignal(input.fetchOptions.signal, 30_000),
     headers: {
       "User-Agent": JSON_LD_USER_AGENT,
       Accept: "text/html,application/xhtml+xml",

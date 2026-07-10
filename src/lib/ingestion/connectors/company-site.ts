@@ -24,8 +24,13 @@ import {
   isClearlyNonJobContentUrl,
   isClearlyNonJobPosting,
 } from "@/lib/job-integrity";
+import { fetchGuarded } from "@/lib/ingestion/net/ssrf-guard";
 
 const FETCH_TIMEOUT_MS = 15_000;
+// Cap crawler responses so a hostile/huge page can't OOM the process. Career
+// listing/detail pages and sitemaps are comfortably under this; anything larger
+// is skipped rather than buffered.
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_LISTING_PAGES = 8;
 const MAX_DETAIL_PAGES = 80;
 const MAX_LINKS_PER_PAGE = 40;
@@ -420,8 +425,9 @@ async function fetchHtml(url: string, signal?: AbortSignal): Promise<HtmlFetchRe
   signal?.addEventListener("abort", abortHandler, { once: true });
 
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
+    // fetchGuarded blocks internal hosts/IPs and re-validates redirect hops so
+    // a crawled URL can't reach IMDS/internal services.
+    const response = await fetchGuarded(url, {
       signal: controller.signal,
       headers: {
         Accept: "text/html,application/xhtml+xml,application/json",
@@ -435,12 +441,48 @@ async function fetchHtml(url: string, signal?: AbortSignal): Promise<HtmlFetchRe
 
     return {
       url: response.url,
-      html: await response.text(),
+      html: await readCappedText(response),
     };
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortHandler);
   }
+}
+
+// Read a response body as text with a hard byte cap. Rejects up front when the
+// declared Content-Length exceeds the cap, and defensively stops accumulating
+// (returning empty) if a chunked/undeclared body streams past the cap, so a
+// hostile page can never buffer unboundedly into memory.
+async function readCappedText(response: Response): Promise<string> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    return "";
+  }
+
+  const body = response.body;
+  if (!body) {
+    return response.text();
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      return "";
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+
+  text += decoder.decode();
+  return text;
 }
 
 function extractStructuredJobs(html: string, pageUrl: string, companyName: string) {
