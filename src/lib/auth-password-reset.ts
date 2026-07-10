@@ -4,6 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
+import { resolveCanonicalAppUrl } from "@/lib/runtime-origin";
 
 const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 const LOCAL_DEV_AUTH_SECRET = "autoapplication-local-dev-auth-secret-2026";
@@ -37,25 +38,6 @@ function normalizeEmail(email: string) {
 
 function hashAuthToken(token: string) {
   return createHmac("sha256", getAuthTokenSecret()).update(token).digest("hex");
-}
-
-function getRequestOrigin(request: Request) {
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const host = forwardedHost ?? request.headers.get("host");
-
-  if (host) {
-    const forwardedProto =
-      request.headers.get("x-forwarded-proto") ??
-      (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
-    return `${forwardedProto}://${host}`;
-  }
-
-  return (
-    process.env.BETTER_AUTH_URL ??
-    process.env.APP_URL ??
-    process.env.HETZNER_APP_URL ??
-    "http://localhost:3000"
-  );
 }
 
 async function sendPasswordResetEmail(input: {
@@ -105,7 +87,7 @@ async function sendPasswordChangedEmail(input: { email: string; name: string }) 
   });
 }
 
-export async function requestPasswordResetEmail(emailInput: string, request: Request) {
+export async function requestPasswordResetEmail(emailInput: string, _request?: Request) {
   const email = normalizeEmail(emailInput);
   if (!email) {
     return;
@@ -127,7 +109,7 @@ export async function requestPasswordResetEmail(emailInput: string, request: Req
 
   const now = new Date();
   const token = randomBytes(32).toString("base64url");
-  const resetUrl = new URL("/reset-password", getRequestOrigin(request));
+  const resetUrl = new URL("/reset-password", resolveCanonicalAppUrl());
   resetUrl.searchParams.set("token", token);
 
   await prisma.$transaction(async (tx) => {

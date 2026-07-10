@@ -1,6 +1,7 @@
 import { createEmailVerificationToken } from "better-auth/api";
 
 import { isEmailDeliveryConfigured, sendEmail } from "@/lib/email";
+import { resolveCanonicalAppUrl } from "@/lib/runtime-origin";
 
 const APP_NAME = process.env.APP_NAME?.trim() || "ApplyOverflow";
 const LOCAL_DEV_AUTH_SECRET = "autoapplication-local-dev-auth-secret-2026";
@@ -30,25 +31,6 @@ function getAuthTokenSecret() {
   }
 
   return secret;
-}
-
-function getRequestOrigin(request?: Request) {
-  const forwardedHost = request?.headers.get("x-forwarded-host");
-  const host = forwardedHost ?? request?.headers.get("host");
-
-  if (host) {
-    const forwardedProto =
-      request?.headers.get("x-forwarded-proto") ??
-      (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
-    return `${forwardedProto}://${host}`;
-  }
-
-  return (
-    process.env.BETTER_AUTH_URL ??
-    process.env.APP_URL ??
-    process.env.HETZNER_APP_URL ??
-    "http://localhost:3000"
-  );
 }
 
 function escapeHtml(value: string) {
@@ -196,7 +178,7 @@ export async function sendVerificationEmailForUser(input: {
     undefined,
     VERIFICATION_TOKEN_EXPIRES_IN_SECONDS
   );
-  const url = new URL("/verify-email", getRequestOrigin(input.request));
+  const url = new URL("/verify-email", resolveCanonicalAppUrl());
   url.searchParams.set("token", token);
   url.searchParams.set("callbackURL", normalizeVerificationCallbackURL(input.callbackURL));
 

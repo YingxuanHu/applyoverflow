@@ -528,13 +528,13 @@ ${applicationContext}`,
       return unauthorizedResponse();
     }
 
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : "";
     const friendly =
       message.includes("timeout") || message.includes("ETIMEDOUT")
         ? "The AI request timed out. Please try again."
         : message.includes("rate") || message.includes("429")
           ? "Rate limited by the AI provider. Wait a moment and try again."
-          : `Assistant request failed. (${message})`;
+          : "Assistant request failed. Please try again.";
 
     console.error("Job assistant error:", error);
     return NextResponse.json({ error: friendly }, { status: 500 });

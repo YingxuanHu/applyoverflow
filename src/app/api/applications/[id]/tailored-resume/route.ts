@@ -859,8 +859,7 @@ ${JSON.stringify(
       return NextResponse.json({ error: "Sign in required." }, { status: 401 });
     }
 
-    const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Tailored resume generation error:", error);
-    return NextResponse.json({ error: `Generation failed: ${message}` }, { status: 500 });
+    return NextResponse.json({ error: "Generation failed. Please try again." }, { status: 500 });
   }
 }

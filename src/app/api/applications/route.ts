@@ -111,10 +111,6 @@ export async function POST(request: NextRequest) {
       201
     );
   } catch (error) {
-    return handleApiRouteError(
-      error,
-      "POST /api/applications",
-      error instanceof Error ? error.message : "Could not add application."
-    );
+    return handleApiRouteError(error, "POST /api/applications", "Could not add application.");
   }
 }
