@@ -56,6 +56,10 @@ import {
   type AtsSlugProbeResult,
 } from "@/lib/ingestion/discovery/ats-slug-probe";
 import {
+  FAST_TRACK_VALIDATION_PRIORITY,
+  shouldFastTrackProbeHit,
+} from "@/lib/ingestion/discovery/probe-fast-track-policy";
+import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
   resolveScaledInteger,
@@ -4166,12 +4170,15 @@ async function probeAtsBoardsAfterRediscovery(task: SourceTask) {
   const { registerSourceCandidate } = await import(
     "@/lib/ingestion/discovery/source-registry"
   );
+  const { enqueueUniquePipelineTask } = await import(
+    "@/lib/ingestion/pipeline-queue"
+  );
 
   for (const hit of summary.hits) {
     console.log(
       `[rediscovery] slug-probe HIT ${companyName ?? companyDomain} -> ${hit.platform}:${hit.slug} (${hit.jobCount} jobs, identity ${hit.identityVerdict})`
     );
-    await registerSourceCandidate({
+    const candidate = await registerSourceCandidate({
       candidateUrl: hit.boardUrl,
       candidateType: "ATS_BOARD",
       // Attribute to the probed company's name — the board-reported name is
@@ -4195,6 +4202,30 @@ async function probeAtsBoardsAfterRediscovery(task: SourceTask) {
         },
       },
     });
+
+    if (!shouldFastTrackProbeHit(hit)) continue;
+
+    // High-confidence identity-verified board: bypass the clogged
+    // exploration-scheduler ranking and enqueue validation directly.
+    // Idempotency-keyed on the candidate id so repeated probes never
+    // double-enqueue; a queue failure must never fail rediscovery.
+    try {
+      await enqueueUniquePipelineTask({
+        queueName: "SOURCE_VALIDATION",
+        mode: "EXPLORATION",
+        priorityScore: FAST_TRACK_VALIDATION_PRIORITY,
+        idempotencyKey: candidate.id,
+        payloadJson: { sourceCandidateId: candidate.id },
+      });
+      console.log(
+        `[rediscovery] fast-tracked ${hit.platform}:${hit.slug} for validation`
+      );
+    } catch (error) {
+      console.warn(
+        `[rediscovery] failed to fast-track ${hit.platform}:${hit.slug} for validation:`,
+        error instanceof Error ? error.message : error
+      );
+    }
   }
 }
 

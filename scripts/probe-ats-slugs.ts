@@ -27,6 +27,11 @@ import {
   type ProbeableAtsPlatform,
 } from "../src/lib/ingestion/discovery/ats-slug-probe";
 import { registerSourceCandidate } from "../src/lib/ingestion/discovery/source-registry";
+import { enqueueUniquePipelineTask } from "../src/lib/ingestion/pipeline-queue";
+import {
+  FAST_TRACK_VALIDATION_PRIORITY,
+  shouldFastTrackProbeHit,
+} from "../src/lib/ingestion/discovery/probe-fast-track-policy";
 
 type Mode = "coverage" | "repair" | "names";
 
@@ -169,8 +174,15 @@ function probeConfidence(hit: AtsSlugProbeResult): number {
   return Math.min(0.9, hit.identityVerdict === "match" ? base + 0.08 : base);
 }
 
-async function registerHit(company: ProbeTargetCompany, hit: AtsSlugProbeResult) {
-  await registerSourceCandidate({
+// Registers a probe hit as a SourceCandidate and, for high-confidence
+// identity-verified hits, fast-tracks it straight into SOURCE_VALIDATION.
+// Only ever called under --apply. Returns whether the hit was fast-tracked so
+// the run summary can count it.
+async function registerHit(
+  company: ProbeTargetCompany,
+  hit: AtsSlugProbeResult
+): Promise<{ fastTracked: boolean }> {
+  const candidate = await registerSourceCandidate({
     candidateUrl: hit.boardUrl,
     candidateType: "ATS_BOARD",
     // Always attribute to the company we probed for — the board-reported name
@@ -194,6 +206,30 @@ async function registerHit(company: ProbeTargetCompany, hit: AtsSlugProbeResult)
       },
     },
   });
+
+  if (!shouldFastTrackProbeHit(hit)) return { fastTracked: false };
+
+  // Bypass the clogged exploration-scheduler ranking: enqueue the validation
+  // task directly for this candidate. Idempotency-keyed on the candidate id so
+  // repeated probes of the same board never double-enqueue. Wrapped so a queue
+  // failure can never break the probe loop.
+  try {
+    await enqueueUniquePipelineTask({
+      queueName: "SOURCE_VALIDATION",
+      mode: "EXPLORATION",
+      priorityScore: FAST_TRACK_VALIDATION_PRIORITY,
+      idempotencyKey: candidate.id,
+      payloadJson: { sourceCandidateId: candidate.id },
+    });
+    console.log(`[probe] fast-tracked ${hit.platform}:${hit.slug} for validation`);
+    return { fastTracked: true };
+  } catch (error) {
+    console.error(
+      `[probe] Failed to fast-track ${hit.platform}:${hit.slug} for validation:`,
+      error instanceof Error ? error.message : error
+    );
+    return { fastTracked: false };
+  }
 }
 
 async function main() {
@@ -220,6 +256,7 @@ async function main() {
   let totalBlocked = 0;
   let totalPlatformSkips = 0;
   let totalRegistered = 0;
+  let totalFastTracked = 0;
   const queue = [...targets];
 
   // One context per run: the first blocked verdict benches the platform for
@@ -265,8 +302,9 @@ async function main() {
           );
           if (args.apply) {
             try {
-              await registerHit(company, hit);
+              const { fastTracked } = await registerHit(company, hit);
               totalRegistered += 1;
+              if (fastTracked) totalFastTracked += 1;
             } catch (error) {
               console.error(
                 `[probe] Failed to register candidate for ${company.name}:`,
@@ -292,7 +330,7 @@ async function main() {
   await Promise.all(workers);
 
   console.log(
-    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} identityMismatches=${totalMismatches} blocked=${totalBlocked} platformSkips=${totalPlatformSkips}${
+    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} fastTracked=${totalFastTracked} identityMismatches=${totalMismatches} blocked=${totalBlocked} platformSkips=${totalPlatformSkips}${
       args.apply ? "" : " (dry run — pass --apply to register hits)"
     }`
   );
