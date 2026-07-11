@@ -115,17 +115,41 @@ type ProbeTargetCompany = {
 const HEALTHY_SOURCE_STATUSES = ["ACTIVE", "PROVISIONED"] as const;
 
 async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]> {
-  return prisma.company.findMany({
-    where: {
-      domain: { not: null },
-      sources: {
-        none: { status: { in: [...HEALTHY_SOURCE_STATUSES] } },
-      },
-    },
-    select: { id: true, name: true, domain: true },
-    orderBy: [{ discoveryConfidence: "desc" }, { createdAt: "asc" }],
-    take: limit,
-  });
+  // Randomized sampling across the entire unsourced runway.
+  //
+  // The previous ordering — [discoveryConfidence desc, createdAt asc] — pinned
+  // the lane to the same top slice on every pass. The vast majority of runway
+  // companies carry the default discoveryConfidence of 0, so the createdAt
+  // tiebreak deterministically re-selected the same oldest N companies each
+  // run: misses were re-probed indefinitely (wasted outbound requests, elevated
+  // block risk) while the lane never advanced through the ~33k-company runway.
+  // random() sweeps the whole runway over successive passes and gives a missed
+  // host a natural cooldown — it is only re-probed with probability
+  // ~limit/runway per pass — so raising the coverage cadence now translates into
+  // genuinely new coverage instead of re-hammering the same companies.
+  //
+  // The IN list mirrors HEALTHY_SOURCE_STATUSES; both values are stable
+  // CompanySourceStatus enum literals (no user input → no injection risk).
+  const rows = await prisma.$queryRaw<
+    Array<{ id: string; name: string; domain: string | null }>
+  >`
+    SELECT c."id", c."name", c."domain"
+    FROM "Company" c
+    WHERE c."domain" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "CompanySource" cs
+        WHERE cs."companyId" = c."id"
+          AND cs."status" IN ('ACTIVE', 'PROVISIONED')
+      )
+    ORDER BY random()
+    LIMIT ${limit}
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    domain: row.domain,
+  }));
 }
 
 async function loadRepairTargets(limit: number): Promise<ProbeTargetCompany[]> {
