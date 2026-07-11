@@ -122,73 +122,158 @@ export function decodeHtmlEntitiesFull(input: string): string {
 // priority order. Each entry is a regex that captures the inner HTML of a
 // matching element on first successful match. These regexes do not enforce
 // proper nesting — they look for <tag ... attr=value ...> ... </tag>.
+// Each matcher is an OPEN-ONLY regex whose first capture group is the container
+// tag name. The full inner HTML is then recovered with extractBalancedTagContent
+// (depth-counting to the true matching close), which — unlike the old lazy
+// `([\s\S]*?)</tag>` patterns — does NOT truncate at the first nested </tag>.
 type ContainerMatcher = {
   label: string;
-  pattern: RegExp;
+  open: RegExp;
 };
 
 const CONTAINER_MATCHERS: ContainerMatcher[] = [
   // Workday
   {
     label: "workday-jobPostingDescription",
-    pattern:
-      /<div[^>]*data-automation-id=["']jobPostingDescription["'][^>]*>([\s\S]*?)<\/div>/i,
+    open: /<(div)[^>]*data-automation-id=["']jobPostingDescription["'][^>]*>/i,
   },
   // iCIMS
   {
     label: "icims-job-details",
-    pattern: /<div[^>]*(?:id|class)=["'][^"']*(?:iCIMS_JobContent|job-description|iCIMS_InfoMsg_Posted)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    open: /<(div)[^>]*(?:id|class)=["'][^"']*(?:iCIMS_JobContent|job-description|iCIMS_InfoMsg_Posted)[^"']*["'][^>]*>/i,
   },
   // Lever
   {
     label: "lever-opening-description",
-    pattern:
-      /<div[^>]*class=["'][^"']*(?:opening-content|posting-description|content-wrapper)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    open: /<(div)[^>]*class=["'][^"']*(?:opening-content|posting-description|content-wrapper)[^"']*["'][^>]*>/i,
   },
   // Greenhouse-embedded
   {
     label: "greenhouse-job-description",
-    pattern:
-      /<div[^>]*(?:id|class)=["'][^"']*(?:content|job-post|app_body|job_description)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    open: /<(div)[^>]*(?:id|class)=["'][^"']*(?:content|job-post|app_body|job_description)[^"']*["'][^>]*>/i,
   },
   // SuccessFactors
   {
     label: "successfactors-jobdescription",
-    pattern:
-      /<div[^>]*(?:id|class)=["'][^"']*(?:jobdescription|job-description|jobDetail)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    open: /<(div)[^>]*(?:id|class)=["'][^"']*(?:jobdescription|job-description|jobDetail)[^"']*["'][^>]*>/i,
   },
   // Taleo
   {
     label: "taleo-description",
-    pattern:
-      /<span[^>]*(?:id|class)=["'][^"']*(?:requisitionDescriptionInterface|jobDescription)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+    open: /<(span)[^>]*(?:id|class)=["'][^"']*(?:requisitionDescriptionInterface|jobDescription)[^"']*["'][^>]*>/i,
   },
   // Generic semantic
   {
     label: "main",
-    pattern: /<main\b[^>]*>([\s\S]*?)<\/main>/i,
+    open: /<(main)\b[^>]*>/i,
   },
   {
     label: "article",
-    pattern: /<article\b[^>]*>([\s\S]*?)<\/article>/i,
+    open: /<(article)\b[^>]*>/i,
   },
   // Generic class fallbacks — catch attributes like class="job-description",
   // class="posting-description", class="position-description", etc.
   {
     label: "generic-job-description",
-    pattern:
-      /<(?:div|section)[^>]*class=["'][^"']*(?:job[-_]description|posting[-_]description|position[-_]description|role[-_]description|job[-_]details|posting[-_]details|description[-_]content|description[-_]body|job[-_]body|description[-_]text)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i,
+    open: /<(div|section)[^>]*class=["'][^"']*(?:job[-_]description|posting[-_]description|position[-_]description|role[-_]description|job[-_]details|posting[-_]details|description[-_]content|description[-_]body|job[-_]body|description[-_]text)[^"']*["'][^>]*>/i,
   },
   {
     label: "generic-id-description",
-    pattern:
-      /<(?:div|section)[^>]*id=["'][^"']*(?:job[-_]description|posting[-_]description|job[-_]details|description[-_]content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i,
+    open: /<(div|section)[^>]*id=["'][^"']*(?:job[-_]description|posting[-_]description|job[-_]details|description[-_]content)[^"']*["'][^>]*>/i,
   },
 ];
 
-// Tag + attribute patterns whose content is pure noise — stripped before any
-// further processing.
-const NOISE_ELEMENT_PATTERNS: RegExp[] = [
+/**
+ * Given the index just past a container's opening `<tag ...>`, return its inner
+ * HTML up to that tag's TRUE matching close, counting nested same-name open and
+ * close tags. Replaces the old lazy `([\s\S]*?)</tag>` container regexes, which
+ * stopped at the first NESTED </tag> and dropped most of the posting.
+ *
+ * Case-insensitive; treats `<tag/>` as self-closing (no depth change); ignores
+ * false-prefix matches (`<divider>` / `</divider>` when tagName is "div") via a
+ * boundary-character check; on unclosed markup returns the remainder of the
+ * string (completeness-biased).
+ */
+export function extractBalancedTagContent(
+  html: string,
+  tagName: string,
+  contentStart: number
+): string {
+  const lower = html.toLowerCase();
+  const open = `<${tagName}`;
+  const close = `</${tagName}`;
+  const isBoundary = (ch: string | undefined) =>
+    ch === undefined ||
+    ch === " " ||
+    ch === "\t" ||
+    ch === "\n" ||
+    ch === "\r" ||
+    ch === ">" ||
+    ch === "/";
+
+  let depth = 1;
+  let i = contentStart;
+  while (i < html.length && depth > 0) {
+    const nextOpen = lower.indexOf(open, i);
+    const nextClose = lower.indexOf(close, i);
+
+    if (nextClose === -1) {
+      // Unclosed container — keep everything rather than dropping the body.
+      return html.slice(contentStart);
+    }
+
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      // A same-name opener comes first.
+      if (!isBoundary(lower[nextOpen + open.length])) {
+        // False prefix (e.g. `<divider>` for tagName "div").
+        i = nextOpen + open.length;
+        continue;
+      }
+      const tagEnd = html.indexOf(">", nextOpen);
+      if (tagEnd === -1) {
+        return html.slice(contentStart);
+      }
+      // Self-closing only in the conventional `<tag ... />` form (slash preceded
+      // by whitespace). A trailing slash that is really the end of an unquoted
+      // attribute value (e.g. `<div data-x=a/>`) must NOT suppress the depth
+      // increment, or the walker would terminate at the wrong close tag.
+      const before = html[tagEnd - 2];
+      const selfClosing =
+        html[tagEnd - 1] === "/" &&
+        (before === " " || before === "\t" || before === "\n" || before === "\r");
+      if (!selfClosing) {
+        depth += 1;
+      }
+      i = tagEnd + 1;
+      continue;
+    }
+
+    // A closer comes first.
+    if (!isBoundary(lower[nextClose + close.length])) {
+      // False prefix (e.g. `</divider>`).
+      i = nextClose + close.length;
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return html.slice(contentStart, nextClose);
+    }
+    const tagEnd = html.indexOf(">", nextClose);
+    i = tagEnd === -1 ? html.length : tagEnd + 1;
+  }
+
+  return html.slice(contentStart);
+}
+
+// Element-name noise whose content is pure chrome. Safe to strip BEFORE the
+// balanced-tag walk: these tags never wrap the job description, and stripping
+// <script>/<style> first prevents a stray "</div>" inside an inline script or
+// style string from corrupting the walker's depth counting. (We deliberately do
+// NOT strip HTML comments here: a lazy /<!--[\s\S]*?-->/ over a stray, unbalanced
+// "<!--" — e.g. inside a script string, style block, or attribute value — would
+// swallow everything up to the next real "-->", deleting the description. Any
+// well-formed comment is removed downstream by STRIP_TAGS_RE.)
+const SAFE_NOISE_PATTERNS: RegExp[] = [
   /<script\b[^>]*>[\s\S]*?<\/script>/gi,
   /<style\b[^>]*>[\s\S]*?<\/style>/gi,
   /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi,
@@ -199,16 +284,67 @@ const NOISE_ELEMENT_PATTERNS: RegExp[] = [
   /<form\b[^>]*>[\s\S]*?<\/form>/gi,
   /<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi,
   /<svg\b[^>]*>[\s\S]*?<\/svg>/gi,
-  // Class-based noise: cookie banners, breadcrumbs, similar-jobs, related,
-  // social-share, site header/footer blocks.
-  /<(div|section|aside)[^>]*class=["'][^"']*(?:cookie|consent|breadcrumb|similar[-_]?jobs?|related[-_]?(?:jobs?|posts?|positions?)|site[-_](?:header|footer|nav)|social[-_]share|share[-_]buttons|back[-_]to[-_]top|page[-_]header|page[-_]footer|masthead|subscribe|newsletter|apply[-_]bar|talent[-_]community|recommended)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi,
-  /<(div|section|aside)[^>]*id=["'][^"']*(?:cookie|consent|breadcrumb|similar[-_]?jobs?|related|header|footer|nav|sidebar)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi,
 ];
 
-function stripNoiseElements(html: string): string {
+// Class/id-based container noise (cookie banners, breadcrumbs, similar-jobs,
+// related, social-share, site header/footer blocks). Matched by their OPENING
+// tag only; the full (balanced) subtree is then removed via the same walker used
+// for extraction, so a NESTED noise block (e.g. a similar-jobs list of cards) is
+// removed whole rather than truncated at its first inner </div>. Applied AFTER
+// container extraction to the extracted fragment (and to the body-fallback
+// text) — never to the whole body before the walk, where removal could leave an
+// orphan </div> and corrupt depth counting.
+const CLASS_NOISE_OPEN_PATTERNS: RegExp[] = [
+  /<(div|section|aside)[^>]*class=["'][^"']*(?:cookie|consent|breadcrumb|similar[-_]?jobs?|related[-_]?(?:jobs?|posts?|positions?)|site[-_](?:header|footer|nav)|social[-_]share|share[-_]buttons|back[-_]to[-_]top|page[-_]header|page[-_]footer|masthead|subscribe|newsletter|apply[-_]bar|talent[-_]community|recommended)[^"']*["'][^>]*>/gi,
+  // Ids use the SAME specific chrome tokens as the class pattern above — never
+  // bare "header"/"footer"/"nav"/"related", which match legitimate wrappers like
+  // id="job-header" or id="related-content" and would delete the real body.
+  /<(div|section|aside)[^>]*id=["'][^"']*(?:cookie|consent|breadcrumb|similar[-_]?jobs?|related[-_]?(?:jobs?|posts?|positions?)|site[-_](?:header|footer|nav)|page[-_](?:header|footer)|masthead|sidebar)[^"']*["'][^>]*>/gi,
+];
+
+function stripSafeNoise(html: string): string {
   let out = html;
-  for (const pattern of NOISE_ELEMENT_PATTERNS) {
+  for (const pattern of SAFE_NOISE_PATTERNS) {
     out = out.replace(pattern, " ");
+  }
+  return out;
+}
+
+// Strip class/id noise from a fragment and convert it to text — but if noise
+// removal collapses substantial content to below the usable floor, keep the
+// un-stripped text instead. This guards against a broad class/id false positive
+// (or an unclosed noise element whose removal runs to end-of-fragment) deleting
+// the real description entirely.
+function cleanFragmentText(rawHtml: string): string {
+  const cleaned = htmlFragmentToText(stripClassNoise(rawHtml));
+  if (cleaned.length >= 120) return cleaned;
+  const unstripped = htmlFragmentToText(rawHtml);
+  return unstripped.length >= 400 ? unstripped : cleaned;
+}
+
+function stripClassNoise(html: string): string {
+  let out = html;
+  for (const openPattern of CLASS_NOISE_OPEN_PATTERNS) {
+    let result = "";
+    let lastIndex = 0;
+    openPattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = openPattern.exec(out)) !== null) {
+      const tagName = match[1].toLowerCase();
+      const contentStart = match.index + match[0].length;
+      const inner = extractBalancedTagContent(out, tagName, contentStart);
+      const closeStart = contentStart + inner.length;
+      const closeEnd = out.indexOf(">", closeStart);
+      const removeEnd = closeEnd === -1 ? out.length : closeEnd + 1;
+
+      result += out.slice(lastIndex, match.index) + " ";
+      lastIndex = removeEnd;
+      // Advance past the removed subtree; guard against a non-advancing match.
+      openPattern.lastIndex =
+        removeEnd > contentStart ? removeEnd : contentStart;
+    }
+    result += out.slice(lastIndex);
+    out = result;
   }
   return out;
 }
@@ -399,21 +535,31 @@ export function extractDescriptionFromHtml(html: string): string {
 
   const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   const bodyHtml = bodyMatch?.[1] ?? html;
-  const cleanedBody = stripNoiseElements(bodyHtml);
+  // Strip element-name noise (incl. <script>/<style>, whose text can contain a
+  // stray </div>) BEFORE the balanced-tag walk. Class/id container noise is
+  // deferred to stripClassNoise, applied to the extracted fragment below.
+  const scanBody = stripSafeNoise(bodyHtml);
 
-  // Try each container matcher against the cleaned body.
+  // Try each container matcher against the scan body, recovering the FULL inner
+  // HTML via the balanced-tag walker (no first-nested-</tag> truncation).
   type Candidate = { label: string; text: string; score: number };
   const candidates: Candidate[] = [];
   for (const matcher of CONTAINER_MATCHERS) {
-    const match = cleanedBody.match(matcher.pattern);
-    if (!match?.[1]) continue;
-    const text = htmlFragmentToText(match[1]);
+    const match = matcher.open.exec(scanBody);
+    if (!match || match.index < 0) continue;
+    const tagName = match[1].toLowerCase();
+    const innerRaw = extractBalancedTagContent(
+      scanBody,
+      tagName,
+      match.index + match[0].length
+    );
+    const text = cleanFragmentText(innerRaw);
     if (text.length < 120) continue;
     candidates.push({ label: matcher.label, text, score: scoreCandidate(text) });
   }
 
   // Always evaluate the full-body fallback as a safety net.
-  const bodyText = htmlFragmentToText(cleanedBody);
+  const bodyText = cleanFragmentText(scanBody);
   if (bodyText.length >= 120) {
     // Heavily penalize the full-body candidate so a container match wins when present.
     candidates.push({ label: "body-fallback", text: bodyText, score: scoreCandidate(bodyText) - 200 });
@@ -423,7 +569,19 @@ export function extractDescriptionFromHtml(html: string): string {
 
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
-  return trimDescriptionPollution(best.text).slice(0, 18_000);
+  return capDescriptionText(trimDescriptionPollution(best.text), best.label);
+}
+
+// Bound the returned description without truncating a real posting mid-section.
+// A genuine container/main match is allowed a generous cap (long enterprise and
+// bilingual postings routinely exceed the old flat 18k slice); the pollution-
+// prone body-fallback keeps a tighter bound. When over the cap, cut at the last
+// paragraph boundary so we never slice mid-sentence.
+function capDescriptionText(text: string, label: string): string {
+  const cap = label === "body-fallback" ? 24_000 : 60_000;
+  if (text.length <= cap) return text;
+  const boundary = text.lastIndexOf("\n\n", cap);
+  return text.slice(0, boundary > cap * 0.6 ? boundary : cap);
 }
 
 function scoreCandidate(text: string): number {

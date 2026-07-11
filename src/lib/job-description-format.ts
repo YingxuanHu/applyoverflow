@@ -3,6 +3,10 @@ import {
   extractDescriptionFromHtml,
   hasDescriptionPollution,
 } from "@/lib/ingestion/html-description";
+import {
+  fetchGuarded,
+  type FetchGuardDeps,
+} from "@/lib/ingestion/net/ssrf-guard";
 
 export type DescriptionBlock =
   | { kind: "header"; text: string }
@@ -163,13 +167,18 @@ const WRONG_PAGE_TEXT_SIGNALS = [
   "work from anywhere",
 ];
 
-const WRONG_PAGE_HTML_SIGNALS = [
-  "navigator.sendBeacon",
-  "googletagmanager.com/gtm.js",
-  "setTimeout(redirect",
-  "window.__NEXT_DATA__",
-  "window.__INITIAL_STATE__",
-];
+// Phrasing that is near-universal in real job postings and near-absent in
+// marketing/About prose. Used to keep a substantial single-paragraph blob from
+// passing the quality gate unless it actually reads like a posting.
+const JOB_CONTENT_SIGNAL_RE =
+  /\b(responsibilit|qualification|requirement|what you(?:['’]ll| will)|you(?:['’]ll| will) (?:be|have|work|help|own|build|lead|design|develop|manage|collaborat)|we(?:['’]re| are) (?:looking|hiring|seeking)|years? of experience|about (?:the|this) (?:role|job|position)|the ideal candidate|preferred qualification|nice to have|who you are|what we offer)\b/i;
+
+// Only genuine redirect-stub markers belong here. Ambient analytics and SSR
+// hydration scripts (Google Tag Manager, sendBeacon, __NEXT_DATA__,
+// __INITIAL_STATE__) appear on a huge fraction of legitimate job pages — keeping
+// them caused complete, correctly-extracted postings to be discarded as "wrong
+// page" purely because the source page loaded analytics or was server-rendered.
+const WRONG_PAGE_HTML_SIGNALS = ["setTimeout(redirect"];
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -311,6 +320,10 @@ function findJsonObjectStartsNearJobPosting(raw: string) {
   return [...starts].sort((left, right) => left - right);
 }
 
+// Returns the FIRST JobPosting.description in document order. A page's primary
+// posting is emitted before any "similar jobs" siblings, so first-wins reliably
+// targets the real job — preferring the longest instead can surface a longer
+// similar-jobs entry.
 function extractJobPostingDescriptionFromValue(value: unknown): string | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -1365,14 +1378,17 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
     return true;
   }
 
-  if (/(?:…|\.\.\.)\s*$/.test(cleaned)) {
-    return true;
-  }
-
   const blocks = parseJobDescriptionBlocks(cleaned);
   const hasHeader = blocks.some((block) => block.kind === "header");
   const hasList = blocks.some((block) => block.kind === "list");
   const paragraphCount = blocks.filter((block) => block.kind === "paragraph").length;
+
+  // A trailing ellipsis is a truncation tell. A genuinely complete posting still
+  // has structure (headings/bullets) when it ends with "…"; an unstructured blob
+  // ending in "…" is a cut-off teaser regardless of length.
+  if (/(?:…|\.\.\.)\s*$/.test(cleaned) && !hasHeader && !hasList) {
+    return true;
+  }
 
   if ((hasHeader || hasList) && cleaned.length >= 180) {
     return false;
@@ -1382,54 +1398,195 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
     return true;
   }
 
-  return paragraphCount <= 1;
+  // A complete posting delivered as one flowing prose paragraph (no bullets, no
+  // recognized section headings) parses to a single paragraph block. Accept it
+  // only when it is clearly substantial AND reads like a job posting — length
+  // and sentence count alone would also admit long marketing/About prose. This
+  // preserves the "exact original posting, just reorganized" case the user wants
+  // while rejecting non-job single-paragraph blobs.
+  if (paragraphCount <= 1) {
+    const sentenceCount = (cleaned.match(/[.!?](?=\s|$)/g) ?? []).length;
+    return !(
+      cleaned.length >= 600 &&
+      sentenceCount >= 4 &&
+      JOB_CONTENT_SIGNAL_RE.test(cleaned)
+    );
+  }
+
+  return false;
 }
 
-export async function fetchFormattedJobDescriptionFromUrl(url: string) {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; ApplicationTracker/1.0)",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-      signal: AbortSignal.timeout(15000),
-      cache: "no-store",
-    });
+const JOB_FETCH_TIMEOUT_MS = 15_000;
+const JOB_FETCH_MAX_BYTES = 5_000_000;
 
-    if (!response.ok) {
-      return null;
+// Realistic desktop browser User-Agents. The old "ApplicationTracker/1.0" UA is
+// a bot-tell that WAFs (Cloudflare/Akamai on Workday/iCIMS/Greenhouse) block. We
+// try Chrome first, then Firefox — a different UA frequently flips a 403 or a
+// JS-shell response into a real 200.
+const JOB_FETCH_USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+];
+
+// Response content types we cannot parse as an HTML/JSON job posting. (Plain
+// application/json is intentionally allowed — some ATS endpoints return the
+// posting as JSON and extractEmbeddedDescription can still read it.)
+const NON_HTML_CONTENT_TYPE =
+  /^(?:image|audio|video)\/|application\/(?:pdf|zip|octet-stream)/i;
+
+// Human-readable copy a genuinely empty JS shell shows when scripting is off. We
+// only treat a page as a dead shell when it says one of these AND we extracted
+// almost nothing — ambient framework markers (__NEXT_DATA__, application/json,
+// noscript) are deliberately NOT used, because they coexist with a complete
+// JSON-LD posting on pages we can extract from.
+const JS_SHELL_SIGNALS = [
+  "you need to enable javascript",
+  "please enable javascript",
+  "requires javascript",
+  "enable javascript to run",
+];
+
+function buildJobFetchHeaders(userAgent: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": userAgent,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+  };
+  if (userAgent.includes("Chrome")) {
+    headers["sec-ch-ua"] =
+      '"Chromium";v="125", "Not.A/Brand";v="24", "Google Chrome";v="125"';
+    headers["sec-ch-ua-mobile"] = "?0";
+    headers["sec-ch-ua-platform"] = '"Windows"';
+  }
+  return headers;
+}
+
+// Stream the body with a hard byte cap so a huge SPA bundle cannot exhaust
+// memory; JSON-LD/description content lives in the first tens of KB.
+async function readResponseTextCapped(
+  response: Response,
+  maxBytes: number
+): Promise<string> {
+  const body = response.body;
+  if (!body) return "";
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  let received = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        received += value.byteLength;
+        text += decoder.decode(value, { stream: true });
+      }
+      if (received >= maxBytes) break;
+    }
+    text += decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text;
+}
+
+/**
+ * Choose the best raw source string to feed the formatter from a fetched HTML
+ * page. Prefers the JSON-LD JobPosting.description (the authoritative full
+ * posting, present in the initial HTML even on JS-rendered ATS pages), then the
+ * balanced-container extraction, then the raw body. Guards the rare case where
+ * the JSON-LD is only a short teaser but the rendered DOM body is substantially
+ * fuller. Exported for unit testing without network I/O.
+ */
+export function selectDescriptionSource(html: string): string {
+  const embedded = extractEmbeddedDescription(html);
+  if (!embedded) {
+    const container = extractDescriptionFromHtml(html);
+    return container.length >= 120 ? container : html;
+  }
+
+  // Passing raw html lets cleanupJobDescription re-extract the same JSON-LD (the
+  // code path the existing tests exercise). Only fall back to a fuller DOM body
+  // when the JSON-LD formats to a short teaser.
+  const embeddedText = formatJobDescriptionText(html);
+  if (embeddedText.length >= 600) {
+    return html;
+  }
+  const container = extractDescriptionFromHtml(html);
+  if (container.length >= 120) {
+    const containerText = formatJobDescriptionText(container);
+    if (
+      containerText.length > embeddedText.length * 1.5 &&
+      !isLowQualityJobDescription(containerText) &&
+      !looksLikeWrongPageDescription(containerText)
+    ) {
+      return container;
+    }
+  }
+  return html;
+}
+
+export async function fetchFormattedJobDescriptionFromUrl(
+  url: string,
+  deps: FetchGuardDeps = {}
+): Promise<string | null> {
+  for (const userAgent of JOB_FETCH_USER_AGENTS) {
+    let html: string;
+    try {
+      const response = await fetchGuarded(
+        url,
+        {
+          headers: buildJobFetchHeaders(userAgent),
+          signal: AbortSignal.timeout(JOB_FETCH_TIMEOUT_MS),
+          cache: "no-store",
+        },
+        deps
+      );
+
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        // A bot wall (403/429/503) often flips with a different UA — retry.
+        continue;
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (NON_HTML_CONTENT_TYPE.test(contentType)) {
+        await response.body?.cancel().catch(() => undefined);
+        return null; // binary target; a different UA will not help.
+      }
+
+      html = await readResponseTextCapped(response, JOB_FETCH_MAX_BYTES);
+    } catch {
+      // Network error / timeout / SSRF block — try the next UA, then give up.
+      continue;
     }
 
-    const html = await response.text();
-    const extracted = extractDescriptionFromHtml(html);
-    const pageText = formatJobDescriptionText(
-      extracted && extracted.length >= 120 ? extracted : html
-    );
-    const jsPageSignals = [
-      "requires javascript",
-      "enable javascript",
-      "noscript",
-      "__next_data__",
-      "window.__remixcontext",
-      "application/json",
-    ];
+    if (!html) continue;
 
-    const looksLikeJsPage =
-      jsPageSignals.some((signal) => html.toLowerCase().includes(signal)) &&
-      pageText.length < 500;
+    const embedded = extractEmbeddedDescription(html);
+    const pageText = formatJobDescriptionText(selectDescriptionSource(html));
+
+    // Only treat the page as an empty JS shell when it literally asks the human
+    // to enable JavaScript AND we could not extract a structured description.
+    const looksLikeDeadJsShell =
+      !embedded &&
+      pageText.length < 300 &&
+      JS_SHELL_SIGNALS.some((signal) => html.toLowerCase().includes(signal));
 
     if (
-      looksLikeJsPage ||
+      looksLikeDeadJsShell ||
       looksLikeWrongPageDescription(pageText, html) ||
       isLowQualityJobDescription(pageText)
     ) {
-      return null;
+      continue; // try the fallback UA before giving up
     }
 
     return pageText;
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 export async function fetchBestFormattedJobDescriptionFromUrls(
