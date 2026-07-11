@@ -1157,8 +1157,12 @@ export async function updateTrackedApplicationField(input: {
   applicationId: string;
   field: EditableTrackedApplicationField;
   value?: string | null;
+  // Optional transaction client so several field updates can be committed
+  // atomically (e.g. the header form's company/roleTitle/roleUrl together).
+  client?: Prisma.TransactionClient;
 }) {
   const userId = await requireCurrentAuthUserId();
+  const db = input.client ?? prisma;
 
   const trimmed = input.value?.trim() ?? "";
   const isEmpty = trimmed.length === 0;
@@ -1184,12 +1188,27 @@ export async function updateTrackedApplicationField(input: {
   if (input.field === "roleUrl" && trimmed.length > 2000) {
     throw new Error("Job link is too long (max 2000 chars).");
   }
+  // Cap the free-form text fields too, so notes/fitAnalysis and pasted or
+  // imported job descriptions can't grow the row unboundedly (and repeatedly
+  // re-run heavy description formatting). jobDescription is generous because a
+  // full imported posting is legitimately long.
+  if (input.field === "jobDescription" && trimmed.length > 100_000) {
+    throw new Error("Job description is too long (max 100,000 chars).");
+  }
+  if (
+    (input.field === "notes" || input.field === "fitAnalysis") &&
+    trimmed.length > 50_000
+  ) {
+    throw new Error(
+      `${input.field === "notes" ? "Notes" : "Fit analysis"} is too long (max 50,000 chars).`
+    );
+  }
 
   const nextValue = NULLABLE_TRACKED_FIELDS.has(input.field)
     ? (isEmpty ? null : trimmed)
     : trimmed;
 
-  const result = await prisma.trackedApplication.updateMany({
+  const result = await db.trackedApplication.updateMany({
     where: {
       id: input.applicationId,
       userId,

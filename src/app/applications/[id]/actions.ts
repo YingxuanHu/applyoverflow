@@ -158,12 +158,14 @@ export async function updateApplicationHeader(
     const roleTitle = String(formData.get("roleTitle") ?? "");
     const roleUrl = String(formData.get("roleUrl") ?? "");
 
-    // Update each field in turn so per-field validation messages surface
-    // accurately. The DB writes are tiny (one row, no FK joins) so the
-    // serialization cost is negligible.
-    await updateTrackedApplicationField({ applicationId, field: "company", value: company });
-    await updateTrackedApplicationField({ applicationId, field: "roleTitle", value: roleTitle });
-    await updateTrackedApplicationField({ applicationId, field: "roleUrl", value: roleUrl });
+    // Update all three fields in a single transaction so per-field validation
+    // messages still surface accurately, but a failure on a later field never
+    // leaves an earlier field already persisted (partial header write).
+    await prisma.$transaction(async (tx) => {
+      await updateTrackedApplicationField({ applicationId, field: "company", value: company, client: tx });
+      await updateTrackedApplicationField({ applicationId, field: "roleTitle", value: roleTitle, client: tx });
+      await updateTrackedApplicationField({ applicationId, field: "roleUrl", value: roleUrl, client: tx });
+    });
 
     revalidateApplicationWorkspaceViews(applicationId, { includeProfile: true });
 

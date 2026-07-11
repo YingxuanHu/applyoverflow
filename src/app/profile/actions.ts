@@ -519,6 +519,17 @@ export async function deleteProfileResume(
   }
 
   await prisma.$transaction(async (tx) => {
+    // Remove the resume's variant explicitly. The FK is onDelete: SetNull, so a
+    // plain document delete would leave an orphaned ResumeVariant that keeps the
+    // deleted resume's full text (and possibly isDefault=true), still driving
+    // application generation and appearing in data exports.
+    await tx.resumeVariant.deleteMany({
+      where: {
+        userId: user.id,
+        documentId: document.id,
+      },
+    });
+
     await tx.document.delete({
       where: {
         id: document.id,
