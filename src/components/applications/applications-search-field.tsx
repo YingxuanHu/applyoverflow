@@ -10,11 +10,11 @@ type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "reminder">;
 type SelectableTrackerSearchScope = Exclude<VisibleTrackerSearchScope, "all">;
 type SearchValues = Record<TrackerSearchScope, string>;
 
-const DEFAULT_SEARCH_SCOPE: SelectableTrackerSearchScope = "title";
+const DEFAULT_SEARCH_SCOPE: SelectableTrackerSearchScope = "company";
 
 const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: SelectableTrackerSearchScope }> = [
-  { label: "Title", value: "title" },
   { label: "Company", value: "company" },
+  { label: "Title", value: "title" },
   { label: "Location", value: "location" },
   { label: "Tag", value: "tag" },
 ];
@@ -53,8 +53,8 @@ export function ApplicationsSearchField({
   const normalizedInitialValues = {
     ...initialValues,
     all: "",
-    title:
-      initialValues.title ||
+    company:
+      initialValues.company ||
       (initialScope === "all" ? initialValues.all : ""),
   };
   const [scope, setScope] = useState<SelectableTrackerSearchScope>(initialVisibleScope);
