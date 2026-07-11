@@ -111,6 +111,18 @@ function seniorityScore(seniorityGate: SeniorityGateResult) {
   return 0;
 }
 
+// Short skills ("ai", "go", "ml", "qa", "ux", "r", "c") match far too eagerly as
+// bare substrings ("go" in "category", "ai" in "available", "ml" in "html"), so
+// require them to appear as a whole token. Longer skills keep cheap substring
+// matching, where accidental collisions are rare.
+function skillMatchesText(skill: string, text: string): boolean {
+  if (skill.length > 3) {
+    return text.includes(skill);
+  }
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(text);
+}
+
 function scoreSkillFit(intent: UserJobIntent, job: NormalizedJobMatchFields) {
   const skillWeights = new Map<string, number>();
   for (const skill of intent.mustHaveSkills) skillWeights.set(skill, 3);
@@ -127,7 +139,7 @@ function scoreSkillFit(intent: UserJobIntent, job: NormalizedJobMatchFields) {
   const matched: string[] = [];
   for (const [skill, weight] of rankedSkills) {
     possible += weight;
-    if (text.includes(skill)) {
+    if (skillMatchesText(skill, text)) {
       matchedWeight += weight;
       matched.push(skill);
     }

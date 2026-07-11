@@ -356,7 +356,15 @@ export function evaluateRoleGate(
       evidence: [job.roleCategory],
     };
   }
-  if (job.roleCategory && intent.negativeSignals.dislikedRoleCategories.includes(job.roleCategory)) {
+  if (
+    job.roleCategory &&
+    intent.negativeSignals.dislikedRoleCategories.includes(job.roleCategory) &&
+    // A single WRONG_ROLE downvote must not hard-reject an entire category the
+    // user explicitly targets (it would silently empty their whole feed). The
+    // negative signal still lowers the score via scorePreferenceFit; it just no
+    // longer overrides an explicit target.
+    !intent.explicitTargetRoleCategories.includes(job.roleCategory)
+  ) {
     return {
       passed: false,
       strength: "rejected",
