@@ -498,6 +498,41 @@ const steadyWorkerApps = [
     },
     {
       __workerGroups: ["source-workers"],
+      name: "ingest-retention-source-poll",
+      script: "bash",
+      args: `-lc 'sleep ${process.env.RETENTION_SOURCE_POLL_INITIAL_DELAY_SECONDS || 240}; while true; do timeout ${process.env.RETENTION_SOURCE_POLL_TIMEOUT_SECONDS || 300}s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --retention --limit=${process.env.RETENTION_SOURCE_POLL_LIMIT || 150} --concurrency=${process.env.RETENTION_SOURCE_POLL_CONCURRENCY || 6} --min-age-minutes=${process.env.RETENTION_SOURCE_POLL_MIN_AGE_MINUTES || 2880} --max-runtime-ms=${process.env.RETENTION_SOURCE_POLL_MAX_RUNTIME_MS || 240000} || true; sleep ${process.env.RETENTION_SOURCE_POLL_INTERVAL_SECONDS || 300}; done'`,
+      cwd: __dirname,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 10000,
+      output: "./logs/retention-source-poll-out.log",
+      error: "./logs/retention-source-poll-err.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      merge_logs: true,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        DATABASE_PROCESS_ROLE: "recovery_poll",
+        DATABASE_POOL_MAX_RECOVERY_POLL:
+          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+        DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+        JOOBLE_ENABLED: "false",
+        SOURCE_JOOBLE_ENABLED: "false",
+        INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
+        INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
+          process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
+        INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
+          process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
+      },
+      max_memory_restart: "512M",
+    },
+    {
+      __workerGroups: ["source-workers"],
       name: "ingest-source-candidate-scheduler",
       script: "node_modules/.bin/tsx",
       args: `-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploration --schedule-only --skip-seed --limit=${process.env.SOURCE_CANDIDATE_SCHEDULER_LIMIT || 300} --idle-sleep-ms=${process.env.SOURCE_CANDIDATE_SCHEDULER_INTERVAL_MS || 300000} --error-sleep-ms=${process.env.SOURCE_CANDIDATE_SCHEDULER_ERROR_SLEEP_MS || 120000} --forever --skip-metrics`,

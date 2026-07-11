@@ -64,6 +64,11 @@ type ParsedArgs = {
   minRecentCreated: number;
   lookbackHours: number;
   growthOnly: boolean;
+  // Retention mode: poll the OLDEST-polled healthy sources first (regardless of
+  // growth signal) to keep their jobs inside the evidence window. The default
+  // high-yield selection is discovery-optimized and structurally starves the
+  // steady tail, so their still-live jobs age out and get removed.
+  retention: boolean;
   dryRun: boolean;
 };
 
@@ -108,6 +113,7 @@ function parseArgs(): ParsedArgs {
     minRecentCreated: readIntArg("--min-recent-created", 2),
     lookbackHours: readIntArg("--lookback-hours", 24),
     growthOnly: process.argv.includes("--growth-only"),
+    retention: process.argv.includes("--retention"),
     dryRun: process.argv.includes("--dry-run"),
   };
 }
@@ -218,7 +224,44 @@ function rankCandidates(
     .slice(0, args.limit);
 }
 
+// Retention selection: the healthy, validated sources that hold live jobs but
+// are furthest past their last successful poll — oldest (and never-polled)
+// first. No growth-signal or churn filter: the goal is to RE-CONFIRM existing
+// jobs before they age past the evidence window, not to find new ones. Generic
+// company-site sources are excluded to respect the standing skip policy.
+async function selectRetentionSources(args: ParsedArgs, now: Date) {
+  const minAgeCutoff = new Date(now.getTime() - args.minAgeMinutes * 60_000);
+  const rows = await prisma.$queryRaw<HighYieldSourceCandidate[]>(Prisma.sql`
+    SELECT
+      cs."id", cs."companyId", cs."sourceName", cs."connectorName", cs."sourceType",
+      cs."lastSuccessfulPollAt", cs."lastJobsCreatedCount", cs."jobsCreatedCount",
+      cs."retainedLiveJobCount", cs."yieldScore", cs."sourceQualityScore", cs."priorityScore",
+      0::bigint AS "recentRunCount", 0::bigint AS "recentFetchedCount",
+      0::bigint AS "recentAcceptedCount", 0::bigint AS "recentCreatedCount",
+      0::bigint AS "recentRemovedCount", 0::bigint AS "recentRuntimeMs"
+    FROM "CompanySource" cs
+    WHERE cs."status" IN ('ACTIVE', 'DEGRADED')
+      AND cs."validationState" = 'VALIDATED'
+      AND cs."pollState" = 'READY'
+      AND cs."sourceQualityScore" >= 0.5
+      AND cs."connectorName" <> 'company-site'
+      AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+      AND cs."retainedLiveJobCount" > 0
+      AND NOT (cs."connectorName" = 'workday' AND cs."consecutiveFailures" > 0)
+      AND (
+        cs."lastSuccessfulPollAt" IS NULL
+        OR cs."lastSuccessfulPollAt" <= ${minAgeCutoff}
+      )
+    ORDER BY cs."lastSuccessfulPollAt" ASC NULLS FIRST
+    LIMIT ${args.limit}
+  `);
+  return rows.map((source) => ({ source, score: 0 }));
+}
+
 async function selectSources(args: ParsedArgs, now: Date) {
+  if (args.retention) {
+    return selectRetentionSources(args, now);
+  }
   const minAgeCutoff = new Date(now.getTime() - args.minAgeMinutes * 60_000);
   const recentWorkdayBlockCutoff = new Date(now.getTime() - 24 * 60 * 60_000);
   const connectorExclusions = INCLUDE_WORKDAY_IN_HIGH_YIELD
