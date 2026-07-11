@@ -43,6 +43,15 @@ const CONNECTOR_POLL_ZERO_GROWTH_ACCEPTED_THRESHOLD = Math.max(
   5,
   readPositiveIntegerEnv("INGEST_ZERO_GROWTH_PENDING_ACCEPTED_THRESHOLD", 25)
 );
+
+// Poll tasks at or above this priority are RETENTION polls (enqueued by
+// run-high-yield-source-poll-pass --retention). Their whole purpose is to
+// re-confirm existing jobs at stable, non-growing sources before they age out
+// of the evidence window, so they must NOT be caught by the growth-bias defer
+// passes (zero-growth / churn / family-churn) — those would defer them forever
+// and let their live jobs be removed. Legit cooldown/eligibility defers still
+// apply. Keep in sync with the enqueue priority in the poll pass.
+const RETENTION_POLL_PRIORITY_FLOOR = 250_000;
 const CONNECTOR_POLL_FAMILY_CHURN_LOOKBACK_HOURS = Math.max(
   1,
   readPositiveIntegerEnv("INGEST_GROWTH_FAMILY_CHURN_LOOKBACK_HOURS", 2)
@@ -380,6 +389,7 @@ export async function reconcileConnectorPollTaskReadiness(
       st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
       AND st."status" = 'PENDING'::"SourceTaskStatus"
       AND st."companySourceId" = cs."id"
+      AND st."priorityScore" < ${RETENTION_POLL_PRIORITY_FLOOR}
       AND st."notBeforeAt" < ${churnCooldownUntil}
   `);
 
@@ -456,6 +466,7 @@ export async function reconcileConnectorPollTaskReadiness(
       st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
       AND st."status" = 'PENDING'::"SourceTaskStatus"
       AND st."companySourceId" = cs."id"
+      AND st."priorityScore" < ${RETENTION_POLL_PRIORITY_FLOOR}
       AND st."notBeforeAt" < ${familyChurnNotBefore}
       AND NOT (
         COALESCE(rs."createdCount", 0) > 0
@@ -490,6 +501,7 @@ export async function reconcileConnectorPollTaskReadiness(
       st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
       AND st."status" = 'PENDING'::"SourceTaskStatus"
       AND st."companySourceId" = cs."id"
+      AND st."priorityScore" < ${RETENTION_POLL_PRIORITY_FLOOR}
       AND st."notBeforeAt" <= ${new Date(now.getTime() + 30 * 60 * 1000)}
       AND cs."pollAttemptCount" >= 2
       AND cs."lastJobsCreatedCount" = 0
