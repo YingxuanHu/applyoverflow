@@ -48,8 +48,13 @@ function buildReminderCopy(input: {
   roleTitle: string;
   deadline: Date;
 }) {
+  // Format in UTC to match the UTC day-boundary tier computation
+  // (mapReminderType/daysUntil); otherwise the printed date can disagree with
+  // the tier ("due today" showing yesterday's/tomorrow's date) on servers whose
+  // local timezone differs from UTC.
   const deadlineText = new Intl.DateTimeFormat("en-CA", {
     dateStyle: "medium",
+    timeZone: "UTC",
   }).format(input.deadline);
   const base = `${input.company} — ${input.roleTitle}`;
 
@@ -128,20 +133,6 @@ async function processTrackedApplicationReminder(
   if (!reminderType) return "skipped";
 
   const deadlineDate = startOfUtcDay(application.deadline);
-  const { count } = await prisma.reminderLog.createMany({
-    data: [
-      {
-        userId: application.userId,
-        trackedApplicationId: application.id,
-        reminderType,
-        deadlineDate,
-      },
-    ],
-    skipDuplicates: true,
-  });
-
-  if (count === 0) return "skipped";
-
   const copy = buildReminderCopy({
     reminderType,
     company: application.company,
@@ -149,15 +140,38 @@ async function processTrackedApplicationReminder(
     deadline: application.deadline,
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: application.userId,
-      trackedApplicationId: application.id,
-      type: "DEADLINE_REMINDER",
-      title: copy.title,
-      message: copy.message,
-    },
+  // Claim the dedup marker AND write the in-app notification atomically, so a
+  // failure can never leave the reminder marked-as-sent without a matching
+  // notification (which would silently drop it forever).
+  const created = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.reminderLog.createMany({
+      data: [
+        {
+          userId: application.userId,
+          trackedApplicationId: application.id,
+          reminderType,
+          deadlineDate,
+        },
+      ],
+      skipDuplicates: true,
+    });
+
+    if (count === 0) return false;
+
+    await tx.notification.create({
+      data: {
+        userId: application.userId,
+        trackedApplicationId: application.id,
+        type: "DEADLINE_REMINDER",
+        title: copy.title,
+        message: copy.message,
+      },
+    });
+
+    return true;
   });
+
+  if (!created) return "skipped";
 
   const targetUrl = getTrackedTargetUrl(application);
   const shouldEmail = sendEmailImmediately
@@ -167,17 +181,26 @@ async function processTrackedApplicationReminder(
         application.user.emailNotificationsEnabled
       );
 
+  // Email is best-effort: the in-app notification is already committed, so a
+  // send failure must not abort the cron run or roll back the reminder.
   if (shouldEmail) {
-    await sendEmail({
-      to: application.user.email,
-      subject: copy.title,
-      text: `${copy.message}\n\nOpen job: ${targetUrl}`,
-      html: `
+    try {
+      await sendEmail({
+        to: application.user.email,
+        subject: copy.title,
+        text: `${copy.message}\n\nOpen job: ${targetUrl}`,
+        html: `
         <p>Hello${application.user.name ? ` ${application.user.name}` : ""},</p>
         <p>${copy.message}</p>
         <p><a href="${targetUrl}">Open job</a></p>
       `,
-    });
+      });
+    } catch (error) {
+      console.error(
+        `[reminders] failed to send deadline email for application ${application.id}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
   }
 
   return "created";
@@ -212,10 +235,19 @@ export async function runDeadlineReminders(now = new Date()): Promise<ReminderRu
   let remindersSkipped = 0;
 
   for (const application of applications) {
-    const result = await processTrackedApplicationReminder(application, now, false);
-    if (result === "created") {
-      remindersCreated += 1;
-    } else {
+    try {
+      const result = await processTrackedApplicationReminder(application, now, false);
+      if (result === "created") {
+        remindersCreated += 1;
+      } else {
+        remindersSkipped += 1;
+      }
+    } catch (error) {
+      // One application's failure must not abort the entire run.
+      console.error(
+        `[reminders] failed to process reminder for application ${application.id}:`,
+        error instanceof Error ? error.message : error
+      );
       remindersSkipped += 1;
     }
   }
@@ -264,32 +296,58 @@ export async function checkCustomReminders(now = new Date()) {
 
     const targetUrl = getTrackedTargetUrl(event.trackedApplication);
 
-    await prisma.notification.create({
-      data: {
-        userId: event.trackedApplication.userId,
-        trackedApplicationId: event.trackedApplication.id,
-        type: "SYSTEM",
-        title,
-        message,
-      },
-    });
+    try {
+      // Conditionally claim the event AND write the notification atomically. The
+      // where-guard on reminderNotifiedAt makes the claim idempotent, so two
+      // overlapping runs cannot both notify, and a notification failure rolls
+      // back the claim so it is retried instead of silently lost.
+      const claimed = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.trackedApplicationEvent.updateMany({
+          where: { id: event.id, reminderNotifiedAt: null },
+          data: { reminderNotifiedAt: now },
+        });
+        if (count === 0) return false;
 
-    await prisma.trackedApplicationEvent.update({
-      where: { id: event.id },
-      data: { reminderNotifiedAt: now },
-    });
+        await tx.notification.create({
+          data: {
+            userId: event.trackedApplication.userId,
+            trackedApplicationId: event.trackedApplication.id,
+            type: "SYSTEM",
+            title,
+            message,
+          },
+        });
 
-    if (event.trackedApplication.user.emailNotificationsEnabled) {
-      await sendEmail({
-        to: event.trackedApplication.user.email,
-        subject: title,
-        text: `${message}\n\nOpen application: ${targetUrl}`,
-        html: `
+        return true;
+      });
+
+      if (!claimed) continue;
+
+      if (event.trackedApplication.user.emailNotificationsEnabled) {
+        try {
+          await sendEmail({
+            to: event.trackedApplication.user.email,
+            subject: title,
+            text: `${message}\n\nOpen application: ${targetUrl}`,
+            html: `
           <p>Hello${event.trackedApplication.user.name ? ` ${event.trackedApplication.user.name}` : ""},</p>
           <p>${message}</p>
           <p><a href="${targetUrl}">Open application</a></p>
         `,
-      });
+          });
+        } catch (error) {
+          console.error(
+            `[reminders] failed to send custom reminder email for event ${event.id}:`,
+            error instanceof Error ? error.message : error
+          );
+        }
+      }
+    } catch (error) {
+      // One event's failure must not abort the remaining reminders.
+      console.error(
+        `[reminders] failed to process custom reminder ${event.id}:`,
+        error instanceof Error ? error.message : error
+      );
     }
   }
 }
