@@ -500,7 +500,7 @@ const steadyWorkerApps = [
       __workerGroups: ["source-workers"],
       name: "ingest-retention-source-poll",
       script: "bash",
-      args: `-lc 'sleep ${process.env.RETENTION_SOURCE_POLL_INITIAL_DELAY_SECONDS || 240}; while true; do timeout ${process.env.RETENTION_SOURCE_POLL_TIMEOUT_SECONDS || 300}s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --retention --limit=${process.env.RETENTION_SOURCE_POLL_LIMIT || 150} --concurrency=${process.env.RETENTION_SOURCE_POLL_CONCURRENCY || 6} --min-age-minutes=${process.env.RETENTION_SOURCE_POLL_MIN_AGE_MINUTES || 2880} --max-runtime-ms=${process.env.RETENTION_SOURCE_POLL_MAX_RUNTIME_MS || 240000} || true; sleep ${process.env.RETENTION_SOURCE_POLL_INTERVAL_SECONDS || 300}; done'`,
+      args: `-lc 'sleep ${process.env.RETENTION_SOURCE_POLL_INITIAL_DELAY_SECONDS || 240}; while true; do timeout ${process.env.RETENTION_SOURCE_POLL_TIMEOUT_SECONDS || 300}s node_modules/.bin/tsx -r dotenv/config scripts/run-high-yield-source-poll-pass.ts --retention --limit=${process.env.RETENTION_SOURCE_POLL_LIMIT || 200} --concurrency=${process.env.RETENTION_SOURCE_POLL_CONCURRENCY || 10} --min-age-minutes=${process.env.RETENTION_SOURCE_POLL_MIN_AGE_MINUTES || 2880} --max-runtime-ms=${process.env.RETENTION_SOURCE_POLL_MAX_RUNTIME_MS || 240000} || true; sleep ${process.env.RETENTION_SOURCE_POLL_INTERVAL_SECONDS || 180}; done'`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -514,8 +514,11 @@ const steadyWorkerApps = [
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
+        // Retention gets a larger poll pool than the high-yield lane's 3: the DB
+        // has ample headroom (~17/100 connections) and the constraint is poll
+        // distribution, not capacity.
         DATABASE_POOL_MAX_RECOVERY_POLL:
-          process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
+          process.env.RETENTION_DATABASE_POOL_MAX_RECOVERY_POLL || "8",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
           process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
         JOOBLE_ENABLED: "false",
@@ -527,7 +530,7 @@ const steadyWorkerApps = [
         INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS:
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "2",
+          process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "4",
       },
       max_memory_restart: "512M",
     },

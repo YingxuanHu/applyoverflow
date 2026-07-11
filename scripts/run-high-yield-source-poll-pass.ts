@@ -538,9 +538,17 @@ async function main() {
           companyId: source.companyId,
           companySourceId: source.id,
           notBeforeAt: startedAt,
-          priorityScore: Math.round(150_000 + score),
+          // Retention polls must WIN the shared poll drain — the tail was
+          // starving because its tasks (150k) sat below the fresh growth/repair
+          // tasks (observed up to ~200k). Boost retention above them so the
+          // ample poll capacity (~14.6k/day) redistributes to the stale tail.
+          priorityScore: args.retention
+            ? Math.round(250_000 + score)
+            : Math.round(150_000 + score),
           payloadJson: {
-            source: "high-yield-source-poll-pass",
+            source: args.retention
+              ? "retention-source-poll-pass"
+              : "high-yield-source-poll-pass",
             score: Math.round(score * 100) / 100,
           },
         });
