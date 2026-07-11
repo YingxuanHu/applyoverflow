@@ -18,6 +18,7 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { Avatar } from "@/components/layout/avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { DeleteAccountCard } from "@/components/profile/delete-account-card";
+import { ExportDataButton } from "@/components/settings/export-data-button";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import { getAccountSecurityData } from "@/lib/queries/auth-security";
 import { getTrackerSettingsData } from "@/lib/queries/tracker";
@@ -203,13 +204,7 @@ export default async function SettingsPage() {
               Download a JSON copy of your profile, tracked applications,
               notifications, saved jobs, and application history.
             </p>
-            <a
-              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              href="/api/settings/export"
-            >
-              <Download className="h-3 w-3" />
-              Download export
-            </a>
+            <ExportDataButton />
           </div>
           <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
             <p className="text-sm font-medium text-foreground">
