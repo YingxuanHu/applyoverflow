@@ -352,8 +352,11 @@ async function extractStructuredResume(input: {
   }
 
   if (!localText.trim()) {
+    // Reachable when AI extraction is unavailable for this account (e.g. not on
+    // the AI allowlist) and the file has no machine-readable text. Point the
+    // user at the action they can take rather than an ops setting they cannot.
     throw new Error(
-      "This resume needs OpenAI extraction. Configure OPENAI_API_KEY or upload a text-based PDF, DOCX, DOC, TXT, or RTF file."
+      "No text could be read from this resume — it looks scanned or image-based. Upload a text-based PDF, DOCX, DOC, TXT, or RTF file instead."
     );
   }
 

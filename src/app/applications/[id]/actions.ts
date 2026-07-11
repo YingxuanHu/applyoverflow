@@ -643,30 +643,35 @@ export async function importJobDescription(
     }
 
     let content: string;
+    const hasPaste = pastedContent.length > 0;
 
-    if (pastedContent && pastedContent.length >= 30) {
+    if (hasPaste) {
+      // Always honor what the user actually pasted. If it is too short, say so —
+      // never silently discard it and fetch the URL instead.
+      if (pastedContent.length < 30) {
+        return {
+          error:
+            "That's too short to format — paste the full job posting text (at least a few sentences).",
+          success: null,
+          fetchFailed: true,
+        };
+      }
       content = pastedContent;
     } else if (application.roleUrl) {
       const fetchedDescription = await fetchFormattedJobDescriptionFromUrl(application.roleUrl);
       if (!fetchedDescription) {
         return {
           error:
-            "The fetched page didn't contain enough job details. Paste the full posting text below instead.",
+            "Couldn't fetch enough job detail from the posting link. Paste the full posting text below instead.",
           success: null,
           fetchFailed: true,
         };
       }
 
       content = fetchedDescription;
-    } else if (!pastedContent) {
-      return {
-        error: "No posting URL set. Paste the job posting content below instead.",
-        success: null,
-        fetchFailed: true,
-      };
     } else {
       return {
-        error: "Too little content to format — paste the full job posting text (at least a few sentences).",
+        error: "No posting URL set. Paste the job posting content below instead.",
         success: null,
         fetchFailed: true,
       };
@@ -683,7 +688,9 @@ export async function importJobDescription(
       !isJobDescriptionSummaryUsable(formatted)
     ) {
       return {
-        error: "The fetched page didn't contain enough job details. Paste the full posting text below instead.",
+        error: hasPaste
+          ? "That doesn't look like a complete job description — paste the full posting text."
+          : "The fetched page didn't contain enough job details. Paste the full posting text below instead.",
         success: null,
         fetchFailed: true,
       };

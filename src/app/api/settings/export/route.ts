@@ -271,6 +271,9 @@ export async function GET(request: Request) {
       headers: {
         "Content-Disposition": `attachment; filename="applyoverflow-export-${safeDate}.json"`,
         "Content-Type": "application/json; charset=utf-8",
+        // This response carries the user's full personal data — keep it out of
+        // any shared/proxy/browser cache.
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

@@ -349,7 +349,13 @@ export function parseNaturalLanguageJobSearch(input: string): NaturalLanguageJob
     }
   }
 
-  const workModes = uniqueValues(collectMatches(WORK_MODE_RULES, originalText).map((match) => match.rule.value));
+  const workModes = uniqueValues(
+    collectMatches(WORK_MODE_RULES, originalText)
+      // Drop negated matches ("not remote", "no onsite") so a negated phrase is
+      // never turned into the opposite-of-intent hard filter.
+      .filter((match) => !isNegatedContext(originalText, match.index))
+      .map((match) => match.rule.value)
+  );
   if (workModes.length > 0) {
     params.workMode = workModes.join(",");
     for (const value of workModes) {
@@ -363,7 +369,11 @@ export function parseNaturalLanguageJobSearch(input: string): NaturalLanguageJob
     }
   }
 
-  const locations = uniqueValues(collectMatches(LOCATION_RULES, originalText).map((match) => match.rule.value));
+  const locations = uniqueValues(
+    collectMatches(LOCATION_RULES, originalText)
+      .filter((match) => !isNegatedContext(originalText, match.index))
+      .map((match) => match.rule.value)
+  );
   if (locations.length > 0) {
     params.locationSearch = locations.join(",");
     for (const value of locations) {

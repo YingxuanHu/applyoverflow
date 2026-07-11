@@ -29,8 +29,17 @@ function parseDateValue(rawValue: unknown) {
   const value = String(rawValue ?? "").trim();
   if (!value) return null;
 
+  // Require strict YYYY-MM-DD and reject impossible calendar dates, which JS
+  // Date otherwise silently rolls forward (e.g. 2026-02-30 -> 2026-03-02).
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("Invalid date.");
+  }
+
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) {
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value
+  ) {
     throw new Error("Invalid date.");
   }
 

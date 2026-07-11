@@ -206,6 +206,20 @@ export async function saveProfile(
     };
   }
 
+  if (summary.length > 5000) {
+    return {
+      error: "Summary is too long (max 5,000 characters).",
+      success: null,
+    };
+  }
+
+  if (location.length > 200) {
+    return {
+      error: "Location is too long (max 200 characters).",
+      success: null,
+    };
+  }
+
   const textCopies = buildProfileTextCopies({
     skills,
     experiences,
