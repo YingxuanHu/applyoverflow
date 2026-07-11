@@ -90,6 +90,13 @@ export async function POST(request: NextRequest) {
     if (roleUrl && !/^https?:\/\/\S+$/i.test(roleUrl)) {
       return errorResponse("Job link must start with http:// or https://", 400);
     }
+    if (roleUrl) {
+      try {
+        new URL(roleUrl);
+      } catch {
+        return errorResponse("Job link is not a valid URL.", 400);
+      }
+    }
 
     if (!statusOptions.has(statusRaw as TrackedApplicationStatus)) {
       return errorResponse("Invalid status.", 400);

@@ -396,7 +396,11 @@ export async function getTrackedDashboardData(input: {
   };
 
   if (status !== "ALL") {
-    where.status = status;
+    // PREPARING applications render as "Wishlist" in the UI and have no filter
+    // option of their own, so the Wishlist filter must include them — otherwise
+    // they are silently invisible under every status filter.
+    where.status =
+      status === "WISHLIST" ? { in: ["WISHLIST", "PREPARING"] } : status;
   }
 
   const today = startOfUtcDay(new Date());
