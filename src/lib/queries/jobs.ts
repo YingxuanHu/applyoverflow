@@ -550,6 +550,22 @@ function withoutUnknownFilterValues(values: string[], unknownValue: string) {
   return values.filter((value) => value !== unknownValue);
 }
 
+// Region and WorkMode are Prisma enums; a value that is not an exact member
+// (e.g. lowercase "us"/"remote" from a hand-edited or shared URL) makes Prisma
+// reject the whole query and surface a 500 on the primary feed. Normalize to
+// upper-case and keep only real members so malformed input is ignored, never a
+// crash. Returns null when nothing valid remains (filter omitted).
+const VALID_REGION_VALUES = new Set(["US", "CA"]);
+const VALID_WORK_MODE_VALUES = new Set(["REMOTE", "HYBRID", "ONSITE", "FLEXIBLE"]);
+
+function parseEnumCsv(raw: string, allowed: Set<string>): string[] | null {
+  const values = raw
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter((value) => allowed.has(value));
+  return values.length > 0 ? values : null;
+}
+
 function shouldDebugJobFilters(filters: JobFilterParams) {
   return filters.debugFilters || process.env.JOB_FILTER_DEBUG === "1";
 }
@@ -804,16 +820,22 @@ async function getJobsFromFeedIndex(input: {
   appendFeedIndexLocationSearchWhere(where, filters.locationSearch);
 
   if (filters.region) {
-    where.region = { in: filters.region.split(",") as ("US" | "CA")[] };
+    const regions = parseEnumCsv(filters.region, VALID_REGION_VALUES);
+    if (regions) {
+      where.region = { in: regions as ("US" | "CA")[] };
+    }
   }
 
   if (filters.workMode) {
-    appendFeedIndexAndCondition(where, {
-      workMode: {
-        in: filters.workMode.split(",") as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-      },
-      workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
-    });
+    const modes = parseEnumCsv(filters.workMode, VALID_WORK_MODE_VALUES);
+    if (modes) {
+      appendFeedIndexAndCondition(where, {
+        workMode: {
+          in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+        },
+        workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+      });
+    }
   }
 
   if (filters.industry) {
@@ -3296,18 +3318,22 @@ export async function getJobs(
     }
 
     if (filters.region) {
-      const regions = filters.region.split(",");
-      where.region = { in: regions as ("US" | "CA")[] };
+      const regions = parseEnumCsv(filters.region, VALID_REGION_VALUES);
+      if (regions) {
+        where.region = { in: regions as ("US" | "CA")[] };
+      }
     }
 
     if (filters.workMode) {
-      const modes = filters.workMode.split(",");
-      appendAndCondition(where, {
-        workMode: {
-          in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
-        },
-        workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
-      });
+      const modes = parseEnumCsv(filters.workMode, VALID_WORK_MODE_VALUES);
+      if (modes) {
+        appendAndCondition(where, {
+          workMode: {
+            in: modes as ("REMOTE" | "HYBRID" | "ONSITE" | "FLEXIBLE")[],
+          },
+          workModeConfidence: { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD },
+        });
+      }
     }
 
     if (filters.employmentType) {

@@ -8,6 +8,26 @@ import { invalidateTopPicksForUser } from "@/lib/top-picks/service";
 
 import type { SettingsActionState } from "./action-state";
 
+// WorkMode / ExperienceLevel are Prisma enums; casting a raw form value straight
+// to the enum type lets a crafted value reach Prisma and surface a raw
+// PrismaClientValidationError. Validate against the allowed members and treat
+// anything else as unset.
+const SETTINGS_WORK_MODE_VALUES = new Set([
+  "REMOTE",
+  "HYBRID",
+  "ONSITE",
+  "FLEXIBLE",
+  "UNKNOWN",
+]);
+const SETTINGS_EXPERIENCE_LEVEL_VALUES = new Set([
+  "ENTRY",
+  "MID",
+  "SENIOR",
+  "LEAD",
+  "EXECUTIVE",
+  "UNKNOWN",
+]);
+
 function parseOptionalInt(value: FormDataEntryValue | null): number | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -71,7 +91,8 @@ export async function savePreferencesSettings(
 
     await saveTrackerSettings({
       preferredWorkMode:
-        typeof preferredWorkModeRaw === "string" && preferredWorkModeRaw
+        typeof preferredWorkModeRaw === "string" &&
+        SETTINGS_WORK_MODE_VALUES.has(preferredWorkModeRaw)
           ? (preferredWorkModeRaw as
               | "REMOTE"
               | "HYBRID"
@@ -80,7 +101,8 @@ export async function savePreferencesSettings(
               | "UNKNOWN")
           : null,
       experienceLevel:
-        typeof experienceLevelRaw === "string" && experienceLevelRaw
+        typeof experienceLevelRaw === "string" &&
+        SETTINGS_EXPERIENCE_LEVEL_VALUES.has(experienceLevelRaw)
           ? (experienceLevelRaw as
               | "ENTRY"
               | "MID"
