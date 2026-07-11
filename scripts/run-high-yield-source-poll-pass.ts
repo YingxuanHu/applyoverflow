@@ -510,7 +510,11 @@ async function selectSources(args: ParsedArgs, now: Date) {
 
 async function main() {
   const args = parseArgs();
-  const lock = await acquireRuntimeLock("high-yield-source-poll-pass");
+  // Retention and high-yield passes run the same script concurrently, so they
+  // must hold DISTINCT runtime locks or they would starve each other.
+  const lock = await acquireRuntimeLock(
+    args.retention ? "retention-source-poll-pass" : "high-yield-source-poll-pass"
+  );
   if (!lock.acquired) {
     console.error(
       JSON.stringify({
