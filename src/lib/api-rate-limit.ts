@@ -135,15 +135,21 @@ function rateLimitHeaders(result: RateLimitResult) {
 }
 
 function getClientIp(request: Request) {
-  const cfConnectingIp = request.headers.get("cf-connecting-ip");
-  if (cfConnectingIp) {
-    return cfConnectingIp;
-  }
+  // Trust only X-Real-IP (set by our Caddy edge to the real TCP peer, with
+  // client-supplied forwarding headers stripped). Fall back to the RIGHTMOST
+  // X-Forwarded-For entry (last trusted proxy hop), never the client-
+  // controllable leftmost value or cf-connecting-ip.
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
 
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor) {
-    return forwardedFor.split(",")[0]?.trim() || "unknown";
+    const parts = forwardedFor
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
   }
 
-  return request.headers.get("x-real-ip") ?? "unknown";
+  return "unknown";
 }

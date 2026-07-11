@@ -28,6 +28,15 @@ function getGoogleErrorMessage(error: string | undefined) {
   return "Google sign-in could not be completed. Try again or use email and password.";
 }
 
+// Only allow same-origin, absolute-path redirects. Rejects protocol-relative
+// ("//evil.com"), scheme ("https://evil.com"), and backslash-obfuscated targets
+// so a crafted ?callbackUrl cannot turn sign-in into an open redirect.
+function toSafeInternalPath(value: string | undefined, fallback = "/jobs"): string {
+  if (!value || !value.startsWith("/")) return fallback;
+  if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
+  return value;
+}
+
 export function SignInForm({
   callbackUrl = "/jobs",
   defaultEmail = "",
@@ -37,6 +46,7 @@ export function SignInForm({
   googleEnabled = false,
 }: SignInFormProps) {
   const router = useRouter();
+  const safeCallbackUrl = toSafeInternalPath(callbackUrl);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(getGoogleErrorMessage(googleError));
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
@@ -69,7 +79,7 @@ export function SignInForm({
       return;
     }
 
-    router.push(callbackUrl);
+    router.push(safeCallbackUrl);
     router.refresh();
   };
 
@@ -178,7 +188,7 @@ export function SignInForm({
               <span className="h-px flex-1 bg-border" />
             </div>
             <GoogleAuthButton
-              callbackUrl={callbackUrl}
+              callbackUrl={safeCallbackUrl}
               onError={(message) => setError(message)}
             />
           </div>

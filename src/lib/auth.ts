@@ -236,7 +236,10 @@ export const auth = betterAuth({
   advanced: {
     useSecureCookies: useSecureAuthCookies,
     ipAddress: {
-      ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"],
+      // Trust only the Caddy-set X-Real-IP; client-supplied cf-connecting-ip /
+      // X-Forwarded-For are spoofable and would let an attacker rotate buckets
+      // to bypass better-auth's own rate limits.
+      ipAddressHeaders: ["x-real-ip"],
     },
   },
   trustedOrigins: async (request) => buildRuntimeTrustedOrigins(request?.headers),

@@ -12,13 +12,24 @@ const buckets = new Map<string, AuthRateLimitBucket>();
 const MAX_AUTH_RATE_LIMIT_BUCKETS = 10000;
 
 function getClientIp(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return (
-    request.headers.get("cf-connecting-ip") ??
-    forwardedFor ??
-    request.headers.get("x-real-ip") ??
-    "unknown"
-  );
+  // Our Caddy edge overwrites X-Real-IP with the real TCP peer and strips
+  // client-supplied forwarding headers, so it is the only trustworthy source.
+  // As a fallback (e.g. direct/dev access) use the RIGHTMOST X-Forwarded-For
+  // entry — the value the last trusted proxy appended — never the leftmost,
+  // client-controllable value or cf-connecting-ip (there is no Cloudflare here).
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const parts = forwardedFor
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+
+  return "unknown";
 }
 
 export function consumeAuthRateLimit(
