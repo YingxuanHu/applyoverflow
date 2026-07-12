@@ -7,6 +7,10 @@ import type {
   SourceConnectorFetchOptions,
   SourceConnectorFetchResult,
 } from "@/lib/ingestion/types";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 type WorkableConnectorOptions = {
   accountToken: string;
@@ -58,16 +62,29 @@ export function createWorkableConnector({
     async fetchJobs(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
+      throwIfAborted(options.signal);
       const response = await fetch(
-        `https://www.workable.com/api/accounts/${accountToken}`
+        `https://www.workable.com/api/accounts/${accountToken}`,
+        {
+          signal: buildTimeoutSignal(options.signal, 45_000),
+        }
       );
 
+      const log = options.log ?? console.log;
+
       if (!response.ok) {
-        throw new Error(
-          `Workable fetch failed for ${accountToken}: ${response.status} ${response.statusText}`
-        );
+        log(`[workable:${accountToken}] API error ${response.status} ${response.statusText}`);
+        return {
+          jobs: [],
+          metadata: {
+            accountToken,
+            error: `${response.status} ${response.statusText}`,
+            fetchedAt: options.now.toISOString(),
+          },
+        };
       }
 
+      throwIfAborted(options.signal);
       const text = await response.text();
       const payload = parseWorkableAccountResponse(accountToken, text);
       const resolvedCompanyName =
@@ -122,9 +139,9 @@ function buildSourceJob({
   job: WorkablePublicJob;
 }) {
   const sourceId = String(job.shortcode ?? job.code ?? job.title);
-  const postingUrl =
-    job.url ??
-    buildPostingUrl(accountToken, job.shortcode ?? job.code ?? null);
+  const shortcode = job.shortcode ?? job.code ?? null;
+  const postingUrl = buildPostingUrl(accountToken, shortcode);
+  const applyUrl = job.application_url ?? job.url ?? postingUrl;
 
   return {
     sourceId,
@@ -133,7 +150,7 @@ function buildSourceJob({
     company: fallbackCompanyName,
     location: buildLocation(job),
     description: buildDescription(job, accountDescription),
-    applyUrl: job.application_url ?? postingUrl,
+    applyUrl,
     postedAt: parseDateValue(job.published ?? job.created_at ?? job.updated_at),
     deadline: null,
     employmentType: inferEmploymentType(job.employment_type),

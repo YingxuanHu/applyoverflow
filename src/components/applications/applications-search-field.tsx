@@ -1,0 +1,133 @@
+"use client";
+
+import { useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
+
+import { Input } from "@/components/ui/input";
+import type { TrackerSearchScope } from "@/lib/queries/tracker";
+
+type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "reminder">;
+type SelectableTrackerSearchScope = Exclude<VisibleTrackerSearchScope, "all">;
+type SearchValues = Record<TrackerSearchScope, string>;
+
+const DEFAULT_SEARCH_SCOPE: SelectableTrackerSearchScope = "company";
+
+const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: SelectableTrackerSearchScope }> = [
+  { label: "Company", value: "company" },
+  { label: "Title", value: "title" },
+  { label: "Location", value: "location" },
+  { label: "Tag", value: "tag" },
+];
+
+const SEARCH_PARAM_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
+  all: "search",
+  title: "titleSearch",
+  company: "companySearch",
+  location: "locationSearch",
+  tag: "tagSearch",
+};
+
+const PLACEHOLDER_BY_SCOPE: Record<VisibleTrackerSearchScope, string> = {
+  all: "Search applications",
+  title: "Search application titles by keyword",
+  company: "Search companies by keyword",
+  location: "Search locations by keyword",
+  tag: "Search tags by keyword",
+};
+
+function normalizeSubmittedSearchValue(value: string) {
+  return value.trim();
+}
+
+export function ApplicationsSearchField({
+  initialScope,
+  initialValues,
+}: {
+  initialScope: TrackerSearchScope;
+  initialValues: SearchValues;
+}) {
+  const initialVisibleScope =
+    initialScope === "reminder" || initialScope === "all"
+      ? DEFAULT_SEARCH_SCOPE
+      : initialScope;
+  const normalizedInitialValues = {
+    ...initialValues,
+    all: "",
+    company:
+      initialValues.company ||
+      (initialScope === "all" ? initialValues.all : ""),
+  };
+  const [scope, setScope] = useState<SelectableTrackerSearchScope>(initialVisibleScope);
+  const [committedValues] = useState<SearchValues>(() => normalizedInitialValues);
+  const [draftValue, setDraftValue] = useState(() => normalizedInitialValues[initialVisibleScope]);
+  const inputName = SEARCH_PARAM_BY_SCOPE[scope];
+  const submittedSearchValue = normalizeSubmittedSearchValue(draftValue);
+
+  function handleScopeChange(nextScope: SelectableTrackerSearchScope) {
+    setScope(nextScope);
+    setDraftValue((currentDraft) =>
+      currentDraft.trim() ? currentDraft : committedValues[nextScope]
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1.5 text-sm">
+      <span className="control-label hidden sm:block">
+        Search
+      </span>
+      <input name="searchScope" type="hidden" value={scope} />
+      {submittedSearchValue ? (
+        <input name={inputName} type="hidden" value={submittedSearchValue} />
+      ) : null}
+      {SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== scope).map((option) => {
+        const value = normalizeSubmittedSearchValue(committedValues[option.value]);
+        if (!value) return null;
+        return (
+          <input
+            key={option.value}
+            name={SEARCH_PARAM_BY_SCOPE[option.value]}
+            type="hidden"
+            value={value}
+          />
+        );
+      })}
+      {committedValues.reminder.trim() ? (
+        <input name="reminderSearch" type="hidden" value={committedValues.reminder.trim()} />
+      ) : null}
+
+      <div className="flex min-w-0 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
+        <label className="sr-only" htmlFor="applications-search-scope">
+          Search within
+        </label>
+        <div className="relative w-[5.85rem] shrink-0 border-r border-border/60 sm:w-28">
+          <select
+            className="h-10 w-full appearance-none bg-transparent pl-3 pr-9 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
+            id="applications-search-scope"
+            onChange={(event) => handleScopeChange(event.target.value as SelectableTrackerSearchScope)}
+            style={{ textAlignLast: "left" }}
+            value={scope}
+          >
+            {SEARCH_SCOPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:right-3.5" />
+        </div>
+
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            aria-label={PLACEHOLDER_BY_SCOPE[scope]}
+            className="h-10 rounded-none border-0 bg-transparent pl-9 pr-3 text-sm focus-visible:border-transparent focus-visible:ring-0"
+            onChange={(event) => setDraftValue(event.target.value)}
+            placeholder={PLACEHOLDER_BY_SCOPE[scope]}
+            type="search"
+            value={draftValue}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}

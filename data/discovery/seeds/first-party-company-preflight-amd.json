@@ -1,0 +1,39 @@
+[
+  {
+    "rank": 13,
+    "companyName": "AMD",
+    "companyKey": "amd",
+    "careersUrl": "https://www.amd.com/en/corporate/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Strong Canada and US engineering presence",
+    "notes": "Canada tech priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.amd.com/sitemap1.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 1,
+    "exhausted": null,
+    "sampleTitles": [
+      "Embedded Systems Architect – Aerospace & Defense in San Jose, California | Advanced Micro Devices, Inc"
+    ],
+    "sampleLocations": [
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": {
+      "companyExists": true,
+      "companySourceCount": 4,
+      "officialCompanySourceCount": 0,
+      "lowerTrustSourceCount": 4,
+      "liveCanonicalCount": 3
+    }
+  }
+]

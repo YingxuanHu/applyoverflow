@@ -1,0 +1,171 @@
+x-prod-env: &prod-env
+  - ${APP_ENV_FILE:-.env.production}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
+    restart: unless-stopped
+    shm_size: ${POSTGRES_SHM_SIZE:-1gb}
+    env_file: *prod-env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autoapplication}
+      POSTGRES_USER: ${POSTGRES_USER:-autoapplication}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: web
+      DISABLE_INGEST_DAEMON: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "3000"
+    command: ["npm", "run", "start:web"]
+
+  worker-ingestion:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: daemon
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: ingestion
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-source-workers:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: recovery_poll
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: source-workers
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-maintenance:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: maintenance
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: maintenance
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    profiles:
+      - legacy-worker
+    restart: unless-stopped
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+      DATABASE_PROCESS_ROLE: daemon
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: all
+      INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../logs:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  backup-runner:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    profiles:
+      - ops
+    env_file: *prod-env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    command: ["node", "--version"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: *prod-env
+    depends_on:
+      - app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - default
+      - edge
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  edge:
+    name: applyoverflow-edge
+    external: true

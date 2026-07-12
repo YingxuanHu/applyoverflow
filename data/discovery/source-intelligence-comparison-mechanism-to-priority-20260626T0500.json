@@ -1,0 +1,153 @@
+{
+  "beforeGeneratedAt": "2026-06-26T04:18:36.014Z",
+  "afterGeneratedAt": "2026-06-26T04:59:12.152Z",
+  "metrics": [
+    {
+      "key": "feed_live_jobs",
+      "before": 477494,
+      "after": 477786,
+      "delta": 292,
+      "percentDelta": 0.0006115260087037743
+    },
+    {
+      "key": "strict_canonical_visible_jobs",
+      "before": 496405,
+      "after": 496342,
+      "delta": -63,
+      "percentDelta": -0.0001269125008813368
+    },
+    {
+      "key": "canonical_visible_status_jobs",
+      "before": 522169,
+      "after": 522101,
+      "delta": -68,
+      "percentDelta": -0.00013022603793024865
+    },
+    {
+      "key": "active_validated_pollable_sources",
+      "before": 13732,
+      "after": 13768,
+      "delta": 36,
+      "percentDelta": 0.0026216137489076608
+    },
+    {
+      "key": "source_status_active",
+      "before": 13446,
+      "after": 13468,
+      "delta": 22,
+      "percentDelta": 0.001636174326937379
+    },
+    {
+      "key": "source_status_degraded",
+      "before": 3853,
+      "after": 3772,
+      "delta": -81,
+      "percentDelta": -0.021022579807941862
+    },
+    {
+      "key": "source_status_rediscover_required",
+      "before": 2120,
+      "after": 2178,
+      "delta": 58,
+      "percentDelta": 0.027358490566037737
+    },
+    {
+      "key": "source_validation_validated",
+      "before": 14995,
+      "after": 15033,
+      "delta": 38,
+      "percentDelta": 0.0025341780593531177
+    },
+    {
+      "key": "source_validation_suspect",
+      "before": 2685,
+      "after": 2618,
+      "delta": -67,
+      "percentDelta": -0.02495344506517691
+    },
+    {
+      "key": "source_validation_needs_rediscovery",
+      "before": 1637,
+      "after": 1694,
+      "delta": 57,
+      "percentDelta": 0.03481979230299328
+    },
+    {
+      "key": "source_poll_ready",
+      "before": 13686,
+      "after": 13727,
+      "delta": 41,
+      "percentDelta": 0.0029957620926494228
+    },
+    {
+      "key": "source_poll_backoff",
+      "before": 4856,
+      "after": 4775,
+      "delta": -81,
+      "percentDelta": -0.016680395387149917
+    },
+    {
+      "key": "source_poll_quarantined",
+      "before": 2114,
+      "after": 2172,
+      "delta": 58,
+      "percentDelta": 0.027436140018921477
+    },
+    {
+      "key": "source_tasks_pending",
+      "before": 7857,
+      "after": 7380,
+      "delta": -477,
+      "percentDelta": -0.06071019473081329
+    },
+    {
+      "key": "source_tasks_running",
+      "before": 110,
+      "after": 142,
+      "delta": 32,
+      "percentDelta": 0.2909090909090909
+    },
+    {
+      "key": "ingestion_run_count_7d",
+      "before": 216479,
+      "after": 215788,
+      "delta": -691,
+      "percentDelta": -0.003191995528434629
+    },
+    {
+      "key": "ingestion_success_count_7d",
+      "before": 206270,
+      "after": 205610,
+      "delta": -660,
+      "percentDelta": -0.00319968972705677
+    },
+    {
+      "key": "ingestion_failed_count_7d",
+      "before": 10206,
+      "after": 10175,
+      "delta": -31,
+      "percentDelta": -0.0030374289633548894
+    },
+    {
+      "key": "ingestion_accepted_7d",
+      "before": 4619599,
+      "after": 4606703,
+      "delta": -12896,
+      "percentDelta": -0.0027915842911906425
+    },
+    {
+      "key": "ingestion_created_7d",
+      "before": 65725,
+      "after": 66327,
+      "delta": 602,
+      "percentDelta": 0.009159376188664891
+    },
+    {
+      "key": "ingestion_created_per_minute_7d",
+      "before": 3.3518,
+      "after": 3.3889,
+      "delta": 0.03710000000000013,
+      "percentDelta": 0.011068679515484257
+    }
+  ]
+}

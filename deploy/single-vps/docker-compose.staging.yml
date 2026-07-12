@@ -1,0 +1,168 @@
+x-staging-env: &staging-env
+  - ${APP_ENV_FILE:-.env.staging}
+
+services:
+  postgres-staging:
+    image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
+    restart: unless-stopped
+    shm_size: ${POSTGRES_SHM_SIZE:-512mb}
+    env_file: *staging-env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autoapplication_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-autoapplication_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${STAGING_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-staging-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_PROCESS_ROLE: web
+      DISABLE_INGEST_DAEMON: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${STAGING_WEB_PORT:-3001}:3000"
+    command: ["npm", "run", "start:web"]
+    networks:
+      default:
+      edge:
+        aliases:
+          - applyoverflow-staging-app
+
+  worker-ingestion-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_PROCESS_ROLE: daemon
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: ingestion
+      INGEST_CAPACITY_SCALE: ${STAGING_INGEST_CAPACITY_SCALE:-0.25}
+      INGEST_SOURCE_POLL_CONCURRENCY: ${STAGING_INGEST_SOURCE_POLL_CONCURRENCY:-2}
+      INGEST_STEADY_DISCOVERY_LIMIT: ${STAGING_INGEST_STEADY_DISCOVERY_LIMIT:-4}
+      INGEST_STEADY_VALIDATION_LIMIT: ${STAGING_INGEST_STEADY_VALIDATION_LIMIT:-8}
+      INGEST_STEADY_SOURCE_POLL_LIMIT: ${STAGING_INGEST_STEADY_SOURCE_POLL_LIMIT:-16}
+      INGEST_STEADY_REDISCOVERY_LIMIT: ${STAGING_INGEST_STEADY_REDISCOVERY_LIMIT:-2}
+      INGEST_STEADY_URL_HEALTH_LIMIT: ${STAGING_INGEST_STEADY_URL_HEALTH_LIMIT:-1}
+      RECOVERY_WORKER_SOURCE_POLL_LIMIT: ${STAGING_RECOVERY_WORKER_SOURCE_POLL_LIMIT:-20}
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    volumes:
+      - ../../logs/staging:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-source-workers-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_PROCESS_ROLE: recovery_poll
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: source-workers
+      INGEST_CAPACITY_SCALE: ${STAGING_INGEST_CAPACITY_SCALE:-0.25}
+      INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY: ${STAGING_INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY:-1}
+      RECOVERY_WORKER_SOURCE_POLL_LIMIT: ${STAGING_RECOVERY_WORKER_SOURCE_POLL_LIMIT:-20}
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    volumes:
+      - ../../logs/staging:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-maintenance-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_PROCESS_ROLE: maintenance
+      DISABLE_INGEST_DAEMON: "0"
+      APPLYOVERFLOW_WORKER_GROUPS: maintenance
+      DATABASE_POOL_MAX_MAINTENANCE: ${STAGING_DATABASE_POOL_MAX_MAINTENANCE:-1}
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    volumes:
+      - ../../logs/staging:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  worker-top-picks-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_PROCESS_ROLE: worker
+      DISABLE_INGEST_DAEMON: "1"
+      APPLYOVERFLOW_WORKER_GROUPS: top-picks
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    volumes:
+      - ../../logs/staging:/app/logs
+      - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+    command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
+
+  backup-runner-staging:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    profiles:
+      - ops
+    env_file: *staging-env
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    command: ["node", "--version"]
+
+volumes:
+  postgres-staging-data:
+
+networks:
+  edge:
+    name: applyoverflow-edge
+    external: true

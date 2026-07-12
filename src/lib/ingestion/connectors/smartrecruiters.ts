@@ -7,6 +7,7 @@ import type {
   SourceConnectorFetchOptions,
   SourceConnectorFetchResult,
 } from "@/lib/ingestion/types";
+import { throwIfAborted } from "@/lib/ingestion/runtime-control";
 
 const SMARTRECRUITERS_PAGE_SIZE = 100;
 const DETAIL_BATCH_SIZE = 8;
@@ -87,6 +88,7 @@ export function createSmartRecruitersConnector({
       const listings = await fetchAllListings({
         companyIdentifier,
         limit: options.limit,
+        signal: options.signal,
       });
 
       const jobs = await mapInBatches(
@@ -96,6 +98,7 @@ export function createSmartRecruitersConnector({
           companyIdentifier,
           fallbackCompanyName: resolvedCompanyName,
           listing,
+          signal: options.signal,
         })
       );
 
@@ -115,17 +118,21 @@ export function createSmartRecruitersConnector({
 async function fetchAllListings({
   companyIdentifier,
   limit,
+  signal,
 }: {
   companyIdentifier: string;
   limit?: number;
+  signal?: AbortSignal;
 }) {
   const listings: SmartRecruitersListing[] = [];
   let offset = 0;
 
   while (true) {
+    throwIfAborted(signal);
     const response = await fetch(
       `https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings?limit=${SMARTRECRUITERS_PAGE_SIZE}&offset=${offset}`,
       {
+        signal,
         headers: {
           Accept: "application/json",
         },
@@ -158,14 +165,16 @@ async function buildSourceJob({
   companyIdentifier,
   fallbackCompanyName,
   listing,
+  signal,
 }: {
   companyIdentifier: string;
   fallbackCompanyName: string;
   listing: SmartRecruitersListing;
+  signal?: AbortSignal;
 }) {
   const shouldFetchDetail = mayNeedDetailFetch(listing);
   const detail = shouldFetchDetail
-    ? await fetchPostingDetail(companyIdentifier, listing.id)
+    ? await fetchPostingDetail(companyIdentifier, listing.id, signal)
     : null;
 
   const sourceRecord = detail ?? listing;
@@ -198,10 +207,15 @@ async function buildSourceJob({
   };
 }
 
-async function fetchPostingDetail(companyIdentifier: string, postingId: string) {
+async function fetchPostingDetail(
+  companyIdentifier: string,
+  postingId: string,
+  signal?: AbortSignal
+) {
   const response = await fetch(
     `https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings/${postingId}`,
     {
+      signal,
       headers: {
         Accept: "application/json",
       },
@@ -218,7 +232,7 @@ async function fetchPostingDetail(companyIdentifier: string, postingId: string) 
 }
 
 function mayNeedDetailFetch(listing: SmartRecruitersListing) {
-  const title = listing.name.toLowerCase();
+  const title = readLowerText(listing.name) ?? "";
   const location = buildLocation(listing.location).toLowerCase();
 
   const isNorthAmerica =
@@ -234,10 +248,11 @@ function mayNeedDetailFetch(listing: SmartRecruitersListing) {
 
 function buildLocation(location: SmartRecruitersLocation | null | undefined) {
   if (!location) return "Unknown";
-  if (location.fullLocation?.trim()) return location.fullLocation.trim();
+  const fullLocation = readText(location.fullLocation);
+  if (fullLocation) return fullLocation;
 
   return [location.city, location.region, location.country]
-    .map((value) => value?.trim())
+    .map((value) => readText(value))
     .filter(Boolean)
     .join(", ");
 }
@@ -249,7 +264,7 @@ function buildListingDescription(listing: SmartRecruitersListing) {
     listing.industry?.label,
     listing.experienceLevel?.label,
   ]
-    .map((value) => value?.trim())
+    .map((value) => readText(value))
     .filter(Boolean)
     .join(" · ");
 }
@@ -259,7 +274,7 @@ function buildDetailDescription(detail: SmartRecruitersDetail) {
     .map((section) => {
       const body = stripHtml(section.text ?? "");
       if (!body) return "";
-      const title = section.title?.trim();
+      const title = readText(section.title);
       return title ? `${title}\n${body}` : body;
     })
     .filter(Boolean);
@@ -293,9 +308,8 @@ function parseDateValue(value: string | null | undefined) {
 }
 
 function inferEmploymentType(value: string | null | undefined): EmploymentType | null {
-  if (!value) return null;
-
-  const normalizedValue = value.toLowerCase();
+  const normalizedValue = readLowerText(value);
+  if (!normalizedValue) return null;
   if (normalizedValue.includes("intern")) return "INTERNSHIP";
   if (normalizedValue.includes("contract") || normalizedValue.includes("temporary")) {
     return "CONTRACT";
@@ -320,6 +334,17 @@ function buildCompanyName(companyIdentifier: string) {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function readText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function readLowerText(value: unknown): string | null {
+  const text = readText(value);
+  return text ? text.toLowerCase() : null;
 }
 
 async function mapInBatches<TInput, TOutput>(

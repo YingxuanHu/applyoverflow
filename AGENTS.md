@@ -6,8 +6,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Project Rules
 
-- Use the repository state as the source of truth. Notes in `.claude/` and `README.md` may lag behind the code.
-- This product is a North America-only job search and application engine for tech and finance first.
+- Use the repository state as the source of truth. Notes in `README.md` may lag behind the code.
+- This product is a North America-only job search and application engine that covers all white-collar work: TECH, FINANCE, and GENERAL. GENERAL spans marketing, sales, HR/people, legal, ops/admin, supply chain, consulting, communications, customer success, business development, insurance, healthcare administration (non-clinical), real estate, hospitality management, government/public sector, editorial/publishing, education administration (non-classroom), nonprofit/philanthropy, research/policy, and content creator roles. Tech and finance are the largest categories but no longer the only ones — the GENERAL pool is a first-class part of the ingestion plan.
+- Blue-collar, retail, food service, clinical patient-facing, manual trades, and manufacturing/production line roles stay out of the pool — the auto-apply UX is built for office/knowledge-worker roles.
 - Optimize for volume and time saved, but never at the expense of application quality.
 - Keep the feed first and the apply flow second. The `/jobs` experience is the primary surface.
 - Preserve the distinction between the total live job pool and the stricter auto-apply eligible pool.

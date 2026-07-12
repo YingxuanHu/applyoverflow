@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-05-27T06:22:36.651Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 1,
+  "previewLimit": 2,
+  "byFeasibility": {
+    "IMPLEMENTED": 1
+  },
+  "implemented": [
+    {
+      "companyName": "Microsoft",
+      "connector": "microsoft:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Software Engineer II- Front End Development",
+        "Software Engineer- Full stack"
+      ]
+    }
+  ],
+  "needsConnector": [],
+  "blockedOrFragile": [],
+  "persistence": {
+    "registered": 1,
+    "skipped": 0,
+    "validationTasksQueued": 0,
+    "pollTasksQueued": 1
+  }
+}

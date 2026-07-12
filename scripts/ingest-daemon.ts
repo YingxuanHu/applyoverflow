@@ -1,0 +1,792 @@
+/**
+ * Ingestion daemon — continuously runs scheduled connectors on cadence.
+ *
+ * Usage:
+ *   npm run ingest:daemon
+ *   npm run ingest:daemon -- --interval=10   (minutes between cycles, default 10)
+ *   npm run ingest:daemon -- --force          (ignore cadence on first cycle)
+ *
+ * What it does each cycle:
+ *   1. Schedules and runs discovery, rediscovery, company-source polling, and URL health queues
+ *   2. Runs a bounded pass of legacy scheduled connectors that are due
+ *   3. Reconciles canonical job lifecycle (LIVE → AGING → STALE → EXPIRED → REMOVED)
+ *   4. Sleeps until the next cycle
+ *
+ * Leave it running in a terminal. Ctrl+C to stop gracefully.
+ */
+import "dotenv/config";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  runOperationalQueues,
+  scheduleOperationalQueues,
+} from "../src/lib/ingestion/network-orchestrator";
+import {
+  resolveScaledInteger,
+  getIngestCapacityScale,
+  readBooleanEnv,
+  readNonNegativeIntegerEnv,
+} from "../src/lib/ingestion/capacity";
+import { installProcessDiagnostics } from "./_process-diagnostics";
+import { syncProductiveAtsTenantsToDiscoveryStore } from "../src/lib/ingestion/ats-tenant-store";
+import { repairJobFeedIndexBatch } from "../src/lib/ingestion/search-index";
+import { runScheduledIngestion } from "../src/lib/ingestion/scheduler";
+import { shouldDeferLegacySources } from "../src/lib/ingestion/scheduled-source-backlog-policy";
+import {
+  countDueSourceTasks,
+  reconcileConnectorPollTaskReadiness,
+  reconcileRediscoveryTaskReadiness,
+} from "../src/lib/ingestion/task-queue";
+import { prisma } from "../src/lib/db";
+import type { SourceTaskKind } from "../src/generated/prisma/client";
+
+installProcessDiagnostics({ processName: "ingest-daemon" });
+
+const DEFAULT_INTERVAL_MINUTES = 10;
+const MIN_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 360;
+const STEADY_DISCOVERY_LIMIT = resolveScaledInteger({
+  base: 300,
+  absoluteMax: 900,
+  explicitEnvName: "INGEST_STEADY_DISCOVERY_LIMIT",
+});
+const STEADY_VALIDATION_LIMIT = resolveScaledInteger({
+  base: 700,
+  absoluteMax: 2_000,
+  explicitEnvName: "INGEST_STEADY_VALIDATION_LIMIT",
+});
+const STEADY_SOURCE_POLL_LIMIT = resolveScaledInteger({
+  base: 700,
+  absoluteMax: 2_000,
+  explicitEnvName: "INGEST_STEADY_SOURCE_POLL_LIMIT",
+});
+const STEADY_REDISCOVERY_LIMIT = resolveScaledInteger({
+  base: 120,
+  absoluteMax: 360,
+  explicitEnvName: "INGEST_STEADY_REDISCOVERY_LIMIT",
+});
+const STEADY_URL_HEALTH_LIMIT = resolveScaledInteger({
+  base: 3_000,
+  absoluteMax: 9_000,
+  explicitEnvName: "INGEST_STEADY_URL_HEALTH_LIMIT",
+});
+const BURST_DISCOVERY_LIMIT = resolveScaledInteger({
+  base: 500,
+  absoluteMax: 1_500,
+  explicitEnvName: "INGEST_BURST_DISCOVERY_LIMIT",
+});
+const BURST_VALIDATION_LIMIT = resolveScaledInteger({
+  base: 1_000,
+  absoluteMax: 3_000,
+  explicitEnvName: "INGEST_BURST_VALIDATION_LIMIT",
+});
+const BURST_SOURCE_POLL_LIMIT = resolveScaledInteger({
+  base: 1_000,
+  absoluteMax: 3_000,
+  explicitEnvName: "INGEST_BURST_SOURCE_POLL_LIMIT",
+});
+const BURST_REDISCOVERY_LIMIT = resolveScaledInteger({
+  base: 200,
+  absoluteMax: 600,
+  explicitEnvName: "INGEST_BURST_REDISCOVERY_LIMIT",
+});
+const BURST_URL_HEALTH_LIMIT = resolveScaledInteger({
+  base: 5_000,
+  absoluteMax: 15_000,
+  explicitEnvName: "INGEST_BURST_URL_HEALTH_LIMIT",
+});
+const STEADY_LEGACY_SCHEDULED_CONNECTOR_CYCLE_BUDGET_MS = 3 * 60 * 1000;
+const STEADY_LEGACY_SCHEDULED_CONNECTOR_MAX_RUNS = 36;
+const BURST_LEGACY_SCHEDULED_CONNECTOR_CYCLE_BUDGET_MS = 6 * 60 * 1000;
+const BURST_LEGACY_SCHEDULED_CONNECTOR_MAX_RUNS = 72;
+const DUE_BACKLOG_CATCH_UP_SLEEP_MS = 15 * 1000;
+const DUE_BACKLOG_STALLED_RETRY_SLEEP_MS = 60 * 1000;
+const DUE_BACKLOG_POLL_THRESHOLD = 100;
+const DUE_BACKLOG_VALIDATION_THRESHOLD = 25;
+const DUE_BACKLOG_DISCOVERY_THRESHOLD = 100;
+const DUE_BACKLOG_REDISCOVERY_THRESHOLD = 50;
+const DAEMON_RUNTIME_DIR = path.join(process.cwd(), ".runtime");
+const DAEMON_LOCK_PATH = path.join(DAEMON_RUNTIME_DIR, "ingest-daemon.lock.json");
+const RECOVERY_MODE_ENABLED = readBooleanEnv("INGEST_RECOVERY_MODE") === true;
+const GROWTH_MODE_ENABLED = readBooleanEnv("INGEST_GROWTH_MODE") === true;
+const RECOVERY_LIFECYCLE_EVERY_CYCLES = Math.max(
+  1,
+  readNonNegativeIntegerEnv("INGEST_RECOVERY_LIFECYCLE_EVERY_CYCLES") ?? 6
+);
+const RECOVERY_URL_HEALTH_LIMIT =
+  readNonNegativeIntegerEnv("INGEST_RECOVERY_URL_HEALTH_LIMIT") ?? 0;
+const FEED_INDEX_REPAIR_LIMIT =
+  readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_LIMIT") ?? 500;
+const FEED_INDEX_REPAIR_CONCURRENCY =
+  readNonNegativeIntegerEnv("INGEST_FEED_INDEX_REPAIR_CONCURRENCY") ?? 4;
+const TRANSIENT_DATABASE_RETRY_ATTEMPTS = Math.max(
+  1,
+  readNonNegativeIntegerEnv("INGEST_DAEMON_TRANSIENT_DB_RETRY_ATTEMPTS") ?? 3
+);
+
+type DaemonLock = {
+  pid: number;
+  startedAt: string;
+  argv: string[];
+};
+
+type CycleQueueProfile = {
+  discoveryLimit: number;
+  validationLimit: number;
+  sourcePollLimit: number;
+  rediscoveryLimit: number;
+  urlHealthLimit: number;
+  legacyBudgetMs: number;
+  legacyMaxRuns: number;
+  label: "burst" | "steady";
+};
+
+type DueOperationalBacklog = {
+  companyDiscovery: number;
+  sourceValidation: number;
+  connectorPoll: number;
+  rediscovery: number;
+  total: number;
+};
+
+type DueCompanySourceBacklog = {
+  validation: number;
+  connectorPoll: number;
+  rediscovery: number;
+  total: number;
+};
+
+function getCycleQueueProfile(isFirstCycle: boolean): CycleQueueProfile {
+  const baseProfile: CycleQueueProfile = isFirstCycle
+    ? {
+      discoveryLimit: BURST_DISCOVERY_LIMIT,
+      validationLimit: BURST_VALIDATION_LIMIT,
+      sourcePollLimit: BURST_SOURCE_POLL_LIMIT,
+      rediscoveryLimit: BURST_REDISCOVERY_LIMIT,
+      urlHealthLimit: RECOVERY_MODE_ENABLED
+        ? RECOVERY_URL_HEALTH_LIMIT
+        : BURST_URL_HEALTH_LIMIT,
+      legacyBudgetMs: BURST_LEGACY_SCHEDULED_CONNECTOR_CYCLE_BUDGET_MS,
+      legacyMaxRuns: BURST_LEGACY_SCHEDULED_CONNECTOR_MAX_RUNS,
+      label: "burst",
+    }
+    : {
+        discoveryLimit: STEADY_DISCOVERY_LIMIT,
+        validationLimit: STEADY_VALIDATION_LIMIT,
+        sourcePollLimit: STEADY_SOURCE_POLL_LIMIT,
+        rediscoveryLimit: STEADY_REDISCOVERY_LIMIT,
+        urlHealthLimit: RECOVERY_MODE_ENABLED
+          ? RECOVERY_URL_HEALTH_LIMIT
+          : STEADY_URL_HEALTH_LIMIT,
+        legacyBudgetMs: STEADY_LEGACY_SCHEDULED_CONNECTOR_CYCLE_BUDGET_MS,
+        legacyMaxRuns: STEADY_LEGACY_SCHEDULED_CONNECTOR_MAX_RUNS,
+        label: "steady",
+      };
+
+  if (!GROWTH_MODE_ENABLED) {
+    return baseProfile;
+  }
+
+  return {
+    ...baseProfile,
+    discoveryLimit: Math.max(50, Math.floor(baseProfile.discoveryLimit * 0.45)),
+    validationLimit: Math.max(
+      baseProfile.validationLimit,
+      Math.round(baseProfile.validationLimit * 1.35)
+    ),
+    sourcePollLimit: Math.max(
+      baseProfile.sourcePollLimit,
+      Math.round(baseProfile.sourcePollLimit * 1.75)
+    ),
+    rediscoveryLimit: Math.max(20, Math.floor(baseProfile.rediscoveryLimit * 0.3)),
+    urlHealthLimit:
+      baseProfile.urlHealthLimit <= 0
+        ? 0
+        : Math.max(500, Math.floor(baseProfile.urlHealthLimit * 0.25)),
+    legacyBudgetMs: Math.max(baseProfile.legacyBudgetMs, 8 * 60 * 1000),
+    legacyMaxRuns: Math.max(baseProfile.legacyMaxRuns, 96),
+  };
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatErrorForLog(error: unknown) {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  return error;
+}
+
+function isRetryableDatabaseConflict(error: unknown) {
+  const message = getErrorMessage(error);
+  return (
+    message.includes("deadlock detected") ||
+    message.includes("Code: `40P01`") ||
+    message.includes("could not serialize access") ||
+    message.includes("Code: `40001`") ||
+    message.includes("canceling statement due to lock timeout") ||
+    message.includes("database system is shutting down") ||
+    message.includes("Can't reach database server") ||
+    message.includes("Server has closed the connection") ||
+    message.includes("ConnectionClosed")
+  );
+}
+
+async function sleepForRetry(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTransientDatabaseRetry<T>(
+  label: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= TRANSIENT_DATABASE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt >= TRANSIENT_DATABASE_RETRY_ATTEMPTS ||
+        !isRetryableDatabaseConflict(error)
+      ) {
+        throw error;
+      }
+
+      const delayMs = 350 * attempt * attempt + Math.floor(Math.random() * 250);
+      console.warn(
+        `[daemon] Retryable database conflict during ${label}; retry ${attempt}/${TRANSIENT_DATABASE_RETRY_ATTEMPTS} in ${delayMs}ms: ${getErrorMessage(error)}`
+      );
+      await sleepForRetry(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+async function getDueOperationalBacklog(now: Date): Promise<DueOperationalBacklog> {
+  // Cycle boundary: force a fresh readiness pass so backlog counts reflect
+  // current eligibility even when worker claims recently ran a gated pass.
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now, { force: true }),
+    reconcileRediscoveryTaskReadiness(now, { force: true }),
+  ]);
+  const grouped = await prisma.sourceTask.groupBy({
+    by: ["kind"],
+    where: {
+      status: "PENDING",
+      notBeforeAt: { lte: now },
+      kind: {
+        in: [
+          "COMPANY_DISCOVERY",
+          "SOURCE_VALIDATION",
+        ] satisfies SourceTaskKind[],
+      },
+    },
+    _count: { _all: true },
+  });
+
+  const counts = new Map(
+    grouped.map((row) => [row.kind, row._count._all] as const)
+  );
+
+  const backlog = {
+    companyDiscovery: counts.get("COMPANY_DISCOVERY") ?? 0,
+    sourceValidation: counts.get("SOURCE_VALIDATION") ?? 0,
+    connectorPoll: await countDueSourceTasks("CONNECTOR_POLL", now),
+    rediscovery: await countDueSourceTasks("REDISCOVERY", now),
+    total: 0,
+  };
+
+  backlog.total =
+    backlog.companyDiscovery +
+    backlog.sourceValidation +
+    backlog.connectorPoll +
+    backlog.rediscovery;
+
+  return backlog;
+}
+
+async function getDueCompanySourceBacklog(now: Date): Promise<DueCompanySourceBacklog> {
+  await Promise.all([
+    reconcileConnectorPollTaskReadiness(now),
+    reconcileRediscoveryTaskReadiness(now),
+  ]);
+  const grouped = await prisma.sourceTask.groupBy({
+    by: ["kind"],
+    where: {
+      status: "PENDING",
+      notBeforeAt: { lte: now },
+      companySourceId: { not: null },
+      kind: {
+        in: [
+          "SOURCE_VALIDATION",
+        ] satisfies SourceTaskKind[],
+      },
+      companySource: {
+        connectorName: {
+          notIn: [
+            "adzuna",
+            "himalayas",
+            "jobicy",
+            "jooble",
+            "jsearch",
+            "remoteok",
+            "remotive",
+            "themuse",
+            "usajobs",
+            "weworkremotely",
+            "workatastartup",
+          ],
+        },
+      },
+    },
+    _count: { _all: true },
+  });
+
+  const countFor = (kind: SourceTaskKind) =>
+    grouped.find((row) => row.kind === kind)?._count._all ?? 0;
+
+  const validation = countFor("SOURCE_VALIDATION");
+  const connectorPoll = await countDueSourceTasks("CONNECTOR_POLL", now);
+  const rediscovery = await countDueSourceTasks("REDISCOVERY", now);
+
+  return {
+    validation,
+    connectorPoll,
+    rediscovery,
+    total: validation + connectorPoll + rediscovery,
+  };
+}
+
+function hasSignificantDueBacklog(backlog: DueOperationalBacklog) {
+  return (
+    backlog.connectorPoll >= DUE_BACKLOG_POLL_THRESHOLD ||
+    backlog.sourceValidation >= DUE_BACKLOG_VALIDATION_THRESHOLD ||
+    backlog.companyDiscovery >= DUE_BACKLOG_DISCOVERY_THRESHOLD ||
+    backlog.rediscovery >= DUE_BACKLOG_REDISCOVERY_THRESHOLD
+  );
+}
+
+async function processExists(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readProcessCommandLine(pid: number) {
+  try {
+    return (await readFile(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim();
+  } catch {
+    return null;
+  }
+}
+
+async function processLooksLikeIngestDaemon(pid: number) {
+  const commandLine = await readProcessCommandLine(pid);
+  if (!commandLine) {
+    // On non-Linux hosts we may not be able to inspect /proc. Be conservative.
+    return true;
+  }
+
+  return (
+    commandLine.includes("scripts/ingest-daemon.ts") ||
+    commandLine.includes("scripts/ingest-daemon.js")
+  );
+}
+
+async function acquireDaemonLock() {
+  await mkdir(DAEMON_RUNTIME_DIR, { recursive: true });
+
+  try {
+    const existingRaw = await readFile(DAEMON_LOCK_PATH, "utf8");
+    const existing = JSON.parse(existingRaw) as Partial<DaemonLock>;
+    const existingPid = typeof existing.pid === "number" ? existing.pid : null;
+
+    if (existingPid && existingPid !== process.pid && (await processExists(existingPid))) {
+      if (await processLooksLikeIngestDaemon(existingPid)) {
+        console.error(
+          `[daemon] Another ingest daemon is already running (pid ${existingPid}). Refusing to start a second instance.`
+        );
+        return false;
+      }
+
+      console.warn(
+        `[daemon] Ignoring stale daemon lock for pid ${existingPid}; pid is now a different process.`
+      );
+    }
+  } catch {
+    // no existing lock or unreadable stale file; overwrite below
+  }
+
+  const lock: DaemonLock = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    argv: process.argv.slice(2),
+  };
+  await writeFile(DAEMON_LOCK_PATH, JSON.stringify(lock, null, 2), "utf8");
+  return true;
+}
+
+async function releaseDaemonLock() {
+  try {
+    const existingRaw = await readFile(DAEMON_LOCK_PATH, "utf8");
+    const existing = JSON.parse(existingRaw) as Partial<DaemonLock>;
+    if (existing.pid === process.pid) {
+      await rm(DAEMON_LOCK_PATH, { force: true });
+    }
+  } catch {
+    // already gone or unreadable
+  }
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const lockAcquired = await acquireDaemonLock();
+  if (!lockAcquired) {
+    return;
+  }
+
+  const intervalMinutes = Math.max(
+    MIN_INTERVAL_MINUTES,
+    Math.min(MAX_INTERVAL_MINUTES, args.interval)
+  );
+
+  console.log(`\n┌──────────────────────────────────────────────┐`);
+  console.log(`│  Ingestion Daemon                            │`);
+  console.log(`│  Cycle interval: ${String(intervalMinutes).padStart(3)}min                       │`);
+  console.log(`│  Force first cycle: ${args.force ? "yes" : "no "}                      │`);
+  console.log(`│  Recovery mode: ${RECOVERY_MODE_ENABLED ? "on " : "off"}                      │`);
+  console.log(`│  Capacity scale: ${getIngestCapacityScale().toFixed(2).padStart(4)}x                     │`);
+  console.log(`│  Press Ctrl+C to stop                        │`);
+  console.log(`└──────────────────────────────────────────────┘\n`);
+
+  let cycleCount = 0;
+  let totalExecuted = 0;
+  let running = true;
+  let shutdownRequested = false;
+  let forceExitRequested = false;
+  let immediateExitRequested = false;
+
+  const exitImmediately = (signal: NodeJS.Signals, code: number) => {
+    if (immediateExitRequested) {
+      return;
+    }
+
+    immediateExitRequested = true;
+    forceExitRequested = true;
+    running = false;
+    console.log(`\n[daemon] Immediate shutdown (${signal}).`);
+    void releaseDaemonLock().finally(() => {
+      process.exit(code);
+    });
+  };
+
+  const requestGracefulShutdown = () => {
+    if (forceExitRequested) {
+      return;
+    }
+
+    if (shutdownRequested) {
+      forceExitRequested = true;
+      console.log("\n[daemon] Force shutdown requested. Exiting now.");
+      exitImmediately("SIGINT", 130);
+      return;
+    }
+
+    shutdownRequested = true;
+    console.log("\n[daemon] Shutting down after current cycle...");
+    running = false;
+  };
+  process.on("SIGINT", requestGracefulShutdown);
+  process.on("SIGTERM", () => exitImmediately("SIGTERM", 143));
+
+  while (running) {
+    cycleCount++;
+    const cycleStart = new Date();
+    const isFirstCycle = cycleCount === 1;
+    const profile = getCycleQueueProfile(isFirstCycle);
+
+    // Kill any leftover Chromium zombie processes from previous headless renders.
+    // These accumulate when Playwright tasks time out without cleaning up the
+    // underlying browser process.
+    try {
+      const { execSync } = await import("node:child_process");
+      execSync("pkill -9 -f 'chromium' 2>/dev/null || true", { stdio: "ignore" });
+    } catch { /* not critical */ }
+
+    console.log(
+      `\n[daemon] ─── Cycle #${cycleCount} starting at ${cycleStart.toISOString()} ───`
+    );
+    console.log(
+      `[daemon] Cycle profile: ${profile.label} (discovery ${profile.discoveryLimit}, validation ${profile.validationLimit}, source poll ${profile.sourcePollLimit}, rediscovery ${profile.rediscoveryLimit}, url health ${profile.urlHealthLimit}, legacy budget ${Math.round(profile.legacyBudgetMs / 60_000)}min/${profile.legacyMaxRuns} runs)`
+    );
+
+    try {
+      const shouldRunLifecycle =
+        !RECOVERY_MODE_ENABLED ||
+        cycleCount % RECOVERY_LIFECYCLE_EVERY_CYCLES === 0;
+      const scheduledQueues = await withTransientDatabaseRetry(
+        "schedule operational queues",
+        () =>
+          scheduleOperationalQueues({
+            now: cycleStart,
+            discoveryLimit: profile.discoveryLimit,
+            validationLimit: profile.validationLimit,
+            sourcePollLimit: profile.sourcePollLimit,
+            rediscoveryLimit: profile.rediscoveryLimit,
+            urlHealthLimit: profile.urlHealthLimit,
+          })
+      );
+      const queueResult = await withTransientDatabaseRetry(
+        "run operational queues",
+        () =>
+          runOperationalQueues({
+            now: cycleStart,
+            discoveryLimit: profile.discoveryLimit,
+            validationLimit: profile.validationLimit,
+            sourcePollLimit: profile.sourcePollLimit,
+            rediscoveryLimit: profile.rediscoveryLimit,
+            urlHealthLimit: profile.urlHealthLimit,
+          })
+      );
+      const atsTenantSync = await withTransientDatabaseRetry(
+        "sync ATS tenant discovery store",
+        () =>
+          syncProductiveAtsTenantsToDiscoveryStore({
+            now: new Date(),
+          })
+      );
+      const companySourceBacklog = await withTransientDatabaseRetry(
+        "read company-source backlog",
+        () => getDueCompanySourceBacklog(new Date())
+      );
+      const deferLegacySources = shouldDeferLegacySources({
+        connectorPoll: companySourceBacklog.connectorPoll,
+        rediscovery: companySourceBacklog.rediscovery,
+      });
+      if (deferLegacySources) {
+        console.log(
+          `[daemon] Legacy registry deferred: company-source backlog remains (validation ${companySourceBacklog.validation}, source poll ${companySourceBacklog.connectorPoll}, rediscovery ${companySourceBacklog.rediscovery})`
+        );
+      }
+      const result = await withTransientDatabaseRetry(
+        "run scheduled ingestion",
+        () =>
+          runScheduledIngestion({
+            now: cycleStart,
+            force: isFirstCycle && args.force,
+            triggerLabel: "script.ingest.daemon",
+            maxCycleDurationMs:
+              deferLegacySources ? 0 : profile.legacyBudgetMs,
+            maxConnectorRuns:
+              deferLegacySources ? 0 : profile.legacyMaxRuns,
+            skipLifecycle: !shouldRunLifecycle,
+            lifecyclePerJobLimit: shouldRunLifecycle ? 3_000 : 0,
+          })
+      );
+
+      const executedCount = result.executedRuns.length;
+      const skippedCount = result.skippedConnectors.length;
+      totalExecuted += executedCount;
+
+      // Summary of executed runs
+      if (executedCount > 0) {
+        console.log(`[daemon] Executed ${executedCount} connector(s):`);
+        for (const run of result.executedRuns) {
+          const created = run.canonicalCreatedCount ?? 0;
+          const updated = run.canonicalUpdatedCount ?? 0;
+          const accepted = run.acceptedCount ?? 0;
+          const status = run.status ?? "?";
+          console.log(
+            `  ${status === "SUCCESS" ? "✓" : "✗"} ${run.connectorKey} — ${accepted} accepted, ${created} new, ${updated} updated`
+          );
+        }
+      }
+
+      if (skippedCount > 0) {
+        const notDueCount = result.skippedConnectors.filter(
+          (entry) => entry.reason === "not_due"
+        ).length;
+        const managedCount = result.skippedConnectors.filter(
+          (entry) => entry.reason === "managed_by_company_source"
+        ).length;
+        const cycleBudgetCount = result.skippedConnectors.filter(
+          (entry) => entry.reason === "cycle_budget_exhausted"
+        ).length;
+        console.log(
+          `[daemon] Skipped ${skippedCount} connector(s): ${notDueCount} not due, ${managedCount} routed to CompanySource, ${cycleBudgetCount} deferred by cycle budget`
+        );
+      }
+
+      console.log(
+        `[daemon] Queues scheduled: discovery ${scheduledQueues.discovery.enqueuedCount}, validation ${scheduledQueues.validation.enqueuedCount}, source poll ${scheduledQueues.sourcePoll.enqueuedCount}, rediscovery ${scheduledQueues.rediscovery.enqueuedCount}, health ${scheduledQueues.urlHealth.enqueuedCount}`
+      );
+      console.log(
+        `[daemon] Queues processed: discovery ${queueResult.discovery.successCount}/${queueResult.discovery.processedCount}, validation ${queueResult.validation.successCount}/${queueResult.validation.processedCount}, source poll ${queueResult.sourcePoll.successCount}/${queueResult.sourcePoll.processedCount}, rediscovery ${queueResult.rediscovery.successCount}/${queueResult.rediscovery.processedCount}, health ${queueResult.urlHealth.checkedJobCount}/${queueResult.urlHealth.processedCount}`
+      );
+      console.log(
+        `[daemon] ATS tenant sync: ${atsTenantSync.candidateCount} candidates, ${atsTenantSync.promotedCount} promoted, ${atsTenantSync.demotedCount} demoted`
+      );
+      if ("executionPolicy" in queueResult) {
+        const policy = queueResult.executionPolicy;
+        console.log(
+          `[daemon] Queue policy: pending poll ${policy.pendingPollCount}, pending validation ${policy.pendingValidationCount}, discovery ${policy.throttledDiscovery ? "throttled" : "full"} (${policy.discoveryLimit ?? 0}), rediscovery ${policy.rediscoveryLimit ?? 0}`
+        );
+      }
+
+      // Lifecycle summary
+      const lc = result.lifecycle;
+      if (lc.deferred) {
+        console.log(
+          `[daemon] Lifecycle: deferred by recovery mode (${lc.liveCount} live snapshot, ${lc.expiredCount} expired currently stored)`
+        );
+      } else {
+        console.log(
+          `[daemon] Lifecycle: ${lc.liveCount} live, ${lc.staleCount} stale, ${lc.expiredCount} expired, ${lc.removedCount} removed`
+        );
+      }
+
+      // Aggregate stats
+      const totalNewThisCycle = result.executedRuns.reduce(
+        (sum, r) => sum + (r.canonicalCreatedCount ?? 0),
+        0
+      );
+      if (totalNewThisCycle > 0) {
+        console.log(
+          `[daemon] +${totalNewThisCycle} new jobs this cycle → ${lc.liveCount} total live`
+        );
+      }
+
+      if (FEED_INDEX_REPAIR_LIMIT > 0) {
+        const feedIndexRepair = await withTransientDatabaseRetry(
+          "repair feed index",
+          () =>
+            repairJobFeedIndexBatch({
+              mode: "all",
+              limit: FEED_INDEX_REPAIR_LIMIT,
+              concurrency: FEED_INDEX_REPAIR_CONCURRENCY,
+            })
+        );
+        if (feedIndexRepair.processed > 0 || feedIndexRepair.failed > 0) {
+          console.log(
+            `[daemon] Feed index repair: ${feedIndexRepair.succeeded}/${feedIndexRepair.processed} repaired, ${feedIndexRepair.failed} failed`
+          );
+        }
+      }
+
+      const dueBacklog = await withTransientDatabaseRetry(
+        "read operational backlog",
+        () => getDueOperationalBacklog(new Date())
+      );
+      const operationalProcessedCount =
+        queueResult.discovery.processedCount +
+        queueResult.validation.processedCount +
+        queueResult.sourcePoll.processedCount +
+        queueResult.rediscovery.processedCount;
+      const madeProgress = operationalProcessedCount > 0 || executedCount > 0;
+
+      if (running && hasSignificantDueBacklog(dueBacklog)) {
+        const catchUpSleepMs = madeProgress
+          ? DUE_BACKLOG_CATCH_UP_SLEEP_MS
+          : DUE_BACKLOG_STALLED_RETRY_SLEEP_MS;
+        console.log(
+          `[daemon] Due backlog remains: discovery ${dueBacklog.companyDiscovery}, validation ${dueBacklog.sourceValidation}, source poll ${dueBacklog.connectorPoll}, rediscovery ${dueBacklog.rediscovery}`
+        );
+        console.log(
+          `[daemon] Starting catch-up cycle in ${(catchUpSleepMs / 1000).toFixed(0)}s instead of sleeping ${intervalMinutes}min`
+        );
+        await interruptibleSleep(catchUpSleepMs, () => !running);
+        continue;
+      }
+    } catch (error) {
+      console.error(
+        `[daemon] Cycle #${cycleCount} failed:`,
+        formatErrorForLog(error)
+      );
+    }
+
+    const cycleEnd = new Date();
+    const cycleDurationMs = cycleEnd.getTime() - cycleStart.getTime();
+    const cycleDurationMin = (cycleDurationMs / 60000).toFixed(1);
+    console.log(`[daemon] Cycle #${cycleCount} took ${cycleDurationMin}min`);
+
+    if (!running) break;
+
+    // Sleep until next cycle
+    const sleepMs = intervalMinutes * 60 * 1000 - cycleDurationMs;
+    if (sleepMs > 0) {
+      const nextCycleAt = new Date(Date.now() + sleepMs);
+      console.log(
+        `[daemon] Next cycle at ${nextCycleAt.toLocaleTimeString()} (sleeping ${(sleepMs / 60000).toFixed(0)}min)`
+      );
+      await interruptibleSleep(sleepMs, () => !running);
+    }
+  }
+
+  console.log(
+    `\n[daemon] Stopped. ${cycleCount} cycles, ${totalExecuted} total runs executed.`
+  );
+}
+
+function interruptibleSleep(
+  ms: number,
+  shouldStop: () => boolean
+): Promise<void> {
+  return new Promise((resolve) => {
+    const checkInterval = 5000; // Check every 5s for shutdown
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed += checkInterval;
+      if (elapsed >= ms || shouldStop()) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, checkInterval);
+  });
+}
+
+function parseArgs(rawArgs: string[]) {
+  const parsedArgs = {
+    force: false,
+    interval: DEFAULT_INTERVAL_MINUTES,
+  };
+
+  for (const rawArg of rawArgs) {
+    const [key, value] = rawArg.replace(/^--/, "").split("=");
+    if (!key) continue;
+
+    if (key === "force") {
+      parsedArgs.force = value
+        ? ["1", "true", "yes", "on"].includes(value.toLowerCase())
+        : true;
+    }
+
+    if (key === "interval" && value) {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        parsedArgs.interval = parsed;
+      }
+    }
+  }
+
+  return parsedArgs;
+}
+
+main()
+  .catch((error) => {
+    console.error("Daemon failed:", error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await releaseDaemonLock();
+    await prisma.$disconnect();
+  });

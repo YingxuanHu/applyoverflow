@@ -1,0 +1,257 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import {
+  Bell,
+  Download,
+  ExternalLink,
+  KeyRound,
+  Link2,
+  Mail,
+  Palette,
+  ShieldAlert,
+  ShieldCheck,
+  User as UserIcon,
+} from "lucide-react";
+
+import { AccountSecurityPanel } from "@/components/auth/account-security-panel";
+import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Avatar } from "@/components/layout/avatar";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { DeleteAccountCard } from "@/components/profile/delete-account-card";
+import { ExportDataButton } from "@/components/settings/export-data-button";
+import { getOptionalSessionUser } from "@/lib/current-user";
+import { getAccountSecurityData } from "@/lib/queries/auth-security";
+import { getTrackerSettingsData } from "@/lib/queries/tracker";
+import { cn } from "@/lib/utils";
+
+import {
+  AccountForm,
+  NotificationsForm,
+} from "./settings-forms";
+
+function formatMemberSince(value: Date | null | undefined) {
+  if (!value) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+    }).format(value);
+  } catch {
+    return "—";
+  }
+}
+
+export default async function SettingsPage() {
+  const sessionUser = await getOptionalSessionUser();
+  if (!sessionUser) {
+    redirect("/sign-in");
+  }
+
+  const [{ user }, security] = await Promise.all([
+    getTrackerSettingsData(),
+    getAccountSecurityData(),
+  ]);
+  if (!user) {
+    redirect("/sign-in");
+  }
+
+  return (
+    <div className="app-page space-y-6">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-description">
+            Manage your account, notifications, security, and workspace
+            experience.
+          </p>
+        </div>
+      </div>
+
+      {/* Identity summary */}
+      <section className="surface-panel flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <Avatar
+            email={user.email}
+            image={user.image}
+            name={user.name}
+            size="lg"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-foreground">
+              {user.name || "Unnamed user"}
+            </p>
+            <p className="truncate text-sm text-muted-foreground">
+              {user.email}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
+                  user.emailVerified
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                )}
+              >
+                <ShieldCheck className="h-3 w-3" />
+                {user.emailVerified ? "Email verified" : "Email unverified"}
+              </span>
+              <span className="truncate text-muted-foreground">
+                Member since {formatMemberSince(user.createdAt)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div
+          className={cn(
+            "grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap",
+            user.emailVerified ? "grid-cols-1" : "grid-cols-2"
+          )}
+        >
+          <Link
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted sm:h-9"
+            href="/profile"
+          >
+            <UserIcon className="h-3.5 w-3.5" />
+            Edit profile
+          </Link>
+          {!user.emailVerified ? (
+            <Link
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-medium text-amber-500 transition-colors hover:bg-amber-500/20 sm:h-9"
+              href="/verify-email-required"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Verify email
+            </Link>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Account */}
+      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="account">
+        <header className="flex items-center gap-2">
+          <UserIcon className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Account</h2>
+        </header>
+        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+          Your display name appears on documents, messages, and the user menu.
+        </p>
+        <AccountForm defaultName={user.name} email={user.email} />
+      </section>
+
+      {/* Security */}
+      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="security">
+        <header className="flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Security</h2>
+        </header>
+        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+          Manage your sign-in method, email changes, password, and active sessions. Sensitive
+          actions require a recent sign-in.
+        </p>
+        <AccountSecurityPanel
+          accounts={security.accounts}
+          currentSessionId={security.currentSessionId}
+          email={user.email}
+          sessions={security.sessions}
+        />
+      </section>
+
+      {/* Notifications */}
+      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="notifications">
+        <header className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">
+            Notifications
+          </h2>
+        </header>
+        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+          Choose when we email you. In-app notifications remain on for
+          everyone.
+        </p>
+        <NotificationsForm defaultEnabled={user.emailNotificationsEnabled} />
+      </section>
+
+      {/* Appearance */}
+      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="appearance">
+        <header className="flex items-center gap-2">
+          <Palette className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
+        </header>
+        <div className="mt-3 flex flex-col gap-3 rounded-[14px] border border-border/60 bg-card px-3 py-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">Theme</p>
+            <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+              Choose light, dark, or system appearance for the workspace.
+            </p>
+          </div>
+          <ThemeToggle />
+        </div>
+      </section>
+
+      {/* Privacy & Data */}
+      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="data">
+        <header className="flex items-center gap-2">
+          <Download className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">
+            Privacy &amp; data
+          </h2>
+        </header>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
+            <p className="text-sm font-medium text-foreground">
+              Export your data
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Download a JSON copy of your profile, tracked applications,
+              notifications, saved jobs, and application history.
+            </p>
+            <ExportDataButton />
+          </div>
+          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
+            <p className="text-sm font-medium text-foreground">
+              Resumes &amp; documents
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Manage uploaded resumes and see what the engine uses for
+              tailoring applications.
+            </p>
+            <Link
+              className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              href="/documents/compare"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open documents
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Session */}
+      <section className="surface-panel p-3.5 sm:p-6">
+        <header className="flex items-center gap-2">
+          <Link2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">Current device</h2>
+        </header>
+        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+          Sign out of this browser. Other active sessions are managed in Security.
+        </p>
+        <div className="mt-4">
+          <SignOutButton />
+        </div>
+      </section>
+
+      {/* Danger zone */}
+      <section className="space-y-2">
+        <header className="flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-destructive" />
+          <h2 className="text-sm font-semibold text-destructive">
+            Danger zone
+          </h2>
+        </header>
+        <DeleteAccountCard
+          email={user.email}
+          hasPassword={security.accounts.some((account) => account.hasPassword)}
+        />
+      </section>
+    </div>
+  );
+}

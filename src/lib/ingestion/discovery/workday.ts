@@ -324,7 +324,7 @@ async function preflightCandidate(candidate: WorkdaySeedCandidate) {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (compatible; autoapplication-workday-scout/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-workday-scout/1.0)",
       },
       body: JSON.stringify({
         appliedFacets: {},

@@ -4,7 +4,21 @@ import {
   submitApplicationReview,
   updateApplicationSubmissionStatus,
 } from "@/lib/queries/applications";
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import {
+  API_BODY_LIMITS,
+  errorResponse,
+  handleApiRouteError,
+  rateLimitResponse,
+  requestSizeLimitResponse,
+  successResponse,
+} from "@/lib/api-utils";
+import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
+
+const SUBMISSION_STATUS_BY_INTENT = {
+  confirm: "CONFIRMED",
+  fail: "FAILED",
+  withdraw: "WITHDRAWN",
+} as const;
 
 /** POST — prepare or submit */
 export async function POST(
@@ -12,23 +26,44 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-    const body = (await request.json()) as { intent?: "prepare" | "submit" };
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application request"
+    );
+    if (tooLarge) return tooLarge;
 
-    if (body.intent === "prepare") {
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:apply",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
+    const { id } = await params;
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
+    const intent = typeof body?.intent === "string" ? body.intent : null;
+
+    if (intent === "prepare") {
       const result = await prepareApplicationReview(id);
       return successResponse(result, 201);
     }
 
-    if (body.intent === "submit") {
+    if (intent === "submit") {
       const result = await submitApplicationReview(id);
       return successResponse(result, 201);
     }
 
     return errorResponse("Invalid application intent", 400);
   } catch (error) {
-    console.error("POST /api/jobs/[id]/apply error:", error);
-    return errorResponse("Failed to update application review", 500);
+    return handleApiRouteError(
+      error,
+      "POST /api/jobs/[id]/apply",
+      "Failed to update application review"
+    );
   }
 }
 
@@ -38,26 +73,41 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const tooLarge = requestSizeLimitResponse(
+      request,
+      API_BODY_LIMITS.smallJson,
+      "Application status request"
+    );
+    if (tooLarge) return tooLarge;
+
+    const rateLimited = await rateLimitResponse(
+      request,
+      "jobs:apply-status",
+      API_RATE_LIMITS.authenticatedWrite
+    );
+    if (rateLimited) return rateLimited;
+
     const { id } = await params;
-    const body = (await request.json()) as {
-      intent?: "confirm" | "fail" | "withdraw";
-    };
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("Invalid JSON body", 400);
+    }
+    const patchIntent = typeof body?.intent === "string" ? body.intent : null;
 
-    const statusMap = {
-      confirm: "CONFIRMED",
-      fail: "FAILED",
-      withdraw: "WITHDRAWN",
-    } as const;
-
-    const intent = body.intent;
-    if (!intent || !(intent in statusMap)) {
+    if (!patchIntent || !(patchIntent in SUBMISSION_STATUS_BY_INTENT)) {
       return errorResponse("Invalid intent — expected confirm, fail, or withdraw", 400);
     }
 
-    const result = await updateApplicationSubmissionStatus(id, statusMap[intent]);
+    const result = await updateApplicationSubmissionStatus(
+      id,
+      SUBMISSION_STATUS_BY_INTENT[patchIntent as keyof typeof SUBMISSION_STATUS_BY_INTENT]
+    );
     return successResponse(result);
   } catch (error) {
-    console.error("PATCH /api/jobs/[id]/apply error:", error);
-    return errorResponse("Failed to update submission status", 500);
+    return handleApiRouteError(
+      error,
+      "PATCH /api/jobs/[id]/apply",
+      "Failed to update submission status"
+    );
   }
 }

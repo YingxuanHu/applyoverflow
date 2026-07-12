@@ -1,81 +1,71 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+
 import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobSummaryCard } from "@/components/jobs/job-summary-card";
 import type { JobCardData } from "@/types";
 
-export function JobsFeedList({ initialJobs }: { initialJobs: JobCardData[] }) {
+export function JobsFeedList({
+  initialJobs,
+  referenceNow,
+}: {
+  initialJobs: JobCardData[];
+  referenceNow: string;
+}) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const sourceHref = search ? `${pathname}?${search}` : pathname;
   const [jobs, setJobs] = useState(initialJobs);
-  const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
-  const [passedCount, setPassedCount] = useState(0);
 
-  const handlePass = useCallback((jobId: string) => {
-    // Start fade-out animation
-    setDismissingIds((prev) => new Set(prev).add(jobId));
-
-    // Remove from list after animation completes
-    setTimeout(() => {
-      setJobs((current) => current.filter((j) => j.id !== jobId));
-      setDismissingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(jobId);
-        return next;
-      });
-      setPassedCount((c) => c + 1);
-    }, 200);
-  }, []);
+  useEffect(() => {
+    setJobs(initialJobs);
+  }, [initialJobs]);
 
   const handleSavedChange = useCallback((jobId: string, saved: boolean) => {
     setJobs((current) =>
-      current.map((j) => (j.id === jobId ? { ...j, isSaved: saved } : j))
+      current.map((job) => (job.id === jobId ? { ...job, isSaved: saved } : job))
     );
   }, []);
 
   if (jobs.length === 0) {
     return (
-      <div className="py-12 text-center">
-        <p className="text-sm font-medium text-foreground">
-          {passedCount > 0
-            ? `Passed ${passedCount} job${passedCount === 1 ? "" : "s"} from this page`
-            : "No more jobs on this page"}
-        </p>
+      <div className="empty-state">
+        <p className="text-sm font-medium text-foreground">No more jobs on this page</p>
         <Link
-          href="/saved"
           className="mt-2 inline-block text-sm text-muted-foreground underline-offset-4 hover:underline"
+          href="/applications?status=WISHLIST"
         >
-          Review saved jobs
+          Open wishlist
         </Link>
       </div>
     );
   }
 
   return (
-    <div>
+    <ul className="object-list">
       {jobs.map((job) => (
-        <div
-          key={job.id}
-          className={
-            dismissingIds.has(job.id)
-              ? "opacity-0 transition-opacity duration-200"
-              : "opacity-100 transition-opacity duration-150"
-          }
-        >
+        <li className="object-row" key={job.id}>
           <JobSummaryCard
-            job={job}
             footerActions={
               <JobCardActions
-                jobId={job.id}
+                align="end"
+                compact
                 initialSaved={job.isSaved}
-                align="start"
+                jobId={job.id}
                 onSavedChange={(saved) => handleSavedChange(job.id, saved)}
-                onPassed={() => handlePass(job.id)}
               />
             }
+            job={job}
+            referenceNow={referenceNow}
+            scrollMemoryKeyPrefix="autoapplication.jobs.scroll"
+            sourceHref={sourceHref}
           />
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

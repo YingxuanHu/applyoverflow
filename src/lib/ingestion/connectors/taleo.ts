@@ -23,6 +23,7 @@
  */
 import type { Prisma } from "@/generated/prisma/client";
 import type { EmploymentType, WorkMode } from "@/generated/prisma/client";
+import { throwIfAborted } from "@/lib/ingestion/runtime-control";
 import type {
   SourceConnector,
   SourceConnectorFetchOptions,
@@ -34,6 +35,9 @@ import { renderPage, disposeBrowser } from "@/lib/ingestion/headless";
 const TALEO_DETAIL_CONCURRENCY = 4;
 const TALEO_REST_PAGE_SIZE = 25;
 const TALEO_SOURCE_TOKEN_SEPARATOR = "/";
+const TALEO_HEADLESS_FALLBACK_BATCH_SIZE = 60;
+const TALEO_DETAIL_TIMEOUT_MS = 20_000;
+const TALEO_DETAIL_NAVIGATION_TIMEOUT_MS = 18_000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,6 +91,13 @@ type TaleoJobDetail = {
   salaryMax: number | null;
   salaryCurrency: string | null;
 };
+
+type TaleoCheckpoint =
+  | {
+      strategy: "sitemap_headless";
+      offset: number;
+    }
+  | null;
 
 // ─── Token helpers ───────────────────────────────────────────────────────────
 
@@ -159,6 +170,10 @@ export function createTaleoConnector(
         fallbackCompanyName: resolvedCompanyName,
         now: fetchOptions.now,
         limit: fetchOptions.limit,
+        signal: fetchOptions.signal,
+        log: fetchOptions.log,
+        checkpoint: parseTaleoCheckpoint(fetchOptions.checkpoint),
+        onCheckpoint: fetchOptions.onCheckpoint,
       });
       fetchCache.set(cacheKey, request);
       return request;
@@ -173,23 +188,42 @@ async function fetchTaleoJobs({
   fallbackCompanyName,
   now,
   limit,
+  signal,
+  log = console.log,
+  checkpoint,
+  onCheckpoint,
 }: {
   target: TaleoTarget;
   fallbackCompanyName: string;
   now: Date;
   limit?: number;
+  signal?: AbortSignal;
+  log?: (message: string) => void;
+  checkpoint?: TaleoCheckpoint;
+  onCheckpoint?: (checkpoint: Prisma.InputJsonValue | null) => Promise<void> | void;
 }): Promise<SourceConnectorFetchResult> {
+  throwIfAborted(signal);
+
   // Step 1: Try REST API with headless portal ID discovery
-  const restResult = await tryRestApiFetch(target, fallbackCompanyName, now, limit);
+  const restResult = await tryRestApiFetch(target, fallbackCompanyName, now, limit, signal, log);
   if (restResult) {
     return restResult;
   }
 
-  // Step 2: Fall back to sitemap + headless detail rendering
-  console.log(
+  // Step 2: Fall back to sitemap + headless detail rendering.
+  log(
     `[taleo:${buildTaleoSourceToken(target)}] REST API unavailable, falling back to sitemap + headless detail`
   );
-  return fetchViaSitemapAndHeadless(target, fallbackCompanyName, now, limit);
+  return fetchViaSitemapAndHeadless(
+    target,
+    fallbackCompanyName,
+    now,
+    limit,
+    signal,
+    log,
+    checkpoint,
+    onCheckpoint
+  );
 }
 
 // ─── REST API path ──────────────────────────────────────────────────────────
@@ -198,28 +232,30 @@ async function tryRestApiFetch(
   target: TaleoTarget,
   fallbackCompanyName: string,
   now: Date,
-  limit?: number
+  limit?: number,
+  signal?: AbortSignal,
+  log: (message: string) => void = console.log
 ): Promise<SourceConnectorFetchResult | null> {
   // First: discover the numeric portal ID by rendering the search page
-  const portalId = await discoverPortalId(target);
+  const portalId = await discoverPortalId(target, log);
   if (!portalId) {
-    console.log(
+    log(
       `[taleo:${buildTaleoSourceToken(target)}] Could not discover portal ID via headless`
     );
     return null;
   }
 
-  console.log(
+  log(
     `[taleo:${buildTaleoSourceToken(target)}] Discovered portal ID: ${portalId}`
   );
 
   // Now use the REST API with the numeric portal ID
   try {
-    const restJobs = await fetchRestJobs(target, portalId, limit);
+    const restJobs = await fetchRestJobs(target, portalId, limit, signal);
     if (restJobs.length === 0) return null;
 
     const jobs = restJobs.map((row) =>
-      restRowToSourceJob(target, row, fallbackCompanyName, now)
+      restRowToSourceJob(target, row, fallbackCompanyName)
     );
 
     return {
@@ -235,14 +271,14 @@ async function tryRestApiFetch(
       } as Prisma.InputJsonValue,
     };
   } catch (error) {
-    console.log(
+    log(
       `[taleo:${buildTaleoSourceToken(target)}] REST API failed: ${error instanceof Error ? error.message : String(error)}`
     );
     return null;
   }
 }
 
-async function discoverPortalId(target: TaleoTarget): Promise<string | null> {
+async function discoverPortalId(target: TaleoTarget, log: (message: string) => void = console.log): Promise<string | null> {
   const searchUrl = buildTaleoBoardUrl(target);
   try {
     const result = await renderPage({
@@ -285,7 +321,7 @@ async function discoverPortalId(target: TaleoTarget): Promise<string | null> {
     // (some Taleo instances use the section code directly)
     return null;
   } catch (error) {
-    console.log(
+    log(
       `[taleo:${buildTaleoSourceToken(target)}] Headless portal discovery failed: ${error instanceof Error ? error.message : String(error)}`
     );
     return null;
@@ -295,7 +331,8 @@ async function discoverPortalId(target: TaleoTarget): Promise<string | null> {
 async function fetchRestJobs(
   target: TaleoTarget,
   portalId: string,
-  maxJobs?: number
+  maxJobs?: number,
+  signal?: AbortSignal
 ): Promise<TaleoRestJobRow[]> {
   const jobs: TaleoRestJobRow[] = [];
   let offset = 1;
@@ -303,6 +340,7 @@ async function fetchRestJobs(
   const restBaseUrl = `https://${target.tenant}.taleo.net/careersection/rest/jobboard/searchjobs?lang=en&portal=${portalId}`;
 
   while (true) {
+    throwIfAborted(signal);
     const remaining =
       typeof maxJobs === "number" ? Math.max(maxJobs - jobs.length, 0) : null;
     if (remaining === 0) break;
@@ -314,6 +352,7 @@ async function fetchRestJobs(
 
     const response = await fetch(restBaseUrl, {
       method: "POST",
+      signal,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -371,8 +410,7 @@ async function fetchRestJobs(
 function restRowToSourceJob(
   target: TaleoTarget,
   row: TaleoRestJobRow,
-  fallbackCompanyName: string,
-  now: Date
+  fallbackCompanyName: string
 ): SourceConnectorJob {
   const jobId = row.contestNo;
   const description = [row.description, row.qualifications, row.additionalInfo]
@@ -411,14 +449,28 @@ async function fetchViaSitemapAndHeadless(
   target: TaleoTarget,
   fallbackCompanyName: string,
   now: Date,
-  limit?: number
+  limit?: number,
+  signal?: AbortSignal,
+  log: (message: string) => void = console.log,
+  checkpoint?: TaleoCheckpoint,
+  onCheckpoint?: (checkpoint: Prisma.InputJsonValue | null) => Promise<void> | void
 ): Promise<SourceConnectorFetchResult> {
   const sitemapEntries = await fetchSitemap(target);
-  const entriesToProcess =
-    typeof limit === "number" ? sitemapEntries.slice(0, limit) : sitemapEntries;
+  const startingOffset =
+    checkpoint?.strategy === "sitemap_headless" ? checkpoint.offset : 0;
+  const maxBatchSize =
+    typeof limit === "number"
+      ? Math.min(limit, TALEO_HEADLESS_FALLBACK_BATCH_SIZE)
+      : TALEO_HEADLESS_FALLBACK_BATCH_SIZE;
+  const entriesToProcess = sitemapEntries.slice(
+    startingOffset,
+    startingOffset + maxBatchSize
+  );
+  const nextOffset = startingOffset + entriesToProcess.length;
+  const exhausted = nextOffset >= sitemapEntries.length;
 
-  console.log(
-    `[taleo:${buildTaleoSourceToken(target)}] Sitemap has ${sitemapEntries.length} entries, processing ${entriesToProcess.length}`
+  log(
+    `[taleo:${buildTaleoSourceToken(target)}] Sitemap has ${sitemapEntries.length} entries, processing ${entriesToProcess.length} (offset ${startingOffset})`
   );
 
   const jobs: SourceConnectorJob[] = [];
@@ -426,6 +478,7 @@ async function fetchViaSitemapAndHeadless(
 
   async function worker() {
     while (cursor < entriesToProcess.length) {
+      throwIfAborted(signal);
       const index = cursor;
       cursor += 1;
       const entry = entriesToProcess[index]!;
@@ -457,7 +510,7 @@ async function fetchViaSitemapAndHeadless(
           });
         }
       } catch (error) {
-        console.log(
+        log(
           `[taleo:${buildTaleoSourceToken(target)}] Detail fetch failed for job ${entry.jobId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
@@ -474,8 +527,24 @@ async function fetchViaSitemapAndHeadless(
   // Clean up headless browser after batch
   await disposeBrowser();
 
+  if (exhausted) {
+    await onCheckpoint?.(null);
+  } else {
+    await onCheckpoint?.({
+      strategy: "sitemap_headless",
+      offset: nextOffset,
+    } satisfies TaleoCheckpoint);
+  }
+
   return {
     jobs,
+    checkpoint: exhausted
+      ? null
+      : ({
+          strategy: "sitemap_headless",
+          offset: nextOffset,
+        } satisfies TaleoCheckpoint),
+    exhausted,
     metadata: {
       tenant: target.tenant,
       careerSection: target.careerSection,
@@ -483,9 +552,35 @@ async function fetchViaSitemapAndHeadless(
       boardUrl: buildTaleoBoardUrl(target),
       sitemapUrl: buildTaleoSitemapUrl(target),
       sitemapEntryCount: sitemapEntries.length,
+      startingOffset,
+      nextOffset,
+      exhausted,
       fetchedAt: now.toISOString(),
       totalFetched: jobs.length,
     } as Prisma.InputJsonValue,
+  };
+}
+
+function parseTaleoCheckpoint(
+  value: Prisma.InputJsonValue | null | undefined
+): TaleoCheckpoint {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.strategy !== "sitemap_headless") {
+    return null;
+  }
+
+  const offset = typeof record.offset === "number" ? record.offset : null;
+  if (offset == null || !Number.isFinite(offset) || offset < 0) {
+    return null;
+  }
+
+  return {
+    strategy: "sitemap_headless",
+    offset,
   };
 }
 
@@ -495,7 +590,7 @@ async function fetchSitemap(target: TaleoTarget): Promise<TaleoSitemapEntry[]> {
     headers: {
       Accept: "application/xml, text/xml, */*",
       "User-Agent":
-        "Mozilla/5.0 (compatible; autoapplication-taleo/1.0)",
+        "Mozilla/5.0 (compatible; applyoverflow-taleo/1.0)",
     },
   });
 
@@ -533,12 +628,15 @@ async function fetchJobDetailViaHeadless(
 ): Promise<TaleoJobDetail | null> {
   const detailUrl = buildTaleoJobDetailUrl(target, entry.jobId);
 
+  // Taleo detail pages are server-rendered FreeMarker — job data is in the
+  // initial HTML. Waiting for networkidle causes indefinite hangs because Taleo
+  // keeps background polling requests alive. domcontentloaded is sufficient.
   const result = await renderPage({
     url: detailUrl,
-    waitForNetworkIdle: true,
-    extraWaitMs: 2500,
-    timeoutMs: 35_000,
-    navigationTimeoutMs: 25_000,
+    waitForNetworkIdle: false,
+    extraWaitMs: 0,
+    timeoutMs: TALEO_DETAIL_TIMEOUT_MS,
+    navigationTimeoutMs: TALEO_DETAIL_NAVIGATION_TIMEOUT_MS,
   });
 
   const html = result.html;
@@ -627,12 +725,6 @@ function parseTaleoDate(raw: string | null): Date | null {
   if (!trimmed) return null;
   const date = new Date(trimmed);
   return isNaN(date.getTime()) ? null : date;
-}
-
-function extractText(html: string, pattern: RegExp): string | null {
-  const match = html.match(pattern);
-  if (!match?.[1]) return null;
-  return stripHtml(match[1]).trim() || null;
 }
 
 /**
@@ -775,78 +867,6 @@ function extractCompanyFromHtml(html: string): string | null {
   }
 
   return null;
-}
-
-function extractLocationFromHtml(html: string): string | null {
-  // Try JSON-LD
-  const jsonLdMatch = html.match(
-    /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i
-  );
-  if (jsonLdMatch?.[1]) {
-    try {
-      const ld = JSON.parse(jsonLdMatch[1]);
-      const loc = ld.jobLocation;
-      if (loc?.address) {
-        const addr = loc.address;
-        const parts = [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean);
-        if (parts.length > 0) return parts.join(", ");
-      }
-    } catch {}
-  }
-
-  // Try common Taleo patterns
-  const patterns = [
-    /location\s*[:]\s*<[^>]*>([^<]+)</i,
-    /class\s*=\s*["'][^"']*location[^"']*["'][^>]*>([^<]+)</i,
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match?.[1]) return stripHtml(match[1]).trim() || null;
-  }
-
-  return null;
-}
-
-function extractDescriptionFromHtml(html: string): string | null {
-  // Try JSON-LD first
-  const jsonLdMatch = html.match(
-    /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i
-  );
-  if (jsonLdMatch?.[1]) {
-    try {
-      const ld = JSON.parse(jsonLdMatch[1]);
-      if (ld.description) return stripHtml(ld.description);
-    } catch {}
-  }
-
-  // Try to find the main description container
-  const descPatterns = [
-    /class\s*=\s*["'][^"']*jobdescription[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /class\s*=\s*["'][^"']*job-description[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-    /id\s*=\s*["']jobDescriptionText["'][^>]*>([\s\S]*?)<\/div>/i,
-    /class\s*=\s*["'][^"']*requisitionDescription[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-  ];
-  for (const pattern of descPatterns) {
-    const match = html.match(pattern);
-    if (match?.[1] && match[1].length > 50) {
-      return stripHtml(match[1]);
-    }
-  }
-
-  // Fallback: grab all text between the title and apply button
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (bodyMatch?.[1]) {
-    const text = stripHtml(bodyMatch[1]);
-    if (text.length > 200) return text.slice(0, 5000);
-  }
-
-  return null;
-}
-
-function extractDateFromHtml(html: string, pattern: RegExp): Date | null {
-  const match = html.match(pattern);
-  if (!match?.[1]) return null;
-  return parseTaleoDate(match[1]);
 }
 
 function inferEmploymentType(html: string): EmploymentType | null {

@@ -14,6 +14,19 @@ type ApplicationReviewActionsProps = {
   canCreatePackage: boolean;
 };
 
+/** Parse a JSON error body or truncate raw text to a user-friendly message. */
+function extractErrorMessage(body: string, fallback: string): string {
+  try {
+    const json = JSON.parse(body);
+    if (typeof json.error === "string") return json.error;
+  } catch {
+    // not JSON — likely HTML error page
+  }
+  // Truncate to avoid rendering full HTML pages
+  if (body.length > 200) return fallback;
+  return body || fallback;
+}
+
 // ─── Workflow step ────────────────────────────────────────────────────────────
 
 type WorkflowStep =
@@ -76,11 +89,14 @@ export function ApplicationReviewActions({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ intent }),
         });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(extractErrorMessage(body, "Something went wrong"));
+        }
         router.refresh();
       } catch (e) {
         console.error(e);
-        setError("Something went wrong. Try again.");
+        setError(e instanceof Error ? e.message : "Something went wrong. Try again.");
       }
     });
   }
@@ -95,16 +111,21 @@ export function ApplicationReviewActions({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ intent }),
         });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(extractErrorMessage(body, "Could not update submission status"));
+        }
         router.refresh();
       } catch (e) {
         console.error(e);
-        setError("Could not update submission status.");
+        setError(e instanceof Error ? e.message : "Could not update submission status.");
       }
     });
   }
 
-  const spinner = isPending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null;
+  const spinner = isPending
+    ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+    : null;
 
   // ── Render per step ──────────────────────────────────────────────────────
 
@@ -123,7 +144,7 @@ export function ApplicationReviewActions({
         <a href="/profile" className="underline underline-offset-2 hover:text-foreground">
           your profile
         </a>{" "}
-        before preparing a package.
+        before continuing.
       </p>
     );
   }
@@ -136,12 +157,12 @@ export function ApplicationReviewActions({
           <Button onClick={() => post("prepare")} disabled={isPending}>
             {spinner}
             {hasFailed
-              ? "Prepare again"
+              ? "Try again"
               : isManual
-                ? "Prepare application notes"
+                ? "Record manual attempt"
                 : latestPackageId
-                  ? "Update package"
-                  : "Prepare package"}
+                  ? "Update application"
+                  : "Start application"}
           </Button>
           <Button variant="ghost" onClick={() => post("submit")} disabled={isPending}>
             {spinner}
@@ -150,7 +171,7 @@ export function ApplicationReviewActions({
         </div>
         {hasFailed ? (
           <p className="text-xs text-muted-foreground">
-            Previous submission was marked as failed. Prepare a fresh package or record a new attempt.
+            Previous submission was marked as failed. Start a fresh attempt or record a new submission.
           </p>
         ) : null}
         {error ? <p aria-live="polite" className="text-xs text-destructive">{error}</p> : null}
@@ -162,7 +183,7 @@ export function ApplicationReviewActions({
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          Package is ready.{" "}
+          Application details are ready.{" "}
           {isManual
             ? "Submit the application manually, then record it here."
             : "When you have actually submitted the application, record it below."}
@@ -174,7 +195,7 @@ export function ApplicationReviewActions({
           </Button>
           <Button variant="ghost" onClick={() => post("prepare")} disabled={isPending}>
             {spinner}
-            Update package
+            Update application
           </Button>
           <Button variant="ghost" onClick={() => patch("withdraw")} disabled={isPending}>
             {spinner}

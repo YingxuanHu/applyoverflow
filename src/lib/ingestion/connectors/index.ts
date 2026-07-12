@@ -1,3 +1,4 @@
+export { createAdzunaConnector } from "./adzuna";
 export { createAshbyConnector } from "./ashby";
 export {
   buildIcimsBoardUrl,
@@ -25,6 +26,8 @@ export {
   parseTaleoSourceToken,
   validateTaleoPortal,
 } from "./taleo";
+export { createRemoteOkConnector } from "./remoteok";
+export { createRemotiveConnector } from "./remotive";
 export { createSmartRecruitersConnector } from "./smartrecruiters";
 export {
   buildWorkdayApiUrl,
@@ -33,4 +36,53 @@ export {
   createWorkdayConnector,
   parseWorkdaySourceToken,
 } from "./workday";
+export { createHimalayasConnector } from "./himalayas";
+export { createJobicyConnector } from "./jobicy";
+export { createJoobleConnector } from "./jooble";
+export { createOracleCloudConnector } from "./oraclecloud";
+export { createWorkAtAStartupConnector } from "./workatastartup";
+export { createJSearchConnector } from "./jsearch";
+export { createBreezyHrConnector } from "./breezyhr";
+export { createHireologyConnector } from "./hireology";
+export {
+  createJsonLdBoardConnector,
+  createParadoxConnector,
+  createHrSmartConnector,
+} from "./json-ld-board";
+export { createJobBankLiveConnector } from "./jobbank-live";
+export {
+  buildJobviteBoardUrl,
+  buildJobviteSourceToken,
+  createJobviteConnector,
+} from "./jobvite";
+export {
+  buildTeamtailorBoardUrl,
+  buildTeamtailorSourceToken,
+  createTeamtailorConnector,
+} from "./teamtailor";
+export { createMuseConnector } from "./themuse";
+export { createUsaJobsConnector, createUsaJobsBatchConnectors } from "./usajobs";
 export { createWorkableConnector } from "./workable";
+export { createJobBankConnector } from "./jobbank";
+export { createWeWorkRemotelyConnector } from "./weworkremotely";
+export { createBuiltInConnector } from "./builtin";
+export { createHiringCafeConnector } from "./hiringcafe";
+export {
+  buildAmazonSearchUrl,
+  buildAppleSearchUrl,
+  buildBankOfAmericaSearchUrl,
+  buildHomeDepotSearchUrl,
+  buildGoogleSearchUrl,
+  buildNetflixDetailUrl,
+  buildNetflixSearchUrl,
+  createOfficialCompanyConnector,
+  extractBankOfAmericaJobDetailFromHtml,
+  extractAppleJobsFromHydration,
+  extractGoogleJobsFromHtml,
+  extractGoogleTotalRecords,
+  parseOfficialCompanySourceToken,
+} from "./official-company";
+export {
+  createCompanySiteConnector,
+  inspectCompanySiteRoute,
+} from "./company-site";

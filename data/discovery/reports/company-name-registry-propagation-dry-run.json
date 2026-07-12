@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-06-04T05:29:46.651Z",
+  "mode": "dry-run",
+  "batchSize": 750,
+  "maxBatches": 100,
+  "sleepMs": 150,
+  "before": {
+    "canonical": 63742,
+    "feed": 70274,
+    "normalized": 90418
+  },
+  "canonical": {
+    "updated": 0,
+    "batches": 0
+  },
+  "feed": {
+    "updated": 0,
+    "batches": 0
+  },
+  "normalized": {
+    "updated": 0,
+    "batches": 0
+  },
+  "after": {
+    "canonical": 63742,
+    "feed": 70274,
+    "normalized": 90418
+  }
+}

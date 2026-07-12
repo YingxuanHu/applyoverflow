@@ -1,11 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { prisma } from "@/lib/db";
 import {
+  createAdzunaConnector,
   createAshbyConnector,
   createGreenhouseConnector,
+  createHimalayasConnector,
   createIcimsConnector,
+  createJobicyConnector,
+  createJobviteConnector,
+  createTeamtailorConnector,
   createLeverConnector,
+  createMuseConnector,
+  createOfficialCompanyConnector,
+  createOracleCloudConnector,
+  createRemoteOkConnector,
+  createRemotiveConnector,
   createTaleoConnector,
+  createUsaJobsConnector,
   createRecruiteeConnector,
   createRipplingConnector,
   createSuccessFactorsConnector,
@@ -17,8 +28,10 @@ import {
   validateSuccessFactorsBoard,
   buildWorkdayBoardUrl,
   buildWorkdaySourceToken,
+  parseOfficialCompanySourceToken,
 } from "@/lib/ingestion/connectors";
 import { extractUrlsFromText } from "@/lib/ingestion/discovery/rippling";
+import { fetchGuarded } from "@/lib/ingestion/net/ssrf-guard";
 import { previewConnectorIngestion } from "@/lib/ingestion/pipeline";
 import type { SupportedConnectorName } from "@/lib/ingestion/registry";
 
@@ -53,6 +66,22 @@ export const ATS_SEARCH_DEFAULT_QUERIES: Array<{
       '"boards.greenhouse.io" careers "Software Engineer"',
       '"job-boards.greenhouse.io" careers apply',
       '"boards.greenhouse.io" hiring engineering',
+    ],
+  },
+  {
+    family: "jobvite",
+    queries: [
+      '"jobs.jobvite.com" careers "Software Engineer"',
+      '"jobs.jobvite.com" careers "Product Manager"',
+      '"jobs.jobvite.com" jobs apply hiring',
+    ],
+  },
+  {
+    family: "teamtailor",
+    queries: [
+      '"teamtailor.com/jobs" careers "Software Engineer"',
+      '"teamtailor.com/jobs" careers "Product Manager"',
+      '"teamtailor.com/jobs" Toronto hiring',
     ],
   },
   {
@@ -123,6 +152,18 @@ export const ATS_SEARCH_DEFAULT_QUERIES: Array<{
 ];
 
 export const SOURCE_DISCOVERY_PROMOTION_THRESHOLD = 5;
+const GENERIC_JOBVITE_TOKENS = new Set([
+  "about",
+  "career",
+  "careers",
+  "company",
+  "job",
+  "jobs",
+  "join",
+  "join-us",
+  "openings",
+  "search",
+]);
 
 type AtsMatch = {
   connectorName: SupportedConnectorName;
@@ -156,7 +197,11 @@ export type SourceDiscoveryPreviewResult = {
   pageTitle: string | null;
   fetchedCount: number;
   acceptedCount: number;
+  acceptedCanadaCount: number;
+  acceptedCanadaRemoteCount: number;
   previewCreatedCount: number;
+  previewCreatedCanadaCount: number;
+  previewCreatedCanadaRemoteCount: number;
   previewUpdatedCount: number;
   dedupedCount: number;
   rejectedCount: number;
@@ -191,16 +236,41 @@ export function buildDiscoveredSourceName(
   connectorName: SupportedConnectorName,
   token: string
 ) {
-  const prefix =
-    connectorName === "smartrecruiters"
-      ? "SmartRecruiters"
-      : connectorName === "successfactors"
-        ? "SuccessFactors"
-      : connectorName === "icims"
-        ? "iCIMS"
-      : connectorName === "taleo"
-        ? "Taleo"
-      : connectorName.charAt(0).toUpperCase() + connectorName.slice(1);
+  if (connectorName === "oraclecloud") {
+    const [tenant] = token.trim().toLowerCase().split("|");
+    return `OracleCloud:${(tenant ?? token).replace(/\.oraclecloud\.com$/i, "")}`;
+  }
+
+  const prefix = (() => {
+    switch (connectorName) {
+      case "smartrecruiters":
+        return "SmartRecruiters";
+      case "successfactors":
+        return "SuccessFactors";
+      case "icims":
+        return "iCIMS";
+      case "taleo":
+        return "Taleo";
+      case "himalayas":
+        return "Himalayas";
+      case "jobicy":
+        return "Jobicy";
+      case "jooble":
+        return "Jooble";
+      case "remotive":
+        return "Remotive";
+      case "themuse":
+        return "TheMuse";
+      case "usajobs":
+        return "USAJobs";
+      case "weworkremotely":
+        return "WeWorkRemotely";
+      case "official-company":
+        return "OfficialCompany";
+      default:
+        return connectorName.charAt(0).toUpperCase() + connectorName.slice(1);
+    }
+  })();
   return `${prefix}:${token}`;
 }
 
@@ -227,8 +297,18 @@ export function buildDiscoveredSourceUrl(
       return `https://jobs.smartrecruiters.com/${normalizedToken}`;
     case "workday":
       return buildWorkdayBoardUrl(token);
+    case "oraclecloud": {
+      const [tenant, site] = normalizedToken.split("|");
+      return tenant
+        ? `https://${tenant}/hcmUI/CandidateExperience/en/sites/${site || "cx"}/requisitions`
+        : "https://oraclecloud.com/";
+    }
     case "workable":
       return `https://apply.workable.com/${normalizedToken}/`;
+    case "jobvite":
+      return `https://jobs.jobvite.com/${normalizedToken}/jobs`;
+    case "teamtailor":
+      return `https://${normalizedToken}.teamtailor.com/jobs`;
     case "icims":
       return `https://${normalizedToken}.icims.com/jobs/search`;
     case "taleo": {
@@ -237,6 +317,43 @@ export function buildDiscoveredSourceUrl(
       const section = sepIndex > 0 ? normalizedToken.slice(sepIndex + 1) : "1";
       return `https://${tenant}.taleo.net/careersection/${section}/jobsearch.ftl?lang=en`;
     }
+    case "adzuna":
+      return `https://www.adzuna.${normalizedToken === "us" ? "com" : normalizedToken === "ca" ? "ca" : "com"}/search?q=`;
+    case "remoteok":
+      return "https://remoteok.com/remote-jobs";
+    case "usajobs":
+      return "https://www.usajobs.gov/Search/Results";
+    case "himalayas":
+      return "https://himalayas.app/jobs";
+    case "jobicy":
+      return "https://jobicy.com/remote-jobs";
+    case "jooble":
+      return "https://jooble.org/";
+    case "remotive":
+      return "https://remotive.com/remote-jobs";
+    case "themuse":
+      return "https://www.themuse.com/jobs";
+    case "weworkremotely":
+      return "https://weworkremotely.com/remote-jobs";
+    case "official-company": {
+      const parsed = parseOfficialCompanySourceToken(token);
+      switch (parsed.company) {
+        case "amazon":
+          return "https://www.amazon.jobs";
+        case "apple":
+          return "https://jobs.apple.com";
+        case "google":
+          return "https://www.google.com/about/careers/applications/jobs/results/";
+        case "microsoft":
+          return "https://apply.careers.microsoft.com/careers";
+        case "netflix":
+          return "https://explore.jobs.netflix.net/careers?domain=netflix.com";
+        case "nvidia":
+          return "https://jobs.nvidia.com/careers";
+      }
+    }
+    default:
+      throw new Error(`Unsupported discovered source connector: ${connectorName}`);
   }
 }
 
@@ -272,19 +389,25 @@ export function isKnownAtsHost(hostname: string) {
 
   return (
     normalizedHost === "jobs.ashbyhq.com" ||
+    normalizedHost === "jobs.eu.ashbyhq.com" ||
     normalizedHost === "boards.greenhouse.io" ||
     normalizedHost === "job-boards.greenhouse.io" ||
     normalizedHost === "boards-api.greenhouse.io" ||
     normalizedHost === "jobs.lever.co" ||
     normalizedHost === "api.lever.co" ||
     normalizedHost === "ats.rippling.com" ||
+    normalizedHost === "jobs.rippling.com" ||
     normalizedHost.endsWith(".successfactors.com") ||
     normalizedHost.endsWith(".successfactors.eu") ||
     normalizedHost === "jobs.smartrecruiters.com" ||
+    normalizedHost === "careers.smartrecruiters.com" ||
     normalizedHost === "api.smartrecruiters.com" ||
     normalizedHost === "apply.workable.com" ||
+    normalizedHost === "jobs.jobvite.com" ||
+    normalizedHost.endsWith(".teamtailor.com") ||
     normalizedHost === "www.workable.com" ||
     normalizedHost.endsWith(".myworkdayjobs.com") ||
+    normalizedHost.endsWith(".myworkdaysite.com") ||
     normalizedHost.endsWith(".recruitee.com") ||
     normalizedHost.endsWith(".icims.com") ||
     normalizedHost.endsWith(".taleo.net")
@@ -501,7 +624,11 @@ export async function previewSourceCandidates(
           pageTitle: null,
           fetchedCount: 0,
           acceptedCount: 0,
+          acceptedCanadaCount: 0,
+          acceptedCanadaRemoteCount: 0,
           previewCreatedCount: 0,
+          previewCreatedCanadaCount: 0,
+          previewCreatedCanadaRemoteCount: 0,
           previewUpdatedCount: 0,
           dedupedCount: 0,
           rejectedCount: 0,
@@ -568,7 +695,12 @@ export async function previewSourceCandidate(
     pageTitle,
     fetchedCount: previewSummary.fetchedCount,
     acceptedCount: previewSummary.acceptedCount,
+    acceptedCanadaCount: previewSummary.acceptedCanadaCount,
+    acceptedCanadaRemoteCount: previewSummary.acceptedCanadaRemoteCount,
     previewCreatedCount: previewSummary.canonicalCreatedCount,
+    previewCreatedCanadaCount: previewSummary.canonicalCreatedCanadaCount,
+    previewCreatedCanadaRemoteCount:
+      previewSummary.canonicalCreatedCanadaRemoteCount,
     previewUpdatedCount: previewSummary.canonicalUpdatedCount,
     dedupedCount: previewSummary.dedupedCount,
     rejectedCount: previewSummary.rejectedCount,
@@ -605,7 +737,11 @@ async function previewSuccessFactorsCandidate(
       pageTitle: boardValidation.pageTitle,
       fetchedCount: 0,
       acceptedCount: 0,
+      acceptedCanadaCount: 0,
+      acceptedCanadaRemoteCount: 0,
       previewCreatedCount: 0,
+      previewCreatedCanadaCount: 0,
+      previewCreatedCanadaRemoteCount: 0,
       previewUpdatedCount: 0,
       dedupedCount: 0,
       rejectedCount: 0,
@@ -635,7 +771,12 @@ async function previewSuccessFactorsCandidate(
     pageTitle: boardValidation.pageTitle,
     fetchedCount: previewSummary.fetchedCount,
     acceptedCount: previewSummary.acceptedCount,
+    acceptedCanadaCount: previewSummary.acceptedCanadaCount,
+    acceptedCanadaRemoteCount: previewSummary.acceptedCanadaRemoteCount,
     previewCreatedCount: previewSummary.canonicalCreatedCount,
+    previewCreatedCanadaCount: previewSummary.canonicalCreatedCanadaCount,
+    previewCreatedCanadaRemoteCount:
+      previewSummary.canonicalCreatedCanadaRemoteCount,
     previewUpdatedCount: previewSummary.canonicalUpdatedCount,
     dedupedCount: previewSummary.dedupedCount,
     rejectedCount: previewSummary.rejectedCount,
@@ -674,7 +815,49 @@ export function extractKnownAtsUrlsFromText(text: string) {
     }
   }
 
+  for (const atsFragment of extractKnownAtsUrlFragments(normalizedText)) {
+    for (const discoveredUrl of extractKnownAtsUrlsFromInputUrl(atsFragment)) {
+      urls.add(discoveredUrl);
+    }
+  }
+
   return [...urls];
+}
+
+const ATS_URL_FRAGMENT_PATTERNS = [
+  /(?:https?:)?\/\/jobs\.ashbyhq\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/jobs\.eu\.ashbyhq\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/(?:job-boards|boards)\.greenhouse\.io\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/boards-api\.greenhouse\.io\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/jobs\.lever\.co\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/jobs\.smartrecruiters\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/careers\.smartrecruiters\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/apply\.workable\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/jobs\.jobvite\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/[a-z0-9-]+\.teamtailor\.com\/jobs[^\s"'<>\\]*/gi,
+  /(?:https?:)?\/\/[a-z0-9-]+\.icims\.com\/jobs[^\s"'<>\\]*/gi,
+  /(?:https?:)?\/\/[a-z0-9-]+\.taleo\.net\/careersection\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/[a-z0-9-]+\.(?:wd\d+)\.myworkdayjobs\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/[a-z0-9-]+\.(?:wd\d+)\.myworkdaysite\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/jobs\.rippling\.com\/[^\s"'<>\\]+/gi,
+  /(?:https?:)?\/\/(?:jobs|careers)\.[a-z0-9.-]+\/(?:search|job|talentcommunity)[^\s"'<>\\]*/gi,
+];
+
+function extractKnownAtsUrlFragments(text: string) {
+  const fragments = new Set<string>();
+
+  for (const pattern of ATS_URL_FRAGMENT_PATTERNS) {
+    for (const match of text.match(pattern) ?? []) {
+      const normalizedMatch = normalizeDetectedUrl(
+        match.startsWith("//") ? `https:${match}` : match
+      );
+      if (normalizedMatch) {
+        fragments.add(normalizedMatch);
+      }
+    }
+  }
+
+  return [...fragments];
 }
 
 // ─── Search-based ATS discovery ──────────────────────────────────────────────
@@ -898,7 +1081,16 @@ function tryParseJsonUrls(content: string): string[] | null {
       return parsed
         .map((item: Record<string, unknown>) =>
           typeof item === "object" && item !== null
-            ? String(item.url ?? item.href ?? item.link ?? item.career_url ?? "")
+            ? String(
+                item.url ??
+                  item.href ??
+                  item.link ??
+                  item.career_url ??
+                  item.boardUrl ??
+                  item.sourceUrl ??
+                  item.source_url ??
+                  ""
+              )
             : ""
         )
         .filter(Boolean);
@@ -971,8 +1163,13 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     }
   }
 
+  if (hostname === "jobs.rippling.com" && pathSegments[0]) {
+    return { connectorName: "rippling", token: pathSegments[0].toLowerCase() };
+  }
+
   if (
-    (hostname.startsWith("jobs.") || hostname.startsWith("careers.")) &&
+    (hostname.endsWith(".successfactors.com") ||
+      hostname.endsWith(".successfactors.eu")) &&
     (pathSegments[0] === "search" ||
       pathSegments[0] === "job" ||
       pathSegments[0] === "talentcommunity")
@@ -983,8 +1180,27 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     };
   }
 
-  if (hostname === "jobs.ashbyhq.com" && pathSegments[0]) {
+  if (
+    (hostname === "jobs.ashbyhq.com" || hostname === "jobs.eu.ashbyhq.com") &&
+    pathSegments[0]
+  ) {
     return { connectorName: "ashby", token: pathSegments[0].toLowerCase() };
+  }
+
+  if (
+    (hostname === "jobs.ashbyhq.com" || hostname === "jobs.eu.ashbyhq.com") &&
+    pathSegments[0] === "api"
+  ) {
+    const organizationSlug =
+      parsedUrl.searchParams.get("organizationSlug") ??
+      parsedUrl.searchParams.get("orgSlug") ??
+      parsedUrl.searchParams.get("company");
+    if (organizationSlug) {
+      return {
+        connectorName: "ashby",
+        token: organizationSlug.toLowerCase(),
+      };
+    }
   }
 
   if (
@@ -1050,6 +1266,13 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     };
   }
 
+  if (hostname === "careers.smartrecruiters.com" && pathSegments[0]) {
+    return {
+      connectorName: "smartrecruiters",
+      token: pathSegments[0].toLowerCase(),
+    };
+  }
+
   if (
     hostname === "api.smartrecruiters.com" &&
     pathSegments[0] === "v1" &&
@@ -1066,6 +1289,35 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     return {
       connectorName: "workable",
       token: pathSegments[0].toLowerCase(),
+    };
+  }
+
+  if (
+    hostname === "jobs.jobvite.com" &&
+    pathSegments[0] &&
+    (pathSegments.length === 1 ||
+      pathSegments[1] === "jobs" ||
+      pathSegments[1] === "job")
+  ) {
+    const token = pathSegments[0].toLowerCase();
+    if (GENERIC_JOBVITE_TOKENS.has(token)) {
+      return null;
+    }
+    return {
+      connectorName: "jobvite",
+      token,
+    };
+  }
+
+  const teamtailorMatch = hostname.match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)*)\.teamtailor\.com$/i);
+  if (
+    teamtailorMatch?.[1] &&
+    pathSegments[0] === "jobs" &&
+    (pathSegments.length === 1 || pathSegments[1])
+  ) {
+    return {
+      connectorName: "teamtailor",
+      token: teamtailorMatch[1].toLowerCase(),
     };
   }
 
@@ -1104,7 +1356,7 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
   }
 
   const workdayMatch = hostname.match(
-    /^([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com$/i
+    /^([a-z0-9-]+)\.(wd\d+)\.(?:myworkdayjobs|myworkdaysite)\.com$/i
   );
   if (workdayMatch) {
     if (
@@ -1113,6 +1365,22 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
       pathSegments[2] &&
       pathSegments[3] &&
       pathSegments[4] === "jobs"
+    ) {
+      return {
+        connectorName: "workday",
+        token: buildWorkdaySourceToken({
+          host: hostname,
+          tenant: pathSegments[2],
+          site: pathSegments[3],
+        }),
+      };
+    }
+
+    if (
+      pathSegments[0] === "wday" &&
+      pathSegments[1] === "apply" &&
+      pathSegments[2] &&
+      pathSegments[3]
     ) {
       return {
         connectorName: "workday",
@@ -1144,10 +1412,27 @@ function matchAtsSource(parsedUrl: URL): AtsMatch | null {
     }
   }
 
+  const oracleCloudMatch = hostname.match(/^([a-z0-9.-]+)\.oraclecloud\.com$/i);
+  if (oracleCloudMatch) {
+    const sitesIndex = pathSegments.findIndex(
+      (segment, index) =>
+        segment.toLowerCase() === "sites" &&
+        index > 0 &&
+        pathSegments[index - 1]?.toLowerCase() === "en"
+    );
+    const candidateSite =
+      sitesIndex >= 0 ? pathSegments[sitesIndex + 1] : parsedUrl.searchParams.get("siteNumber");
+    const site = candidateSite?.trim() || "CX";
+    return {
+      connectorName: "oraclecloud",
+      token: `${hostname}|${site}`,
+    };
+  }
+
   return null;
 }
 
-function createConnectorForCandidate(candidate: DiscoveredSourceCandidate) {
+export function createConnectorForCandidate(candidate: DiscoveredSourceCandidate) {
   switch (candidate.connectorName) {
     case "ashby":
       return createAshbyConnector({ orgSlug: candidate.token });
@@ -1171,10 +1456,46 @@ function createConnectorForCandidate(candidate: DiscoveredSourceCandidate) {
       });
     case "workable":
       return createWorkableConnector({ accountToken: candidate.token });
+    case "jobvite":
+      return createJobviteConnector({ companyToken: candidate.token });
+    case "teamtailor":
+      return createTeamtailorConnector({ companyToken: candidate.token });
     case "icims":
       return createIcimsConnector({ portalSubdomain: candidate.token });
     case "taleo":
       return createTaleoConnector({ sourceToken: candidate.token });
+    case "adzuna":
+      return createAdzunaConnector({ country: candidate.token });
+    case "remoteok":
+      return createRemoteOkConnector();
+    case "usajobs":
+      return createUsaJobsConnector({ keyword: candidate.token });
+    case "himalayas":
+      return createHimalayasConnector();
+    case "jobicy":
+      return createJobicyConnector();
+    case "remotive":
+      return createRemotiveConnector();
+    case "themuse":
+      return createMuseConnector();
+    case "official-company": {
+      const parsed = parseOfficialCompanySourceToken(candidate.token);
+      return createOfficialCompanyConnector(parsed);
+    }
+    case "oraclecloud": {
+      const [tenant, site] = candidate.token.split("|");
+      if (!tenant) {
+        throw new Error(`Invalid Oracle Cloud source token "${candidate.token}".`);
+      }
+      return createOracleCloudConnector({
+        tenant,
+        site: site?.trim() || "CX",
+      });
+    }
+    default:
+      throw new Error(
+        `Unsupported discovered source connector: ${candidate.connectorName}`
+      );
   }
 }
 
@@ -1200,7 +1521,7 @@ export async function getExistingSourceStatsForSourceName(
     }),
     prisma.jobCanonical.count({
       where: {
-        status: "LIVE",
+        status: { in: ["LIVE", "AGING"] },
         sourceMappings: {
           some: {
             sourceName,
@@ -1238,13 +1559,15 @@ async function fetchBoardTitle(boardUrl: string) {
 }
 
 async function fetchPageText(url: string, accept: string) {
-  const response = await fetch(url, {
+  // Route arbitrary discovery/crawler URLs through the SSRF guard: it rejects
+  // internal hosts/IPs and re-validates each redirect hop so a page can't be
+  // used to reach IMDS (169.254.169.254) or other internal services.
+  const response = await fetchGuarded(url, {
     signal: AbortSignal.timeout(DISCOVERY_FETCH_TIMEOUT_MS),
     headers: {
       Accept: accept,
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-source-discovery/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-source-discovery/1.0)",
     },
-    redirect: "follow",
   });
 
   if (!response.ok) {

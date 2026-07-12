@@ -1,0 +1,5 @@
+ALTER TYPE "TrackedApplicationStatus" ADD VALUE IF NOT EXISTS 'ACCEPTED';
+ALTER TYPE "TrackedApplicationStatus" ADD VALUE IF NOT EXISTS 'DECLINED';
+
+ALTER TYPE "TrackedApplicationEventType" ADD VALUE IF NOT EXISTS 'ACCEPTED';
+ALTER TYPE "TrackedApplicationEventType" ADD VALUE IF NOT EXISTS 'DECLINED';

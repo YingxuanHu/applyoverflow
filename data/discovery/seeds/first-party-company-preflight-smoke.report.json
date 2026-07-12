@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-05-27T06:04:11.999Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 6,
+  "previewLimit": 2,
+  "byFeasibility": {
+    "IMPLEMENTED": 2,
+    "NEEDS_CONNECTOR": 2,
+    "FRAGILE": 1,
+    "BLOCKED": 1
+  },
+  "implemented": [
+    {
+      "companyName": "Amazon",
+      "connector": "amazon:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Software Development Engineer, Selling Partner Financial Technology",
+        "Sr Software Dev Engineer III, RDS for Oracle"
+      ]
+    },
+    {
+      "companyName": "Apple",
+      "connector": "apple:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "CA - Specialist: Seasonal, Part-time",
+        "People Business Partner"
+      ]
+    }
+  ],
+  "needsConnector": [
+    {
+      "companyName": "Microsoft",
+      "careersUrl": "https://careers.microsoft.com",
+      "extractionRoute": "HTML_FALLBACK",
+      "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector."
+    },
+    {
+      "companyName": "NVIDIA",
+      "careersUrl": "https://www.nvidia.com/en-us/about-nvidia/careers",
+      "extractionRoute": "STRUCTURED_SITEMAP",
+      "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting."
+    }
+  ],
+  "blockedOrFragile": [
+    {
+      "companyName": "Google",
+      "feasibility": "FRAGILE",
+      "recommendation": "Google careers data is embedded in page payloads, but the current parser is not stable enough to promote without a custom connector."
+    },
+    {
+      "companyName": "Meta",
+      "feasibility": "BLOCKED",
+      "recommendation": "Meta Careers has a prominent automated collection notice; keep it out of automated first-party ingestion until legal/robots handling is clarified."
+    }
+  ],
+  "persistence": null
+}

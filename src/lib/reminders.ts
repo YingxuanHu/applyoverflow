@@ -1,0 +1,383 @@
+import type { DeadlineReminderType, TrackedApplicationStatus } from "@/generated/prisma/client";
+
+import { sendEmail } from "@/lib/email";
+import { prisma } from "@/lib/db";
+import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
+import { startOfUtcDay } from "@/lib/time-zone";
+
+type ReminderRunResult = {
+  scannedApplications: number;
+  remindersCreated: number;
+  remindersSkipped: number;
+};
+
+type TrackedApplicationWithUser = {
+  id: string;
+  canonicalJobId: string | null;
+  company: string;
+  roleTitle: string;
+  deadline: Date | null;
+  userId: string;
+  user: {
+    email: string;
+    emailNotificationsEnabled: boolean;
+    name: string;
+  };
+};
+
+
+function daysUntil(deadline: Date, today: Date) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor(
+    (startOfUtcDay(deadline).getTime() - startOfUtcDay(today).getTime()) / msPerDay
+  );
+}
+
+function mapReminderType(dayDiff: number): DeadlineReminderType | null {
+  if (dayDiff === 7) return "DEADLINE_D7";
+  if (dayDiff === 3) return "DEADLINE_D3";
+  if (dayDiff === 1) return "DEADLINE_D1";
+  if (dayDiff === 0) return "DEADLINE_TODAY";
+  if (dayDiff === -1) return "DEADLINE_OVERDUE_D1";
+  return null;
+}
+
+function buildReminderCopy(input: {
+  reminderType: DeadlineReminderType;
+  company: string;
+  roleTitle: string;
+  deadline: Date;
+}) {
+  // Format in UTC to match the UTC day-boundary tier computation
+  // (mapReminderType/daysUntil); otherwise the printed date can disagree with
+  // the tier ("due today" showing yesterday's/tomorrow's date) on servers whose
+  // local timezone differs from UTC.
+  const deadlineText = new Intl.DateTimeFormat("en-CA", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(input.deadline);
+  const base = `${input.company} — ${input.roleTitle}`;
+
+  if (input.reminderType === "DEADLINE_D7") {
+    return {
+      title: `Deadline in 7 days: ${input.company}`,
+      message: `${base} is due in 7 days (${deadlineText}).`,
+    };
+  }
+
+  if (input.reminderType === "DEADLINE_D3") {
+    return {
+      title: `Deadline in 3 days: ${input.company}`,
+      message: `${base} is due in 3 days (${deadlineText}).`,
+    };
+  }
+
+  if (input.reminderType === "DEADLINE_D1") {
+    return {
+      title: `Deadline tomorrow: ${input.company}`,
+      message: `${base} is due tomorrow (${deadlineText}).`,
+    };
+  }
+
+  if (input.reminderType === "DEADLINE_TODAY") {
+    return {
+      title: `Deadline today: ${input.company}`,
+      message: `${base} is due today (${deadlineText}).`,
+    };
+  }
+
+  return {
+    title: `Deadline passed: ${input.company}`,
+    message: `${base} deadline passed on ${deadlineText}.`,
+  };
+}
+
+function shouldSendScheduledEmail(
+  reminderType: DeadlineReminderType,
+  emailNotificationsEnabled: boolean
+) {
+  if (!emailNotificationsEnabled) return false;
+  return (
+    reminderType === "DEADLINE_D1" ||
+    reminderType === "DEADLINE_TODAY" ||
+    reminderType === "DEADLINE_OVERDUE_D1"
+  );
+}
+
+function getTrackedTargetUrl(application: {
+  id: string;
+  canonicalJobId?: string | null;
+}) {
+  const baseUrl =
+    process.env.BETTER_AUTH_URL?.trim() ||
+    process.env.NEXT_PUBLIC_BETTER_AUTH_URL?.trim() ||
+    "http://localhost:3000";
+  const base = baseUrl.replace(/\/$/, "");
+
+  if (application.canonicalJobId) {
+    return `${base}/jobs/${application.canonicalJobId}`;
+  }
+
+  return `${base}/applications/${application.id}`;
+}
+
+async function processTrackedApplicationReminder(
+  application: TrackedApplicationWithUser,
+  now: Date,
+  sendEmailImmediately: boolean
+): Promise<"created" | "skipped"> {
+  if (!application.deadline) return "skipped";
+
+  const dayDiff = daysUntil(application.deadline, startOfUtcDay(now));
+  const reminderType = mapReminderType(dayDiff);
+  if (!reminderType) return "skipped";
+
+  const deadlineDate = startOfUtcDay(application.deadline);
+  const copy = buildReminderCopy({
+    reminderType,
+    company: application.company,
+    roleTitle: application.roleTitle,
+    deadline: application.deadline,
+  });
+
+  // Claim the dedup marker AND write the in-app notification atomically, so a
+  // failure can never leave the reminder marked-as-sent without a matching
+  // notification (which would silently drop it forever).
+  const created = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.reminderLog.createMany({
+      data: [
+        {
+          userId: application.userId,
+          trackedApplicationId: application.id,
+          reminderType,
+          deadlineDate,
+        },
+      ],
+      skipDuplicates: true,
+    });
+
+    if (count === 0) return false;
+
+    await tx.notification.create({
+      data: {
+        userId: application.userId,
+        trackedApplicationId: application.id,
+        type: "DEADLINE_REMINDER",
+        title: copy.title,
+        message: copy.message,
+      },
+    });
+
+    return true;
+  });
+
+  if (!created) return "skipped";
+
+  const targetUrl = getTrackedTargetUrl(application);
+  const shouldEmail = sendEmailImmediately
+    ? application.user.emailNotificationsEnabled
+    : shouldSendScheduledEmail(
+        reminderType,
+        application.user.emailNotificationsEnabled
+      );
+
+  // Email is best-effort: the in-app notification is already committed, so a
+  // send failure must not abort the cron run or roll back the reminder.
+  if (shouldEmail) {
+    try {
+      await sendEmail({
+        to: application.user.email,
+        subject: copy.title,
+        text: `${copy.message}\n\nOpen job: ${targetUrl}`,
+        html: `
+        <p>Hello${application.user.name ? ` ${application.user.name}` : ""},</p>
+        <p>${copy.message}</p>
+        <p><a href="${targetUrl}">Open job</a></p>
+      `,
+      });
+    } catch (error) {
+      console.error(
+        `[reminders] failed to send deadline email for application ${application.id}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  return "created";
+}
+
+export async function runDeadlineReminders(now = new Date()): Promise<ReminderRunResult> {
+  const applications = await prisma.trackedApplication.findMany({
+    where: {
+      status: {
+        in: TRACKED_ACTIVE_STATUSES satisfies TrackedApplicationStatus[],
+      },
+      deadline: { not: null },
+    },
+    select: {
+      id: true,
+      canonicalJobId: true,
+      company: true,
+      roleTitle: true,
+      deadline: true,
+      userId: true,
+      user: {
+        select: {
+          email: true,
+          emailNotificationsEnabled: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  let remindersCreated = 0;
+  let remindersSkipped = 0;
+
+  for (const application of applications) {
+    try {
+      const result = await processTrackedApplicationReminder(application, now, false);
+      if (result === "created") {
+        remindersCreated += 1;
+      } else {
+        remindersSkipped += 1;
+      }
+    } catch (error) {
+      // One application's failure must not abort the entire run.
+      console.error(
+        `[reminders] failed to process reminder for application ${application.id}:`,
+        error instanceof Error ? error.message : error
+      );
+      remindersSkipped += 1;
+    }
+  }
+
+  return {
+    scannedApplications: applications.length,
+    remindersCreated,
+    remindersSkipped,
+  };
+}
+
+export async function checkCustomReminders(now = new Date()) {
+  const pending = await prisma.trackedApplicationEvent.findMany({
+    where: {
+      type: "REMINDER",
+      reminderAt: { lte: now },
+      reminderNotifiedAt: null,
+    },
+    select: {
+      id: true,
+      note: true,
+      reminderAt: true,
+      trackedApplication: {
+        select: {
+          id: true,
+          canonicalJobId: true,
+          company: true,
+          roleTitle: true,
+          userId: true,
+          user: {
+            select: {
+              email: true,
+              emailNotificationsEnabled: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  for (const event of pending) {
+    const label = `${event.trackedApplication.company} — ${event.trackedApplication.roleTitle}`;
+    const title = `Reminder: ${label}`;
+    const message = event.note ? event.note : `Custom reminder for ${label}.`;
+
+    const targetUrl = getTrackedTargetUrl(event.trackedApplication);
+
+    try {
+      // Conditionally claim the event AND write the notification atomically. The
+      // where-guard on reminderNotifiedAt makes the claim idempotent, so two
+      // overlapping runs cannot both notify, and a notification failure rolls
+      // back the claim so it is retried instead of silently lost.
+      const claimed = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.trackedApplicationEvent.updateMany({
+          where: { id: event.id, reminderNotifiedAt: null },
+          data: { reminderNotifiedAt: now },
+        });
+        if (count === 0) return false;
+
+        await tx.notification.create({
+          data: {
+            userId: event.trackedApplication.userId,
+            trackedApplicationId: event.trackedApplication.id,
+            type: "SYSTEM",
+            title,
+            message,
+          },
+        });
+
+        return true;
+      });
+
+      if (!claimed) continue;
+
+      if (event.trackedApplication.user.emailNotificationsEnabled) {
+        try {
+          await sendEmail({
+            to: event.trackedApplication.user.email,
+            subject: title,
+            text: `${message}\n\nOpen application: ${targetUrl}`,
+            html: `
+          <p>Hello${event.trackedApplication.user.name ? ` ${event.trackedApplication.user.name}` : ""},</p>
+          <p>${message}</p>
+          <p><a href="${targetUrl}">Open application</a></p>
+        `,
+          });
+        } catch (error) {
+          console.error(
+            `[reminders] failed to send custom reminder email for event ${event.id}:`,
+            error instanceof Error ? error.message : error
+          );
+        }
+      }
+    } catch (error) {
+      // One event's failure must not abort the remaining reminders.
+      console.error(
+        `[reminders] failed to process custom reminder ${event.id}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+}
+
+export async function checkSingleTrackedApplicationReminder(applicationId: string) {
+  const application = await prisma.trackedApplication.findFirst({
+    where: {
+      id: applicationId,
+      deadline: { not: null },
+      status: {
+        in: TRACKED_ACTIVE_STATUSES,
+      },
+    },
+    select: {
+      id: true,
+      canonicalJobId: true,
+      company: true,
+      roleTitle: true,
+      deadline: true,
+      userId: true,
+      user: {
+        select: {
+          email: true,
+          emailNotificationsEnabled: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!application) return;
+  await processTrackedApplicationReminder(application, new Date(), true);
+}

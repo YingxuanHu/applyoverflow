@@ -14,6 +14,7 @@ enum WorkMode {
   HYBRID
   ONSITE
   FLEXIBLE
+  UNKNOWN
 }
 
 enum EmploymentType {
@@ -21,6 +22,7 @@ enum EmploymentType {
   PART_TIME
   CONTRACT
   INTERNSHIP
+  UNKNOWN
 }
 
 enum ExperienceLevel {
@@ -29,6 +31,7 @@ enum ExperienceLevel {
   SENIOR
   LEAD
   EXECUTIVE
+  UNKNOWN
 }
 
 enum Region {
@@ -39,19 +42,18 @@ enum Region {
 enum Industry {
   TECH
   FINANCE
+  // White-collar / office roles outside tech & finance: marketing, sales, ops,
+  // HR, legal, consulting, design, comms, customer success, education admin,
+  // healthcare admin (non-clinical), media, supply chain analytics, etc.
+  // Quality filter excludes blue-collar, retail, food service, clinical
+  // patient-facing, manual trades, and manufacturing/production line roles.
+  GENERAL
 }
 
 enum SubmissionCategory {
-  AUTO_SUBMIT_READY
-  AUTO_FILL_REVIEW
+  READY_TO_APPLY
+  REVIEW_REQUIRED
   MANUAL_ONLY
-}
-
-enum AutomationMode {
-  DISCOVERY_ONLY
-  ASSIST
-  REVIEW_BEFORE_SUBMIT
-  STRICT_AUTO_APPLY
 }
 
 enum ApplicationStatus {
@@ -78,6 +80,7 @@ enum SourceTier {
 
 enum JobStatus {
   LIVE
+  AGING
   EXPIRED
   REMOVED
   STALE
@@ -88,6 +91,18 @@ enum UserAction {
   PASS
   SAVE
   VIEW_DETAILS
+}
+
+enum UserJobPreferenceFeedbackType {
+  NOT_INTERESTED
+  WRONG_ROLE
+  TOO_SENIOR
+  TOO_JUNIOR
+  WRONG_LOCATION
+  WRONG_WORK_MODE
+  WRONG_EMPLOYMENT_TYPE
+  LOW_QUALITY
+  ALREADY_SEEN
 }
 
 enum IngestionRunStatus {
@@ -103,46 +118,389 @@ enum IngestionRunMode {
   API
 }
 
+enum JobUrlHealthResult {
+  ALIVE
+  SUSPECT
+  DEAD
+  BLOCKED
+  ERROR
+}
+
+enum JobUrlHealthUrlType {
+  APPLY
+  DETAIL
+}
+
+enum CompanyDiscoveryStatus {
+  PENDING
+  DISCOVERING
+  DISCOVERED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum CrawlStatus {
+  IDLE
+  ACTIVE
+  DEGRADED
+  BLOCKED
+  FAILED
+}
+
+enum ExtractionRouteKind {
+  ATS_NATIVE
+  STRUCTURED_JSON
+  STRUCTURED_API
+  STRUCTURED_SITEMAP
+  HTML_FALLBACK
+  UNKNOWN
+}
+
+enum CompanySourceStatus {
+  DISCOVERED
+  PROVISIONED
+  ACTIVE
+  DEGRADED
+  REDISCOVER_REQUIRED
+  DISABLED
+}
+
+enum CompanySourceValidationState {
+  UNVALIDATED
+  VALIDATING
+  VALIDATED
+  SUSPECT
+  INVALID
+  NEEDS_REDISCOVERY
+  BLOCKED
+}
+
+enum CompanySourcePollState {
+  READY
+  ACTIVE
+  BACKOFF
+  QUARANTINED
+  DISABLED
+}
+
+enum SourceTaskKind {
+  SOURCE_VALIDATION
+  CONNECTOR_POLL
+  COMPANY_DISCOVERY
+  REDISCOVERY
+  URL_HEALTH
+}
+
+enum SourceTaskStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum AtsPlatform {
+  ASHBY
+  BAMBOOHR
+  EIGHTFOLD
+  GENERIC
+  GREENHOUSE
+  ICIMS
+  JOBVITE
+  LEVER
+  PARADOX
+  PHENOM
+  RECRUITEE
+  RIPPLING
+  SMARTRECRUITERS
+  SUCCESSFACTORS
+  TALEO
+  TEAMTAILOR
+  WORKABLE
+  WORKDAY
+}
+
+enum SourceCandidateType {
+  AGGREGATOR_LEAD
+  ATS_BOARD
+  CAREER_PAGE
+  COMPANY_ROOT
+  JOB_PAGE
+  SITEMAP
+}
+
+enum SourceCandidateStatus {
+  NEW
+  VALIDATED
+  PROMOTED
+  REJECTED
+  STALE
+}
+
+enum DiscoveryMode {
+  EXPLORATION
+  EXPLOITATION
+}
+
+enum NormalizedJobRecordStatus {
+  STAGED
+  NORMALIZED
+  VALIDATED
+  REJECTED
+  CANONICALIZED
+}
+
+enum PipelineQueueName {
+  SOURCE_DISCOVERY
+  SOURCE_VALIDATION
+  CONNECTOR_POLL
+  RAW_PARSE
+  NORMALIZE
+  JOB_INTEGRITY
+  DEDUPE
+  LIFECYCLE
+  SEARCH_INDEX
+}
+
+enum PipelineTaskStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+enum DocumentType {
+  RESUME
+  COVER_LETTER
+  RESUME_TEMPLATE
+}
+
+enum TrackedApplicationStatus {
+  WISHLIST
+  PREPARING
+  APPLIED
+  SCREEN
+  INTERVIEW
+  OFFER
+  ACCEPTED
+  REJECTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum TrackedApplicationEventType {
+  APPLIED
+  SCREEN
+  INTERVIEW
+  OFFER
+  ACCEPTED
+  REJECTED
+  DECLINED
+  NOTE
+  REMINDER
+}
+
+enum TrackedApplicationDocumentSlot {
+  SENT_RESUME
+  SENT_COVER_LETTER
+}
+
+enum NotificationType {
+  DEADLINE_REMINDER
+  SYSTEM
+}
+
+enum DeadlineReminderType {
+  DEADLINE_D7
+  DEADLINE_D3
+  DEADLINE_D1
+  DEADLINE_TODAY
+  DEADLINE_OVERDUE_D1
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
+enum AuthSecurityTokenType {
+  PASSWORD_RESET
+}
+
 // ─── Models ─────────────────────────────────────────────
 
+model User {
+  id                        String   @id @default(cuid())
+  email                     String   @unique
+  name                      String
+  emailVerified             Boolean  @default(false)
+  emailNotificationsEnabled Boolean  @default(true)
+  status                    UserStatus @default(ACTIVE)
+  lastLoginAt               DateTime?
+  image                     String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  authSecurityTokens  AuthSecurityToken[]
+  profile             UserProfile?
+  trackedApplications TrackedApplication[]
+  tags                Tag[]
+  notifications       Notification[]
+  reminderLogs        ReminderLog[]
+}
+
 model UserProfile {
-  id                String          @id @default(cuid())
-  email             String          @unique
+  id                String           @id @default(cuid())
+  authUserId        String?          @unique
+  email             String           @unique
   name              String
+  phone             String?
+  location          String?
+  headline          String?
+  summary           String?
   linkedinUrl       String?
   githubUrl         String?
   portfolioUrl      String?
   workAuthorization String?
   salaryMin         Int?
   salaryMax         Int?
-  salaryCurrency    String?         @default("USD")
+  salaryCurrency    String?          @default("USD")
   preferredWorkMode WorkMode?
   experienceLevel   ExperienceLevel?
-  automationMode    AutomationMode  @default(REVIEW_BEFORE_SUBMIT)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
 
+  // Structured profile data (rich JSON fields for AI ingestion and display)
+  contactJson     Json?
+  skillsText      String?
+  experienceText  String?
+  educationText   String?
+  projectsText    String?
+  skillsJson      Json? // string[] — e.g. ["TypeScript", "React", "PostgreSQL"]
+  experiencesJson Json? // Array<{ title, company, location, startDate, endDate, description }>
+  educationsJson  Json? // Array<{ school, degree, field, startDate, endDate, description }>
+  projectsJson    Json? // Array<{ name, url, description, technologies }>
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authUser               User?                   @relation(fields: [authUserId], references: [id], onDelete: Cascade)
   resumeVariants         ResumeVariant[]
+  documents              Document[]
   preferences            UserPreference[]
   savedJobs              SavedJob[]
   behaviorSignals        UserBehaviorSignal[]
   applicationSubmissions ApplicationSubmission[]
   applicationPackages    ApplicationPackage[]
+  matchProfile           UserMatchProfile?
+  topPicks               UserTopPick[]
+  topPickRefreshTask     TopPickRefreshTask?
+  jobPreferenceFeedback  UserJobPreferenceFeedback[]
+}
+
+model Company {
+  id                   String                 @id @default(cuid())
+  name                 String
+  companyKey           String                 @unique
+  domain               String?
+  careersUrl           String?
+  normalizedIndustry   String?
+  normalizedIndustries String[]               @default([])
+  normalizedIndustryConfidence Float?
+  normalizedIndustrySource     String?
+  normalizedIndustryUpdatedAt  DateTime?
+  discoveryStatus      CompanyDiscoveryStatus @default(PENDING)
+  crawlStatus          CrawlStatus            @default(IDLE)
+  detectedAts          String?
+  discoveryConfidence  Float                  @default(0)
+  lastDiscoveryAt      DateTime?
+  lastSuccessfulPollAt DateTime?
+  lastDiscoveryError   String?
+  lastRediscoveryAt    DateTime?
+  metadataJson         Json?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  jobs             JobCanonical[]
+  discoveryPages   CompanyDiscoveryPage[]
+  sources          CompanySource[]
+  tasks            SourceTask[]
+  sourceCandidates SourceCandidate[]
+  atsTenants       ATSTenant[]
+
+  @@index([discoveryStatus, lastDiscoveryAt(sort: Desc)])
+  @@index([crawlStatus, lastSuccessfulPollAt(sort: Desc)])
+  @@index([normalizedIndustry, normalizedIndustryConfidence])
+  @@index([domain])
 }
 
 model ResumeVariant {
-  id              String   @id @default(cuid())
-  userId          String
-  label           String
+  id               String   @id @default(cuid())
+  userId           String
+  label            String
   targetRoleFamily String?
-  fileUrl         String?
-  content         String?
-  isDefault       Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  fileUrl          String?
+  content          String?
+  isDefault        Boolean  @default(false)
+  documentId       String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   user                UserProfile          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document            Document?            @relation(fields: [documentId], references: [id], onDelete: SetNull)
   applicationPackages ApplicationPackage[]
+
+  @@index([userId])
+}
+
+model Document {
+  id                  String       @id @default(cuid())
+  userId              String
+  type                DocumentType
+  title               String
+  originalFileName    String
+  filename            String
+  mimeType            String
+  sizeBytes           Int
+  storageKey          String       @unique
+  isPrimary           Boolean      @default(false)
+  // True when this document was produced by the app (tailored resume,
+  // generated cover letter, etc.) rather than uploaded by the user. The
+  // Documents tab uses this to separate "Uploaded by you" from
+  // "AI generated" so users can find each kind at a glance.
+  isAiGenerated       Boolean      @default(false)
+  // When the document was generated from a specific tracked application,
+  // store the application id so the UI can deep-link back.
+  sourceApplicationId String?
+  extractedText       String?
+  extractedAt         DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  user                    UserProfile                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analysis                DocumentAnalysis?
+  resumeVariant           ResumeVariant?
+  trackedApplicationLinks TrackedApplicationDocument[]
+
+  @@index([userId, type])
+  @@index([userId, type, createdAt])
+  @@index([userId, type, isPrimary])
+  @@index([userId, type, isAiGenerated, createdAt])
+}
+
+model DocumentAnalysis {
+  documentId            String   @id
+  extractedText         String
+  keywordsJson          Json
+  sectionsJson          Json
+  structuredProfileJson Json?
+  importSummaryJson     Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
 model JobRaw {
@@ -154,44 +512,122 @@ model JobRaw {
   fetchedAt  DateTime
   createdAt  DateTime   @default(now())
 
-  sourceMappings JobSourceMapping[]
+  sourceMappings   JobSourceMapping[]
+  normalizedRecord NormalizedJobRecord?
 
   @@unique([sourceName, sourceId])
 }
 
 model JobCanonical {
-  id                 String          @id @default(cuid())
-  title              String
-  company            String
-  companyKey         String          @default("")
-  titleKey           String          @default("")
-  titleCoreKey       String          @default("")
-  descriptionFingerprint String      @default("")
-  location           String
-  locationKey        String          @default("")
-  region             Region
-  workMode           WorkMode
-  salaryMin          Int?
-  salaryMax          Int?
-  salaryCurrency     String?         @default("USD")
-  employmentType     EmploymentType
-  experienceLevel    ExperienceLevel?
-  description        String
-  shortSummary       String
-  industry           Industry
-  roleFamily         String
-  applyUrl           String
-  applyUrlKey        String?
-  postedAt           DateTime
-  deadline           DateTime?
-  status             JobStatus       @default(LIVE)
-  duplicateClusterId String?
-  lastSeenAt         DateTime        @default(now())
-  staleAt            DateTime?
-  expiredAt          DateTime?
-  removedAt          DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id                       String                   @id @default(cuid())
+  companyId                String?
+  title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleCandidatesJson      Json?
+  titleRejectedFragmentsJson Json?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
+  company                  String
+  companyKey               String                   @default("")
+  titleKey                 String                   @default("")
+  titleCoreKey             String                   @default("")
+  descriptionFingerprint   String                   @default("")
+  location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
+  locationCandidatesJson   Json?
+  locationKey              String                   @default("")
+  region                   Region?
+  workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
+  workModeCandidatesJson   Json?
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?                  @default("USD")
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
+  employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
+  employmentTypeCandidatesJson Json?
+  experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
+  description              String
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
+  searchVector             Unsupported("tsvector")?
+  shortSummary             String
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
+  normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
+  normalizedIndustry       String?
+  normalizedIndustries     String[]                  @default([])
+  normalizedIndustryConfidence       Float?
+  normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
+  normalizedRoleCategoryCandidatesJson Json?
+  normalizedRoleCategoryEvidenceJson Json?
+  normalizedRoleCategoryWarningsJson Json?
+  classificationStatus     String?
+  applyUrl                 String
+  applyUrlKey              String?
+  postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
+  deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
+  status                   JobStatus                @default(LIVE)
+  duplicateClusterId       String?
+  firstSeenAt              DateTime                 @default(now())
+  lastSeenAt               DateTime                 @default(now())
+  lastSourceSeenAt         DateTime?
+  lastApplyCheckAt         DateTime?
+  lastConfirmedAliveAt     DateTime?
+  applyUrlValidatedAt      DateTime?
+  applyUrlValidationStatus String?
+  applyUrlValidationReason String?
+  finalResolvedApplyUrl    String?
+  applyUrlRedirectDepth    Int?
+  availabilityScore        Float                    @default(0)
+  qualityScore             Float                    @default(0)
+  trustScore               Float                    @default(0)
+  freshnessScore           Float                    @default(0)
+  deadSignalAt             DateTime?
+  deadSignalReason         String?
+  staleAt                  DateTime?
+  expiredAt                DateTime?
+  removedAt                DateTime?
+  extractionWarnings       Json?
+  extractionRejectionReasons Json?
+  metadataExtractionWarnings Json?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
 
   eligibility            JobEligibility?
   sourceMappings         JobSourceMapping[]
@@ -199,68 +635,153 @@ model JobCanonical {
   applicationSubmissions ApplicationSubmission[]
   applicationPackages    ApplicationPackage[]
   behaviorSignals        UserBehaviorSignal[]
+  trackedApplications    TrackedApplication[]
+  topPicks               UserTopPick[]
+  preferenceFeedback     UserJobPreferenceFeedback[]
+  companyRecord          Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  urlHealthChecks        JobUrlHealthCheck[]
+  sourceTasks            SourceTask[]
+  normalizedRecords      NormalizedJobRecord[]
+  feedIndex              JobFeedIndex?
 
-  @@index([status, lastSeenAt])
+  // ── Deduplication indexes ──
   @@index([duplicateClusterId])
   @@index([applyUrlKey])
   @@index([companyKey, titleCoreKey, region])
   @@index([companyKey, roleFamily, region])
   @@index([companyKey, locationKey, region])
   @@index([companyKey, descriptionFingerprint, region])
+  // ── Feed query indexes ──
+  // Primary feed sort: status + postedAt covers the default newest-first ordering
+  @@index([status, postedAt(sort: Desc)])
+  // Region filter (very common): status + region + postedAt
+  @@index([status, region, postedAt(sort: Desc)])
+  // Role family filter: status + roleFamily + postedAt
+  @@index([status, roleFamily, postedAt(sort: Desc)])
+  @@index([status, normalizedEmploymentType, postedAt(sort: Desc)])
+  @@index([status, employmentTypeGroup, postedAt(sort: Desc)])
+  @@index([status, normalizedCareerStage, postedAt(sort: Desc)])
+  @@index([status, experienceLevelGroup, postedAt(sort: Desc)])
+  @@index([status, normalizedIndustry, postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategory, postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategoryGroup, postedAt(sort: Desc)])
+  // Work mode filter: status + workMode + postedAt
+  @@index([status, workMode, postedAt(sort: Desc)])
+  // Experience level filter: status + experienceLevel + postedAt
+  @@index([status, experienceLevel, postedAt(sort: Desc)])
+  // Industry filter: status + industry + postedAt
+  @@index([status, industry, postedAt(sort: Desc)])
+  // Salary filter: status + salaryMax for "min salary" filtering
+  @@index([status, salaryMax(sort: Desc)])
+  // Lifecycle reconciliation: status + lastSeenAt
+  @@index([status, lastSeenAt])
+  @@index([status, availabilityScore(sort: Desc)])
+  @@index([status, qualityScore(sort: Desc)])
+  @@index([status, freshnessScore(sort: Desc)])
+  @@index([status, applyUrlValidationStatus, postedAt(sort: Desc)])
+  @@index([applyUrlValidatedAt])
+  @@index([lastSourceSeenAt])
+  @@index([lastConfirmedAliveAt])
+  @@index([companyId])
 }
 
 model JobSourceMapping {
-  id             String   @id @default(cuid())
-  canonicalJobId String
-  rawJobId       String
-  sourceName     String
-  sourceUrl      String?
-  isPrimary      Boolean  @default(false)
-  lastSeenAt     DateTime @default(now())
-  removedAt      DateTime?
-  createdAt      DateTime @default(now())
+  id                String    @id @default(cuid())
+  canonicalJobId    String
+  rawJobId          String
+  sourceName        String
+  sourceUrl         String?
+  applyUrlKey       String?
+  sourceUrlKey      String?
+  postingIdKey      String?
+  sourceQualityKind String?
+  sourceQualityRank Int       @default(0)
+  sourceType        String?
+  sourceReliability Float     @default(0.5)
+  isFullSnapshot    Boolean   @default(false)
+  pollPattern       String?
+  dedupeMatchedBy   String?
+  dedupeScore       Int?
+  dedupeEvidence    Json?
+  isPrimary         Boolean   @default(false)
+  lastSeenAt        DateTime  @default(now())
+  removedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
   rawJob       JobRaw       @relation(fields: [rawJobId], references: [id], onDelete: Cascade)
 
+  @@index([applyUrlKey])
+  @@index([sourceUrlKey])
+  @@index([postingIdKey])
+  @@index([rawJobId])
   @@index([sourceName, removedAt])
   @@index([canonicalJobId, removedAt])
+  @@index([canonicalJobId, removedAt, sourceQualityRank(sort: Desc)])
+}
+
+model JobUrlHealthCheck {
+  id              String              @id @default(cuid())
+  canonicalJobId  String
+  url             String
+  urlType         JobUrlHealthUrlType
+  result          JobUrlHealthResult
+  statusCode      Int?
+  finalUrl        String?
+  checkedAt       DateTime            @default(now())
+  responseTimeMs  Int?
+  closureReason   String?
+  responseSnippet String?
+  metadataJson    Json?
+
+  canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  @@index([canonicalJobId, checkedAt(sort: Desc)])
+  @@index([result, checkedAt(sort: Desc)])
+  @@index([urlType, checkedAt(sort: Desc)])
 }
 
 model JobEligibility {
-  id                           String             @id @default(cuid())
-  canonicalJobId               String             @unique
-  submissionCategory           SubmissionCategory
-  reasonCode                   String
-  reasonDescription            String
-  jobValidityConfidence        Float
-  formAutomationConfidence     Float
-  packageFitConfidence         Float
-  submissionQualityConfidence  Float
-  customizationLevel           Int
-  evaluatedAt                  DateTime
-  createdAt                    DateTime           @default(now())
-  updatedAt                    DateTime           @updatedAt
+  id                          String             @id @default(cuid())
+  canonicalJobId              String             @unique
+  submissionCategory          SubmissionCategory
+  reasonCode                  String
+  reasonDescription           String
+  jobValidityConfidence       Float
+  applicationFlowConfidence   Float
+  packageFitConfidence        Float
+  submissionQualityConfidence Float
+  customizationLevel          Int
+  evaluatedAt                 DateTime
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  // Feed filter by submission category
+  @@index([submissionCategory])
 }
 
 model ApplicationPackage {
-  id                String   @id @default(cuid())
-  userId            String
-  canonicalJobId    String
-  resumeVariantId   String
+  id                 String   @id @default(cuid())
+  userId             String
+  canonicalJobId     String
+  resumeVariantId    String
   coverLetterContent String?
-  savedAnswers      Json?
-  attachedLinks     Json?
-  whyItMatches      String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  savedAnswers       Json?
+  attachedLinks      Json?
+  whyItMatches       String?
+  userNotes          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  user          UserProfile   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  canonicalJob  JobCanonical  @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
-  resumeVariant ResumeVariant @relation(fields: [resumeVariantId], references: [id], onDelete: Cascade)
+  user          UserProfile             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canonicalJob  JobCanonical            @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+  resumeVariant ResumeVariant           @relation(fields: [resumeVariantId], references: [id], onDelete: Cascade)
   submissions   ApplicationSubmission[]
+
+  @@index([userId, canonicalJobId])
 }
 
 model ApplicationSubmission {
@@ -278,21 +799,24 @@ model ApplicationSubmission {
   user         UserProfile         @relation(fields: [userId], references: [id], onDelete: Cascade)
   canonicalJob JobCanonical        @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
   package      ApplicationPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, canonicalJobId])
 }
 
 model SavedJob {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   userId         String
   canonicalJobId String
   status         SavedJobStatus @default(ACTIVE)
   notes          String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   user         UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
 
   @@unique([userId, canonicalJobId])
+  @@index([userId, status])
 }
 
 model UserPreference {
@@ -319,40 +843,750 @@ model UserBehaviorSignal {
 
   user         UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
   canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  // Feed query: exclude passed jobs for a user
+  @@index([userId, action])
+  @@index([userId, canonicalJobId, action])
+}
+
+model UserMatchProfile {
+  userId                   String   @id
+  profileVersion           Int      @default(1)
+  profileHash              String
+  normalizedSkills         String[] @default([])
+  targetRoleCategories     String[] @default([])
+  targetCareerStage        String?
+  preferredLocationCity    String?
+  preferredLocationRegion  String?
+  preferredLocationCountry String?
+  preferredWorkModes       String[] @default([])
+  targetSalaryMin          Int?
+  targetSalaryMax          Int?
+  targetSalaryCurrency     String?
+  experienceSummary        String?
+  updatedAt                DateTime @updatedAt
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([profileHash])
+  @@index([updatedAt])
+}
+
+model UserTopPick {
+  id             String   @id @default(cuid())
+  userId         String
+  jobId          String
+  score          Float
+  rank           Int
+  scoreBreakdown Json
+  matchReasons   Json
+  concerns       Json
+  profileVersion Int
+  jobVersion     DateTime?
+  computedAt     DateTime @default(now())
+  expiresAt      DateTime
+  isValid        Boolean  @default(true)
+  invalidatedAt  DateTime?
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  JobCanonical @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([userId, isValid, score(sort: Desc)])
+  @@index([userId, isValid, expiresAt, score(sort: Desc)])
+  @@index([jobId])
+  @@index([userId, computedAt])
+  @@index([userId, rank])
+}
+
+model TopPickRefreshTask {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  status         String   @default("PENDING")
+  priorityScore  Float    @default(0)
+  reason         String?
+  candidateLimit Int?
+  storeLimit     Int?
+  notBeforeAt    DateTime @default(now())
+  leaseExpiresAt DateTime?
+  attemptCount   Int      @default(0)
+  maxAttempts    Int      @default(5)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  lastResult     Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, notBeforeAt, priorityScore(sort: Desc)])
+  @@index([status, leaseExpiresAt(sort: Asc)])
+}
+
+model UserJobPreferenceFeedback {
+  id           String                        @id @default(cuid())
+  userId       String
+  jobId        String
+  feedbackType UserJobPreferenceFeedbackType
+  createdAt    DateTime                      @default(now())
+
+  user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  JobCanonical @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([userId, feedbackType])
+  @@index([userId, jobId])
+  @@index([userId, jobId, feedbackType])
+  @@index([jobId])
 }
 
 model IngestionRun {
-  id                        String             @id @default(cuid())
-  connectorKey              String
-  sourceName                String
-  sourceTier                SourceTier
-  runMode                   IngestionRunMode   @default(MANUAL)
-  status                    IngestionRunStatus
-  startedAt                 DateTime           @default(now())
-  endedAt                   DateTime?
-  fetchedCount              Int                @default(0)
-  acceptedCount             Int                @default(0)
-  rejectedCount             Int                @default(0)
-  rawCreatedCount           Int                @default(0)
-  rawUpdatedCount           Int                @default(0)
-  canonicalCreatedCount     Int                @default(0)
-  canonicalUpdatedCount     Int                @default(0)
-  dedupedCount              Int                @default(0)
-  sourceMappingCreatedCount Int                @default(0)
-  sourceMappingUpdatedCount Int                @default(0)
-  sourceMappingsRemovedCount Int               @default(0)
-  liveCount                 Int                @default(0)
-  staleCount                Int                @default(0)
-  expiredCount              Int                @default(0)
-  removedCount              Int                @default(0)
-  skippedReasons            Json?
-  runOptions                Json?
-  errorSummary              String?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  id                         String             @id @default(cuid())
+  connectorKey               String
+  sourceName                 String
+  sourceTier                 SourceTier
+  runMode                    IngestionRunMode   @default(MANUAL)
+  status                     IngestionRunStatus
+  startedAt                  DateTime           @default(now())
+  endedAt                    DateTime?
+  fetchedCount               Int                @default(0)
+  acceptedCount              Int                @default(0)
+  rejectedCount              Int                @default(0)
+  rawCreatedCount            Int                @default(0)
+  rawUpdatedCount            Int                @default(0)
+  canonicalCreatedCount      Int                @default(0)
+  canonicalUpdatedCount      Int                @default(0)
+  dedupedCount               Int                @default(0)
+  sourceMappingCreatedCount  Int                @default(0)
+  sourceMappingUpdatedCount  Int                @default(0)
+  sourceMappingsRemovedCount Int                @default(0)
+  liveCount                  Int                @default(0)
+  staleCount                 Int                @default(0)
+  expiredCount               Int                @default(0)
+  removedCount               Int                @default(0)
+  skippedReasons             Json?
+  runOptions                 Json?
+  errorSummary               String?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
 
   @@index([startedAt(sort: Desc)])
+  @@index([connectorKey, startedAt(sort: Desc)])
   @@index([sourceName, startedAt(sort: Desc)])
   @@index([status, startedAt(sort: Desc)])
   @@index([runMode, startedAt(sort: Desc)])
+}
+
+model CompanyDiscoveryPage {
+  id             String              @id @default(cuid())
+  companyId      String
+  url            String
+  confidence     Float               @default(0)
+  isChosen       Boolean             @default(false)
+  extractorRoute ExtractionRouteKind @default(UNKNOWN)
+  parserVersion  String?
+  lastCheckedAt  DateTime?
+  failureCount   Int                 @default(0)
+  lastError      String?
+  metadataJson   Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, url])
+  @@index([companyId, isChosen])
+  @@index([extractorRoute, lastCheckedAt(sort: Desc)])
+}
+
+model CompanySource {
+  id                     String                       @id @default(cuid())
+  companyId              String
+  atsTenantId            String?                      @unique
+  sourceName             String                       @unique
+  connectorName          String
+  token                  String
+  boardUrl               String
+  status                 CompanySourceStatus          @default(DISCOVERED)
+  validationState        CompanySourceValidationState @default(UNVALIDATED)
+  pollState              CompanySourcePollState       @default(READY)
+  sourceType             String?
+  extractionRoute        ExtractionRouteKind          @default(UNKNOWN)
+  parserVersion          String?
+  pollingCadenceMinutes  Int?
+  priorityScore          Float                        @default(0)
+  sourceQualityScore     Float                        @default(0)
+  yieldScore             Float                        @default(0)
+  cooldownUntil          DateTime?
+  firstSeenAt            DateTime                     @default(now())
+  lastProvisionedAt      DateTime?
+  lastDiscoveryAt        DateTime?
+  lastValidatedAt        DateTime?
+  lastSuccessfulPollAt   DateTime?
+  lastFailureAt          DateTime?
+  lastHttpStatus         Int?
+  validationAttemptCount Int                          @default(0)
+  validationSuccessCount Int                          @default(0)
+  pollAttemptCount       Int                          @default(0)
+  pollSuccessCount       Int                          @default(0)
+  jobsFetchedCount       Int                          @default(0)
+  jobsAcceptedCount      Int                          @default(0)
+  jobsDedupedCount       Int                          @default(0)
+  jobsCreatedCount       Int                          @default(0)
+  retainedLiveJobCount   Int                          @default(0)
+  lastJobsFetchedCount   Int                          @default(0)
+  lastJobsAcceptedCount  Int                          @default(0)
+  lastJobsDedupedCount   Int                          @default(0)
+  lastJobsCreatedCount   Int                          @default(0)
+  consecutiveFailures    Int                          @default(0)
+  failureStreak          Int                          @default(0)
+  overlapRatio           Float?
+  validationMessage      String?
+  metadataJson           Json?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  atsTenant ATSTenant?   @relation(fields: [atsTenantId], references: [id], onDelete: SetNull)
+  tasks     SourceTask[]
+
+  @@unique([companyId, connectorName, token])
+  @@index([status, priorityScore(sort: Desc)])
+  @@index([companyId, status])
+  @@index([validationState, pollState, priorityScore(sort: Desc)])
+  @@index([companyId, validationState, pollState])
+  @@index([connectorName, token])
+  @@index([connectorName, yieldScore(sort: Desc)])
+}
+
+model ATSTenant {
+  id                 String                @id @default(cuid())
+  companyId          String?
+  platform           AtsPlatform
+  tenantKey          String
+  normalizedBoardUrl String
+  rootHost           String
+  status             SourceCandidateStatus @default(NEW)
+  confidence         Float                 @default(0)
+  discoveryMethod    String?
+  metadataJson       Json?
+  firstSeenAt        DateTime              @default(now())
+  lastSeenAt         DateTime              @default(now())
+  lastValidatedAt    DateTime?
+  lastPromotedAt     DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  sourceCandidates SourceCandidate[]
+  companySource    CompanySource?
+
+  @@unique([platform, tenantKey])
+  @@unique([platform, normalizedBoardUrl])
+  @@index([status, confidence(sort: Desc), lastSeenAt(sort: Desc)])
+  @@index([companyId, status])
+}
+
+model SourceCandidate {
+  id                  String                @id @default(cuid())
+  companyId           String?
+  atsTenantId         String?
+  candidateType       SourceCandidateType
+  status              SourceCandidateStatus @default(NEW)
+  discoveryMode       DiscoveryMode         @default(EXPLORATION)
+  candidateUrl        String
+  normalizedUrlKey    String
+  rootHost            String?
+  rootDomain          String?
+  companyNameHint     String?
+  titleHint           String?
+  atsPlatform         AtsPlatform?
+  atsTenantKey        String?
+  confidence          Float                 @default(0)
+  noveltyScore        Float                 @default(0)
+  coverageGapScore    Float                 @default(0)
+  potentialYieldScore Float                 @default(0)
+  sourceQualityScore  Float                 @default(0)
+  failureCount        Int                   @default(0)
+  lastError           String?
+  metadataJson        Json?
+  firstSeenAt         DateTime              @default(now())
+  lastSeenAt          DateTime              @default(now())
+  lastValidatedAt     DateTime?
+  promotedAt          DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  company   Company?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  atsTenant ATSTenant? @relation(fields: [atsTenantId], references: [id], onDelete: SetNull)
+
+  @@unique([candidateType, normalizedUrlKey])
+  @@index([status, discoveryMode, coverageGapScore(sort: Desc), noveltyScore(sort: Desc)])
+  @@index([atsPlatform, status, potentialYieldScore(sort: Desc)])
+  @@index([companyId, status])
+}
+
+model SourceTask {
+  id              String           @id @default(cuid())
+  kind            SourceTaskKind
+  status          SourceTaskStatus @default(PENDING)
+  priorityScore   Float            @default(0)
+  notBeforeAt     DateTime         @default(now())
+  attemptCount    Int              @default(0)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  lastError       String?
+  payloadJson     Json?
+  companyId       String?
+  companySourceId String?
+  canonicalJobId  String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  company       Company?       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companySource CompanySource? @relation(fields: [companySourceId], references: [id], onDelete: Cascade)
+  canonicalJob  JobCanonical?  @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  @@index([kind, status, notBeforeAt, priorityScore(sort: Desc)])
+  @@index([kind, status, notBeforeAt, priorityScore(sort: Desc), createdAt])
+  @@index([companyId, kind, status])
+  @@index([companySourceId, kind, status])
+  @@index([canonicalJobId, kind, status])
+}
+
+model NormalizedJobRecord {
+  id                       String                    @id @default(cuid())
+  rawJobId                 String                    @unique
+  canonicalJobId           String?
+  status                   NormalizedJobRecordStatus @default(STAGED)
+  normalizationVersion     String
+  rejectionReason          String?
+  integrityReason          String?
+  qualityScore             Float                     @default(0)
+  trustScore               Float                     @default(0)
+  freshnessScore           Float                     @default(0)
+  title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleCandidatesJson      Json?
+  titleRejectedFragmentsJson Json?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
+  company                  String
+  companyKey               String                    @default("")
+  titleKey                 String                    @default("")
+  titleCoreKey             String                    @default("")
+  descriptionFingerprint   String                    @default("")
+  location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
+  locationCandidatesJson   Json?
+  locationKey              String                    @default("")
+  region                   Region?
+  workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
+  workModeCandidatesJson   Json?
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?                   @default("USD")
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
+  employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
+  employmentTypeCandidatesJson Json?
+  experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
+  description              String
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
+  shortSummary             String
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
+  normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
+  normalizedIndustry       String?
+  normalizedIndustries     String[]                   @default([])
+  normalizedIndustryConfidence       Float?
+  normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
+  normalizedRoleCategoryCandidatesJson Json?
+  normalizedRoleCategoryEvidenceJson Json?
+  normalizedRoleCategoryWarningsJson Json?
+  classificationStatus     String?
+  applyUrl                 String
+  applyUrlKey              String?
+  postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
+  deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
+  duplicateClusterId       String
+  metadataJson             Json?
+  warningsJson             Json?
+  extractionWarnings       Json?
+  extractionRejectionReasons Json?
+  metadataExtractionWarnings Json?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  rawJob       JobRaw        @relation(fields: [rawJobId], references: [id], onDelete: Cascade)
+  canonicalJob JobCanonical? @relation(fields: [canonicalJobId], references: [id], onDelete: SetNull)
+
+  @@index([status, qualityScore(sort: Desc), trustScore(sort: Desc)])
+  @@index([companyKey, titleCoreKey, region])
+  @@index([duplicateClusterId])
+  @@index([canonicalJobId])
+  @@index([normalizedEmploymentType])
+  @@index([normalizedCareerStage])
+  @@index([experienceLevelGroup])
+  @@index([normalizedIndustry])
+  @@index([normalizedRoleCategory])
+  @@index([normalizedRoleCategoryGroup])
+}
+
+model PipelineTask {
+  id             String             @id @default(cuid())
+  queueName      PipelineQueueName
+  status         PipelineTaskStatus @default(PENDING)
+  mode           DiscoveryMode?
+  priorityScore  Float              @default(0)
+  idempotencyKey String?
+  notBeforeAt    DateTime           @default(now())
+  leaseExpiresAt DateTime?
+  attemptCount   Int                @default(0)
+  maxAttempts    Int                @default(8)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  lastError      String?
+  payloadJson    Json?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([queueName, idempotencyKey])
+  @@index([queueName, status, notBeforeAt, priorityScore(sort: Desc)])
+  @@index([status, leaseExpiresAt(sort: Asc)])
+}
+
+model JobFeedIndex {
+  canonicalJobId           String              @id
+  status                   JobStatus
+  submissionCategory       SubmissionCategory?
+  title                    String
+  displayTitle             String?
+  titleConfidence          Float?
+  titleStatus              String?
+  titleSource              String?
+  titleExtractionWarnings  Json?
+  jobPageType              String?
+  company                  String
+  location                 String
+  locationConfidence       Float?
+  locationStatus           String?
+  locationSource           String?
+  region                   Region?
+  workMode                 WorkMode
+  workModeConfidence       Float?
+  workModeStatus           String?
+  workModeSource           String?
+  employmentType           EmploymentType
+  employmentTypeGroup      String?
+  employmentTypeConfidence Float?
+  employmentTypeStatus     String?
+  employmentTypeSource     String?
+  experienceLevel          ExperienceLevel?
+  experienceLevelGroup     String?
+  experienceLevelSource    String?
+  experienceLevelEvidenceJson Json?
+  experienceLevelWarningsJson Json?
+  industry                 Industry?
+  roleFamily               String
+  normalizedEmploymentType String?
+  normalizedEmploymentTypeConfidence Float?
+  normalizedCareerStage    String?
+  normalizedCareerStageConfidence    Float?
+  normalizedIndustry       String?
+  normalizedIndustries     String[]             @default([])
+  normalizedIndustryConfidence       Float?
+  normalizedRoleCategory   String?
+  normalizedRoleCategoryConfidence   Float?
+  normalizedRoleCategoryGroup        String?
+  normalizedRoleCategoryStatus       String?
+  normalizedRoleCategorySource       String?
+  classificationStatus     String?
+  salaryMin                Int?
+  salaryMax                Int?
+  salaryCurrency           String?
+  salaryStatus             String?
+  salaryPeriod             String?
+  salaryRawText            String?
+  salaryConfidence         Float?
+  salarySource             String?
+  descriptionStatus        String?
+  descriptionConfidence    Float?
+  descriptionWordCount     Int?
+  postedAt                 DateTime
+  datePostedConfidence     Float?
+  datePostedStatus         String?
+  datePostedSource         String?
+  datePostedRawText        String?
+  deadline                 DateTime?
+  applicationDeadlineConfidence Float?
+  applicationDeadlineStatus     String?
+  applicationDeadlineSource     String?
+  applicationDeadlineRawText    String?
+  qualityScore             Float               @default(0)
+  trustScore               Float               @default(0)
+  freshnessScore           Float               @default(0)
+  rankingScore             Float               @default(0)
+  sourceCount              Int                 @default(0)
+  applyUrl                 String
+  searchText               String
+  metadataJson             Json?
+  extractionWarnings       Json?
+  metadataExtractionWarnings Json?
+  indexedAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  @@index([status, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, postedAt(sort: Desc)])
+  @@index([status, deadline, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([region, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([roleFamily, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([employmentTypeGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([experienceLevelGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([normalizedRoleCategoryGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, workMode, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedEmploymentType, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, employmentTypeGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedCareerStage, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, experienceLevelGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedIndustry, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([status, normalizedRoleCategoryGroup, rankingScore(sort: Desc), postedAt(sort: Desc)])
+  @@index([submissionCategory, rankingScore(sort: Desc), postedAt(sort: Desc)])
+}
+
+model TrackedApplication {
+  id             String                   @id @default(cuid())
+  userId         String
+  canonicalJobId String?
+  company        String
+  roleTitle      String
+  roleUrl        String?
+  status         TrackedApplicationStatus @default(WISHLIST)
+  deadline       DateTime?
+  jobDescription String?
+  fitAnalysis    String?
+  notes          String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canonicalJob  JobCanonical?                @relation(fields: [canonicalJobId], references: [id], onDelete: SetNull)
+  events        TrackedApplicationEvent[]
+  tags          TrackedApplicationTag[]
+  documentLinks TrackedApplicationDocument[]
+  notifications Notification[]
+  reminderLogs  ReminderLog[]
+
+  @@unique([userId, canonicalJobId])
+  @@index([userId])
+  @@index([userId, canonicalJobId, status])
+  @@index([status])
+  @@index([deadline])
+  @@index([canonicalJobId])
+}
+
+model TrackedApplicationEvent {
+  id                   String                      @id @default(cuid())
+  trackedApplicationId String
+  type                 TrackedApplicationEventType
+  timestamp            DateTime                    @default(now())
+  note                 String?
+  reminderAt           DateTime?
+  reminderNotifiedAt   DateTime?
+
+  trackedApplication TrackedApplication @relation(fields: [trackedApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([trackedApplicationId])
+  @@index([timestamp])
+  @@index([reminderAt])
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  name   String
+
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications TrackedApplicationTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model TrackedApplicationTag {
+  trackedApplicationId String
+  tagId                String
+
+  trackedApplication TrackedApplication @relation(fields: [trackedApplicationId], references: [id], onDelete: Cascade)
+  tag                Tag                @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([trackedApplicationId, tagId])
+  @@index([tagId])
+}
+
+model TrackedApplicationDocument {
+  id                   String                         @id @default(cuid())
+  trackedApplicationId String
+  documentId           String
+  slot                 TrackedApplicationDocumentSlot
+
+  trackedApplication TrackedApplication @relation(fields: [trackedApplicationId], references: [id], onDelete: Cascade)
+  document           Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedApplicationId, slot])
+  @@index([documentId])
+}
+
+model Notification {
+  id                   String           @id @default(cuid())
+  userId               String
+  trackedApplicationId String?
+  type                 NotificationType
+  title                String
+  message              String
+  readAt               DateTime?
+  createdAt            DateTime         @default(now())
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackedApplication TrackedApplication? @relation(fields: [trackedApplicationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([trackedApplicationId])
+  @@index([readAt])
+}
+
+model ReminderLog {
+  id                   String               @id @default(cuid())
+  userId               String
+  trackedApplicationId String
+  reminderType         DeadlineReminderType
+  deadlineDate         DateTime
+  createdAt            DateTime             @default(now())
+
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackedApplication TrackedApplication @relation(fields: [trackedApplicationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackedApplicationId, reminderType, deadlineDate])
+  @@index([userId, createdAt])
+  @@index([trackedApplicationId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AuthSecurityToken {
+  id        String                @id @default(cuid())
+  userId    String
+  tokenHash String                @unique
+  type      AuthSecurityTokenType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+  @@index([type, expiresAt])
+}
+
+/// Pre-aggregated summary counts for the /jobs page header.
+///
+/// Refreshed by a systemd timer every ~5 minutes via
+/// scripts/refresh-job-feed-summary.ts. The user-facing page reads this row
+/// instead of running 8 parallel COUNT(*) queries on JobCanonical (which
+/// take 14-60+ seconds when ingestion workers are competing for I/O).
+///
+/// Singleton row — id is always "singleton".
+model JobFeedSummaryCache {
+  id                String   @id
+  liveJobCount      Int
+  addedTodayCount   Int
+  expiredTodayCount Int
+  removedTodayCount Int
+  computedAt        DateTime @default(now()) @updatedAt
 }

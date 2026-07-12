@@ -1,6 +1,5 @@
 import type {
   ApplicationStatus,
-  AutomationMode,
   EmploymentType,
   ExperienceLevel,
   Industry,
@@ -9,7 +8,6 @@ import type {
   JobStatus,
   JobSourceMapping,
   Region,
-  SavedJobStatus,
   SubmissionCategory,
   WorkMode,
 } from "@/generated/prisma/client";
@@ -18,23 +16,12 @@ import type {
   JobLinkTrustLevel,
   JobResolvedLink,
 } from "@/lib/job-links";
+import type { GeoScope } from "@/lib/geo-scope";
 
 export type JobWithEligibility = JobCanonical & {
   eligibility: JobEligibility | null;
   sourceMappings: JobSourceMapping[];
   isSaved: boolean;
-};
-
-export type FeedStats = {
-  totalLive: number;
-  newLast24h: number;
-  expiredCount: number;
-  autoEligibleCount: number;
-  reviewRequiredCount: number;
-  manualOnlyCount: number;
-  savedCount: number;
-  savedEndingSoonCount: number;
-  withheldCount: number;
 };
 
 export type JobCardEligibility = {
@@ -59,19 +46,30 @@ export type JobCardData = {
   title: string;
   company: string;
   location: string;
+  geoScope: GeoScope;
   workMode: WorkMode;
-  industry: Industry;
+  industry: Industry | null;
   status: JobStatus;
   roleFamily: string;
+  normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence: number | null;
+  normalizedIndustry: string | null;
+  normalizedIndustries: string[];
+  normalizedIndustryConfidence: number | null;
+  classificationStatus: string | null;
   experienceLevel: ExperienceLevel | null;
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
   shortSummary: string;
+  description: string;
   applyUrl: string;
   postedAt: string;
   deadline: string | null;
+  lastConfirmedAliveAt: string | null;
+  lastSourceSeenAt: string | null;
   isSaved: boolean;
+  hasApplied: boolean;
   eligibility: JobCardEligibility;
   sourceMappings: JobCardSource[];
   primaryExternalLink: JobResolvedLink | null;
@@ -80,8 +78,7 @@ export type JobCardData = {
 };
 
 export type JobDetailData = JobCardData & {
-  description: string;
-  region: Region;
+  region: Region | null;
   employmentType: EmploymentType;
 };
 
@@ -105,6 +102,7 @@ export type ApplicationPackageSummary = {
   resumeVariant: ResumeVariantSummary;
   whyItMatches: string | null;
   coverLetterContent: string | null;
+  userNotes: string | null;
   attachedLinks: Array<{ label: string; value: string }>;
   savedAnswers: Array<{ label: string; value: string }>;
   createdAt: string;
@@ -134,7 +132,6 @@ export type ApplicationReviewData = {
   submissions: ApplicationSubmissionSummary[];
   packagePreview: ApplicationPackagePreview;
   reviewState: ApplicationReviewState;
-  automationMode: AutomationMode;
   workAuthorization: string | null;
 };
 
@@ -147,9 +144,15 @@ export type ApplicationHistoryItem = {
     company: string;
     location: string;
     workMode: WorkMode;
-    industry: Industry;
+    industry: Industry | null;
     status: JobStatus;
     roleFamily: string;
+    normalizedRoleCategory: string | null;
+    normalizedRoleCategoryConfidence: number | null;
+    normalizedIndustry: string | null;
+    normalizedIndustries: string[];
+    normalizedIndustryConfidence: number | null;
+    classificationStatus: string | null;
     applyUrl: string;
     postedAt: string;
     eligibility: JobCardEligibility;
@@ -160,24 +163,32 @@ export type ApplicationHistoryItem = {
   latestActivityAt: string;
 };
 
-export type SavedJobListItem = {
-  id: string;
-  status: SavedJobStatus;
-  notes: string | null;
-  createdAt: string;
-  canonicalJob: JobCardData;
-};
-
 export type JobFilters = {
   search?: string;
+  searchScope?: "all" | "title" | "company" | "location";
+  titleSearch?: string;
+  companySearch?: string;
+  locationSearch?: string;
+  location?: string;
+  source?: string;
   region?: string;
   workMode?: string;
+  employmentType?: string;
   industry?: string;
+  jobFunction?: string;
+  roleCategory?: string;
   roleFamily?: string;
   salaryMin?: string;
+  salaryMax?: string;
+  salaryCurrency?: string;
+  includeUnknownSalary?: string;
   experienceLevel?: string;
+  careerStage?: string;
+  expiry?: string;
+  posted?: string;
   submissionCategory?: string;
   status?: string;
-  sortBy?: "relevance" | "freshness" | "salary";
+  sortBy?: "relevance" | "newest" | "deadline" | "company";
   page?: string;
+  debugFilters?: string;
 };

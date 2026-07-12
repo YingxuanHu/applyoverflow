@@ -1,0 +1,37 @@
+{
+  "generatedAt": "2026-05-27T06:06:17.983Z",
+  "seedFile": "/Users/alvinhu/projects/autoapplication/data/discovery/seeds/first_party_company_seeds.csv",
+  "selectedCount": 2,
+  "previewLimit": 2,
+  "byFeasibility": {
+    "IMPLEMENTED": 2
+  },
+  "implemented": [
+    {
+      "companyName": "Amazon",
+      "connector": "amazon:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "Software Development Engineer, Selling Partner Financial Technology",
+        "Sr Software Dev Engineer III, RDS for Oracle"
+      ]
+    },
+    {
+      "companyName": "Apple",
+      "connector": "apple:north-america",
+      "jobsFound": 2,
+      "sampleTitles": [
+        "CA - Specialist: Seasonal, Part-time",
+        "People Business Partner"
+      ]
+    }
+  ],
+  "needsConnector": [],
+  "blockedOrFragile": [],
+  "persistence": {
+    "registered": 2,
+    "skipped": 0,
+    "validationTasksQueued": 0,
+    "pollTasksQueued": 2
+  }
+}

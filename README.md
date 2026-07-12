@@ -1,22 +1,45 @@
-## AutoApplication
+## ApplyOverflow
 
-North America-focused job search and application engine for tech and finance roles first.
+North America-focused job search and application engine for white-collar roles across tech, finance, and general knowledge-worker functions.
 
 Current implemented slice:
 
 - feed-first `/jobs` experience over a canonical live job pool
 - `/jobs` now defaults to live non-demo-backed jobs and resolves outbound links through a trust layer before rendering external actions
 - dedicated `/jobs/[id]` detail page with classification, explanation, and source context
-- `/jobs/[id]/apply` review flow with resume/package preview and submission tracking
+- `/jobs/[id]/apply` review flow with resume/package preview, per-job notes, and submission tracking
 - shortlist workflow through `/saved`
 - application history in `/applications`
-- profile and resume overview in `/profile`
-- internal `/ops/ingestion` visibility page for recent runs, source coverage, schedule cadence, and lifecycle counts
-- cron-ready `/api/ingestion/schedule` route plus `npm run ingest:schedule` script for cadence-driven ingestion
-- ingestion pipeline with connector interface, normalization, stronger cross-source dedupe, lifecycle sweeps, removal handling, run tracking, and real Greenhouse + Lever + Recruitee + SmartRecruiters connectors
-- Prisma/Postgres domain model for canonical jobs, raw jobs, source mappings, eligibility, saved jobs, profile data, and submissions
+- profile editor at `/profile` — contact info, skills, experience, education, projects, preferences
+- profile completeness indicator — weighted score showing which fields improve AI quality and application materials
+- document upload — PDF/DOCX resume upload with text extraction; documents linked to resume variants
+- AI resume ingestion — parse an uploaded resume with OpenAI to populate structured profile fields
+- per-job AI workspace — fit analysis (score + strengths/gaps + keywords) and cover letter generation powered by OpenAI
+- internal `/ops/*` visibility pages for ingestion, discovery, URL health, and ranking diagnostics; access is restricted by `OPS_ADMIN_EMAILS`
+- cron-ready `/api/ingestion/schedule` route for cadence-driven ingestion
+- ingestion pipeline with connector interface, normalization, stronger cross-source dedupe, lifecycle sweeps, removal handling, run tracking, feed-index repair, and many ATS/API connectors
+- Prisma/Postgres domain model for canonical jobs, raw jobs, source mappings, eligibility, saved jobs, profile data, documents, and submissions
 - seeded demo dataset plus live external ingestion for local development
   - demo-backed canonical jobs stay useful for modeling and local data shape checks, but the main feed hides them when they do not have a trustworthy live source
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | Optional | Adzuna job board API credentials |
+| `OPENAI_API_KEY` | Optional | Unlocks AI features — resume parsing, fit analysis, cover letter generation |
+| `OPENAI_FAST_MODEL` | Optional | Low-latency model for extraction, classification, and cheap background tasks (default: `gpt-5.4-nano`) |
+| `OPENAI_STANDARD_MODEL` | Optional | Default model for structured analysis and generation (default: `gpt-5.4-mini`) |
+| `OPENAI_REASONING_MODEL` | Optional | Higher-quality model for heavier document generation and review tasks (default: `gpt-5.4`) |
+| `OPS_ADMIN_EMAILS` | Required for `/ops/*` access | Comma- or newline-separated email allowlist for ops dashboards |
+| `STORAGE_*` | Optional | S3-compatible storage for uploaded and generated documents |
+
+Copy `.env.example` to `.env` and fill in your values. AI features degrade gracefully when `OPENAI_API_KEY` is absent — all other functionality is unaffected.
+
+For split web / worker deployments, keep the web node on `DISABLE_INGEST_DAEMON=1`, set `DATABASE_URL_DO_PRIVATE` for the DigitalOcean VPC database endpoint, and record the worker IPs with `DO_WORKER_DROPLET_IPV4` / `DO_WORKER_DROPLET_PRIVATE_IPV4`. Worker-side Prisma roles now prefer `DATABASE_URL_DO_PRIVATE` automatically unless `DATABASE_PREFER_PRIVATE_FOR_WORKERS=0`.
+
+Lifecycle tuning is now profile-driven through `LIFECYCLE_PROFILE=aggressive|balanced|conservative`, so expiration experiments no longer require editing `src/lib/ingestion/pipeline.ts` directly.
 
 ## Local development
 
@@ -26,7 +49,7 @@ Run the app:
 npm run dev
 ```
 
-`npm run dev` uses webpack mode with a 2 GB heap cap. That is the safest default for this repo on a memory-constrained laptop.
+`npm run dev` starts the app stack through `scripts/run-app-stack.ts` and defaults to Turbopack with a 2 GB heap cap. Set `BUNDLER=webpack` or use `npm run dev:web` if you need the webpack fallback.
 
 If dev ever looks stuck compiling after a bad edit or stale `.next` state, stop the current dev server and use:
 
@@ -52,6 +75,23 @@ Validate the repo state:
 npm run lint
 npm run typecheck
 npm run build
+```
+
+Single-VPS production migration notes live in
+`docs/deployment/single-vps-migration.md`. That path is intended for the
+low-cost test-team setup: one VPS running web, worker, Postgres, Caddy, and
+nightly object-storage backups.
+
+Operational growth tooling:
+
+```bash
+npm run source:report-lifecycle -- --days=60
+npm run source:benchmark-dedupe -- --sample-size=100
+npm run source:audit-classifier -- --families=usajobs,jobbank,successfactors
+npm run source:demote-stale -- --recent-success-days=7 --no-mapping-days=14
+npm run enterprise:preflight -- --family=workday --limit=50 --register --promote
+npm run jobs:backfill-feed-index -- --mode=all --batch-size=500
+npm run jobs:refresh-feed-summary
 ```
 
 Seed the local database:
@@ -138,58 +178,30 @@ npx tsx scripts/generate-seed.ts --families=workday --out=data/discovery/seeds/w
 npx tsx scripts/discover-sources.ts --dataset=data/discovery/seeds/workday-candidates.json --limit=5
 ```
 
-Run the default curated Recruitee expansion batch and print a before/after impact report:
-
-```bash
-npm run ingest:expand
-```
-
-Preview an expansion batch without consuming the net-new canonical yield during evaluation:
-
-```bash
-npm run ingest:expand -- --profile=recruitee_growth_batch --dry-run
-```
-
-Run a specific expansion profile:
-
-```bash
-npm run ingest:expand -- --profile=greenhouse_trusted_batch
-npm run ingest:expand -- --profile=greenhouse_growth_batch
-npm run ingest:expand -- --profile=rippling_growth_batch
-npm run ingest:expand -- --profile=recruitee_growth_batch
-npm run ingest:expand -- --profile=ashby_growth_batch
-npm run ingest:expand -- --profile=ashby_yield_batch
-npm run ingest:expand -- --profile=ashby_marginal_yield_batch
-npm run ingest:expand -- --profile=ashby_next_yield_batch
-npm run ingest:expand -- --profile=ashby_strict_yield_batch
-```
-
-Run the scheduled ingestion batch locally:
-
-```bash
-npm run ingest:schedule -- --force
-```
-
 ## Product direction
 
 - Feed first, apply flow second
-- Total live job pool plus stricter auto-apply eligible pool
-- Clear classification per job: auto-apply eligible, review required, manual only
+- Total live job pool plus stricter ready-to-apply/review/manual quality bands
+- Clear classification per job: ready to apply, review required, or manual only
 - Deduplication, freshness, expiration tracking, and quality guardrails are foundational
 - This is not a blind spam-style mass apply bot
 
 ## Main project paths
 
-- `src/app/jobs` for the main feed
-- `src/app/saved` for shortlist review
-- `src/app/applications` for package and submission history
-- `src/app/profile` for profile and resume overview
-- `src/app/ops/ingestion` for internal ingestion visibility
-- `src/app/api` for route handlers
-- `src/lib/queries` for Prisma-backed data access
-- `src/lib/ingestion` for connector fetch, normalization, dedupe, lifecycle, eligibility, and scheduling helpers
-- `scripts/ingest.ts` for manual ingestion runs
-- `scripts/ingest-scheduled.ts` for local scheduled-batch execution
-- `prisma/` for schema, migrations, and seed data
+- `src/app/jobs` — main feed
+- `src/app/saved` — redirects to the Applications wishlist view
+- `src/app/applications` — package and submission history
+- `src/app/profile` — profile editor, completeness indicator, document upload
+- `src/app/ops/*` — admin-only ingestion, discovery, health, and ranking diagnostics
+- `src/app/api` — route handlers
+- `src/lib/queries` — Prisma-backed data access
+- `src/lib/ingestion` — connector fetch, normalization, dedupe, lifecycle, eligibility, and scheduling helpers
+- `src/lib/ai` — AI modules: provider abstraction, resume parser, profile merge, job fit analysis, cover letter generation
+- `src/lib/storage` — S3-compatible document storage with legacy local-read fallback
+- `src/lib/resume-ingestion.ts` and `src/lib/profile-resume-service.ts` — document text extraction, AI resume parsing, and structured profile merge
+- `src/components/profile` — profile editor, completeness indicator, resume upload, document list
+- `src/components/jobs` — job cards, review actions, AI workspace, per-job notes
+- `scripts/ingest.ts` — manual ingestion runs
+- `prisma/` — schema, migrations, and seed data
 
 Use the actual repository state as the source of truth over older notes or assistant summaries.

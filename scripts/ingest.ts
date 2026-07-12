@@ -1,7 +1,6 @@
 import "dotenv/config";
 import {
   previewConnectorIngestion,
-  reconcileCanonicalLifecycle,
   ingestConnector,
 } from "../src/lib/ingestion/pipeline";
 import {
@@ -23,13 +22,15 @@ async function main() {
         })
       : await ingestConnector(connector, {
           limit: args.limit,
+          maxRuntimeMs: args.maxRuntimeMs,
           allowOverlappingRuns: args.allowOverlap === true,
         });
     summaries.push(summary);
   }
-  const lifecycle = args.dryRun ? null : await reconcileCanonicalLifecycle();
-
-  console.log(JSON.stringify({ dryRun: args.dryRun ?? false, summaries, lifecycle }, null, 2));
+  // reconcileCanonicalLifecycle() sweeps all 300k+ canonical jobs — only run
+  // it from the daemon. The CLI already gets per-run lifecycle tallies from
+  // ingestConnector's own refreshCanonicalStatuses call.
+  console.log(JSON.stringify({ dryRun: args.dryRun ?? false, summaries }, null, 2));
 }
 
 function parseArgs(rawArgs: string[]) {
@@ -44,6 +45,7 @@ function parseArgs(rawArgs: string[]) {
     account?: string;
     accounts?: string;
     limit?: number;
+    maxRuntimeMs?: number;
     dryRun?: boolean;
     allowOverlap?: boolean;
   } = {};
@@ -85,10 +87,17 @@ function parseArgs(rawArgs: string[]) {
     if (key === "account") parsedArgs.account = value;
     if (key === "accounts") parsedArgs.accounts = value;
     if (key === "limit") parsedArgs.limit = Number.parseInt(value, 10);
+    if (key === "max-runtime-ms") parsedArgs.maxRuntimeMs = Number.parseInt(value, 10);
   }
 
   if (parsedArgs.limit !== undefined && Number.isNaN(parsedArgs.limit)) {
     throw new Error(`Invalid --limit value "${String(parsedArgs.limit)}"`);
+  }
+  if (
+    parsedArgs.maxRuntimeMs !== undefined &&
+    Number.isNaN(parsedArgs.maxRuntimeMs)
+  ) {
+    throw new Error(`Invalid --max-runtime-ms value "${String(parsedArgs.maxRuntimeMs)}"`);
   }
 
   return parsedArgs;

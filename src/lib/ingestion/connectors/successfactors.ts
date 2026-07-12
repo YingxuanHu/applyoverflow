@@ -9,6 +9,11 @@ import type {
   SourceConnectorFetchResult,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
+import { decodeHtmlEntitiesFull as decodeHtmlEntities } from "@/lib/ingestion/html-description";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 const SUCCESSFACTORS_PAGE_SIZE = 25;
 const SUCCESSFACTORS_DETAIL_CONCURRENCY = 6;
@@ -193,6 +198,7 @@ export function createSuccessFactorsConnector(
           options.companyName ?? deriveCompanyName(target.host),
         now: fetchOptions.now,
         limit: fetchOptions.limit,
+        signal: fetchOptions.signal,
       });
       fetchCache.set(cacheKey, request);
       return request;
@@ -205,13 +211,15 @@ async function fetchSuccessFactorsJobs({
   fallbackCompanyName,
   now,
   limit,
+  signal,
 }: {
   target: SuccessFactorsTarget;
   fallbackCompanyName: string;
   now: Date;
   limit?: number;
+  signal?: AbortSignal;
 }): Promise<SourceConnectorFetchResult> {
-  const listingJobs = await fetchListingJobs(target, limit);
+  const listingJobs = await fetchListingJobs(target, limit, signal);
   const jobs = await mapWithConcurrency(
     listingJobs,
     SUCCESSFACTORS_DETAIL_CONCURRENCY,
@@ -221,6 +229,7 @@ async function fetchSuccessFactorsJobs({
         fallbackCompanyName,
         listingJob,
         now,
+        signal,
       })
   );
 
@@ -238,7 +247,8 @@ async function fetchSuccessFactorsJobs({
 
 async function fetchListingJobs(
   target: SuccessFactorsTarget,
-  limit?: number
+  limit?: number,
+  signal?: AbortSignal
 ): Promise<SuccessFactorsListJob[]> {
   const jobs: SuccessFactorsListJob[] = [];
   let startRow = 0;
@@ -250,7 +260,7 @@ async function fetchListingJobs(
     if (remaining === 0) break;
 
     const url = buildSuccessFactorsSearchUrl(target, startRow);
-    const html = await fetchText(url);
+    const html = await fetchText(url, signal);
     const pageJobs = parseSearchResultsPage(html, target);
 
     if (pageJobs.length === 0) break;
@@ -312,16 +322,18 @@ async function buildSourceJob({
   fallbackCompanyName,
   listingJob,
   now,
+  signal,
 }: {
   target: SuccessFactorsTarget;
   fallbackCompanyName: string;
   listingJob: SuccessFactorsListJob;
   now: Date;
+  signal?: AbortSignal;
 }): Promise<SourceConnectorJob> {
   let detail: SuccessFactorsJobDetail | null = null;
 
   try {
-    const html = await fetchText(listingJob.detailUrl);
+    const html = await fetchText(listingJob.detailUrl, signal);
     detail = parseJobDetailPage(html, listingJob.detailUrl);
   } catch {
     detail = null;
@@ -334,7 +346,10 @@ async function buildSourceJob({
     detail?.company?.trim() || fallbackCompanyName;
   const title = detail?.title?.trim() || listingJob.title;
   const location = detail?.location?.trim() || listingJob.location;
-  const applyUrl = detail?.applyUrl?.trim() || listingJob.detailUrl;
+  const applyUrl = chooseSuccessFactorsApplyUrl(
+    detail?.applyUrl?.trim() || null,
+    listingJob.detailUrl
+  );
 
   return {
     sourceId: listingJob.detailUrl,
@@ -358,6 +373,19 @@ async function buildSourceJob({
       pathPrefix: target.pathPrefix,
     } as Prisma.InputJsonValue,
   };
+}
+
+function chooseSuccessFactorsApplyUrl(applyUrl: string | null, detailUrl: string) {
+  if (!applyUrl) return detailUrl;
+  try {
+    const parsed = new URL(applyUrl);
+    if (/\/talentcommunity\/apply\//i.test(parsed.pathname)) {
+      return detailUrl;
+    }
+  } catch {
+    return detailUrl;
+  }
+  return applyUrl;
 }
 
 function parseJobDetailPage(
@@ -466,12 +494,14 @@ function deriveCompanyName(host: string) {
     .join(" ");
 }
 
-async function fetchText(url: string) {
+async function fetchText(url: string, signal?: AbortSignal) {
+  throwIfAborted(signal);
   const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; autoapplication-successfactors/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; applyoverflow-successfactors/1.0)",
     },
+    signal: buildTimeoutSignal(signal, 45_000),
   });
 
   if (!response.ok) {
@@ -480,6 +510,7 @@ async function fetchText(url: string) {
     );
   }
 
+  throwIfAborted(signal);
   return response.text();
 }
 
@@ -557,21 +588,6 @@ function cleanText(value: string | null | undefined) {
     .trim();
 }
 
-function decodeHtmlEntities(value: string) {
-  return value
-    .replace(/&#(\d+);/g, (_, code) =>
-      String.fromCodePoint(Number.parseInt(code, 10))
-    )
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
-      String.fromCodePoint(Number.parseInt(code, 16))
-    )
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-}
 
 function parseSuccessFactorsDate(value: string | null) {
   if (!value) return null;

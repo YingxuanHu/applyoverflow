@@ -1,8 +1,23 @@
 import { prisma } from "@/lib/db";
-import { DEMO_USER_ID } from "@/lib/constants";
+import { sanitizeCompanyName, sanitizeJobTitle } from "@/lib/job-cleanup";
+import { isClearlyNonJobPosting } from "@/lib/job-integrity";
+import {
+  getOptionalCurrentProfileId,
+  requireCurrentProfileId,
+} from "@/lib/current-user";
 import { formatDisplayLabel, formatSalary } from "@/lib/job-display";
 import { serializeJobDetailData } from "@/lib/job-serialization";
+import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
+import {
+  JOB_BOARD_MIN_AVAILABILITY_SCORE,
+  RECENT_ALIVE_EVIDENCE_MAX_AGE_MS,
+  RECENT_SOURCE_EVIDENCE_MAX_AGE_MS,
+} from "@/lib/jobs/visibility";
 import { recordAction } from "@/lib/queries/behavior";
+import {
+  syncTrackedApplicationFromSubmission,
+  syncTrackedApplicationLifecycleFromSubmission,
+} from "@/lib/queries/tracker";
 import type {
   ApplicationHistoryItem,
   ApplicationHistoryStatus,
@@ -26,17 +41,18 @@ const NON_TERMINAL_SUBMISSION_STATUSES: ReadonlySet<
 ] as const);
 
 export async function getApplicationHistory(): Promise<ApplicationHistoryItem[]> {
+  const userId = await requireCurrentProfileId();
   const jobs = await prisma.jobCanonical.findMany({
     where: {
       OR: [
         {
           applicationPackages: {
-            some: { userId: DEMO_USER_ID },
+            some: { userId },
           },
         },
         {
           applicationSubmissions: {
-            some: { userId: DEMO_USER_ID },
+            some: { userId },
           },
         },
       ],
@@ -44,7 +60,7 @@ export async function getApplicationHistory(): Promise<ApplicationHistoryItem[]>
     include: {
       eligibility: true,
       applicationPackages: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         include: {
           resumeVariant: true,
         },
@@ -52,7 +68,7 @@ export async function getApplicationHistory(): Promise<ApplicationHistoryItem[]>
         take: 1,
       },
       applicationSubmissions: {
-        where: { userId: DEMO_USER_ID },
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         take: 1,
       },
@@ -71,18 +87,24 @@ export async function getApplicationHistory(): Promise<ApplicationHistoryItem[]>
 export async function getApplicationReviewData(
   jobId: string
 ): Promise<ApplicationReviewData | null> {
+  const userId = await getOptionalCurrentProfileId();
+  if (!userId) return null;
+
   const [job, profile] = await Promise.all([
     prisma.jobCanonical.findUnique({
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
-          where: { userId: DEMO_USER_ID, status: "ACTIVE" },
+          where: { userId, status: "ACTIVE" },
           select: { id: true },
         },
         applicationPackages: {
-          where: { userId: DEMO_USER_ID },
+          where: { userId },
           include: {
             resumeVariant: true,
           },
@@ -90,14 +112,14 @@ export async function getApplicationReviewData(
           take: 1,
         },
         applicationSubmissions: {
-          where: { userId: DEMO_USER_ID },
+          where: { userId },
           orderBy: { updatedAt: "desc" },
           take: 5,
         },
       },
     }),
     prisma.userProfile.findUnique({
-      where: { id: DEMO_USER_ID },
+      where: { id: userId },
       include: {
         resumeVariants: {
           orderBy: { createdAt: "desc" },
@@ -107,6 +129,18 @@ export async function getApplicationReviewData(
   ]);
 
   if (!job || !profile) return null;
+  if (
+    isClearlyNonJobPosting({
+      title: job.title,
+      description: job.description,
+      applyUrl: job.applyUrl,
+    })
+  ) {
+    return null;
+  }
+  if (isUnavailableForJobDetail(job)) {
+    return null;
+  }
 
   const latestPackage = job.applicationPackages[0] ?? null;
   const recommendedResume =
@@ -114,6 +148,7 @@ export async function getApplicationReviewData(
     selectRecommendedResumeVariant(job.roleFamily, profile.resumeVariants);
 
   const detailJob = serializeJobDetail(job);
+
   const packagePreview = buildPackagePreview(detailJob, profile, recommendedResume);
   const reviewState = getApplicationReviewState(detailJob);
 
@@ -128,7 +163,6 @@ export async function getApplicationReviewData(
     submissions: job.applicationSubmissions.map(serializeApplicationSubmission),
     packagePreview,
     reviewState,
-    automationMode: profile.automationMode,
     workAuthorization: profile.workAuthorization,
   };
 }
@@ -157,9 +191,9 @@ export async function prepareApplicationReview(jobId: string) {
       : null,
     packageId: packageRecord.id,
     status: "READY",
-    submissionMethod: "review",
+    submissionMethod: "manual",
     submittedAt: null,
-    notes: "Prepared for review in the apply flow.",
+    notes: "Prepared for manual application.",
   });
 
   return {
@@ -175,8 +209,9 @@ export async function updateApplicationSubmissionStatus(
   jobId: string,
   status: "CONFIRMED" | "FAILED" | "WITHDRAWN"
 ) {
+  const userId = await requireCurrentProfileId();
   const latestSubmission = await prisma.applicationSubmission.findFirst({
-    where: { canonicalJobId: jobId, userId: DEMO_USER_ID },
+    where: { canonicalJobId: jobId, userId },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -192,10 +227,16 @@ export async function updateApplicationSubmissionStatus(
     },
   });
 
+  await syncTrackedApplicationLifecycleFromSubmission({
+    canonicalJobId: jobId,
+    submissionStatus: status,
+  });
+
   return serializeApplicationSubmission(updated);
 }
 
 export async function submitApplicationReview(jobId: string) {
+  const userId = await requireCurrentProfileId();
   const context = await getMutableApplicationContext(jobId);
   if (!context) throw new Error("Application review context not found");
 
@@ -212,8 +253,7 @@ export async function submitApplicationReview(jobId: string) {
     packagePreview,
   });
 
-  const submissionMethod =
-    job.eligibility?.submissionCategory === "MANUAL_ONLY" ? "manual" : "review";
+  const submissionMethod = "manual";
   const submittedAt = new Date();
 
   const submissionRecord = await upsertApplicationSubmission({
@@ -225,10 +265,7 @@ export async function submitApplicationReview(jobId: string) {
     status: "SUBMITTED",
     submissionMethod,
     submittedAt,
-    notes:
-      submissionMethod === "manual"
-        ? "Marked submitted manually from the apply review flow."
-        : "Marked submitted from the apply review flow.",
+    notes: "Marked submitted from the application package flow.",
   });
 
   await Promise.all([
@@ -236,12 +273,12 @@ export async function submitApplicationReview(jobId: string) {
     prisma.savedJob.upsert({
       where: {
         userId_canonicalJobId: {
-          userId: DEMO_USER_ID,
+          userId,
           canonicalJobId: jobId,
         },
       },
       create: {
-        userId: DEMO_USER_ID,
+        userId,
         canonicalJobId: jobId,
         status: "APPLIED",
       },
@@ -249,6 +286,7 @@ export async function submitApplicationReview(jobId: string) {
         status: "APPLIED",
       },
     }),
+    syncTrackedApplicationFromSubmission(jobId),
   ]);
 
   return {
@@ -261,31 +299,35 @@ export async function submitApplicationReview(jobId: string) {
 }
 
 async function getMutableApplicationContext(jobId: string) {
+  const userId = await requireCurrentProfileId();
   const [job, profile] = await Promise.all([
     prisma.jobCanonical.findUnique({
       where: { id: jobId },
       include: {
         eligibility: true,
+        feedIndex: {
+          select: { status: true },
+        },
         sourceMappings: true,
         savedJobs: {
-          where: { userId: DEMO_USER_ID, status: "ACTIVE" },
+          where: { userId, status: "ACTIVE" },
           select: { id: true },
         },
         applicationPackages: {
-          where: { userId: DEMO_USER_ID },
+          where: { userId },
           include: { resumeVariant: true },
           orderBy: { updatedAt: "desc" },
           take: 1,
         },
         applicationSubmissions: {
-          where: { userId: DEMO_USER_ID },
+          where: { userId },
           orderBy: { updatedAt: "desc" },
           take: 1,
         },
       },
     }),
     prisma.userProfile.findUnique({
-      where: { id: DEMO_USER_ID },
+      where: { id: userId },
       include: {
         resumeVariants: {
           orderBy: { createdAt: "desc" },
@@ -295,6 +337,18 @@ async function getMutableApplicationContext(jobId: string) {
   ]);
 
   if (!job || !profile) return null;
+  if (
+    isClearlyNonJobPosting({
+      title: job.title,
+      description: job.description,
+      applyUrl: job.applyUrl,
+    })
+  ) {
+    return null;
+  }
+  if (!isReadyToApplyJob(job)) {
+    return null;
+  }
 
   return {
     job,
@@ -305,6 +359,66 @@ async function getMutableApplicationContext(jobId: string) {
     latestPackage: job.applicationPackages[0] ?? null,
     latestSubmission: job.applicationSubmissions[0] ?? null,
   };
+}
+
+function isReadyToApplyJob(job: {
+  status: string;
+  applyUrl: string;
+  deadline: Date | null;
+  deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
+}) {
+  return (
+    job.status === "LIVE" &&
+    job.feedIndex?.status === "LIVE" &&
+    (job.availabilityScore ?? 0) >= JOB_BOARD_MIN_AVAILABILITY_SCORE &&
+    hasRecentLiveEvidence(job) &&
+    !hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) &&
+    /^https?:\/\//i.test(job.applyUrl) &&
+    job.deadSignalAt === null &&
+    (!job.deadline || job.deadline.getTime() >= Date.now())
+  );
+}
+
+function isUnavailableForJobDetail(job: {
+  status: string;
+  applyUrl: string;
+  deadline: Date | null;
+  deadSignalAt: Date | null;
+  availabilityScore?: number | null;
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+  applyUrlValidationStatus?: string | null;
+  feedIndex?: { status: string } | null;
+}) {
+  return (
+    job.status === "REMOVED" ||
+    job.status === "EXPIRED" ||
+    job.feedIndex?.status !== "LIVE" ||
+    (job.availabilityScore ?? 0) < JOB_BOARD_MIN_AVAILABILITY_SCORE ||
+    !hasRecentLiveEvidence(job) ||
+    hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) ||
+    !/^https?:\/\//i.test(job.applyUrl) ||
+    job.deadSignalAt !== null ||
+    (job.deadline !== null && job.deadline.getTime() < Date.now())
+  );
+}
+
+function hasRecentLiveEvidence(job: {
+  lastSourceSeenAt?: Date | null;
+  lastConfirmedAliveAt?: Date | null;
+}) {
+  const now = Date.now();
+  return Boolean(
+    (job.lastSourceSeenAt &&
+      now - job.lastSourceSeenAt.getTime() <= RECENT_SOURCE_EVIDENCE_MAX_AGE_MS) ||
+      (job.lastConfirmedAliveAt &&
+        now - job.lastConfirmedAliveAt.getTime() <= RECENT_ALIVE_EVIDENCE_MAX_AGE_MS)
+  );
 }
 
 async function upsertApplicationPackage({
@@ -318,8 +432,9 @@ async function upsertApplicationPackage({
   resumeVariantId: string;
   packagePreview: ApplicationPackagePreview;
 }) {
+  const userId = await requireCurrentProfileId();
   const data = {
-    userId: DEMO_USER_ID,
+    userId,
     canonicalJobId: jobId,
     resumeVariantId,
     coverLetterContent: null,
@@ -367,8 +482,9 @@ async function upsertApplicationSubmission({
   submittedAt: Date | null;
   notes: string;
 }) {
+  const userId = await requireCurrentProfileId();
   const data = {
-    userId: DEMO_USER_ID,
+    userId,
     canonicalJobId: jobId,
     packageId,
     status,
@@ -439,6 +555,8 @@ function serializeJobDetail(job: {
   applyUrl: string;
   postedAt: Date;
   deadline: Date | null;
+  lastConfirmedAliveAt: Date | null;
+  lastSourceSeenAt: Date | null;
   description: string;
   region: JobDetailData["region"];
   employmentType: JobDetailData["employmentType"];
@@ -490,6 +608,7 @@ function serializeApplicationPackage(applicationPackage: {
   };
   whyItMatches: string | null;
   coverLetterContent: string | null;
+  userNotes: string | null;
   attachedLinks: Prisma.JsonValue;
   savedAnswers: Prisma.JsonValue;
   createdAt: Date;
@@ -500,6 +619,7 @@ function serializeApplicationPackage(applicationPackage: {
     resumeVariant: serializeResumeVariant(applicationPackage.resumeVariant),
     whyItMatches: applicationPackage.whyItMatches,
     coverLetterContent: applicationPackage.coverLetterContent,
+    userNotes: applicationPackage.userNotes,
     attachedLinks: jsonObjectToEntries(applicationPackage.attachedLinks),
     savedAnswers: jsonObjectToEntries(applicationPackage.savedAnswers),
     createdAt: applicationPackage.createdAt.toISOString(),
@@ -538,6 +658,12 @@ function serializeApplicationHistoryItem(job: {
   industry: JobDetailData["industry"];
   status: JobDetailData["status"];
   roleFamily: string;
+  normalizedRoleCategory: string | null;
+  normalizedRoleCategoryConfidence: number | null;
+  normalizedIndustry: string | null;
+  normalizedIndustries?: string[];
+  normalizedIndustryConfidence: number | null;
+  classificationStatus: string | null;
   applyUrl: string;
   postedAt: Date;
   eligibility: JobCardEligibility;
@@ -552,6 +678,7 @@ function serializeApplicationHistoryItem(job: {
     };
     whyItMatches: string | null;
     coverLetterContent: string | null;
+    userNotes: string | null;
     attachedLinks: Prisma.JsonValue;
     savedAnswers: Prisma.JsonValue;
     createdAt: Date;
@@ -580,13 +707,21 @@ function serializeApplicationHistoryItem(job: {
   return {
     job: {
       id: job.id,
-      title: job.title,
-      company: job.company,
+      title: sanitizeJobTitle(job.title),
+      company: sanitizeCompanyName(job.company, {
+        urls: [job.applyUrl],
+      }),
       location: job.location,
       workMode: job.workMode,
       industry: job.industry,
       status: job.status,
       roleFamily: job.roleFamily,
+      normalizedRoleCategory: job.normalizedRoleCategory,
+      normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence,
+      normalizedIndustry: job.normalizedIndustry,
+      normalizedIndustries: job.normalizedIndustries ?? [],
+      normalizedIndustryConfidence: job.normalizedIndustryConfidence,
+      classificationStatus: job.classificationStatus,
       applyUrl: job.applyUrl,
       postedAt: job.postedAt.toISOString(),
       eligibility: job.eligibility,
@@ -637,7 +772,6 @@ function buildPackagePreview(
     salaryMax: number | null;
     salaryCurrency: string | null;
     preferredWorkMode: JobDetailData["workMode"] | null;
-    automationMode: ApplicationReviewData["automationMode"];
   },
   recommendedResume: ResumeVariantSummary | null
 ): ApplicationPackagePreview {
@@ -669,10 +803,6 @@ function buildPackagePreview(
           value: formatDisplayLabel(profile.preferredWorkMode),
         }
       : null,
-    {
-      label: "Automation mode",
-      value: formatDisplayLabel(profile.automationMode),
-    },
   ].filter((entry): entry is { label: string; value: string } => entry !== null);
 
   return {
@@ -680,9 +810,7 @@ function buildPackagePreview(
     savedAnswers,
     whyItMatches: buildPackageWhyItMatches(job, recommendedResume),
     coverLetterMode:
-      job.eligibility?.submissionCategory === "MANUAL_ONLY"
-        ? "No auto-generated cover letter. Manual tailoring is expected."
-        : "No custom cover letter yet. This review flow is resume-first.",
+      "No custom cover letter attached yet. Generate or tailor one before applying if the posting asks for it.",
   };
 }
 
@@ -692,8 +820,10 @@ function buildPackageWhyItMatches(
 ) {
   const reasons = [
     `${job.roleFamily} role family alignment`,
-    `${formatDisplayLabel(job.industry)} focus`,
-    `${formatDisplayLabel(job.workMode)} work mode fit`,
+    job.industry ? `${formatDisplayLabel(job.industry)} focus` : "General role alignment",
+    job.workMode !== "UNKNOWN"
+      ? `${formatDisplayLabel(job.workMode)} work mode fit`
+      : "Work mode still being clarified",
   ];
 
   if (recommendedResume) {
@@ -705,8 +835,6 @@ function buildPackageWhyItMatches(
 
 function getApplicationReviewState(job: JobDetailData): ApplicationReviewState {
   if (job.status !== "LIVE") return "NOT_ELIGIBLE";
-  if (!job.eligibility) return "NOT_ELIGIBLE";
-  if (job.eligibility.submissionCategory === "MANUAL_ONLY") return "MANUAL_ONLY";
   return "READY_FOR_REVIEW";
 }
 

@@ -1,0 +1,1601 @@
+[
+  {
+    "rank": 1,
+    "companyName": "Amazon",
+    "companyKey": "amazon",
+    "careersUrl": "https://www.amazon.jobs",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Massive job volume; many duplicate aggregator entries",
+    "notes": "Validate endpoint and dedupe priority",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "amazon",
+      "token": "amazon:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Amazon",
+      "boardUrl": "https://www.amazon.jobs",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Amazon exposes a first-party search.json endpoint with direct job and apply URLs."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://www.amazon.jobs",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "Software Development Engineer, Selling Partner Financial Technology",
+      "Sr Software Dev Engineer III, RDS for Oracle"
+    ],
+    "sampleLocations": [
+      "Vancouver, British Columbia, CAN",
+      "Vancouver, British Columbia, CAN"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": null
+  },
+  {
+    "rank": 2,
+    "companyName": "Microsoft",
+    "companyKey": "microsoft",
+    "careersUrl": "https://careers.microsoft.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High software cloud data and internship volume",
+    "notes": "Prioritize official source if accessible",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "microsoft",
+      "token": "microsoft:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Microsoft",
+      "boardUrl": "https://apply.careers.microsoft.com/careers",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Microsoft exposes a first-party Eightfold PCSX search and position details API on its official careers host."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.98,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Official company fetch failed 429: https://apply.careers.microsoft.com/api/pcsx/position_details?domain=microsoft.com&position_id=1970393556755022",
+    "existing": null
+  },
+  {
+    "rank": 3,
+    "companyName": "Google",
+    "companyKey": "google",
+    "careersUrl": "https://www.google.com/about/careers/applications/jobs/results",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High-value official listings and strong tech priority",
+    "notes": "Validate public job search endpoint",
+    "disposition": {
+      "kind": "deferred",
+      "recommendation": "needs_custom_connector",
+      "confidence": 0.62,
+      "reason": "Google careers data is embedded in page payloads, but the current parser is not stable enough to promote without a custom connector."
+    },
+    "feasibility": "FRAGILE",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.62,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Google careers data is embedded in page payloads, but the current parser is not stable enough to promote without a custom connector.",
+    "existing": null
+  },
+  {
+    "rank": 4,
+    "companyName": "Apple",
+    "companyKey": "apple",
+    "careersUrl": "https://jobs.apple.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Official structured job pages with retail and corporate volume",
+    "notes": "Validate pagination and job IDs",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "apple",
+      "token": "apple:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Apple",
+      "boardUrl": "https://jobs.apple.com",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "Apple exposes server-rendered structured search data with stable position IDs."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://jobs.apple.com",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "CA - Specialist: Seasonal, Part-time",
+      "People Business Partner"
+    ],
+    "sampleLocations": [
+      "Canada",
+      "Vancouver Metro Area, Canada"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": null
+  },
+  {
+    "rank": 5,
+    "companyName": "Meta",
+    "companyKey": "meta",
+    "careersUrl": "https://www.metacareers.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High-value tech jobs; official source may reduce messy redirects",
+    "notes": "Check robots/legal risk carefully",
+    "disposition": {
+      "kind": "deferred",
+      "recommendation": "blocked",
+      "confidence": 0.3,
+      "reason": "Meta Careers has a prominent automated collection notice; keep it out of automated first-party ingestion until legal/robots handling is clarified."
+    },
+    "feasibility": "BLOCKED",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.3,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Meta Careers has a prominent automated collection notice; keep it out of automated first-party ingestion until legal/robots handling is clarified.",
+    "existing": null
+  },
+  {
+    "rank": 6,
+    "companyName": "NVIDIA",
+    "companyKey": "nvidia",
+    "careersUrl": "https://www.nvidia.com/en-us/about-nvidia/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "AI systems hardware and software roles",
+    "notes": "High-value tech source",
+    "disposition": {
+      "kind": "official_connector",
+      "company": "nvidia",
+      "token": "nvidia:north-america",
+      "connectorName": "official-company",
+      "sourceName": "OfficialCompany:Nvidia",
+      "boardUrl": "https://jobs.nvidia.com/careers",
+      "extractionRoute": "STRUCTURED_API",
+      "parserVersion": "official-company:v1",
+      "sourceType": "COMPANY_JSON",
+      "confidence": 0.98,
+      "recommendation": "promote",
+      "reason": "NVIDIA exposes a first-party Eightfold PCSX search and position details API on its official jobs host."
+    },
+    "feasibility": "IMPLEMENTED",
+    "finalUrl": "https://jobs.nvidia.com/careers",
+    "extractionRoute": "STRUCTURED_API",
+    "parserVersion": "official-company:v1",
+    "confidence": 0.98,
+    "jobsFound": 2,
+    "exhausted": false,
+    "sampleTitles": [
+      "Senior Systems Software Engineer, LPU",
+      "Senior Account Manager, Canada - WWFO"
+    ],
+    "sampleLocations": [
+      "Canada, Toronto; Remote - Canada; Toronto, ON, CA; CA",
+      "Remote - Canada; CA"
+    ],
+    "recommendation": "Promote this official connector as canonical for the company.",
+    "existing": null
+  },
+  {
+    "rank": 7,
+    "companyName": "Tesla",
+    "companyKey": "tesla",
+    "careersUrl": "https://www.tesla.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High volume direct official site with operations and engineering roles",
+    "notes": "Validate structured data",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 403 Forbidden",
+    "existing": null
+  },
+  {
+    "rank": 8,
+    "companyName": "Shopify",
+    "companyKey": "shopify",
+    "careersUrl": "https://www.shopify.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "Canada/Remote",
+    "whyImportant": "Canada tech priority with remote roles",
+    "notes": "Validate official job feed",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.shopify.com/ar/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.6549999999999999,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "# Building different",
+      "# What interviews to expect"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 9,
+    "companyName": "Salesforce",
+    "companyKey": "salesforce",
+    "careersUrl": "https://careers.salesforce.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Large software employer with many duplicate listings",
+    "notes": "Enterprise SaaS priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.salesforce.com/de/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Explore featured resources on topics relevant to your role.",
+      "Optimize Sales Opportunities"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 10,
+    "companyName": "Oracle",
+    "companyKey": "oracle",
+    "careersUrl": "https://www.oracle.com/corporate/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High volume enterprise software jobs",
+    "notes": "Validate direct source quality",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.oracle.com/careers/",
+    "extractionRoute": "HTML_FALLBACK",
+    "parserVersion": "company-site:v1",
+    "confidence": 0.7,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Oracle Careers Create the future with us",
+      "Oracle Careers Thrive with us"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector.",
+    "existing": null
+  },
+  {
+    "rank": 11,
+    "companyName": "IBM",
+    "companyKey": "ibm",
+    "careersUrl": "https://www.ibm.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Large tech employer with consulting and software roles",
+    "notes": "High-volume official source",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.ibm.com/careers",
+    "extractionRoute": "HTML_FALLBACK",
+    "parserVersion": "company-site:v1",
+    "confidence": 0.53,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Come search jobs like an IBMer.",
+      "Entry-level opportunities"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector.",
+    "existing": null
+  },
+  {
+    "rank": 12,
+    "companyName": "Intel",
+    "companyKey": "intel",
+    "careersUrl": "https://jobs.intel.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Hardware software data and engineering roles",
+    "notes": "Strong structured careers candidate",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://intel.wd1.myworkdayjobs.com/External/page/6042070b79e01001f04fa9b468070000",
+    "extractionRoute": "UNKNOWN",
+    "parserVersion": "company-site:v2",
+    "confidence": 0.15,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "The careers URL is reachable but did not expose a stable structured feed. Add a custom connector before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 13,
+    "companyName": "AMD",
+    "companyKey": "amd",
+    "careersUrl": "https://www.amd.com/en/corporate/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Strong Canada and US engineering presence",
+    "notes": "Canada tech priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.amd.com/sitemap1.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 1,
+    "exhausted": null,
+    "sampleTitles": [
+      "Embedded Systems Architect – Aerospace & Defense in San Jose, California | Advanced Micro Devices, Inc"
+    ],
+    "sampleLocations": [
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 14,
+    "companyName": "Cisco",
+    "companyKey": "cisco",
+    "careersUrl": "https://www.cisco.com/c/en/us/about/careers.html",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Networking software and security roles",
+    "notes": "High-volume tech employer",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 404 Not Found",
+    "existing": null
+  },
+  {
+    "rank": 15,
+    "companyName": "Adobe",
+    "companyKey": "adobe",
+    "careersUrl": "https://careers.adobe.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Product design software and data roles",
+    "notes": "High-quality tech source",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.adobe.com/us/en/sitemap1.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Join us in empowering everyone to create.",
+      "Research"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 16,
+    "companyName": "Uber",
+    "companyKey": "uber",
+    "careersUrl": "https://www.uber.com/us/en/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Software data product and operations roles",
+    "notes": "Marketplace tech priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://jobs.uber.com/en/jobs/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Uber Careers",
+      "What moves us"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 17,
+    "companyName": "Airbnb",
+    "companyKey": "airbnb",
+    "careersUrl": "https://careers.airbnb.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "High-value tech roles with remote and hybrid interest",
+    "notes": "Validate public listings",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.airbnb.com/positions-sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Discover your place at Airbnb",
+      "EMEA Candidate Privacy"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 18,
+    "companyName": "Netflix",
+    "companyKey": "netflix",
+    "careersUrl": "https://jobs.netflix.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High-signal tech and product jobs",
+    "notes": "Official site likely cleaner than aggregators",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://jobs.netflix.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.745,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Join Us | Careers at Netflix",
+      "Netflix Culture Memo - Careers at Netflix"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "— a judgment about what that person could make in a similar role at another company, and what we would pay to keep or replace them. We expect leaders to be strong developers of talent. And to ensure they have the right player at every position, we ask them to apply what we call the “keeper test”* — asking “if X wanted to leave, would I fight to keep them?” Or “knowing everything I know today, would I hire X again?” If the answer is no, we believe it’s fairer to everyone to part ways quickly."
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 19,
+    "companyName": "LinkedIn",
+    "companyKey": "linkedin",
+    "careersUrl": "https://careers.linkedin.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Strong software and data roles",
+    "notes": "Microsoft ecosystem source",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.linkedin.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.883,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Shape What’s Next for the World of Work",
+      "LinkedIn began in co-founder Reid Hoffman's living room in 2002 and was officially launched on May 5, 2003. Today, LinkedIn leads a diversified business with revenues from membership subscriptions, advertising sales and recruitment solutions under the leadership of Ryan Roslansky . In December 2016, Microsoft completed its acquisition of LinkedIn, bringing together the world’s leading professional cloud and the world’s leading professional network."
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 20,
+    "companyName": "Stripe",
+    "companyKey": "stripe",
+    "careersUrl": "https://stripe.com/jobs",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "High-value fintech and software roles",
+    "notes": "Fintech priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://stripe.com/sitemap/partition-0.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Stripe logo Jobs",
+      "Stripe logo Jobs"
+    ],
+    "sampleLocations": [
+      "is not a barrier to me having an impact at Stripe",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 21,
+    "companyName": "Block",
+    "companyKey": "block",
+    "careersUrl": "https://block.xyz/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Fintech software data and product roles",
+    "notes": "Official source priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://block.xyz/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.61,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Work at Block",
+      "Work at Block"
+    ],
+    "sampleLocations": [
+      "Remote",
+      "Remote"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 22,
+    "companyName": "Square",
+    "companyKey": "square",
+    "careersUrl": "https://squareup.com/us/en/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Fintech and product roles",
+    "notes": "Related to Block; validate duplication",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.squareup.com/us/en",
+    "extractionRoute": "HTML_FALLBACK",
+    "parserVersion": "company-site:v1",
+    "confidence": 0.7,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "What it’s like to interview at Square.",
+      "Find a Square office location that works for you."
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "that works for you."
+    ],
+    "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector.",
+    "existing": null
+  },
+  {
+    "rank": 23,
+    "companyName": "PayPal",
+    "companyKey": "paypal",
+    "careersUrl": "https://www.paypal.com/us/cshelp/article/jobs-at-paypal-help1046",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Fintech risk data and software jobs",
+    "notes": "Find final jobs source from official page",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 403 Forbidden",
+    "existing": null
+  },
+  {
+    "rank": 24,
+    "companyName": "Intuit",
+    "companyKey": "intuit",
+    "careersUrl": "https://www.intuit.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Finance software internships and new grad roles",
+    "notes": "Strong user relevance",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.intuit.com/blog/post-sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "This is Tech at Intuit",
+      "Scale Your Career While Building the Future of Finance With Intuit Intelligence"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 25,
+    "companyName": "Atlassian",
+    "companyKey": "atlassian",
+    "careersUrl": "https://www.atlassian.com/company/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Software product and remote-friendly roles",
+    "notes": "Dev tools priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.atlassian.com/blog/post-sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.589,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Atlassian Invests $4.5m in New IT Jobs in Sydney",
+      "Home - Inside Atlassian"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 26,
+    "companyName": "Databricks",
+    "companyKey": "databricks",
+    "careersUrl": "https://www.databricks.com/company/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "AI and data infrastructure priority",
+    "notes": "High-value technical roles",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.databricks.com/en-resources-assets/sitemap/sitemap-index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.616,
+    "jobsFound": 1,
+    "exhausted": null,
+    "sampleTitles": [
+      "From Job Clusters to DBSQL Serverless: How GetYourGuide Improved DBT Pipelines"
+    ],
+    "sampleLocations": [
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 27,
+    "companyName": "Snowflake",
+    "companyKey": "snowflake",
+    "careersUrl": "https://careers.snowflake.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Data platform software and sales engineering roles",
+    "notes": "High-value data source",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.snowflake.com/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "${widgetBundle[agpData.totalHits == 1 ? 'jobsDependsOnFilter' : 'jobsDependsOnFilterPlural'] | pht:{'jobsCount': agpData.totalHits, 'filterType': agpData.filterType}}",
+      "${widgetBundle[agpData.totalHits == 1 ? 'jobsDependsOnFilter' : 'jobsDependsOnFilterPlural'] | pht:{'jobsCount': agpData.totalHits, 'filterType': agpData.filterType}}"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 28,
+    "companyName": "Palantir",
+    "companyKey": "palantir",
+    "careersUrl": "https://www.palantir.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High-value software and deployment roles",
+    "notes": "Strong official job source candidate",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.palantir.com/docs/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.634,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 29,
+    "companyName": "OpenAI",
+    "companyKey": "openai",
+    "careersUrl": "https://openai.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "AI priority and high-value listings",
+    "notes": "Validate official source only",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 403 Forbidden",
+    "existing": null
+  },
+  {
+    "rank": 30,
+    "companyName": "Anthropic",
+    "companyKey": "anthropic",
+    "careersUrl": "https://www.anthropic.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "AI priority and high-value listings",
+    "notes": "Validate public listing access",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.anthropic.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.604,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Shape how AI meets the world",
+      "Anthropic appoints Guillaume Princen as Head of EMEA and announces 100+ new roles across the region"
+    ],
+    "sampleLocations": [
+      "support for those moving for Anthropic",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 31,
+    "companyName": "Cohere",
+    "companyKey": "cohere",
+    "careersUrl": "https://cohere.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "Canada/US",
+    "whyImportant": "Canada AI priority",
+    "notes": "Important for Canadian tech users",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://cohere.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.601,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "知能のスケーリングというミッションに参加しましょう",
+      "Schließen Sie sich der Mission an, Intelligenz zu skalieren"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 32,
+    "companyName": "Hugging Face",
+    "companyKey": "huggingface",
+    "careersUrl": "https://huggingface.co/jobs",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "AI and ML remote-friendly roles",
+    "notes": "High-value remote tech",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://huggingface.co/sitemap-spaces.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Train AI models with Unsloth and Hugging Face Jobs for FREE",
+      "You could have designed state of the art positional encoding"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 33,
+    "companyName": "Scale AI",
+    "companyKey": "scaleai",
+    "careersUrl": "https://www.scale.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "AI data software and operations roles",
+    "notes": "Validate source and duplicates",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://scale.com/sitemap-0.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Reliable AI for the world’s most important decisions",
+      "AI Applications Ops Lead, GPS"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap samples lack specific job locations. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 34,
+    "companyName": "Anduril",
+    "companyKey": "anduril",
+    "careersUrl": "https://www.anduril.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US",
+    "whyImportant": "High-volume engineering roles",
+    "notes": "Check fit and legal constraints carefully",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.anduril.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.589,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Early Careers | Anduril | Anduril",
+      "Open Roles | Anduril | Anduril"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 35,
+    "companyName": "SpaceX",
+    "companyKey": "spacex",
+    "careersUrl": "https://www.spacex.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "High engineering volume and official site usefulness",
+    "notes": "Validate public data access",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.spacex.com/careers",
+    "extractionRoute": "HTML_FALLBACK",
+    "parserVersion": "company-site:v2",
+    "confidence": 0.22,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "HTML fallback is lower quality; keep for diagnostics or write a custom connector.",
+    "existing": null
+  },
+  {
+    "rank": 36,
+    "companyName": "Roblox",
+    "companyKey": "roblox",
+    "careersUrl": "https://careers.roblox.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Software platform and product roles",
+    "notes": "Gaming/platform priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.roblox.com/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Total Rewards",
+      "Build the future of connection"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 37,
+    "companyName": "Snap",
+    "companyKey": "snap",
+    "careersUrl": "https://careers.snap.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Software AR product and data roles",
+    "notes": "Official source likely cleaner",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.snap.com/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 1,
+    "exhausted": null,
+    "sampleTitles": [
+      "Unsere Vorstellungsgespräche"
+    ],
+    "sampleLocations": [
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 38,
+    "companyName": "Pinterest",
+    "companyKey": "pinterest",
+    "careersUrl": "https://www.pinterestcareers.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Software product data and remote/hybrid roles",
+    "notes": "Tech user relevance",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.pinterestcareers.com/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Create the career you love",
+      "Explore career opportunities at Pinterest"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 39,
+    "companyName": "Reddit",
+    "companyKey": "reddit",
+    "careersUrl": "https://www.redditinc.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Software data and product roles",
+    "notes": "Remote/hybrid relevance",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://redditinc.com/sitemap_index.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.589,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Reddit wird international: Ein Update zu unseren Plänen für die Internationalisierung und zur neuen Position VP of International Growth",
+      "Join the conversation"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 40,
+    "companyName": "Discord",
+    "companyKey": "discord",
+    "careersUrl": "https://discord.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Software platform and product roles",
+    "notes": "High-interest tech employer",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://discord.com/servers/server-sitemap0-20260526-231945.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "|BA| British Army Roleplay Community",
+      "Italy Mafia Roleplay"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 41,
+    "companyName": "GitHub",
+    "companyKey": "github",
+    "careersUrl": "https://github.careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Developer tools and remote roles",
+    "notes": "Strong developer relevance",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 404 Not Found",
+    "existing": null
+  },
+  {
+    "rank": 42,
+    "companyName": "GitLab",
+    "companyKey": "gitlab",
+    "careersUrl": "https://about.gitlab.com/jobs",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Remote-first software roles",
+    "notes": "Strong official source candidate",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://about.gitlab.com/migrated-pages/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.7959999999999999,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Join GitLab",
+      "5 ways collaboration boosts productivity and your career"
+    ],
+    "sampleLocations": [
+      "• Flexibility in schedule to be there for life's important moments",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 43,
+    "companyName": "Cloudflare",
+    "companyKey": "cloudflare",
+    "careersUrl": "https://www.cloudflare.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Security infrastructure and networking roles",
+    "notes": "Infra priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 403 Forbidden",
+    "existing": null
+  },
+  {
+    "rank": 44,
+    "companyName": "Fastly",
+    "companyKey": "fastly",
+    "careersUrl": "https://www.fastly.com/about/careers",
+    "priorityTier": 2,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Infrastructure edge and security roles",
+    "notes": "Good direct-source candidate",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.fastly.com/lp/sitemap-0.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.835,
+    "jobsFound": 1,
+    "exhausted": null,
+    "sampleTitles": [
+      "Fastly ログの AWS IAM のロールの作成"
+    ],
+    "sampleLocations": [
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 45,
+    "companyName": "Akamai",
+    "companyKey": "akamai",
+    "careersUrl": "https://www.akamai.com/careers",
+    "priorityTier": 2,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Networking security and cloud roles",
+    "notes": "High-volume infra employer",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.akamai.com/it/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Prolexic",
+      "Cybersecurity for Small and Midsize Businesses: A New Opportunity for Service Providers"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 46,
+    "companyName": "Datadog",
+    "companyKey": "datadog",
+    "careersUrl": "https://careers.datadoghq.com",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Observability software and infrastructure roles",
+    "notes": "High-value tech source",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://careers.datadoghq.com/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Interviewing at Datadog: AI Guidelines",
+      "Job Openings | Datadog Careers"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 47,
+    "companyName": "MongoDB",
+    "companyKey": "mongodb",
+    "careersUrl": "https://www.mongodb.com/careers",
+    "priorityTier": 1,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Database software and sales engineering roles",
+    "notes": "Strong developer relevance",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.mongodb.com/zh-cn/sitemap-pages.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.856,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Together, there’s nothing we can’t build",
+      "Oxy saves $4 million with native MongoDB solution that extracts 1.5 million documents"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 48,
+    "companyName": "Elastic",
+    "companyKey": "elastic",
+    "careersUrl": "https://www.elastic.co/careers",
+    "priorityTier": 2,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Search infrastructure and security roles",
+    "notes": "Remote-friendly tech",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "NEEDS_CONNECTOR",
+    "finalUrl": "https://www.elastic.co/guide/sitemap.xml",
+    "extractionRoute": "STRUCTURED_SITEMAP",
+    "parserVersion": "company-site:v3",
+    "confidence": 0.91,
+    "jobsFound": 2,
+    "exhausted": null,
+    "sampleTitles": [
+      "Benefits that help you be your best self",
+      "How we hire"
+    ],
+    "sampleLocations": [
+      "Unknown",
+      "Unknown"
+    ],
+    "recommendation": "Structured sitemap is reachable, but sampled pages do not look like job postings. Add a custom connector or better sitemap filter before promoting.",
+    "existing": null
+  },
+  {
+    "rank": 49,
+    "companyName": "Confluent",
+    "companyKey": "confluent",
+    "careersUrl": "https://www.confluent.io/careers",
+    "priorityTier": 2,
+    "regionPriority": "US/Canada",
+    "whyImportant": "Kafka ecosystem and software roles",
+    "notes": "Data infra priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 429 Too Many Requests",
+    "existing": null
+  },
+  {
+    "rank": 50,
+    "companyName": "HashiCorp",
+    "companyKey": "hashicorp",
+    "careersUrl": "https://www.hashicorp.com/careers",
+    "priorityTier": 2,
+    "regionPriority": "US/Canada/Remote",
+    "whyImportant": "Cloud infrastructure and DevOps roles",
+    "notes": "DevOps priority",
+    "disposition": {
+      "kind": "inspect_company_site",
+      "recommendation": "inspect",
+      "confidence": 0.5,
+      "reason": "No first-party connector exists yet; inspect the official careers URL for structured data."
+    },
+    "feasibility": "ERROR",
+    "finalUrl": null,
+    "extractionRoute": null,
+    "parserVersion": null,
+    "confidence": 0.5,
+    "jobsFound": 0,
+    "exhausted": null,
+    "sampleTitles": [],
+    "sampleLocations": [],
+    "recommendation": "Preflight failed; retry before deciding whether to promote.",
+    "error": "Company site fetch failed: 429 Too Many Requests",
+    "existing": null
+  }
+]

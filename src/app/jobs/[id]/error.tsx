@@ -1,0 +1,49 @@
+"use client";
+
+import { useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import {
+  getJobsReturnLabel,
+  getSafeJobsReturnHref,
+} from "@/lib/jobs/return-navigation";
+
+export default function JobDetailError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  const searchParams = useSearchParams();
+  const returnHref = getSafeJobsReturnHref(searchParams.get("from")) ?? "/jobs";
+  const returnLabel = getJobsReturnLabel(returnHref).toLowerCase();
+
+  useEffect(() => {
+    console.error("Job detail error:", error);
+  }, [error]);
+
+  return (
+    <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-24 text-center sm:px-6">
+      <h2 className="text-lg font-semibold text-foreground">
+        Failed to load job
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        There was a problem loading this job listing.
+      </p>
+      <div className="mt-6 flex items-center gap-3">
+        <Button onClick={reset} variant="outline" size="sm">
+          Try again
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          render={<Link href={returnHref} scroll={false} />}
+        >
+          Back to {returnLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}

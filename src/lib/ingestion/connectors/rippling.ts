@@ -4,6 +4,10 @@ import type {
   SourceConnectorFetchOptions,
   SourceConnectorFetchResult,
 } from "@/lib/ingestion/types";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 type RipplingConnectorOptions = {
   boardSlug: string;
@@ -42,7 +46,7 @@ export function createRipplingConnector({
     async fetchJobs(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
-      const jobs = await fetchJobs(boardSlug, options.limit);
+      const jobs = await fetchJobs(boardSlug, options.limit, options.signal);
 
       return {
         jobs: jobs.map((job) => ({
@@ -73,10 +77,14 @@ export function createRipplingConnector({
   };
 }
 
-async function fetchJobs(boardSlug: string, limit?: number) {
+async function fetchJobs(boardSlug: string, limit?: number, signal?: AbortSignal) {
+  throwIfAborted(signal);
   const response = await fetch(
     `https://api.rippling.com/platform/api/ats/v1/board/${boardSlug}/jobs`,
-    { headers: { Accept: "application/json" } }
+    {
+      headers: { Accept: "application/json" },
+      signal: buildTimeoutSignal(signal, 45_000),
+    }
   );
 
   if (!response.ok) {
@@ -85,6 +93,7 @@ async function fetchJobs(boardSlug: string, limit?: number) {
     );
   }
 
+  throwIfAborted(signal);
   const payload = (await response.json()) as RipplingJob[];
   if (!Array.isArray(payload)) {
     throw new Error(
@@ -98,16 +107,19 @@ async function fetchJobs(boardSlug: string, limit?: number) {
 // workLocation.label format: "Remote (United States)" | "Hybrid (Toronto, CA)" | "On-site (New York, NY)"
 // Extract the inner parenthesized portion as the location string.
 function parseLocation(label: string | null | undefined): string {
-  if (!label) return "Unknown";
-  const match = label.match(/\(([^)]+)\)/);
+  const text = readText(label);
+  if (!text) return "Unknown";
+  const match = text.match(/\(([^)]+)\)/);
   if (match) return match[1].trim();
   // Fall back to the full label if no parens (shouldn't happen in practice)
-  return label.trim();
+  return text;
 }
 
 function parseWorkMode(label: string | null | undefined): WorkMode | null {
-  if (!label) return null;
-  const prefix = label.split("(")[0].trim().toLowerCase();
+  const text = readText(label);
+  if (!text) return null;
+  const prefix = text.split("(")[0]?.trim().toLowerCase();
+  if (!prefix) return null;
   if (prefix === "remote") return "REMOTE";
   if (prefix === "hybrid") return "HYBRID";
   if (prefix === "on-site" || prefix === "onsite") return "ONSITE";
@@ -118,20 +130,41 @@ function parseWorkMode(label: string | null | undefined): WorkMode | null {
 function buildDescription(job: RipplingJob): string {
   const parts: string[] = [];
 
-  if (job.department?.label?.trim()) {
-    parts.push(`Department: ${job.department.label.trim()}`);
+  const department = readText(job.department?.label);
+  if (department) {
+    parts.push(`Department: ${department}`);
   }
-  if (job.workLocation?.label?.trim()) {
-    parts.push(`Work location: ${job.workLocation.label.trim()}`);
+  const workLocation = readText(job.workLocation?.label);
+  if (workLocation) {
+    parts.push(`Work location: ${workLocation}`);
   }
 
   return parts.join("\n");
 }
 
 function buildCompanyName(boardSlug: string): string {
-  return boardSlug
+  const cleanedSlug = boardSlug
+    .replace(/^jobs[-_](?:at|in)[-_]/i, "")
+    .replace(/^career[-_]opportunities[-_]at[-_]/i, "")
+    .replace(/^careers?[-_](?:at|for)[-_]/i, "")
+    .replace(/^job[-_]board[-_]/i, "")
+    .replace(/[-_]jobs?$/i, "")
+    .replace(/[-_]careers?$/i, "");
+
+  return cleanedSlug
     .split(/[-_]+/)
     .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .map((segment) => formatCompanySegment(segment))
     .join(" ");
+}
+
+function formatCompanySegment(segment: string) {
+  if (/^[a-z]{2,4}$/i.test(segment)) return segment.toUpperCase();
+  return segment.charAt(0).toUpperCase() + segment.slice(1);
+}
+
+function readText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }

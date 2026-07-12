@@ -3,6 +3,10 @@ import type {
   SourceConnectorFetchOptions,
   SourceConnectorFetchResult,
 } from "@/lib/ingestion/types";
+import {
+  buildTimeoutSignal,
+  throwIfAborted,
+} from "@/lib/ingestion/runtime-control";
 
 type GreenhouseConnectorOptions = {
   boardToken: string;
@@ -36,21 +40,32 @@ export function createGreenhouseConnector({
     async fetchJobs(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
+      throwIfAborted(options.signal);
       const response = await fetch(
         `https://boards-api.greenhouse.io/v1/boards/${boardToken}/jobs?content=true`,
         {
           headers: {
             Accept: "application/json",
           },
+          signal: buildTimeoutSignal(options.signal, 30_000),
         }
       );
 
+      const log = options.log ?? console.log;
+
       if (!response.ok) {
-        throw new Error(
-          `Greenhouse fetch failed for ${boardToken}: ${response.status} ${response.statusText}`
-        );
+        log(`[greenhouse:${boardToken}] API error ${response.status} ${response.statusText}`);
+        return {
+          jobs: [],
+          metadata: {
+            boardToken,
+            error: `${response.status} ${response.statusText}`,
+            fetchedAt: options.now.toISOString(),
+          },
+        };
       }
 
+      throwIfAborted(options.signal);
       const payload = (await response.json()) as GreenhouseApiResponse;
       const jobs = typeof options.limit === "number"
         ? payload.jobs.slice(0, options.limit)

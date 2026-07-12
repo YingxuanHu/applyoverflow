@@ -1,0 +1,697 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  Sparkles,
+  LoaderCircle,
+  ChevronDown,
+  ChevronUp,
+  ClipboardCopy,
+  Check,
+  Download,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  buildCoverLetterDocxBytes,
+  buildCoverLetterDocxFileName,
+  buildCoverLetterPdfBytes,
+  buildCoverLetterPdfFileName,
+  COVER_LETTER_DOCX_MIME_TYPE,
+  COVER_LETTER_PDF_MIME_TYPE,
+} from "@/lib/ai/cover-letter-doc-html";
+import { parseStoredFitAnalysis } from "@/lib/ai/fit-analysis-format";
+import type { CoverLetterResult, FitAnalysis } from "@/lib/ai/types";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type ResumeOption = {
+  id: string;
+  title: string;
+  isPrimary: boolean;
+};
+
+type CoverLetterState = CoverLetterResult & {
+  documentId?: string | null;
+  title?: string | null;
+  downloadHref?: string | null;
+  downloadLabel?: string | null;
+};
+
+type CoverLetterDownloadFormat = "docx" | "pdf";
+
+type Props = {
+  jobId?: string;
+  jobTitle: string;
+  company: string;
+  fitAnalysisEndpoint?: string;
+  coverLetterEndpoint?: string;
+  initialFitAnalysisText?: string | null;
+  canAnalyzeFit?: boolean;
+  fitUnavailableMessage?: string;
+  onFitAnalysisGenerated?: (analysis: FitAnalysis) => void;
+  initialCoverLetter?: CoverLetterState | null;
+  sectionTitleClassName?: string;
+  // Legacy props kept so existing callers do not need churn. Fit analysis
+  // now uses the full saved profile instead of a chosen resume.
+  userResumes?: ResumeOption[];
+  fixedResumeId?: string | null;
+  showResumeSelector?: boolean;
+  // Hide the cover-letter sub-section when false. Used on /jobs/[id] where
+  // the section was removed; the application workspace still renders it.
+  showCoverLetter?: boolean;
+};
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+export function AIWorkspace({
+  jobId,
+  jobTitle,
+  company,
+  fitAnalysisEndpoint,
+  coverLetterEndpoint,
+  initialFitAnalysisText = null,
+  canAnalyzeFit = true,
+  fitUnavailableMessage = "Add a job description first.",
+  onFitAnalysisGenerated,
+  initialCoverLetter = null,
+  sectionTitleClassName,
+  showCoverLetter = true,
+}: Props) {
+  const initialFitData = useMemo(
+    () => parseStoredFitAnalysis(initialFitAnalysisText),
+    [initialFitAnalysisText]
+  );
+  const [fitData, setFitData] = useState<FitAnalysis | null>(initialFitData);
+  const [legacyFitText, setLegacyFitText] = useState<string | null>(
+    initialFitData ? null : initialFitAnalysisText
+  );
+  const [fitLoading, setFitLoading] = useState(false);
+  const [fitError, setFitError] = useState<string | null>(null);
+
+  const [clData, setClData] = useState<CoverLetterState | null>(initialCoverLetter);
+  const [clLoading, setClLoading] = useState(false);
+  const [clError, setClError] = useState<string | null>(null);
+  const [clCopied, setClCopied] = useState(false);
+  const [clPrompt, setClPrompt] = useState("");
+
+  const resolvedFitEndpoint = fitAnalysisEndpoint ?? (jobId ? `/api/jobs/${jobId}/ai/analyze` : null);
+  const resolvedCoverLetterEndpoint =
+    coverLetterEndpoint ?? (jobId ? `/api/jobs/${jobId}/ai/cover-letter` : null);
+
+  async function runFitAnalysis() {
+    if (!resolvedFitEndpoint) {
+      setFitError("Fit analysis is unavailable for this job.");
+      return;
+    }
+
+    setFitLoading(true);
+    setFitError(null);
+    try {
+      const res = await fetch(resolvedFitEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        throw new Error(d?.error ?? "Analysis failed");
+      }
+      const data = (await res.json()) as FitAnalysis;
+      setFitData(data);
+      setLegacyFitText(null);
+      onFitAnalysisGenerated?.(data);
+    } catch (e) {
+      setFitError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setFitLoading(false);
+    }
+  }
+
+  async function runCoverLetter(instruction?: string) {
+    if (!resolvedCoverLetterEndpoint) {
+      setClError("Cover letter generation is unavailable for this job.");
+      return;
+    }
+
+    const requestedChange = instruction?.trim();
+    setClLoading(true);
+    setClError(null);
+    try {
+      const res = await fetch(resolvedCoverLetterEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          requestedChange && clData
+            ? { instruction: requestedChange, currentText: clData.text }
+            : requestedChange
+              ? { instruction: requestedChange }
+              : {}
+        ),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        throw new Error(d?.error ?? "Generation failed");
+      }
+      const data = (await res.json()) as CoverLetterState;
+      setClData({
+        ...data,
+        downloadHref: data.documentId
+          ? `/api/profile/documents/${data.documentId}/download`
+          : data.downloadHref,
+      });
+      if (requestedChange) {
+        setClPrompt("");
+      }
+    } catch (e) {
+      setClError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setClLoading(false);
+    }
+  }
+
+  function copyToClipboard() {
+    if (!clData) return;
+    navigator.clipboard.writeText(clData.text).then(() => {
+      setClCopied(true);
+      setTimeout(() => setClCopied(false), 2000);
+    });
+  }
+
+  function updateCoverLetterText(text: string) {
+    setClData((current) =>
+      current
+        ? {
+            ...current,
+            text,
+            wordCount: countWords(text),
+            downloadLabel: null,
+          }
+        : current
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ── Fit analysis ── */}
+      <Collapsible
+        label="Fit analysis"
+        icon={<Sparkles className="h-3.5 w-3.5" />}
+        defaultOpen
+        titleClassName={sectionTitleClassName}
+      >
+        {!fitData && !legacyFitText ? (
+          canAnalyzeFit ? (
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={runFitAnalysis}
+                disabled={fitLoading}
+              >
+                {fitLoading ? (
+                  <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {fitLoading ? "Analyzing…" : "Analyze fit"}
+              </Button>
+              {fitError && (
+                <span className="text-xs text-destructive">{fitError}</span>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{fitUnavailableMessage}</p>
+          )
+        ) : fitData ? (
+          <FitResult
+            data={fitData}
+            onRerun={() => { setFitData(null); runFitAnalysis(); }}
+          />
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="w-full space-y-3">
+              <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {legacyFitText}
+                </p>
+              </div>
+              {canAnalyzeFit ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={runFitAnalysis}
+                  disabled={fitLoading}
+                >
+                  {fitLoading ? (
+                    <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {fitLoading ? "Analyzing…" : "Re-analyze"}
+                </Button>
+              ) : null}
+              {fitError ? (
+                <span className="text-xs text-destructive">{fitError}</span>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </Collapsible>
+
+      {/* ── Cover letter ── */}
+      {showCoverLetter ? (
+      <Collapsible
+        label="Tailored cover letter"
+        icon={<Sparkles className="h-3.5 w-3.5" />}
+        defaultOpen
+        titleClassName={sectionTitleClassName}
+      >
+        {!clData ? (
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => runCoverLetter()}
+              disabled={clLoading}
+            >
+              {clLoading ? (
+                <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {clLoading ? "Writing…" : "Generate cover letter"}
+            </Button>
+            {clError && (
+              <span className="text-xs text-destructive">{clError}</span>
+            )}
+          </div>
+        ) : (
+          <CoverLetterResult
+            data={clData}
+            jobTitle={jobTitle}
+            company={company}
+            copied={clCopied}
+            onCopy={copyToClipboard}
+            onRerun={() => { setClData(null); runCoverLetter(); }}
+            prompt={clPrompt}
+            loading={clLoading}
+            error={clError}
+            onTextChange={updateCoverLetterText}
+            onPromptChange={setClPrompt}
+            onDownload={(format) => downloadCoverLetter(clData, jobTitle, company, format)}
+            onRevise={() => runCoverLetter(clPrompt)}
+          />
+        )}
+      </Collapsible>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Fit result ──────────────────────────────────────────────────────────────
+
+function FitResult({
+  data,
+  onRerun,
+}: {
+  data: FitAnalysis;
+  onRerun: () => void;
+}) {
+  const tierColor = {
+    strong: "text-green-600 dark:text-green-400",
+    good: "text-blue-600 dark:text-blue-400",
+    moderate: "text-yellow-600 dark:text-yellow-400",
+    weak: "text-red-600 dark:text-red-400",
+  }[data.tier];
+
+  const tierBg = {
+    strong: "bg-green-500/10",
+    good: "bg-blue-500/10",
+    moderate: "bg-yellow-500/10",
+    weak: "bg-red-500/10",
+  }[data.tier];
+
+  return (
+    <div className="space-y-3">
+      {data.profileNotice ? <ProfileNotice message={data.profileNotice} /> : null}
+
+      {/* Score */}
+      <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 ${tierBg}`}>
+        <span className={`text-lg font-bold ${tierColor}`}>{data.score}/10</span>
+        <span className={`text-sm font-medium capitalize ${tierColor}`}>{data.tier} fit</span>
+      </div>
+
+      {/* Summary */}
+      <p className="text-sm leading-relaxed text-foreground/80">{data.summary}</p>
+
+      {/* Two-column: strengths + gaps */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {data.strengths.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-green-600 dark:text-green-400">
+              Strengths
+            </p>
+            <ul className="space-y-1">
+              {data.strengths.map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm leading-relaxed text-foreground/80">
+                  <span className="mt-0.5 shrink-0 text-green-500">✓</span>
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {data.gaps.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-yellow-600 dark:text-yellow-400">
+              Gaps
+            </p>
+            <ul className="space-y-1">
+              {data.gaps.map((g, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm leading-relaxed text-foreground/80">
+                  <span className="mt-0.5 shrink-0 text-yellow-500">△</span>
+                  {g}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Keywords */}
+      {data.keywords.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-sm text-muted-foreground">Keywords to include</p>
+          <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-foreground/80 marker:text-muted-foreground">
+            {data.keywords.map((kw, i) => (
+              <li key={i}>{renderInlineBold(emphasizeKeywordText(kw))}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onRerun}
+        className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+      >
+        Re-analyze
+      </button>
+    </div>
+  );
+}
+
+function emphasizeKeywordText(text: string) {
+  let emphasized = text.trim();
+
+  const phrasePatterns = [
+    "machine learning projects",
+    "streaming pipelines",
+    "real-time ML systems",
+    "multi-language capabilities",
+    "full-stack ML deployment experience",
+    "AI-driven pipeline project",
+    "Master's degree in ECE",
+    "impact metrics",
+    "latency reduction",
+    "false-positive alert decreases",
+    "recommendation systems",
+    "cloud-based data pipelines",
+    "data engineering practices",
+    "applied ML",
+    "production ML systems",
+  ];
+
+  for (const pattern of phrasePatterns) {
+    const regex = new RegExp(`\\b${escapeRegExp(pattern)}\\b`, "gi");
+    emphasized = applyBoldPattern(emphasized, regex);
+  }
+
+  emphasized = applyBoldPattern(emphasized, /\(([^)]+)\)/g, (_, inner: string) => {
+    const formatted = inner
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => `**${part}**`)
+      .join(", ");
+
+    return formatted ? `(${formatted})` : "";
+  });
+
+  emphasized = applyBoldPattern(
+    emphasized,
+    /\b(LLMs?|AI|ML|ECE|Kafka|Python|Rust|Kotlin|FastAPI|React|Kubernetes|TensorFlow|PyTorch|Spark|dbt|Airflow|Snowflake|Databricks|SQL|AWS|GCP|Azure)\b/g,
+    (match) => `**${match}**`
+  );
+
+  return emphasized;
+}
+
+function renderInlineBold(text: string): React.ReactNode[] {
+  return text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function applyBoldPattern(
+  text: string,
+  regex: RegExp,
+  replacer: ((substring: string, ...args: string[]) => string) | string = (match) => `**${match}**`
+) {
+  return text
+    .split(/(\*\*.*?\*\*)/g)
+    .map((segment) => {
+      if (segment.startsWith("**") && segment.endsWith("**")) {
+        return segment;
+      }
+
+      return segment.replace(regex, replacer as never);
+    })
+    .join("");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ─── Cover letter result ──────────────────────────────────────────────────────
+
+function CoverLetterResult({
+  data,
+  jobTitle,
+  company,
+  copied,
+  onCopy,
+  onRerun,
+  prompt,
+  loading,
+  error,
+  onTextChange,
+  onPromptChange,
+  onDownload,
+  onRevise,
+}: {
+  data: CoverLetterState;
+  jobTitle: string;
+  company: string;
+  copied: boolean;
+  onCopy: () => void;
+  onRerun: () => void;
+  prompt: string;
+  loading: boolean;
+  error: string | null;
+  onTextChange: (value: string) => void;
+  onPromptChange: (value: string) => void;
+  onDownload: (format: CoverLetterDownloadFormat) => void;
+  onRevise: () => void;
+}) {
+  const hasEditableText = data.text.trim().length > 0;
+
+  return (
+    <div className="space-y-3">
+      {data.profileNotice ? <ProfileNotice message={data.profileNotice} /> : null}
+
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {jobTitle} · {company} · {data.wordCount} words
+        </p>
+        <div className="flex items-center gap-2">
+          {hasEditableText ? (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onDownload("pdf")}
+              >
+                <Download className="h-3.5 w-3.5" />
+                PDF
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onDownload("docx")}
+              >
+                DOCX
+              </Button>
+            </div>
+          ) : data.downloadHref ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              render={<a href={data.downloadHref} />}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </Button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <ClipboardCopy className="h-3.5 w-3.5" />
+            )}
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            onClick={onRerun}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Regenerate
+          </button>
+        </div>
+      </div>
+
+      {data.text.trim() ? (
+        <Textarea
+          value={data.text}
+          onChange={(event) => onTextChange(event.target.value)}
+          className="min-h-64 resize-y whitespace-pre-wrap bg-muted/30 text-sm leading-relaxed"
+          disabled={loading}
+          aria-label="Generated cover letter"
+        />
+      ) : (
+        <p className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+          Tailored cover letter is saved for this application.
+        </p>
+      )}
+
+      <div className="rounded-md border border-border/60 bg-card p-3">
+        <Textarea
+          value={prompt}
+          onChange={(event) => onPromptChange(event.target.value)}
+          className="min-h-16 resize-none text-sm"
+          placeholder="Ask AI to adjust tone, length, or emphasis"
+          disabled={loading}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRevise}
+            disabled={loading || prompt.trim().length === 0}
+          >
+            {loading ? (
+              <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {loading ? "Updating…" : "Update cover letter"}
+          </Button>
+          {error ? <span className="text-xs text-destructive">{error}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function downloadCoverLetter(
+  data: CoverLetterState | null,
+  jobTitle: string,
+  company: string,
+  format: CoverLetterDownloadFormat
+) {
+  if (!data?.text.trim()) {
+    return;
+  }
+
+  const title = data.title ?? `Cover letter ${company} ${jobTitle}`;
+  const bytes =
+    format === "pdf"
+      ? buildCoverLetterPdfBytes(data.text)
+      : buildCoverLetterDocxBytes(data.text);
+  const blob = new Blob([bytes], {
+    type: format === "pdf" ? COVER_LETTER_PDF_MIME_TYPE : COVER_LETTER_DOCX_MIME_TYPE,
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download =
+    format === "pdf"
+      ? buildCoverLetterPdfFileName(title)
+      : buildCoverLetterDocxFileName(title);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function ProfileNotice({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-blue-700 dark:text-blue-200">
+      {message}
+    </div>
+  );
+}
+
+// ─── Collapsible ──────────────────────────────────────────────────────────────
+
+function Collapsible({
+  label,
+  icon,
+  defaultOpen = false,
+  children,
+  titleClassName,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  titleClassName?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-md border border-border/60">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+      >
+        <span className={titleClassName ?? "flex items-center gap-2 text-xs font-medium text-muted-foreground"}>
+          <span className="shrink-0 text-muted-foreground">{icon}</span>
+          {label}
+        </span>
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+      </button>
+      {open && <div className="border-t border-border/60 p-3">{children}</div>}
+    </div>
+  );
+}

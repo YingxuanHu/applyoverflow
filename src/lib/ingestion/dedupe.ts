@@ -1,6 +1,16 @@
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
+import {
+  normalizeUrlIdentityKey,
+  type SourceIdentitySnapshot,
+} from "@/lib/ingestion/source-quality";
 import type { NormalizedJobInput } from "@/lib/ingestion/types";
-import type { Region, WorkMode } from "@/generated/prisma/client";
+import type {
+  ExperienceLevel,
+  Prisma,
+  Region,
+  WorkMode,
+} from "@/generated/prisma/client";
 
 const TITLE_CORE_STOP_WORDS = new Set([
   "senior",
@@ -43,6 +53,32 @@ const DESCRIPTION_FINGERPRINT_STOP_WORDS = new Set([
   "ability",
 ]);
 
+// PostgreSQL B-tree index entries have a hard per-row size limit. These fields
+// are persisted as indexed dedupe keys, so source markup must never be able to
+// turn one malformed token into a failed canonical write.
+const MAX_INDEX_KEY_LENGTH = 512;
+const MAX_DESCRIPTION_FINGERPRINT_LENGTH = 960;
+const MAX_DESCRIPTION_FINGERPRINT_TOKEN_LENGTH = 96;
+
+const GENERIC_TITLE_CORE_KEYS = new Set([
+  "analyst",
+  "associate",
+  "assistant",
+  "building-maintenance",
+  "consultant",
+  "coordinator",
+  "customer-service-associate",
+  "developer",
+  "driver",
+  "engineer",
+  "intern",
+  "maintenance",
+  "manager",
+  "representative",
+  "specialist",
+  "technician",
+]);
+
 type DedupeFields = Pick<
   NormalizedJobInput,
   | "companyKey"
@@ -70,15 +106,67 @@ export type CanonicalMatchCandidate = {
   descriptionFingerprint: string;
   locationKey: string;
   applyUrlKey: string | null;
+  // Optional: not every caller (e.g. the staged pipeline's raw-mapping path)
+  // supplies it. Absent/unknown is treated as unresolved by
+  // seniorityLevelsConflict, preserving pre-existing merge behavior.
+  experienceLevel?: ExperienceLevel | null;
   roleFamily: string;
   workMode: WorkMode;
 };
 
+export type CanonicalMatchEvidence = {
+  exactField?: "applyUrlKey" | "sourceUrlKey" | "postingIdKey";
+  exactKey?: string;
+  duplicateClusterId?: string;
+  titleExact?: boolean;
+  titleCoreExact?: boolean;
+  descriptionFingerprintExact?: boolean;
+  locationExact?: boolean;
+  roleFamilyExact?: boolean;
+  workModeExact?: boolean;
+  sharedTitleTokenCount?: number;
+  sharedDescriptionTokenCount?: number;
+  snippetOverlapCount?: number;
+  daysApart?: number;
+};
+
 export type CanonicalMatchResult = {
-  matchedBy: "applyUrlKey" | "duplicateCluster" | "similarity";
+  matchedBy:
+    | "rawJob"
+    | "applyUrlKey"
+    | "sourceUrlKey"
+    | "postingIdKey"
+    | "duplicateCluster"
+    | "similarity";
   canonical: CanonicalMatchCandidate;
   score: number;
+  evidence: CanonicalMatchEvidence;
 };
+
+const RESOLVED_EXPERIENCE_LEVELS = new Set<ExperienceLevel>([
+  "ENTRY",
+  "MID",
+  "SENIOR",
+  "LEAD",
+  "EXECUTIVE",
+]);
+
+/**
+ * True only when both postings carry a confidently-resolved seniority/experience
+ * level and those levels clearly differ. UNKNOWN / null / undefined is treated as
+ * unresolved, so the common case (at least one side unresolved) never conflicts and
+ * dedupe behavior is preserved.
+ */
+export function seniorityLevelsConflict(
+  a: ExperienceLevel | null | undefined,
+  b: ExperienceLevel | null | undefined
+): boolean {
+  if (!a || !b) return false;
+  if (!RESOLVED_EXPERIENCE_LEVELS.has(a) || !RESOLVED_EXPERIENCE_LEVELS.has(b)) {
+    return false;
+  }
+  return a !== b;
+}
 
 export function isCanonicalMatchCompatible(
   normalizedJob: NormalizedJobInput,
@@ -92,15 +180,41 @@ export function isCanonicalMatchCompatible(
     return true;
   }
 
+  // normalizeTitleCoreKey strips seniority tokens, so "Senior Software Engineer"
+  // and "Software Engineer" collapse to the same titleCoreKey. When both sides
+  // carry a confidently-resolved experience level and those levels clearly differ,
+  // a seniority-stripped titleCoreKey + location match is not enough to treat them
+  // as the same posting. The only exact identifier available here (applyUrlKey) is
+  // checked above, so a confident conflict at this point means distinct postings.
+  if (seniorityLevelsConflict(candidate.experienceLevel, normalizedJob.experienceLevel)) {
+    return false;
+  }
+
   if (
+    normalizedJob.companyKey !== UNKNOWN_COMPANY_KEY &&
     normalizedJob.companyKey === candidate.companyKey &&
-    normalizedJob.titleKey === candidate.titleKey &&
+    normalizedJob.titleCoreKey === candidate.titleCoreKey &&
     normalizedJob.locationKey === candidate.locationKey
   ) {
     return true;
   }
 
-  return scoreCanonicalMatch(normalizedJob, candidate) > 0;
+  return scoreCanonicalMatch(normalizedJob, candidate).score > 0;
+}
+
+export function isCanonicalMatchCompatibleForSource(
+  normalizedJob: NormalizedJobInput,
+  candidate: CanonicalMatchCandidate,
+  sourceIdentity: SourceIdentitySnapshot
+) {
+  if (shouldRequireExactIdentifierMatch(sourceIdentity)) {
+    if (sourceIdentity.applyUrlKey) {
+      return candidate.applyUrlKey === sourceIdentity.applyUrlKey;
+    }
+    return false;
+  }
+
+  return isCanonicalMatchCompatible(normalizedJob, candidate);
 }
 
 export function buildCanonicalDedupeFields(input: {
@@ -108,7 +222,7 @@ export function buildCanonicalDedupeFields(input: {
   title: string;
   description: string;
   location: string;
-  region: Region;
+  region: Region | null;
   applyUrl: string;
 }): DedupeFields {
   const companyKey = normalizeEntityKey(input.company);
@@ -125,12 +239,12 @@ export function buildCanonicalDedupeFields(input: {
     descriptionFingerprint,
     locationKey,
     applyUrlKey,
-    duplicateClusterId: [
+    duplicateClusterId: hashDuplicateCluster([
       companyKey,
-      titleKey,
+      titleCoreKey,
       locationKey,
-      input.region.toLowerCase(),
-    ].join(":"),
+      (input.region ?? "unknown").toLowerCase(),
+    ]),
   };
 }
 
@@ -174,67 +288,182 @@ export async function backfillCanonicalDedupeFields() {
 }
 
 export async function findCrossSourceCanonicalMatch(
-  normalizedJob: NormalizedJobInput
+  normalizedJob: NormalizedJobInput,
+  sourceIdentity: SourceIdentitySnapshot,
+  options: { excludeCanonicalIds?: string[] } = {}
 ): Promise<CanonicalMatchResult | null> {
-  if (normalizedJob.applyUrlKey) {
-    const applyUrlMatch = await prisma.jobCanonical.findFirst({
-      where: { applyUrlKey: normalizedJob.applyUrlKey },
+  const excludeCanonicalIds = options.excludeCanonicalIds ?? [];
+  const exactKeyMatches = [
+    { field: "applyUrlKey", key: sourceIdentity.applyUrlKey },
+    { field: "sourceUrlKey", key: sourceIdentity.sourceUrlKey },
+    { field: "postingIdKey", key: sourceIdentity.postingIdKey },
+  ] as const;
+
+  for (const exactMatch of exactKeyMatches) {
+    if (!exactMatch.key) continue;
+
+    const mappingMatch = await findMappingCanonicalMatch(
+      exactMatch.field,
+      exactMatch.key,
+      excludeCanonicalIds
+    );
+    if (mappingMatch) {
+      return {
+        matchedBy: exactMatch.field,
+        canonical: mappingMatch,
+        score: 100,
+        evidence: {
+          exactField: exactMatch.field,
+          exactKey: exactMatch.key,
+        },
+      };
+    }
+
+    if (exactMatch.field === "applyUrlKey") {
+      const canonicalApplyUrlMatch = await prisma.jobCanonical.findFirst({
+        where: {
+          applyUrlKey: exactMatch.key,
+          ...(excludeCanonicalIds.length > 0
+            ? { id: { notIn: excludeCanonicalIds } }
+            : {}),
+          status: { not: "REMOVED" },
+        },
+        select: canonicalMatchSelect,
+      });
+
+      if (canonicalApplyUrlMatch) {
+        return {
+          matchedBy: "applyUrlKey",
+          canonical: canonicalApplyUrlMatch,
+          score: 100,
+          evidence: {
+            exactField: "applyUrlKey",
+            exactKey: exactMatch.key,
+          },
+        };
+      }
+    }
+  }
+
+  if (shouldRequireExactIdentifierMatch(sourceIdentity)) {
+    return null;
+  }
+
+  if (
+    normalizedJob.companyKey !== UNKNOWN_COMPANY_KEY &&
+    shouldUseDuplicateClusterMatch(normalizedJob)
+  ) {
+    const exactClusterMatch = await prisma.jobCanonical.findFirst({
+      where: {
+        duplicateClusterId: normalizedJob.duplicateClusterId,
+        ...(excludeCanonicalIds.length > 0
+          ? { id: { notIn: excludeCanonicalIds } }
+          : {}),
+        status: { not: "REMOVED" },
+      },
       select: canonicalMatchSelect,
     });
 
-    if (applyUrlMatch) {
+    if (exactClusterMatch) {
       return {
-        matchedBy: "applyUrlKey",
-        canonical: applyUrlMatch,
-        score: 100,
+        matchedBy: "duplicateCluster",
+        canonical: exactClusterMatch,
+        score: 95,
+        evidence: {
+          duplicateClusterId: normalizedJob.duplicateClusterId,
+        },
       };
     }
   }
 
-  const exactClusterMatch = await prisma.jobCanonical.findFirst({
-    where: { duplicateClusterId: normalizedJob.duplicateClusterId },
-    select: canonicalMatchSelect,
-  });
-
-  if (exactClusterMatch) {
-    return {
-      matchedBy: "duplicateCluster",
-      canonical: exactClusterMatch,
-      score: 95,
-    };
+  if (normalizedJob.companyKey === UNKNOWN_COMPANY_KEY) {
+    return null;
   }
 
   const candidates = await prisma.jobCanonical.findMany({
     where: {
+      status: { not: "REMOVED" },
+      ...(excludeCanonicalIds.length > 0
+        ? { id: { notIn: excludeCanonicalIds } }
+        : {}),
       companyKey: normalizedJob.companyKey,
-      region: normalizedJob.region,
-      OR: [
-        { titleCoreKey: normalizedJob.titleCoreKey },
-        { descriptionFingerprint: normalizedJob.descriptionFingerprint },
-        { roleFamily: normalizedJob.roleFamily },
-        { locationKey: normalizedJob.locationKey },
+      AND: [
+        {
+          OR: [
+            { titleCoreKey: normalizedJob.titleCoreKey },
+            ...(normalizedJob.descriptionFingerprint
+              ? [{ descriptionFingerprint: normalizedJob.descriptionFingerprint }]
+              : []),
+            ...(normalizedJob.locationKey
+              ? [{ locationKey: normalizedJob.locationKey }]
+              : []),
+          ],
+        },
+        ...(normalizedJob.region
+          ? [
+              {
+                OR: [{ region: normalizedJob.region }, { region: null }],
+              } satisfies Prisma.JobCanonicalWhereInput,
+            ]
+          : []),
       ],
     },
     select: canonicalMatchSelect,
-    take: 25,
+    take: 50,
   });
 
   let bestCandidate: CanonicalMatchResult | null = null;
 
   for (const candidate of candidates) {
-    const score = scoreCanonicalMatch(normalizedJob, candidate);
-    if (score < 45) continue;
+    const scored = scoreCanonicalMatch(normalizedJob, candidate);
+    if (scored.score < 45) continue;
 
-    if (!bestCandidate || score > bestCandidate.score) {
+    if (!bestCandidate || scored.score > bestCandidate.score) {
       bestCandidate = {
         matchedBy: "similarity",
         canonical: candidate,
-        score,
+        score: scored.score,
+        evidence: scored.evidence,
       };
     }
   }
 
   return bestCandidate;
+}
+
+async function findMappingCanonicalMatch(
+  field: "applyUrlKey" | "sourceUrlKey" | "postingIdKey",
+  key: string,
+  excludeCanonicalIds: string[] = []
+) {
+  const mappingMatch = await prisma.jobSourceMapping.findFirst({
+    where: {
+      [field]: key,
+      removedAt: null,
+      canonicalJob: {
+        ...(excludeCanonicalIds.length > 0
+          ? { id: { notIn: excludeCanonicalIds } }
+          : {}),
+        status: { not: "REMOVED" },
+      },
+    },
+    orderBy: [
+      { isPrimary: "desc" },
+      { sourceQualityRank: "desc" },
+      { lastSeenAt: "desc" },
+    ],
+    select: {
+      canonicalJob: {
+        select: canonicalMatchSelect,
+      },
+    },
+  });
+
+  return mappingMatch?.canonicalJob ?? null;
+}
+
+function hashDuplicateCluster(parts: string[]) {
+  return createHash("md5").update(parts.join(":")).digest("hex");
 }
 
 const canonicalMatchSelect = {
@@ -253,82 +482,202 @@ const canonicalMatchSelect = {
   descriptionFingerprint: true,
   locationKey: true,
   applyUrlKey: true,
+  experienceLevel: true,
   roleFamily: true,
   workMode: true,
 } as const;
+
+const UNKNOWN_COMPANY_KEY = normalizeEntityKey("Unknown");
 
 function scoreCanonicalMatch(
   normalizedJob: NormalizedJobInput,
   candidate: CanonicalMatchCandidate
 ) {
-  const exactTitleMatch =
-    candidate.titleCoreKey === normalizedJob.titleCoreKey ||
-    candidate.titleKey === normalizedJob.titleKey;
-  const descriptionFingerprintMatch =
+  const titleCoreExact = candidate.titleCoreKey === normalizedJob.titleCoreKey;
+  const titleExact = candidate.titleKey === normalizedJob.titleKey;
+  const descriptionFingerprintExact =
     Boolean(candidate.descriptionFingerprint) &&
     candidate.descriptionFingerprint === normalizedJob.descriptionFingerprint;
-  const sharedTitleTokenCount = countSharedTitleTokens(
+  const locationExact = candidate.locationKey === normalizedJob.locationKey;
+  const roleFamilyExact = candidate.roleFamily === normalizedJob.roleFamily;
+  const workModeExact = candidate.workMode === normalizedJob.workMode;
+  const sharedTitleTokenCount = countSharedDelimitedTokens(
     candidate.titleCoreKey,
     normalizedJob.titleCoreKey
   );
+  const sharedDescriptionTokenCount = countSharedDelimitedTokens(
+    candidate.descriptionFingerprint,
+    normalizedJob.descriptionFingerprint
+  );
+  const snippetOverlapCount = countSharedSnippetTokens(
+    candidate.shortSummary || candidate.description,
+    normalizedJob.shortSummary || normalizedJob.description
+  );
+  const hasStrongContentOverlap =
+    descriptionFingerprintExact ||
+    sharedDescriptionTokenCount >= 8 ||
+    snippetOverlapCount >= 8;
 
-  // Similarity matching should only collapse jobs that share a real title shape.
-  // This prevents same-company/same-location boards with boilerplate descriptions
-  // from merging unrelated roles like data engineering, design, and research.
   if (
-    !exactTitleMatch &&
-    !(
-      descriptionFingerprintMatch &&
-      candidate.roleFamily === normalizedJob.roleFamily &&
-      sharedTitleTokenCount >= 2
-    )
+    !titleCoreExact &&
+    !titleExact &&
+    !(sharedTitleTokenCount >= 2 && sharedDescriptionTokenCount >= 4) &&
+    !(sharedTitleTokenCount >= 2 && snippetOverlapCount >= 4)
   ) {
-    return 0;
+    return {
+      score: 0,
+      evidence: {
+        titleExact,
+        titleCoreExact,
+        sharedTitleTokenCount,
+        sharedDescriptionTokenCount,
+        snippetOverlapCount,
+      },
+    };
+  }
+
+  if (
+    isGenericTitleCoreKey(normalizedJob.titleCoreKey) &&
+    !hasStrongContentOverlap
+  ) {
+    return {
+      score: 0,
+      evidence: {
+        titleExact,
+        titleCoreExact,
+        descriptionFingerprintExact,
+        locationExact,
+        sharedTitleTokenCount,
+        sharedDescriptionTokenCount,
+        snippetOverlapCount,
+      },
+    };
+  }
+
+  if (!locationExact) {
+    return {
+      score: 0,
+      evidence: {
+        titleExact,
+        titleCoreExact,
+        descriptionFingerprintExact,
+        locationExact,
+        sharedTitleTokenCount,
+        sharedDescriptionTokenCount,
+        snippetOverlapCount,
+      },
+    };
   }
 
   let score = 0;
 
-  if (candidate.titleCoreKey === normalizedJob.titleCoreKey) score += 30;
-  if (candidate.titleKey === normalizedJob.titleKey) score += 18;
-  if (descriptionFingerprintMatch) {
-    score += 24;
-  }
-  if (candidate.locationKey === normalizedJob.locationKey) score += 14;
-  if (candidate.roleFamily === normalizedJob.roleFamily) score += 12;
-  if (candidate.workMode === normalizedJob.workMode) score += 4;
+  if (titleCoreExact) score += 30;
+  if (titleExact) score += 16;
+  if (descriptionFingerprintExact) score += 20;
+  else score += Math.min(sharedDescriptionTokenCount * 2, 14);
+  score += Math.min(sharedTitleTokenCount * 7, 21);
+  score += Math.min(snippetOverlapCount * 2, 10);
+  if (locationExact) score += 12;
+  if (roleFamilyExact) score += 10;
+  if (workModeExact) score += 3;
 
-  const daysApart = Math.abs(
-    candidate.postedAt.getTime() - normalizedJob.postedAt.getTime()
-  ) /
+  const daysApart =
+    Math.abs(candidate.postedAt.getTime() - normalizedJob.postedAt.getTime()) /
     (24 * 60 * 60 * 1000);
 
-  if (daysApart <= 7) score += 12;
-  else if (daysApart <= 21) score += 8;
-  else if (daysApart <= 45) score += 4;
+  if (daysApart <= 7) score += 10;
+  else if (daysApart <= 21) score += 6;
+  else if (daysApart <= 45) score += 3;
 
-  return score;
+  return {
+    score,
+    evidence: {
+      titleExact,
+      titleCoreExact,
+      descriptionFingerprintExact,
+      locationExact,
+      roleFamilyExact,
+      workModeExact,
+      sharedTitleTokenCount,
+      sharedDescriptionTokenCount,
+      snippetOverlapCount,
+      daysApart: Math.round(daysApart * 10) / 10,
+    } satisfies CanonicalMatchEvidence,
+  };
 }
 
-function countSharedTitleTokens(candidateTitleCoreKey: string, normalizedTitleCoreKey: string) {
-  const candidateTokens = new Set(
-    candidateTitleCoreKey.split("-").filter((token) => token.length >= 3)
+function shouldUseDuplicateClusterMatch(normalizedJob: NormalizedJobInput) {
+  if (isGenericTitleCoreKey(normalizedJob.titleCoreKey)) return false;
+  if (!normalizedJob.locationKey || normalizedJob.locationKey === "unknown") return false;
+  if (normalizedJob.locationKey === "remote") {
+    return normalizedJob.descriptionFingerprint.split("-").filter(Boolean).length >= 8;
+  }
+  return normalizedJob.titleCoreKey.split("-").filter(Boolean).length >= 3;
+}
+
+export function shouldRequireExactIdentifierMatch(
+  sourceIdentity: SourceIdentitySnapshot
+) {
+  if (!sourceIdentity.applyUrlKey && !sourceIdentity.postingIdKey) return false;
+  return (
+    sourceIdentity.sourceQualityKind === "FIRST_PARTY_COMPANY" ||
+    sourceIdentity.sourceQualityKind === "DIRECT_COMPANY"
   );
+}
+
+function isGenericTitleCoreKey(value: string) {
+  const tokens = value.split("-").filter(Boolean);
+  if (tokens.length <= 1) return true;
+  return GENERIC_TITLE_CORE_KEYS.has(value);
+}
+
+function countSharedDelimitedTokens(leftValue: string, rightValue: string) {
+  if (!leftValue || !rightValue) return 0;
+
+  const leftTokens = new Set(leftValue.split("-").filter((token) => token.length >= 3));
   let sharedCount = 0;
 
-  for (const token of normalizedTitleCoreKey.split("-")) {
+  for (const token of rightValue.split("-")) {
     if (token.length < 3) continue;
-    if (candidateTokens.has(token)) sharedCount += 1;
+    if (leftTokens.has(token)) sharedCount += 1;
   }
 
   return sharedCount;
 }
 
-export function normalizeEntityKey(value: string) {
+function countSharedSnippetTokens(leftValue: string, rightValue: string) {
+  const leftTokens = new Set(tokenizeSnippet(leftValue));
+  if (leftTokens.size === 0) return 0;
+
+  let sharedCount = 0;
+  for (const token of tokenizeSnippet(rightValue)) {
+    if (leftTokens.has(token)) sharedCount += 1;
+  }
+
+  return sharedCount;
+}
+
+function tokenizeSnippet(value: string) {
   return value
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => token.length >= 4)
+    .filter((token) => !DESCRIPTION_FINGERPRINT_STOP_WORDS.has(token))
+    .slice(0, 24);
+}
+
+export function normalizeEntityKey(value: string) {
+  return boundIndexedKey(
+    value
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, ""),
+    MAX_INDEX_KEY_LENGTH
+  );
 }
 
 export function normalizeTitleCoreKey(value: string) {
@@ -339,11 +688,12 @@ export function normalizeTitleCoreKey(value: string) {
     .filter(Boolean)
     .filter((segment) => !TITLE_CORE_STOP_WORDS.has(segment));
 
-  return segments.join("-");
+  return boundIndexedKey(segments.join("-"), MAX_INDEX_KEY_LENGTH);
 }
 
 export function normalizeLocationKey(value: string) {
-  return value
+  return boundIndexedKey(
+    value
     .toLowerCase()
     .replace(/\b(remote|hybrid|on-site|onsite|flexible)\b/g, " ")
     .replace(/[;/]+/g, ",")
@@ -354,7 +704,9 @@ export function normalizeLocationKey(value: string) {
     .filter(Boolean)
     .map((segment) => segment.replace(/\s+/g, "-"))
     .sort()
-    .join("|");
+    .join("|"),
+    MAX_INDEX_KEY_LENGTH
+  );
 }
 
 export function normalizeDescriptionFingerprint(value: string) {
@@ -366,6 +718,7 @@ export function normalizeDescriptionFingerprint(value: string) {
     .split(/\s+/)
     .filter(Boolean)
     .filter((token) => token.length >= 4)
+    .filter((token) => token.length <= MAX_DESCRIPTION_FINGERPRINT_TOKEN_LENGTH)
     .filter((token) => !DESCRIPTION_FINGERPRINT_STOP_WORDS.has(token));
 
   for (const token of tokens) {
@@ -373,15 +726,19 @@ export function normalizeDescriptionFingerprint(value: string) {
     if (uniqueTokens.size >= 24) break;
   }
 
-  return [...uniqueTokens].join("-");
+  return boundIndexedKey(
+    [...uniqueTokens].join("-"),
+    MAX_DESCRIPTION_FINGERPRINT_LENGTH
+  );
+}
+
+function boundIndexedKey(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+
+  const suffix = createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `${value.slice(0, Math.max(0, maxLength - suffix.length - 1))}-${suffix}`;
 }
 
 export function normalizeApplyUrlKey(value: string) {
-  try {
-    const url = new URL(value);
-    const pathname = url.pathname.replace(/\/+$/, "");
-    return `${url.hostname.toLowerCase()}${pathname}`;
-  } catch {
-    return null;
-  }
+  return normalizeUrlIdentityKey(value);
 }
