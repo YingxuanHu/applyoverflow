@@ -244,7 +244,20 @@ async function selectRetentionSources(args: ParsedArgs, now: Date) {
     FROM "CompanySource" cs
     WHERE cs."status" IN ('ACTIVE', 'DEGRADED')
       AND cs."validationState" = 'VALIDATED'
-      AND cs."pollState" IN ('READY', 'BACKOFF')
+      -- A generic connector in BACKOFF is actively signaling trouble (usually
+      -- a provider-side rate limit). Retention must not consume its limited
+      -- poll budget retrying those sources. The only BACKOFF exception is a
+      -- proven company JSON/HTML feed with no recorded failures, which can be
+      -- temporarily marked BACKOFF by a scheduler race rather than a bad fetch.
+      AND (
+        cs."pollState" = 'READY'
+        OR (
+          cs."pollState" = 'BACKOFF'
+          AND cs."connectorName" = 'company-site'
+          AND cs."sourceType" IN ('COMPANY_JSON', 'COMPANY_HTML')
+          AND cs."consecutiveFailures" = 0
+        )
+      )
       AND cs."sourceQualityScore" >= 0.5
       AND (
         cs."connectorName" <> 'company-site'

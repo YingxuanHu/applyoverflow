@@ -4000,6 +4000,7 @@ export async function runCompanySourcePollSlice(options: {
 
   const now = options.now ?? new Date();
   const maxRuntimeMs = options.maxRuntimeMs ?? COMPANY_SOURCE_POLL_MAX_RUNTIME_MS;
+  const deadlineAtMs = Date.now() + maxRuntimeMs;
   const tasks = await claimSourceTasks(
     "CONNECTOR_POLL",
     Math.min(options.limit ?? companySourceIds.length, companySourceIds.length),
@@ -4009,12 +4010,24 @@ export async function runCompanySourcePollSlice(options: {
 
   let successCount = 0;
   let failedCount = 0;
+  let processedCount = 0;
   let cursor = 0;
+  const startedTaskIds = new Set<string>();
 
   async function worker() {
-    while (cursor < tasks.length) {
+    while (true) {
+      // `claimSourceTasks` leases the full slice upfront. Do not let a few
+      // slow endpoints make the whole process exceed its supervisor timeout:
+      // stop admitting work near the deadline, then release the untouched
+      // leases below so the next slice can immediately retry them.
+      const remainingMs = deadlineAtMs - Date.now();
+      if (remainingMs <= 2_000) return;
+
       const task = tasks[cursor]!;
+      if (!task) return;
       cursor += 1;
+      startedTaskIds.add(task.id);
+      processedCount += 1;
 
       try {
         if (!task.companySourceId) {
@@ -4025,7 +4038,11 @@ export async function runCompanySourcePollSlice(options: {
           continue;
         }
 
-        await pollCompanySource(task.companySourceId, new Date(), maxRuntimeMs);
+        await pollCompanySource(
+          task.companySourceId,
+          new Date(),
+          Math.max(1_000, remainingMs - 1_000)
+        );
         successCount += 1;
         await finishSourceTask(task.id, "SUCCESS", { finishedAt: new Date() });
     } catch (error) {
@@ -4061,8 +4078,28 @@ export async function runCompanySourcePollSlice(options: {
     )
   );
 
+  const unstartedTaskIds = tasks
+    .filter((task) => !startedTaskIds.has(task.id))
+    .map((task) => task.id);
+  if (unstartedTaskIds.length > 0) {
+    await prisma.sourceTask.updateMany({
+      where: {
+        id: { in: unstartedTaskIds },
+        status: "RUNNING",
+      },
+      data: {
+        status: "PENDING",
+        startedAt: null,
+        finishedAt: null,
+        notBeforeAt: new Date(),
+        lastError:
+          "Deferred because the connector-poll slice reached its runtime budget before this task started.",
+      },
+    });
+  }
+
   return {
-    processedCount: tasks.length,
+    processedCount,
     successCount,
     failedCount,
   };
