@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { isAiFeatureAllowed } from "@/lib/ai-access";
 import {
   getSensitiveActionSessionFailure,
   getVerifiedSessionTokenFromHeaders,
@@ -192,10 +191,6 @@ export async function requireAiFeatureAccess() {
 
   if (!sessionUser) {
     throw new UnauthorizedError();
-  }
-
-  if (!isAiFeatureAllowed(sessionUser.email)) {
-    throw new AiAccessDeniedError();
   }
 
   return sessionUser;
