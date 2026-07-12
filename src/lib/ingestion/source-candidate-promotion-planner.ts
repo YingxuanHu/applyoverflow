@@ -86,6 +86,8 @@ export type SourceCandidatePromotionAction = {
   kind: SourceCandidatePromotionActionKind;
   priorityScore: number;
   candidateId: string;
+  candidateStatus: PromotionCandidateStatus;
+  validationTaskKey: string;
   companyId: string | null;
   companyName: string | null;
   candidateUrl: string;
@@ -107,6 +109,11 @@ export type SourceCandidatePromotionPlanInput = {
   candidates: PromotionCandidate[];
   existingSources: ExistingPromotionSource[];
   options?: SourceCandidatePromotionPlanOptions;
+};
+
+export type PromotionValidationSelectionOptions = {
+  limit: number;
+  atsShare?: number;
 };
 
 const DEFAULT_LIMIT = 200;
@@ -375,6 +382,15 @@ function hasRecentSourceCandidateValidation(candidate: PromotionCandidate) {
   return validationAgeMs >= 0 && validationAgeMs <= maxAgeMs;
 }
 
+function buildValidationTaskKey(candidate: PromotionCandidate) {
+  const validationEpoch = candidate.lastValidatedAt?.toISOString() ?? "unvalidated";
+  const intent = candidate.repairMissingSource ? "repair" : "standard";
+
+  // A candidate can be valid again after a source was removed or enough time has passed.
+  // The epoch keeps that retry bounded while avoiding a permanent block from an old task.
+  return `${candidate.id}:candidate-validation:${intent}:${validationEpoch}`;
+}
+
 function buildAction(input: {
   kind: SourceCandidatePromotionActionKind;
   candidate: PromotionCandidate;
@@ -390,6 +406,8 @@ function buildAction(input: {
     kind: input.kind,
     priorityScore: round(input.priorityScore),
     candidateId: input.candidate.id,
+    candidateStatus: input.candidate.status,
+    validationTaskKey: buildValidationTaskKey(input.candidate),
     companyId: input.candidate.companyId,
     companyName: input.candidate.company?.name ?? input.candidate.companyNameHint,
     candidateUrl: input.candidate.candidateUrl,
@@ -655,4 +673,39 @@ export function buildSourceCandidatePromotionPlan(
   });
 
   return dedupedActions.slice(0, options.limit);
+}
+
+export function selectPromotionValidationActions(
+  actions: SourceCandidatePromotionAction[],
+  options: PromotionValidationSelectionOptions
+) {
+  const limit = Math.max(0, Math.floor(options.limit));
+  const atsShare = Math.max(0, Math.min(1, options.atsShare ?? 0.6));
+  const validationActions = actions.filter(
+    (action) =>
+      action.kind === "VALIDATE_ATS_SOURCE" || action.kind === "VALIDATE_COMPANY_SITE"
+  );
+  const atsActions = validationActions.filter(
+    (action) => action.kind === "VALIDATE_ATS_SOURCE"
+  );
+  const companySiteActions = validationActions.filter(
+    (action) => action.kind === "VALIDATE_COMPANY_SITE"
+  );
+  const atsLimit = Math.min(atsActions.length, Math.ceil(limit * atsShare));
+  const companySiteLimit = Math.min(
+    companySiteActions.length,
+    Math.max(0, limit - atsLimit)
+  );
+  const selected = [
+    ...atsActions.slice(0, atsLimit),
+    ...companySiteActions.slice(0, companySiteLimit),
+  ];
+
+  if (selected.length >= limit) return selected;
+
+  const selectedIds = new Set(selected.map((action) => action.candidateId));
+  return [
+    ...selected,
+    ...validationActions.filter((action) => !selectedIds.has(action.candidateId)),
+  ].slice(0, limit);
 }

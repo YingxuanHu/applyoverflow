@@ -6,6 +6,7 @@ import path from "node:path";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import {
   buildSourceCandidatePromotionPlan,
+  selectPromotionValidationActions,
   type ExistingPromotionSource,
   type PromotionCandidate,
   type SourceCandidatePromotionAction,
@@ -17,9 +18,11 @@ process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ??= "10000";
 
 type Args = {
   apply: boolean;
+  writeReport: boolean;
   limit: number;
   maxPromote: number;
   maxValidate: number;
+  atsValidationShare: number;
   outputDir: string;
   label: string;
 };
@@ -37,13 +40,19 @@ type PromotionResult = {
 const DEFAULT_LIMIT = 300;
 const DEFAULT_MAX_PROMOTE = 25;
 const DEFAULT_MAX_VALIDATE = 100;
+const DEFAULT_ATS_VALIDATION_SHARE = 0.6;
 
 function parseArgs(argv: string[]): Args {
   const today = new Date().toISOString().slice(0, 10);
   let apply = false;
+  let writeReport = true;
   let limit = DEFAULT_LIMIT;
   let maxPromote = DEFAULT_MAX_PROMOTE;
   let maxValidate = DEFAULT_MAX_VALIDATE;
+  let atsValidationShare = parseFraction(
+    process.env.SOURCE_CANDIDATE_PROMOTION_ATS_VALIDATION_SHARE,
+    DEFAULT_ATS_VALIDATION_SHARE
+  );
   let outputDir = path.resolve(process.cwd(), "data/discovery");
   let label = `source-candidate-promotion-plan-${today}`;
 
@@ -56,6 +65,11 @@ function parseArgs(argv: string[]): Args {
 
     if (arg === "--apply") {
       apply = true;
+      continue;
+    }
+
+    if (arg === "--no-report") {
+      writeReport = false;
       continue;
     }
 
@@ -83,6 +97,14 @@ function parseArgs(argv: string[]): Args {
       continue;
     }
 
+    if (arg === "--ats-validation-share") {
+      const value = inlineValue ?? next;
+      if (!value) continue;
+      atsValidationShare = parseFraction(value, atsValidationShare);
+      if (!inlineValue) index += 1;
+      continue;
+    }
+
     if (arg === "--output-dir") {
       const value = inlineValue ?? next;
       if (!value) continue;
@@ -99,7 +121,16 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { apply, limit, maxPromote, maxValidate, outputDir, label };
+  return {
+    apply,
+    writeReport,
+    limit,
+    maxPromote,
+    maxValidate,
+    atsValidationShare,
+    outputDir,
+    label,
+  };
 }
 
 function parsePositiveInt(value: string, fallback: number) {
@@ -110,6 +141,11 @@ function parsePositiveInt(value: string, fallback: number) {
 function parseNonNegativeInt(value: string, fallback: number) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseFraction(value: string | undefined, fallback: number) {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
 function countBy<T>(items: T[], getKey: (item: T) => string | null | undefined) {
@@ -128,8 +164,18 @@ async function loadCandidates(
   prisma: PrismaClient,
   limit: number
 ): Promise<PromotionCandidate[]> {
+  const staleRetryHours = Math.max(
+    1,
+    Number.parseInt(process.env.SOURCE_CANDIDATE_STALE_RETRY_HOURS ?? "24", 10) || 24
+  );
+  const maxValidationFailures = Math.max(
+    3,
+    Number.parseInt(process.env.SOURCE_CANDIDATE_MAX_VALIDATION_FAILURES ?? "5", 10) || 5
+  );
+  const staleRetryBefore = new Date(Date.now() - staleRetryHours * 60 * 60 * 1000);
   const candidateQualityWhere = {
-    failureCount: { lt: 8 },
+    // Keep planner eligibility aligned with the runtime validation guard.
+    failureCount: { lt: maxValidationFailures },
     OR: [
       { confidence: { gte: 0.58 } },
       { coverageGapScore: { gte: 0.55 } },
@@ -169,7 +215,16 @@ async function loadCandidates(
     prisma.sourceCandidate.findMany({
       where: {
         ...candidateQualityWhere,
-        status: { in: ["NEW", "STALE"] },
+        OR: [
+          { status: "NEW" },
+          {
+            status: "STALE",
+            OR: [
+              { lastValidatedAt: null },
+              { lastValidatedAt: { lt: staleRetryBefore } },
+            ],
+          },
+        ],
       },
       include,
       orderBy,
@@ -251,7 +306,8 @@ async function loadExistingSources(
 async function applyPromotions(
   actions: SourceCandidatePromotionAction[],
   maxPromote: number,
-  maxValidate: number
+  maxValidate: number,
+  atsValidationShare: number
 ) {
   const [
     { promoteSourceCandidate },
@@ -264,19 +320,18 @@ async function applyPromotions(
   ]);
   const results: PromotionResult[] = [];
 
-  let validationsQueued = 0;
-  for (const action of actions.filter(
-    (entry) => entry.kind === "VALIDATE_ATS_SOURCE" || entry.kind === "VALIDATE_COMPANY_SITE"
-  )) {
-    if (validationsQueued >= maxValidate) break;
+  const validationActions = selectPromotionValidationActions(actions, {
+    limit: maxValidate,
+    atsShare: atsValidationShare,
+  });
+  for (const action of validationActions) {
 
     try {
       const task = await enqueueUniquePipelineTask({
         queueName: "SOURCE_VALIDATION",
         mode: "EXPLORATION",
         priorityScore: action.priorityScore,
-        idempotencyKey: action.candidateId,
-        reactivateOnSuccess: true,
+        idempotencyKey: action.validationTaskKey,
         payloadJson: {
           source: "source_candidate_promotion_plan",
           sourceCandidateId: action.candidateId,
@@ -299,7 +354,6 @@ async function applyPromotions(
         pollTaskId: null,
         error: null,
       });
-      validationsQueued += 1;
     } catch (error) {
       results.push({
         action,
@@ -530,16 +584,23 @@ async function main() {
     options: { limit: args.limit },
   });
   const promotions = args.apply
-    ? await applyPromotions(actions, args.maxPromote, args.maxValidate)
+    ? await applyPromotions(
+        actions,
+        args.maxPromote,
+        args.maxValidate,
+        args.atsValidationShare
+      )
     : [];
-  const reportPaths = await writeReports({
-    args,
-    generatedAt,
-    candidates,
-    existingSources,
-    actions,
-    promotions,
-  });
+  const reportPaths = args.writeReport
+    ? await writeReports({
+        args,
+        generatedAt,
+        candidates,
+        existingSources,
+        actions,
+        promotions,
+      })
+    : null;
 
   console.log(
     JSON.stringify(
@@ -559,6 +620,7 @@ async function main() {
         validationQueuedCount: promotions.filter(
           (result) => result.operation === "validate" && !result.error
         ).length,
+        atsValidationShare: args.atsValidationShare,
         promotedCount: promotions.filter(
           (result) => result.operation === "promote" && !result.error
         ).length,

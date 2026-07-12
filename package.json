@@ -71,6 +71,7 @@
     "jobs:retire-weak-aggregator": "tsx -r dotenv/config scripts/retire-weak-aggregator-canonical.ts",
     "jobs:split-overmerged": "tsx -r dotenv/config scripts/split-overmerged-canonical-jobs.ts",
     "jobs:repair-from-best-source": "tsx -r dotenv/config scripts/repair-canonical-from-best-source.ts",
+    "jobs:repair-oversized-dedupe-keys": "tsx -r dotenv/config scripts/repair-oversized-dedupe-keys.ts",
     "jobs:diagnose-filters": "tsx -r dotenv/config scripts/diagnose-job-filter-metadata.ts",
     "jobs:diagnose-search": "tsx -r dotenv/config scripts/diagnose-jobs-search.ts",
     "jobs:audit-role-filters": "tsx -r dotenv/config scripts/audit-job-role-filter-contract.ts",

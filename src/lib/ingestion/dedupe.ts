@@ -53,6 +53,13 @@ const DESCRIPTION_FINGERPRINT_STOP_WORDS = new Set([
   "ability",
 ]);
 
+// PostgreSQL B-tree index entries have a hard per-row size limit. These fields
+// are persisted as indexed dedupe keys, so source markup must never be able to
+// turn one malformed token into a failed canonical write.
+const MAX_INDEX_KEY_LENGTH = 512;
+const MAX_DESCRIPTION_FINGERPRINT_LENGTH = 960;
+const MAX_DESCRIPTION_FINGERPRINT_TOKEN_LENGTH = 96;
+
 const GENERIC_TITLE_CORE_KEYS = new Set([
   "analyst",
   "associate",
@@ -663,11 +670,14 @@ function tokenizeSnippet(value: string) {
 }
 
 export function normalizeEntityKey(value: string) {
-  return value
+  return boundIndexedKey(
+    value
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, ""),
+    MAX_INDEX_KEY_LENGTH
+  );
 }
 
 export function normalizeTitleCoreKey(value: string) {
@@ -678,11 +688,12 @@ export function normalizeTitleCoreKey(value: string) {
     .filter(Boolean)
     .filter((segment) => !TITLE_CORE_STOP_WORDS.has(segment));
 
-  return segments.join("-");
+  return boundIndexedKey(segments.join("-"), MAX_INDEX_KEY_LENGTH);
 }
 
 export function normalizeLocationKey(value: string) {
-  return value
+  return boundIndexedKey(
+    value
     .toLowerCase()
     .replace(/\b(remote|hybrid|on-site|onsite|flexible)\b/g, " ")
     .replace(/[;/]+/g, ",")
@@ -693,7 +704,9 @@ export function normalizeLocationKey(value: string) {
     .filter(Boolean)
     .map((segment) => segment.replace(/\s+/g, "-"))
     .sort()
-    .join("|");
+    .join("|"),
+    MAX_INDEX_KEY_LENGTH
+  );
 }
 
 export function normalizeDescriptionFingerprint(value: string) {
@@ -705,6 +718,7 @@ export function normalizeDescriptionFingerprint(value: string) {
     .split(/\s+/)
     .filter(Boolean)
     .filter((token) => token.length >= 4)
+    .filter((token) => token.length <= MAX_DESCRIPTION_FINGERPRINT_TOKEN_LENGTH)
     .filter((token) => !DESCRIPTION_FINGERPRINT_STOP_WORDS.has(token));
 
   for (const token of tokens) {
@@ -712,7 +726,17 @@ export function normalizeDescriptionFingerprint(value: string) {
     if (uniqueTokens.size >= 24) break;
   }
 
-  return [...uniqueTokens].join("-");
+  return boundIndexedKey(
+    [...uniqueTokens].join("-"),
+    MAX_DESCRIPTION_FINGERPRINT_LENGTH
+  );
+}
+
+function boundIndexedKey(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+
+  const suffix = createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `${value.slice(0, Math.max(0, maxLength - suffix.length - 1))}-${suffix}`;
 }
 
 export function normalizeApplyUrlKey(value: string) {

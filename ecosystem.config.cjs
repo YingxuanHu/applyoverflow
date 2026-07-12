@@ -638,6 +638,31 @@ const steadyWorkerApps = [
     },
     {
       __workerGroups: ["source-workers"],
+      name: "ingest-source-candidate-promotion",
+      script: "bash",
+      args: `-lc 'sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INITIAL_DELAY_SECONDS || 180}; while true; do timeout ${process.env.SOURCE_CANDIDATE_PROMOTION_TIMEOUT_SECONDS || 240}s node_modules/.bin/tsx -r dotenv/config scripts/source-candidate-promotion-plan.ts --apply --no-report --limit=${process.env.SOURCE_CANDIDATE_PROMOTION_LIMIT || 300} --max-promote=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_PROMOTE || 12} --max-validate=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_VALIDATE || 60} --ats-validation-share=${process.env.SOURCE_CANDIDATE_PROMOTION_ATS_VALIDATION_SHARE || 0.6}; sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INTERVAL_SECONDS || 300}; done'`,
+      cwd: __dirname,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 10000,
+      output: "./logs/source-candidate-promotion-out.log",
+      error: "./logs/source-candidate-promotion-err.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      merge_logs: true,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        DATABASE_PROCESS_ROLE: "recovery_validation",
+        DATABASE_POOL_MAX_RECOVERY_VALIDATION:
+          process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
+        DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+      },
+      max_memory_restart: "384M",
+    },
+    {
+      __workerGroups: ["source-workers"],
       name: "ingest-validation-worker",
       script: "node_modules/.bin/tsx",
       args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=${process.env.INGEST_VALIDATION_WORKER_INTERVAL_SECONDS || 120}`,

@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   buildSourceCandidatePromotionPlan,
   detectPromotionCandidateSource,
+  selectPromotionValidationActions,
   scoreCandidateOwnership,
   type ExistingPromotionSource,
+  type SourceCandidatePromotionAction,
   type PromotionCandidate,
 } from "../src/lib/ingestion/source-candidate-promotion-planner";
 
@@ -53,6 +55,36 @@ function existingSource(
     boardUrl: "https://jobs.ashbyhq.com/acme",
     status: "ACTIVE",
     ...overrides,
+  };
+}
+
+function validationAction(
+  kind: "VALIDATE_ATS_SOURCE" | "VALIDATE_COMPANY_SITE",
+  id: string
+): SourceCandidatePromotionAction {
+  return {
+    kind,
+    priorityScore: 90,
+    candidateId: id,
+    candidateStatus: "NEW",
+    validationTaskKey: `${id}:candidate-validation:standard:unvalidated`,
+    companyId: "company_1",
+    companyName: "Acme",
+    candidateUrl: `https://example.com/${id}`,
+    detectedSource:
+      kind === "VALIDATE_ATS_SOURCE"
+        ? {
+            connectorName: "lever",
+            token: id,
+            sourceName: `Lever:${id}`,
+            boardUrl: `https://jobs.lever.co/${id}`,
+            atsPlatform: "LEVER",
+          }
+        : null,
+    ownership: { score: 0.8, reasons: [] },
+    reason: "test",
+    evidence: [],
+    canApply: false,
   };
 }
 
@@ -340,6 +372,40 @@ test("buildSourceCandidatePromotionPlan validates stale ATS candidates before pr
 
   assert.equal(action?.kind, "VALIDATE_ATS_SOURCE");
   assert.equal(action?.canApply, false);
+  assert.match(action?.validationTaskKey ?? "", /candidate-validation:standard:2020/);
+});
+
+test("buildSourceCandidatePromotionPlan uses a stable validation key for a fresh candidate", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        confidence: 0.65,
+        potentialYieldScore: 0.55,
+        sourceQualityScore: 0.5,
+        coverageGapScore: 0.55,
+        noveltyScore: 0.2,
+      }),
+    ],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "VALIDATE_ATS_SOURCE");
+  assert.match(action?.validationTaskKey ?? "", /^candidate_1:candidate-validation:standard:/);
+});
+
+test("buildSourceCandidatePromotionPlan gives an aged stale validation a new epoch key", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        status: "STALE",
+        lastValidatedAt: new Date("2020-01-01T00:00:00Z"),
+      }),
+    ],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "VALIDATE_ATS_SOURCE");
+  assert.match(action?.validationTaskKey ?? "", /candidate-validation:standard:2020/);
 });
 
 test("buildSourceCandidatePromotionPlan keeps ownerless candidates in manual review", () => {
@@ -410,4 +476,31 @@ test("buildSourceCandidatePromotionPlan dedupes repeated ATS candidates inside o
   assert.equal(actions[0]?.kind, "PROMOTE_ATS_SOURCE");
   assert.equal(actions[1]?.kind, "SKIP_DUPLICATE");
   assert.match(actions[1]?.reason ?? "", /same ATS tenant/i);
+});
+
+test("selectPromotionValidationActions reserves capacity for ATS validation", () => {
+  const actions = [
+    validationAction("VALIDATE_COMPANY_SITE", "company_1"),
+    validationAction("VALIDATE_COMPANY_SITE", "company_2"),
+    validationAction("VALIDATE_COMPANY_SITE", "company_3"),
+    validationAction("VALIDATE_ATS_SOURCE", "ats_1"),
+    validationAction("VALIDATE_ATS_SOURCE", "ats_2"),
+    validationAction("VALIDATE_ATS_SOURCE", "ats_3"),
+    validationAction("VALIDATE_ATS_SOURCE", "ats_4"),
+  ];
+
+  const selected = selectPromotionValidationActions(actions, {
+    limit: 5,
+    atsShare: 0.6,
+  });
+
+  assert.equal(selected.length, 5);
+  assert.equal(
+    selected.filter((action) => action.kind === "VALIDATE_ATS_SOURCE").length,
+    3
+  );
+  assert.equal(
+    selected.filter((action) => action.kind === "VALIDATE_COMPANY_SITE").length,
+    2
+  );
 });

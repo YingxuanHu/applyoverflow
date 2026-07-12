@@ -126,6 +126,31 @@ test("dedupe rejects same generic title when location and description differ", (
   );
 });
 
+test("dedupe keys remain safely bounded when a source emits pathological text", async () => {
+  const {
+    normalizeDescriptionFingerprint,
+    normalizeEntityKey,
+    normalizeLocationKey,
+    normalizeTitleCoreKey,
+  } = await loadDedupeModule();
+  const giantToken = "x".repeat(12_000);
+
+  assert.equal(normalizeDescriptionFingerprint(giantToken), "");
+  assert.ok(normalizeEntityKey(giantToken).length <= 512);
+  assert.ok(normalizeTitleCoreKey(giantToken).length <= 512);
+  assert.ok(normalizeLocationKey(giantToken).length <= 512);
+});
+
+test("dedupe fingerprints keep normal descriptive tokens while rejecting oversized ones", async () => {
+  const { normalizeDescriptionFingerprint } = await loadDedupeModule();
+  const fingerprint = normalizeDescriptionFingerprint(
+    `Reliable platform engineering observability incident response ${"x".repeat(500)}`
+  );
+
+  assert.match(fingerprint, /reliable-platform-engineering-observability-incident-response/);
+  assert.ok(fingerprint.length <= 960);
+});
+
 test("dedupe keeps matching specific jobs with strong content and location evidence", () => {
   return loadDedupeModule().then(
     ({ isCanonicalMatchCompatible, buildCanonicalDedupeFields }) => {
