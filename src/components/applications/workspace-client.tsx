@@ -896,7 +896,9 @@ function JobDescriptionField({
   return (
     <div
       className={`surface-panel p-3.5 sm:p-5 ${
-        compactReadOnlyPreview ? "xl:h-[14.5rem] xl:overflow-hidden" : ""
+        compactReadOnlyPreview
+          ? "md:flex md:h-[clamp(20rem,42dvh,34rem)] md:flex-col md:overflow-hidden"
+          : ""
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1035,7 +1037,7 @@ function JobDescriptionField({
           <span className="text-sm text-muted-foreground">Importing and organizing...</span>
         </div>
       ) : value ? (
-        <div className="mt-3 max-h-[12.5rem] overflow-y-auto pr-2 [scrollbar-gutter:stable] xl:max-h-[7.75rem]">
+        <div className="mt-3 max-h-[15rem] overflow-y-auto pr-2 [scrollbar-gutter:stable] md:min-h-0 md:flex-1 md:max-h-none">
           {renderDescriptionSummary(value)}
         </div>
       ) : (

@@ -15,7 +15,8 @@ test("application reminders are editable first-class workspace items", () => {
   assert.match(actionsSource, /export async function updateTimelineEvent/);
   assert.match(actionsSource, /typeRaw === "REMINDER"[\s\S]*Reminder text is required/);
   assert.match(workspaceSource, /function RemindersSection/);
-  assert.match(workspaceSource, /max-h-\[12\.5rem\] overflow-y-auto/);
+  assert.match(workspaceSource, /md:h-\[clamp\(20rem,42dvh,34rem\)\]/);
+  assert.match(workspaceSource, /overflow-y-auto[\s\S]*md:flex-1/);
   assert.match(workspaceSource, /addTimelineEvent/);
   assert.match(workspaceSource, /updateTimelineEvent/);
   assert.match(workspaceSource, />Reminders</);

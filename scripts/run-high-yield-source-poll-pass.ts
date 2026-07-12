@@ -227,8 +227,10 @@ function rankCandidates(
 // Retention selection: the healthy, validated sources that hold live jobs but
 // are furthest past their last successful poll — oldest (and never-polled)
 // first. No growth-signal or churn filter: the goal is to RE-CONFIRM existing
-// jobs before they age past the evidence window, not to find new ones. Generic
-// company-site sources are excluded to respect the standing skip policy.
+// jobs before they age past the evidence window, not to find new ones. The
+// generic company-site poll lane stays excluded, but healthy JSON/HTML company
+// sources with established retained supply are eligible here; otherwise those
+// jobs can age out solely because the growth lane never revisits them.
 async function selectRetentionSources(args: ParsedArgs, now: Date) {
   const minAgeCutoff = new Date(now.getTime() - args.minAgeMinutes * 60_000);
   const rows = await prisma.$queryRaw<HighYieldSourceCandidate[]>(Prisma.sql`
@@ -242,9 +244,15 @@ async function selectRetentionSources(args: ParsedArgs, now: Date) {
     FROM "CompanySource" cs
     WHERE cs."status" IN ('ACTIVE', 'DEGRADED')
       AND cs."validationState" = 'VALIDATED'
-      AND cs."pollState" = 'READY'
+      AND cs."pollState" IN ('READY', 'BACKOFF')
       AND cs."sourceQualityScore" >= 0.5
-      AND cs."connectorName" <> 'company-site'
+      AND (
+        cs."connectorName" <> 'company-site'
+        OR (
+          cs."sourceType" IN ('COMPANY_JSON', 'COMPANY_HTML')
+          AND cs."consecutiveFailures" = 0
+        )
+      )
       AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
       AND cs."retainedLiveJobCount" > 0
       AND NOT (cs."connectorName" = 'workday' AND cs."consecutiveFailures" > 0)
