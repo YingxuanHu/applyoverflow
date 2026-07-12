@@ -59,6 +59,7 @@ import {
   FAST_TRACK_VALIDATION_PRIORITY,
   shouldFastTrackProbeHit,
 } from "@/lib/ingestion/discovery/probe-fast-track-policy";
+import { assessCompanySiteCompleteness } from "@/lib/ingestion/source-fetch-quality";
 import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
@@ -101,6 +102,10 @@ const DEFAULT_SOURCE_POLL_CADENCE_MINUTES = 180;
 const MAX_CAREER_PAGE_INSPECTIONS = 6;
 const MAX_CAREER_PAGE_INSPECTIONS_CSV_IMPORT = 10;
 const REDISCOVERY_FAILURE_THRESHOLD = 3;
+const COMPANY_SITE_COMPLETENESS_REDISCOVERY_STREAK = Math.max(
+  2,
+  readNonNegativeIntegerEnv("INGEST_COMPANY_SITE_COMPLETENESS_REDISCOVERY_STREAK") ?? 2
+);
 // Per-request cap for the post-rediscovery ATS slug probe so the follow-up
 // can never stall the rediscovery worker on a slow platform endpoint.
 const REDISCOVERY_SLUG_PROBE_TIMEOUT_MS = 6_000;
@@ -5027,6 +5032,15 @@ async function pollCompanySource(
 
   const overlapRatio =
     summary.fetchedCount > 0 ? summary.dedupedCount / summary.fetchedCount : source.overlapRatio;
+  const completeness =
+    source.connectorName === "company-site"
+      ? assessCompanySiteCompleteness({
+          fetchMetadata: summary.fetchMetadata,
+          sourceMetadata: source.metadataJson,
+          rediscoveryThreshold: COMPANY_SITE_COMPLETENESS_REDISCOVERY_STREAK,
+        })
+      : null;
+  const extractionCompletenessNeedsRediscovery = completeness?.shouldRediscover ?? false;
   const taleoZeroYield =
     source.connectorName === "taleo" &&
     summary.fetchedCount === 0 &&
@@ -5095,18 +5109,21 @@ async function pollCompanySource(
   const growthChurnBackoff =
     GROWTH_MODE_ENABLED && (runChurnHeavy || runZeroFetchRemoval);
   const currentSourceQualityScore = clampSourceQualityScore(source.sourceQualityScore);
+  const baseSourceQualityScore = extractionCompletenessNeedsRediscovery
+    ? Math.max(0.15, Math.min(currentSourceQualityScore, 0.35))
+    : currentSourceQualityScore;
   const nextYieldScore = computeSourceYieldScore({
     sourceQualityScore: clampSourceQualityScore(Math.max(
       growthChurnBackoff
-        ? Math.max(0.18, Math.min(currentSourceQualityScore, 0.45))
+        ? Math.max(0.18, Math.min(baseSourceQualityScore, 0.45))
         : taleoZeroYield
         ? Math.max(
             0.12,
-            Math.min(currentSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
+            Math.min(baseSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
           )
         : repeatedZeroYieldNoRetained
-          ? Math.max(0.1, Math.min(currentSourceQualityScore, 0.18))
-        : currentSourceQualityScore,
+          ? Math.max(0.1, Math.min(baseSourceQualityScore, 0.18))
+        : baseSourceQualityScore,
       taleoZeroYield
         ? Math.min(0.38, predictedPriority / 1.5)
         : Math.min(0.99, predictedPriority / 1.5)
@@ -5144,16 +5161,22 @@ async function pollCompanySource(
     where: { id: source.id },
     data: {
       status:
-        growthChurnBackoff ||
+        extractionCompletenessNeedsRediscovery
+          ? "REDISCOVER_REQUIRED"
+          : growthChurnBackoff ||
         repeatedTaleoZeroYield ||
         importedAtsZeroYield ||
         importedAtsLowYield ||
         repeatedZeroYieldNoRetained
           ? "DEGRADED"
           : "ACTIVE",
-      validationState: "VALIDATED",
+      validationState: extractionCompletenessNeedsRediscovery
+        ? "NEEDS_REDISCOVERY"
+        : "VALIDATED",
       pollState:
-        growthChurnBackoff ||
+        extractionCompletenessNeedsRediscovery
+          ? "QUARANTINED"
+          : growthChurnBackoff ||
         taleoZeroYield ||
         importedAtsZeroYield ||
         importedAtsLowYield ||
@@ -5182,26 +5205,30 @@ async function pollCompanySource(
       lastFailureAt: null,
       priorityScore: predictedPriority,
       sourceQualityScore: clampSourceQualityScore(
-        growthChurnBackoff
-          ? Math.max(0.18, Math.min(currentSourceQualityScore, 0.45))
+        extractionCompletenessNeedsRediscovery
+          ? baseSourceQualityScore
+          : growthChurnBackoff
+          ? Math.max(0.18, Math.min(baseSourceQualityScore, 0.45))
           : importedAtsLowYield || importedAtsZeroYield
           ? Math.max(
               0.1,
-              Math.min(currentSourceQualityScore, importedAtsLowYield ? 0.18 : 0.26)
+              Math.min(baseSourceQualityScore, importedAtsLowYield ? 0.18 : 0.26)
             )
           : repeatedZeroYieldNoRetained
-            ? Math.max(0.1, Math.min(currentSourceQualityScore, 0.18))
+            ? Math.max(0.1, Math.min(baseSourceQualityScore, 0.18))
           : taleoZeroYield
             ? Math.max(
                 0.12,
-                Math.min(currentSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
+                Math.min(baseSourceQualityScore, repeatedTaleoZeroYield ? 0.22 : 0.32)
               )
-            : Math.max(currentSourceQualityScore, Math.min(0.99, predictedPriority / 1.5))
+            : Math.max(baseSourceQualityScore, Math.min(0.99, predictedPriority / 1.5))
       ),
       yieldScore: nextYieldScore,
       overlapRatio,
       validationMessage:
-        growthChurnBackoff
+        extractionCompletenessNeedsRediscovery
+          ? `Extraction completeness suspect in ${completeness?.consecutiveSuspectPolls} consecutive polls: page shows ${completeness?.signal?.displayedJobCount} jobs but the connector extracted ${completeness?.signal?.fetchedJobCount}. Existing mappings were preserved and the source was routed to rediscovery.`
+          : growthChurnBackoff
           ? runZeroFetchRemoval
             ? "Growth mode cooldown: source returned no jobs but removed live mappings; refresh later so net-new polling is not crowded out."
             : "Growth mode cooldown: source removed far more canonical jobs than it created in the latest poll."
@@ -5228,6 +5255,13 @@ async function pollCompanySource(
           removedCount: runRemovedCount,
           runtimeMs,
         },
+        extractionCompleteness: {
+          displayedJobCount: completeness?.signal?.displayedJobCount ?? null,
+          fetchedJobCount: completeness?.signal?.fetchedJobCount ?? null,
+          consecutiveSuspectPolls: completeness?.consecutiveSuspectPolls ?? 0,
+          suspect: completeness?.signal !== null,
+          evaluatedAt: pollFinishedAt.toISOString(),
+        },
         pollRuntime: {
           avgMs: nextAvgRuntimeMs,
           lastFinishedAt: pollFinishedAt.toISOString(),
@@ -5247,10 +5281,21 @@ async function pollCompanySource(
     where: { id: source.companyId },
     data: {
       lastSuccessfulPollAt: pollFinishedAt,
-      crawlStatus: taleoZeroYield ? "DEGRADED" : "IDLE",
+      crawlStatus: taleoZeroYield || extractionCompletenessNeedsRediscovery ? "DEGRADED" : "IDLE",
       discoveryStatus: "DISCOVERED",
     },
   });
+
+  if (extractionCompletenessNeedsRediscovery) {
+    await enqueueUniqueSourceTask({
+      kind: "REDISCOVERY",
+      companyId: source.companyId,
+      companySourceId: source.id,
+      priorityScore: 120,
+      notBeforeAt: pollFinishedAt,
+      payloadJson: { trigger: "extraction-completeness" },
+    });
+  }
 
   if (hasPendingCheckpoint) {
     await enqueueSourceTask({

@@ -20,6 +20,7 @@ import { detectDeadSignal, normalizeSourceJob } from "@/lib/ingestion/normalize"
 import { upsertNormalizedJobRecordFromSourceJob } from "@/lib/ingestion/normalized-records";
 import { computeNormalizedQualityScore } from "@/lib/ingestion/quality";
 import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
+import { readCompanySiteCompletenessSignal } from "@/lib/ingestion/source-fetch-quality";
 import {
   deriveSourceIdentitySnapshot,
   deriveSourceLifecycleSnapshot,
@@ -771,11 +772,17 @@ async function performConnectorIngestion(
   // empty job list that is NOT authoritative: treating it as a full snapshot
   // would mark every one of the source's mappings removed and drive the whole
   // company's canonical jobs to REMOVED on a single transient blip.
-  const fetchHadError =
+  const fetchHadUpstreamError =
     typeof fetchResult.metadata === "object" &&
     fetchResult.metadata !== null &&
     "error" in fetchResult.metadata &&
     Boolean((fetchResult.metadata as { error?: unknown }).error);
+  // A known partial company-site extraction is not an authoritative snapshot.
+  // Keep prior mappings alive while the source recovery loop finds the board's
+  // structured route or a replacement ATS.
+  const fetchHadError =
+    fetchHadUpstreamError || readCompanySiteCompletenessSignal(fetchResult.metadata) !== null;
+  summary.fetchMetadata = fetchResult.metadata ?? null;
   summary.checkpoint = fetchResult.checkpoint ?? null;
   summary.checkpointExhausted = fetchExhausted;
   await onHeartbeat?.({
@@ -1044,6 +1051,7 @@ async function performConnectorPreview(
     limit,
     log: createConnectorLogger(connector, null),
   });
+  summary.fetchMetadata = fetchResult.metadata ?? null;
 
   for (const sourceJob of fetchResult.jobs) {
     summary.fetchedCount += 1;
@@ -1186,6 +1194,7 @@ function createEmptySummary(
     expiredCount: 0,
     removedCount: 0,
     skippedReasons: {},
+    fetchMetadata: null,
     checkpoint: null,
     checkpointExhausted: false,
   };
@@ -1306,6 +1315,7 @@ function buildRunResultMetrics(summary: IngestionSummary) {
     canonicalCreatedCanadaCount: summary.canonicalCreatedCanadaCount,
     canonicalCreatedCanadaRemoteCount: summary.canonicalCreatedCanadaRemoteCount,
     visibleLiveCount: summary.visibleLiveCount,
+    extractionCompleteness: readCompanySiteCompletenessSignal(summary.fetchMetadata),
   } satisfies Record<string, Prisma.InputJsonValue | null>;
 }
 

@@ -217,6 +217,8 @@ export type IngestionSummary = {
   expiredCount: number;
   removedCount: number;
   skippedReasons: Record<string, number>;
+  /** Connector-level fetch diagnostics, never raw page content. */
+  fetchMetadata: Prisma.InputJsonValue | null;
   checkpoint?: Prisma.InputJsonValue | null;
   checkpointExhausted?: boolean;
 };
