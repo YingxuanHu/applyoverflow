@@ -633,10 +633,38 @@ export function buildSourceCandidatePromotionPlan(
     input.existingSources.map((source) => [sourceIdentity(source), source])
   );
 
+  const actionTier = (action: SourceCandidatePromotionAction) => {
+    if (
+      action.kind === "PROMOTE_ATS_SOURCE" ||
+      action.kind === "PROMOTE_COMPANY_SITE_SOURCE"
+    ) {
+      return 0;
+    }
+
+    if (
+      action.kind === "VALIDATE_ATS_SOURCE" ||
+      action.kind === "VALIDATE_COMPANY_SITE"
+    ) {
+      return 1;
+    }
+
+    if (action.kind === "MANUAL_REVIEW") return 2;
+    if (action.kind === "SKIP_CONFLICT") return 3;
+    if (action.kind === "SKIP_DUPLICATE") return 4;
+    return 5;
+  };
+
   const rankedActions = input.candidates
     .map((candidate) => planCandidate(candidate, existingByIdentity, options))
     .sort((left, right) => {
       if (left.canApply !== right.canApply) return left.canApply ? -1 : 1;
+
+      // The bounded production plan must spend its window on candidates that
+      // can advance automatically. Otherwise high-scoring ownerless leads
+      // consume the whole plan as MANUAL_REVIEW and starve valid ATS boards.
+      const tierDifference = actionTier(left) - actionTier(right);
+      if (tierDifference !== 0) return tierDifference;
+
       if (right.priorityScore !== left.priorityScore) {
         return right.priorityScore - left.priorityScore;
       }

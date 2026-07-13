@@ -461,6 +461,37 @@ test("buildSourceCandidatePromotionPlan prioritizes apply-safe promotions first"
   assert.equal(actions[0]?.kind, "PROMOTE_ATS_SOURCE");
 });
 
+test("buildSourceCandidatePromotionPlan does not let manual review starve validation-ready sources", () => {
+  const actions = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        id: "ownerless-high-score",
+        companyId: null,
+        company: null,
+        candidateUrl: "https://careers.example.com/jobs",
+        atsPlatform: null,
+        atsTenantKey: null,
+        confidence: 1,
+        noveltyScore: 1,
+        coverageGapScore: 1,
+        potentialYieldScore: 1,
+        sourceQualityScore: 1,
+      }),
+      candidate({
+        id: "validate-owned-ats",
+        status: "NEW",
+        lastValidatedAt: null,
+      }),
+    ],
+    existingSources: [],
+    options: { limit: 1 },
+  });
+
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0]?.kind, "VALIDATE_ATS_SOURCE");
+  assert.equal(actions[0]?.candidateId, "validate-owned-ats");
+});
+
 test("buildSourceCandidatePromotionPlan dedupes repeated ATS candidates inside one plan", () => {
   const actions = buildSourceCandidatePromotionPlan({
     candidates: [
