@@ -287,6 +287,13 @@ const CONNECTOR_POLL_RUNTIME_CYCLE_CAPS: Record<string, number> = {
 };
 
 const CONNECTOR_POLL_RUNTIME_BATCH_CAPS: Record<string, number> = {
+  // Workday's shared infrastructure can rate-limit this server when multiple
+  // tenants are fetched in the same batch. Keep the broader cycle allowance,
+  // but serialize Workday within each batch so other ATS families keep moving.
+  workday: readConnectorPollCycleCapEnv(
+    "WORKDAY_CONNECTOR_POLL_RUNTIME_BATCH_CAP",
+    1
+  ),
   recruitee: readConnectorPollCycleCapEnv(
     "RECRUITEE_CONNECTOR_POLL_RUNTIME_BATCH_CAP",
     IN_RECOVERY_MODE ? 1 : 1
@@ -296,6 +303,10 @@ const CONNECTOR_POLL_RUNTIME_BATCH_CAPS: Record<string, number> = {
     IN_RECOVERY_MODE ? 1 : 1
   ),
 };
+
+export function getConnectorPollRuntimeBatchCap(connectorName: string) {
+  return CONNECTOR_POLL_RUNTIME_BATCH_CAPS[connectorName] ?? Number.MAX_SAFE_INTEGER;
+}
 
 function getRuntimeCycleExhaustedConnectorNames(connectorCounts: Map<string, number>) {
   return Object.entries(CONNECTOR_POLL_RUNTIME_CYCLE_CAPS)
@@ -3675,9 +3686,7 @@ async function selectRuntimeAdmittedConnectorPollTasks(input: {
     const runtimeCycleCap =
       CONNECTOR_POLL_RUNTIME_CYCLE_CAPS[connectorName] ??
       Number.MAX_SAFE_INTEGER;
-    const runtimeBatchCap =
-      CONNECTOR_POLL_RUNTIME_BATCH_CAPS[connectorName] ??
-      Number.MAX_SAFE_INTEGER;
+    const runtimeBatchCap = getConnectorPollRuntimeBatchCap(connectorName);
     const currentCycleCount = input.connectorCounts.get(connectorName) ?? 0;
     const currentBatchCount = batchConnectorCounts.get(connectorName) ?? 0;
 

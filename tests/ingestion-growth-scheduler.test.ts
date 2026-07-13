@@ -52,3 +52,12 @@ test("growth scheduler does not hard-cool unsupported low-novelty source types",
   assert.equal(signals.refreshHeavyCandidate, false);
   assert.equal(signals.shouldHardCooldown, false);
 });
+
+test("serializes Workday polling inside a batch while leaving other ATS APIs unconstrained", async () => {
+  const { getConnectorPollRuntimeBatchCap } = await import(
+    "../src/lib/ingestion/company-discovery"
+  );
+
+  assert.equal(getConnectorPollRuntimeBatchCap("workday"), 1);
+  assert.equal(getConnectorPollRuntimeBatchCap("greenhouse"), Number.MAX_SAFE_INTEGER);
+});
