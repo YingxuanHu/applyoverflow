@@ -381,7 +381,7 @@ async function fetchListingPage(
       throwIfAborted(signal);
 
       if (
-        isTransientWorkdayError(error) &&
+        shouldRetryWorkdayFetchError(error) &&
         attempt < WORKDAY_FETCH_MAX_ATTEMPTS
       ) {
         log(
@@ -744,9 +744,12 @@ function formatErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isTransientWorkdayError(error: unknown) {
+export function shouldRetryWorkdayFetchError(error: unknown) {
   const message = formatErrorMessage(error).toLowerCase();
-  const hardStatusMatch = message.match(/\b(401|403|404|410)\b/);
+  // A rate limit is an explicit instruction to stop. Retrying the same
+  // Workday tenant before the source scheduler can apply its cooldown only
+  // amplifies Cloudflare blocks and burns the poll budget for healthy sources.
+  const hardStatusMatch = message.match(/\b(401|403|404|410|429)\b/);
   if (hardStatusMatch) {
     return false;
   }
