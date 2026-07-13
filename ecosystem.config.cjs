@@ -458,9 +458,9 @@ const steadyWorkerApps = [
           process.env.OFFICIAL_COMPANY_EIGHTFOLD_FETCH_DETAILS || "false",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_POLL_CONCURRENCY:
-          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "2",
+          process.env.INGEST_SOURCE_POLL_CONCURRENCY || "6",
         RECOVERY_WORKER_SOURCE_POLL_LIMIT:
-          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "80",
+          process.env.RECOVERY_WORKER_SOURCE_POLL_LIMIT || "160",
         INGEST_STEADY_URL_HEALTH_LIMIT:
           process.env.INGEST_STEADY_URL_HEALTH_LIMIT || "3000",
         INGEST_BURST_URL_HEALTH_LIMIT:
@@ -543,6 +543,40 @@ const steadyWorkerApps = [
           process.env.INGEST_SOURCE_POLL_RECOVERY_CONCURRENCY || "4",
       },
       max_memory_restart: "512M",
+    },
+    {
+      __workerGroups: ["source-workers"],
+      // Expands the company-owned ATS frontier from known company pages and
+      // live job/source URLs. This is deliberately separate from generic web
+      // search: it discovers only normalized structured boards, then hands
+      // them back to the existing validation and promotion gates.
+      name: "ingest-ats-frontier-expansion",
+      script: "bash",
+      args: `-lc 'sleep ${process.env.ATS_FRONTIER_EXPANSION_INITIAL_DELAY_SECONDS || 900}; while true; do timeout ${process.env.ATS_FRONTIER_EXPANSION_TIMEOUT_SECONDS || 900}s node_modules/.bin/tsx -r dotenv/config scripts/expand-ats-frontier.ts --company-limit=${process.env.ATS_FRONTIER_EXPANSION_COMPANY_LIMIT || 2000} --url-limit=${process.env.ATS_FRONTIER_EXPANSION_URL_LIMIT || 12000} --page-scan-limit=${process.env.ATS_FRONTIER_EXPANSION_PAGE_SCAN_LIMIT || 240} --page-discovery-concurrency=${process.env.ATS_FRONTIER_EXPANSION_PAGE_CONCURRENCY || 6} --promotion-threshold=${process.env.ATS_FRONTIER_EXPANSION_PROMOTION_THRESHOLD || 0.78} || true; sleep ${process.env.ATS_FRONTIER_EXPANSION_INTERVAL_SECONDS || 21600}; done'`,
+      cwd: __dirname,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 10000,
+      output: "./logs/ats-frontier-expansion-out.log",
+      error: "./logs/ats-frontier-expansion-err.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      merge_logs: true,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        DATABASE_PROCESS_ROLE: "recovery_discovery",
+        DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+        INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
+        JOOBLE_ENABLED: "false",
+        SOURCE_JOOBLE_ENABLED: "false",
+        INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
+      },
+      max_memory_restart: "384M",
     },
     {
       __workerGroups: ["source-workers"],
@@ -702,9 +736,9 @@ const steadyWorkerApps = [
           process.env.INGEST_SKIP_GENERIC_COMPANY_SITE_POLLS || "true",
         INGEST_CAPACITY_SCALE: process.env.INGEST_CAPACITY_SCALE || "1",
         INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY:
-          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "3",
+          process.env.INGEST_SOURCE_VALIDATION_QUEUE_CONCURRENCY || "6",
         RECOVERY_WORKER_VALIDATION_LIMIT:
-          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "80",
+          process.env.RECOVERY_WORKER_VALIDATION_LIMIT || "160",
         DATABASE_POOL_MAX_RECOVERY_VALIDATION:
           process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
       },
