@@ -186,6 +186,18 @@ async function loadCandidates(
       { sourceQualityScore: { gte: 0.6 } },
     ],
   } satisfies Prisma.SourceCandidateWhereInput;
+  const retryableNewOrStaleWhere = {
+    OR: [
+      { status: "NEW" },
+      {
+        status: "STALE",
+        OR: [
+          { lastValidatedAt: null },
+          { lastValidatedAt: { lt: staleRetryBefore } },
+        ],
+      },
+    ],
+  } satisfies Prisma.SourceCandidateWhereInput;
   const include = {
     company: {
       select: {
@@ -205,7 +217,32 @@ async function loadCandidates(
     { lastValidatedAt: "desc" },
     { lastSeenAt: "desc" },
   ] satisfies Prisma.SourceCandidateOrderByWithRelationInput[];
-  const [validatedRows, newOrStaleRows, promotedOrphanRows] = await Promise.all([
+  const [structuredAtsRows, validatedRows, newOrStaleRows, promotedOrphanRows] = await Promise.all([
+    // Generic career pages and sitemaps often carry optimistic coverage/yield
+    // scores. Reserve a planning lane for company-owned ATS boards with a
+    // detected platform so validation capacity first reaches sources that can
+    // produce a normalized connector.
+    prisma.sourceCandidate.findMany({
+      where: {
+        AND: [
+          candidateQualityWhere,
+          {
+            candidateType: "ATS_BOARD",
+            atsPlatform: { not: null },
+            companyId: { not: null },
+          },
+          {
+            OR: [
+              { status: "VALIDATED" },
+              retryableNewOrStaleWhere,
+            ],
+          },
+        ],
+      },
+      include,
+      orderBy,
+      take: Math.max(limit * 3, 600),
+    }),
     prisma.sourceCandidate.findMany({
       where: {
         ...candidateQualityWhere,
@@ -219,18 +256,7 @@ async function loadCandidates(
       where: {
         AND: [
           candidateQualityWhere,
-          {
-            OR: [
-              { status: "NEW" },
-              {
-                status: "STALE",
-                OR: [
-                  { lastValidatedAt: null },
-                  { lastValidatedAt: { lt: staleRetryBefore } },
-                ],
-              },
-            ],
-          },
+          retryableNewOrStaleWhere,
         ],
       },
       include,
@@ -267,7 +293,12 @@ async function loadCandidates(
   });
   const seenIds = new Set<string>();
   const orphanIds = new Set(repairablePromotedOrphanRows.map((row) => row.id));
-  const rows = [...repairablePromotedOrphanRows, ...validatedRows, ...newOrStaleRows]
+  const rows = [
+    ...structuredAtsRows,
+    ...repairablePromotedOrphanRows,
+    ...validatedRows,
+    ...newOrStaleRows,
+  ]
     .filter((row) => {
       if (seenIds.has(row.id)) return false;
       seenIds.add(row.id);
