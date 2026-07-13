@@ -311,6 +311,16 @@ const maintenanceApps = [
         process.env.DATABASE_POOL_MAX_MAINTENANCE || "3",
     }
   ),
+  buildMaintenanceShellApp(
+    "maintenance-storage-lifecycle",
+    `-lc 'sleep ${process.env.STORAGE_LIFECYCLE_INITIAL_DELAY_SECONDS || 600}; while true; do timeout ${process.env.STORAGE_LIFECYCLE_TIMEOUT_SECONDS || 1800}s node_modules/.bin/tsx -r dotenv/config scripts/apply-storage-lifecycle.ts --apply --vacuum --batch-size=${process.env.STORAGE_LIFECYCLE_BATCH_SIZE || 5000} --max-batches=${process.env.STORAGE_LIFECYCLE_MAX_BATCHES || 10} --inactive-canonical-retention-days=${process.env.INACTIVE_JOB_RETENTION_DAYS || 14} --target=old-unreferenced-inactive-canonical-jobs --target=old-unmapped-raw-jobs || true; sleep ${process.env.STORAGE_LIFECYCLE_INTERVAL_SECONDS || 86400}; done'`,
+    "./logs/maintenance-storage-lifecycle-out.log",
+    "./logs/maintenance-storage-lifecycle-err.log",
+    {
+      DATABASE_POOL_MAX_MAINTENANCE:
+        process.env.DATABASE_POOL_MAX_MAINTENANCE || "2",
+    }
+  ),
 ];
 
 const topPicksWorkerScript = path.join(

@@ -138,7 +138,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./backups:/backups
+      - ${DB_BACKUP_HOST_DIR:-./backups}:/backups
     command: ["node", "--version"]
 
   caddy:

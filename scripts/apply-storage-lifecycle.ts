@@ -1,6 +1,10 @@
 import "dotenv/config";
 
 import { prisma } from "../src/lib/db";
+import {
+  INACTIVE_JOB_RETENTION_DAYS,
+  INACTIVE_JOB_STATUSES,
+} from "../src/lib/ingestion/inactive-job-retention";
 
 type ParsedArgs = {
   apply: boolean;
@@ -14,7 +18,9 @@ type ParsedArgs = {
   runKeepPerConnector: number;
   taskSuccessRetentionDays: number;
   taskFailedRetentionDays: number;
+  inactiveCanonicalRetentionDays: number;
   unmappedRawRetentionDays: number;
+  targetNames: string[];
 };
 
 type CleanupTarget = {
@@ -37,7 +43,9 @@ const DEFAULTS: ParsedArgs = {
   runKeepPerConnector: 10,
   taskSuccessRetentionDays: 3,
   taskFailedRetentionDays: 14,
+  inactiveCanonicalRetentionDays: INACTIVE_JOB_RETENTION_DAYS,
   unmappedRawRetentionDays: 14,
+  targetNames: [],
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -58,6 +66,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
 
     const [rawKey, rawValue] = rawArg.replace(/^--/, "").split("=");
+    if (rawKey === "target") {
+      const targetName = rawValue?.trim();
+      if (!targetName) {
+        throw new Error("--target requires a cleanup target name");
+      }
+      args.targetNames.push(targetName);
+      continue;
+    }
     if (!rawValue) continue;
     const value = readPositiveInteger(rawValue, rawKey);
 
@@ -71,6 +87,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       args.taskSuccessRetentionDays = value;
     }
     if (rawKey === "task-failed-retention-days") args.taskFailedRetentionDays = value;
+    if (rawKey === "inactive-canonical-retention-days") {
+      args.inactiveCanonicalRetentionDays = value;
+    }
     if (rawKey === "unmapped-raw-retention-days") {
       args.unmappedRawRetentionDays = value;
     }
@@ -146,9 +165,71 @@ function buildTargets(args: ParsedArgs): CleanupTarget[] {
   const runKeep = intSql(args.runKeepPerConnector);
   const taskSuccessRetention = intSql(args.taskSuccessRetentionDays);
   const taskFailedRetention = intSql(args.taskFailedRetentionDays);
+  const inactiveCanonicalRetention = intSql(args.inactiveCanonicalRetentionDays);
   const rawRetention = intSql(args.unmappedRawRetentionDays);
+  const inactiveStatuses = INACTIVE_JOB_STATUSES.map((status) => `'${status}'`).join(", ");
 
   return [
+    {
+      name: "old-unreferenced-inactive-canonical-jobs",
+      tableName: "JobCanonical",
+      cascadeVacuumTableNames: [
+        "JobFeedIndex",
+        "JobSourceMapping",
+        "JobUrlHealthCheck",
+        "JobEligibility",
+        "NormalizedJobRecord",
+        "SourceTask",
+        "IngestionRun",
+        "UserTopPick",
+        "UserJobPreferenceFeedback",
+      ],
+      countSql: `
+        select count(*)::bigint as count
+        from "JobCanonical" job
+        where job.status in (${inactiveStatuses})
+          and coalesce(job."removedAt", job."expiredAt", job."updatedAt")
+            < now() - interval '${inactiveCanonicalRetention} days'
+          -- Preserve user-saved jobs and submitted application material.
+          and not exists (
+            select 1 from "SavedJob" saved where saved."canonicalJobId" = job.id
+          )
+          and not exists (
+            select 1 from "ApplicationSubmission" submission where submission."canonicalJobId" = job.id
+          )
+          and not exists (
+            select 1 from "ApplicationPackage" package where package."canonicalJobId" = job.id
+          )
+      `,
+      buildSql: (limit) => `
+        with doomed as (
+          select job.id
+          from "JobCanonical" job
+          where job.status in (${inactiveStatuses})
+            and coalesce(job."removedAt", job."expiredAt", job."updatedAt")
+              < now() - interval '${inactiveCanonicalRetention} days'
+            -- A tracker record is safe to retain because its canonical FK is
+            -- SET NULL and it stores its own company/title snapshot.
+            and not exists (
+              select 1 from "SavedJob" saved where saved."canonicalJobId" = job.id
+            )
+            and not exists (
+              select 1 from "ApplicationSubmission" submission where submission."canonicalJobId" = job.id
+            )
+            and not exists (
+              select 1 from "ApplicationPackage" package where package."canonicalJobId" = job.id
+            )
+          order by coalesce(job."removedAt", job."expiredAt", job."updatedAt") asc
+          limit ${intSql(limit)}
+        ),
+        deleted as (
+          delete from "JobCanonical"
+          where id in (select id from doomed)
+          returning 1
+        )
+        select count(*)::bigint as deleted_count from deleted
+      `,
+    },
     {
       name: "old-url-health-checks",
       tableName: "JobUrlHealthCheck",
@@ -290,7 +371,7 @@ function buildTargets(args: ParsedArgs): CleanupTarget[] {
       `,
     },
     {
-      name: "old-unmapped-rejected-raw-jobs",
+      name: "old-unmapped-raw-jobs",
       tableName: "JobRaw",
       cascadeVacuumTableNames: ["NormalizedJobRecord"],
       countSql: `
@@ -300,7 +381,7 @@ function buildTargets(args: ParsedArgs): CleanupTarget[] {
         left join "NormalizedJobRecord" record on record."rawJobId" = raw.id
         where mapping.id is null
           and raw."fetchedAt" < now() - interval '${rawRetention} days'
-          and (record.id is null or record.status = 'REJECTED')
+          and (record.id is null or record."canonicalJobId" is null)
       `,
       buildSql: (limit) => `
         with doomed as (
@@ -310,7 +391,7 @@ function buildTargets(args: ParsedArgs): CleanupTarget[] {
           left join "NormalizedJobRecord" record on record."rawJobId" = raw.id
           where mapping.id is null
             and raw."fetchedAt" < now() - interval '${rawRetention} days'
-            and (record.id is null or record.status = 'REJECTED')
+            and (record.id is null or record."canonicalJobId" is null)
           limit ${intSql(limit)}
         ),
         deleted as (
@@ -380,8 +461,20 @@ function printSizes(label: string, rows: Awaited<ReturnType<typeof getTableSizes
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const targets = buildTargets(args);
+  const selectedTargets =
+    args.targetNames.length === 0
+      ? targets
+      : targets.filter((target) => args.targetNames.includes(target.name));
+  const unknownTargetNames = args.targetNames.filter(
+    (targetName) => !targets.some((target) => target.name === targetName)
+  );
+  if (unknownTargetNames.length > 0) {
+    throw new Error(`Unknown cleanup target(s): ${unknownTargetNames.join(", ")}`);
+  }
+
   console.log(
-    `[storage-lifecycle] mode=${args.apply ? "apply" : "dry-run"} batchSize=${args.batchSize} maxBatches=${args.maxBatches}`
+    `[storage-lifecycle] mode=${args.apply ? "apply" : "dry-run"} batchSize=${args.batchSize} maxBatches=${args.maxBatches} targets=${selectedTargets.map((target) => target.name).join(",")}`
   );
 
   printSizes("before", await getTableSizes());
@@ -393,7 +486,7 @@ async function main() {
   }
 
   const touchedTables = new Set<string>();
-  for (const target of buildTargets(args)) {
+  for (const target of selectedTargets) {
     if (!args.apply) {
       const count = await countRows(target.countSql);
       console.log(`[${target.name}] dry-run candidates=${count}`);
