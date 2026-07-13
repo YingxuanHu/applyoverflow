@@ -6,6 +6,8 @@ import path from "node:path";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import {
   buildSourceCandidatePromotionPlan,
+  detectPromotionCandidateSource,
+  promotionSourceIdentity,
   selectPromotionValidationActions,
   type ExistingPromotionSource,
   type PromotionCandidate,
@@ -162,7 +164,8 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue {
 
 async function loadCandidates(
   prisma: PrismaClient,
-  limit: number
+  limit: number,
+  existingSources: ExistingPromotionSource[]
 ): Promise<PromotionCandidate[]> {
   const staleRetryHours = Math.max(
     1,
@@ -214,14 +217,18 @@ async function loadCandidates(
     }),
     prisma.sourceCandidate.findMany({
       where: {
-        ...candidateQualityWhere,
-        OR: [
-          { status: "NEW" },
+        AND: [
+          candidateQualityWhere,
           {
-            status: "STALE",
             OR: [
-              { lastValidatedAt: null },
-              { lastValidatedAt: { lt: staleRetryBefore } },
+              { status: "NEW" },
+              {
+                status: "STALE",
+                OR: [
+                  { lastValidatedAt: null },
+                  { lastValidatedAt: { lt: staleRetryBefore } },
+                ],
+              },
             ],
           },
         ],
@@ -240,12 +247,27 @@ async function loadCandidates(
       },
       include,
       orderBy,
-      take: Math.max(limit * 2, 400),
+      // Most historical tenant repairs already have an equivalent source row
+      // whose foreign key was never linked. Fetch a wider bounded set so those
+      // duplicates can be removed below without starving genuine repairs.
+      take: Math.max(limit * 8, 1_600),
     }),
   ]);
+  const existingSourceIdentities = new Set(
+    existingSources.map((source) => promotionSourceIdentity(source))
+  );
+  const repairablePromotedOrphanRows = promotedOrphanRows.filter((row) => {
+    const detected = detectPromotionCandidateSource({
+      candidateUrl: row.candidateUrl,
+      atsPlatform: row.atsPlatform,
+      atsTenantKey: row.atsTenantKey,
+    });
+
+    return !detected || !existingSourceIdentities.has(promotionSourceIdentity(detected));
+  });
   const seenIds = new Set<string>();
-  const orphanIds = new Set(promotedOrphanRows.map((row) => row.id));
-  const rows = [...promotedOrphanRows, ...validatedRows, ...newOrStaleRows]
+  const orphanIds = new Set(repairablePromotedOrphanRows.map((row) => row.id));
+  const rows = [...repairablePromotedOrphanRows, ...validatedRows, ...newOrStaleRows]
     .filter((row) => {
       if (seenIds.has(row.id)) return false;
       seenIds.add(row.id);
@@ -574,10 +596,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const generatedAt = new Date().toISOString();
   const { prisma } = await import("../src/lib/db");
-  const [candidates, existingSources] = await Promise.all([
-    loadCandidates(prisma, args.limit),
-    loadExistingSources(prisma),
-  ]);
+  const existingSources = await loadExistingSources(prisma);
+  const candidates = await loadCandidates(prisma, args.limit, existingSources);
   const actions = buildSourceCandidatePromotionPlan({
     candidates,
     existingSources,

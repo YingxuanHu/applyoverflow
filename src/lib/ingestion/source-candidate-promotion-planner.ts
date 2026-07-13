@@ -116,6 +116,8 @@ export type PromotionValidationSelectionOptions = {
   atsShare?: number;
 };
 
+type PromotionSourceIdentity = Pick<CandidateDetectedSource, "connectorName" | "token">;
+
 const DEFAULT_LIMIT = 200;
 const DEFAULT_MIN_AUTO_PROMOTE_SCORE = 82;
 const DEFAULT_MIN_VALIDATION_SCORE = 62;
@@ -318,6 +320,16 @@ export function scoreCandidateOwnership(candidate: PromotionCandidate) {
     reasons.push("candidate-linked-to-ats-tenant");
   }
 
+  // A promoted tenant without a CompanySource is a registry repair candidate,
+  // not an unverified cross-company lead. It still validates before promotion
+  // unless its validation is fresh, but must not be trapped below the generic
+  // ownership threshold solely because the ATS hostname differs from the
+  // employer domain.
+  if (candidate.repairMissingSource && candidate.atsTenantId && candidate.companyId) {
+    score += 0.1;
+    reasons.push("promoted-tenant-needs-source-repair");
+  }
+
   return {
     score: round(clamp(score, 0, 1)),
     reasons,
@@ -420,12 +432,16 @@ function buildAction(input: {
   };
 }
 
-function sourceIdentity(source: ExistingPromotionSource) {
+export function promotionSourceIdentity(source: PromotionSourceIdentity) {
   return `${source.connectorName.trim().toLowerCase()}:${source.token.trim().toLowerCase()}`;
 }
 
+function sourceIdentity(source: ExistingPromotionSource) {
+  return promotionSourceIdentity(source);
+}
+
 function detectedIdentity(source: CandidateDetectedSource) {
-  return `${source.connectorName.trim().toLowerCase()}:${source.token.trim().toLowerCase()}`;
+  return promotionSourceIdentity(source);
 }
 
 function isGenericTokenSegment(value: string) {

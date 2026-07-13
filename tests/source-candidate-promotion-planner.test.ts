@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildSourceCandidatePromotionPlan,
   detectPromotionCandidateSource,
+  promotionSourceIdentity,
   selectPromotionValidationActions,
   scoreCandidateOwnership,
   type ExistingPromotionSource,
@@ -154,6 +155,42 @@ test("buildSourceCandidatePromotionPlan repairs promoted ATS candidates missing 
 
   assert.equal(action?.kind, "PROMOTE_ATS_SOURCE");
   assert.ok(action?.evidence.includes("repair-missing-company-source"));
+});
+
+test("promoted tenant repairs can validate without a company-name ATS token match", () => {
+  const repairCandidate = candidate({
+    candidateUrl: "https://job-boards.greenhouse.io/opaque-board",
+    atsPlatform: "GREENHOUSE",
+    atsTenantKey: "opaque-board",
+    company: {
+      id: "company_1",
+      name: "Acme Holdings",
+      companyKey: "acmeholdings",
+      domain: "acme.com",
+      careersUrl: "https://acme.com/careers",
+    },
+    companyNameHint: null,
+    status: "PROMOTED",
+    repairMissingSource: true,
+    lastValidatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  const ownership = scoreCandidateOwnership(repairCandidate);
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [repairCandidate],
+    existingSources: [],
+  });
+
+  assert.ok(ownership.score >= 0.38);
+  assert.ok(ownership.reasons.includes("promoted-tenant-needs-source-repair"));
+  assert.equal(action?.kind, "VALIDATE_ATS_SOURCE");
+});
+
+test("promotion source identities normalize connector and token casing", () => {
+  assert.equal(
+    promotionSourceIdentity({ connectorName: "GreenHouse", token: " Monzo " }),
+    "greenhouse:monzo"
+  );
 });
 
 test("buildSourceCandidatePromotionPlan still skips intact promoted candidates", () => {
