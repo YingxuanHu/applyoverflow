@@ -1,10 +1,12 @@
 import "dotenv/config";
 
+import type { Prisma } from "../src/generated/prisma/client";
 import { prisma } from "../src/lib/db";
 import {
   type AtsExpansionSignal,
   expandAtsTenantsFromSignals,
 } from "../src/lib/ingestion/frontier-expansion";
+import { getCompanyFrontierWindow } from "../src/lib/ingestion/frontier-rotation";
 import { discoverSourceCandidatesFromPageUrls } from "../src/lib/ingestion/discovery/sources";
 import { normalizeUrlIdentityKey } from "../src/lib/ingestion/source-quality";
 
@@ -14,6 +16,8 @@ type CliArgs = {
   pageScanLimit: number;
   pageDiscoveryConcurrency: number;
   promotionThreshold: number;
+  rotationWindowMinutes: number;
+  rotationSlot: number | null;
   dryRun: boolean;
 };
 
@@ -35,11 +39,16 @@ const BOARD_PREFIXES = new Set([
 
 function parseArgs(argv: string[]): CliArgs {
   return {
-    companyLimit: readIntArg(argv, "--company-limit", 1_500),
-    urlLimit: readIntArg(argv, "--url-limit", 5_000),
-    pageScanLimit: readIntArg(argv, "--page-scan-limit", 400),
-    pageDiscoveryConcurrency: readIntArg(argv, "--page-discovery-concurrency", 8),
+    companyLimit: Math.max(1, readIntArg(argv, "--company-limit", 1_500)),
+    urlLimit: Math.max(1, readIntArg(argv, "--url-limit", 5_000)),
+    pageScanLimit: Math.max(0, readIntArg(argv, "--page-scan-limit", 400)),
+    pageDiscoveryConcurrency: Math.max(1, readIntArg(argv, "--page-discovery-concurrency", 8)),
     promotionThreshold: readFloatArg(argv, "--promotion-threshold", 0.84),
+    rotationWindowMinutes: Math.max(
+      1,
+      readIntArg(argv, "--rotation-window-minutes", 360)
+    ),
+    rotationSlot: readOptionalIntArg(argv, "--rotation-slot"),
     dryRun: argv.includes("--dry-run"),
   };
 }
@@ -54,6 +63,13 @@ function readIntArg(argv: string[], name: string, fallback: number) {
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readOptionalIntArg(argv: string[], name: string) {
+  const raw = readArg(argv, name);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readFloatArg(argv: string[], name: string, fallback: number) {
@@ -84,34 +100,57 @@ function sourceFamilyFromSourceName(sourceName: string) {
   return (sourceName.split(":")[0] ?? sourceName).trim().toLowerCase();
 }
 
-async function loadCompanySignals(limit: number) {
-  const companies = await prisma.company.findMany({
-    where: {
-      OR: [
-        { domain: { not: null } },
-        { careersUrl: { not: null } },
-        { discoveryPages: { some: {} } },
-      ],
-    },
-    orderBy: [{ discoveryConfidence: "desc" }, { updatedAt: "desc" }],
-    take: limit,
+const companyFrontierWhere = {
+  OR: [
+    { domain: { not: null } },
+    { careersUrl: { not: null } },
+    { discoveryPages: { some: {} } },
+  ],
+} satisfies Prisma.CompanyWhereInput;
+
+const companyFrontierSelect = {
+  id: true,
+  name: true,
+  domain: true,
+  careersUrl: true,
+  discoveryConfidence: true,
+  discoveryPages: {
+    where: { failureCount: { lt: 3 } },
+    orderBy: [{ confidence: "desc" }, { lastCheckedAt: "desc" }],
+    take: 5,
     select: {
-      id: true,
-      name: true,
-      domain: true,
-      careersUrl: true,
-      discoveryConfidence: true,
-      discoveryPages: {
-        where: { failureCount: { lt: 3 } },
-        orderBy: [{ confidence: "desc" }, { lastCheckedAt: "desc" }],
-        take: 5,
-        select: {
-          url: true,
-          confidence: true,
-        },
-      },
+      url: true,
+      confidence: true,
     },
-  });
+  },
+} satisfies Prisma.CompanySelect;
+
+async function loadCompanySignals(limit: number, rotationSlot: number) {
+  const companyCount = await prisma.company.count({ where: companyFrontierWhere });
+  const window = getCompanyFrontierWindow(companyCount, limit, rotationSlot);
+
+  // Stable ID ordering plus a rotating window keeps this recurring frontier pass
+  // moving across the company corpus instead of rechecking only recently touched rows.
+  const tail =
+    window.tailTake > 0
+      ? await prisma.company.findMany({
+          where: companyFrontierWhere,
+          orderBy: { id: "asc" },
+          skip: window.offset,
+          take: window.tailTake,
+          select: companyFrontierSelect,
+        })
+      : [];
+  const head =
+    window.headTake > 0
+      ? await prisma.company.findMany({
+          where: companyFrontierWhere,
+          orderBy: { id: "asc" },
+          take: window.headTake,
+          select: companyFrontierSelect,
+        })
+      : [];
+  const companies = [...tail, ...head];
 
   const signals: AtsExpansionSignal[] = [];
   const pageUrls = new Map<
@@ -158,6 +197,9 @@ async function loadCompanySignals(limit: number) {
   return {
     signals,
     pageUrls: [...pageUrls.entries()].map(([urlKey, value]) => ({ urlKey, ...value })),
+    companyCount,
+    rotationOffset: window.offset,
+    scannedCompanyCount: companies.length,
   };
 }
 
@@ -292,8 +334,11 @@ async function discoverAtsBoardsFromPages(
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const rotationSlot =
+    args.rotationSlot ??
+    Math.floor(Date.now() / (args.rotationWindowMinutes * 60 * 1_000));
   const [companySignals, canonicalSignals] = await Promise.all([
-    loadCompanySignals(args.companyLimit),
+    loadCompanySignals(args.companyLimit, rotationSlot),
     loadCanonicalUrlSignals(args.urlLimit),
   ]);
 
@@ -316,6 +361,10 @@ async function main() {
   console.log(
     JSON.stringify(
       {
+        companyCorpusCount: companySignals.companyCount,
+        scannedCompanyCount: companySignals.scannedCompanyCount,
+        rotationSlot,
+        rotationOffset: companySignals.rotationOffset,
         companySignals: companySignals.signals.length,
         pageSeedCount: companySignals.pageUrls.length,
         canonicalSignals: canonicalSignals.length,
