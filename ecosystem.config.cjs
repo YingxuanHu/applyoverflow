@@ -650,7 +650,7 @@ const steadyWorkerApps = [
       __workerGroups: ["source-workers"],
       name: "ingest-source-candidate-promotion",
       script: "bash",
-      args: `-lc 'sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INITIAL_DELAY_SECONDS || 180}; while true; do timeout ${process.env.SOURCE_CANDIDATE_PROMOTION_TIMEOUT_SECONDS || 240}s node_modules/.bin/tsx -r dotenv/config scripts/source-candidate-promotion-plan.ts --apply --no-report --limit=${process.env.SOURCE_CANDIDATE_PROMOTION_LIMIT || 300} --max-promote=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_PROMOTE || 12} --max-validate=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_VALIDATE || 60} --ats-validation-share=${process.env.SOURCE_CANDIDATE_PROMOTION_ATS_VALIDATION_SHARE || 0.6}; sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INTERVAL_SECONDS || 300}; done'`,
+      args: `-lc 'sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INITIAL_DELAY_SECONDS || 180}; while true; do timeout ${process.env.SOURCE_CANDIDATE_PROMOTION_TIMEOUT_SECONDS || 240}s node_modules/.bin/tsx -r dotenv/config scripts/source-candidate-promotion-plan.ts --apply --no-report --limit=${process.env.SOURCE_CANDIDATE_PROMOTION_LIMIT || 1000} --max-promote=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_PROMOTE || 12} --max-validate=${process.env.SOURCE_CANDIDATE_PROMOTION_MAX_VALIDATE || 120} --ats-validation-share=${process.env.SOURCE_CANDIDATE_PROMOTION_ATS_VALIDATION_SHARE || 0.6}; sleep ${process.env.SOURCE_CANDIDATE_PROMOTION_INTERVAL_SECONDS || 300}; done'`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
