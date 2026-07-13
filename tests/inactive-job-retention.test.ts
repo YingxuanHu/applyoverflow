@@ -55,6 +55,7 @@ test("backup runner never evaluates the compose dotenv file as shell code", () =
   assert.match(source, /DB_BACKUP_HOST_DIR/);
   assert.match(source, /END \{ if \(value != ""\) print value \}/);
   assert.match(source, /cleanup_failed_backup/);
+  assert.match(source, /run --rm --no-deps backup-runner/);
 });
 
 test("backup-runner mounts the configurable host staging directory", () => {
