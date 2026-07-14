@@ -251,7 +251,8 @@ async function fetchWorkdayJobs({
       signal,
       log
     );
-    const postings = (payload.jobPostings ?? []).filter(
+    const listingPage = payload.jobPostings ?? [];
+    const postings = listingPage.filter(
       (job) => Boolean(readText(job.title) && readText(job.externalPath))
     );
 
@@ -259,7 +260,7 @@ async function fetchWorkdayJobs({
       total = payload.total;
     }
 
-    if (postings.length === 0) {
+    if (listingPage.length === 0) {
       exhausted = true;
       await onCheckpoint?.(null);
       break;
@@ -279,11 +280,15 @@ async function fetchWorkdayJobs({
         })
     );
     jobs.push(...pageJobs);
-    offset += postings.length;
+    // Workday can include a malformed row in an otherwise full page. Pagination
+    // must follow the upstream page size, not only rows we can normalize; using
+    // the filtered count made a 20-row page look like a final 19-row page and
+    // incorrectly authorized full-snapshot removals for every later listing.
+    offset += listingPage.length;
 
     const sourceExhausted =
       (typeof total === "number" && offset >= total) ||
-      postings.length < requestedLimit;
+      listingPage.length < requestedLimit;
     if (sourceExhausted) {
       exhausted = true;
       await onCheckpoint?.(null);
