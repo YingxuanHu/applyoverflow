@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FAST_TRACK_MIN_JOBS,
   shouldFastTrackProbeHit,
+  shouldFastTrackRegisteredProbeHit,
 } from "@/lib/ingestion/discovery/probe-fast-track-policy";
 
 test("fast-tracks identity-matched hits with enough jobs", () => {
@@ -51,5 +52,27 @@ test("treats a null job count as zero and does not fast-track", () => {
   assert.equal(
     shouldFastTrackProbeHit({ identityVerdict: "match", jobCount: null }),
     false
+  );
+});
+
+test("does not fast-track a repeated hit for an already promoted board", () => {
+  assert.equal(
+    shouldFastTrackRegisteredProbeHit({
+      candidateStatus: "PROMOTED",
+      identityVerdict: "match",
+      jobCount: 500,
+    }),
+    false
+  );
+});
+
+test("keeps an identity-matched new board on the fast-track", () => {
+  assert.equal(
+    shouldFastTrackRegisteredProbeHit({
+      candidateStatus: "NEW",
+      identityVerdict: "match",
+      jobCount: FAST_TRACK_MIN_JOBS,
+    }),
+    true
   );
 });

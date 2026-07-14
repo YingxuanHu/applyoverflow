@@ -24,6 +24,8 @@ export type ProbeFastTrackInput = {
   jobCount: number | null;
 };
 
+type ProbeCandidateStatus = "NEW" | "VALIDATED" | "PROMOTED" | "STALE" | "REJECTED";
+
 // A board must expose at least this many live postings to earn a fast-track.
 // Identity-verified boards with only a posting or two are usually low-yield or
 // stub tenants; the standard pipeline can still pick them up later.
@@ -40,4 +42,16 @@ export function shouldFastTrackProbeHit(input: ProbeFastTrackInput): boolean {
     input.identityVerdict === "match" &&
     (input.jobCount ?? 0) >= FAST_TRACK_MIN_JOBS
   );
+}
+
+/**
+ * A repeat probe can rediscover a board that has already been promoted. It is
+ * useful freshness evidence for the board, but revalidating the candidate
+ * cannot create another source or add new coverage. Keep the scarce
+ * fast-track lane for candidates that still need a promotion decision.
+ */
+export function shouldFastTrackRegisteredProbeHit(
+  input: ProbeFastTrackInput & { candidateStatus: ProbeCandidateStatus }
+): boolean {
+  return input.candidateStatus !== "PROMOTED" && shouldFastTrackProbeHit(input);
 }

@@ -30,7 +30,7 @@ import { registerSourceCandidate } from "../src/lib/ingestion/discovery/source-r
 import { enqueueUniquePipelineTask } from "../src/lib/ingestion/pipeline-queue";
 import {
   FAST_TRACK_VALIDATION_PRIORITY,
-  shouldFastTrackProbeHit,
+  shouldFastTrackRegisteredProbeHit,
 } from "../src/lib/ingestion/discovery/probe-fast-track-policy";
 
 type Mode = "coverage" | "repair" | "names";
@@ -128,8 +128,13 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
   // ~limit/runway per pass — so raising the coverage cadence now translates into
   // genuinely new coverage instead of re-hammering the same companies.
   //
-  // The IN list mirrors HEALTHY_SOURCE_STATUSES; both values are stable
-  // CompanySourceStatus enum literals (no user input → no injection risk).
+  // A company with a promoted probe candidate is deliberately excluded.
+  // Re-probing it usually re-discovers the same global ATS board, which cannot
+  // create new source coverage and starves genuinely unsourced companies from
+  // this finite pass. Broken source repair remains in the dedicated repair
+  // mode.
+  //
+  // The enum literals are internal constants, not user input.
   const rows = await prisma.$queryRaw<
     Array<{ id: string; name: string; domain: string | null }>
   >`
@@ -141,6 +146,12 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
         FROM "CompanySource" cs
         WHERE cs."companyId" = c."id"
           AND cs."status" IN ('ACTIVE', 'PROVISIONED')
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM "SourceCandidate" sc
+        WHERE sc."companyId" = c."id"
+          AND sc."status" = 'PROMOTED'
       )
     ORDER BY random()
     LIMIT ${limit}
@@ -231,7 +242,14 @@ async function registerHit(
     },
   });
 
-  if (!shouldFastTrackProbeHit(hit)) return { fastTracked: false };
+  if (
+    !shouldFastTrackRegisteredProbeHit({
+      ...hit,
+      candidateStatus: candidate.status,
+    })
+  ) {
+    return { fastTracked: false };
+  }
 
   // Bypass the clogged exploration-scheduler ranking: enqueue the validation
   // task directly for this candidate. Idempotency-keyed on the candidate id so
