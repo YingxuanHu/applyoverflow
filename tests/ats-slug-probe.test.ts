@@ -9,6 +9,7 @@ import {
   createProbeRunContext,
   probeAtsSlugsForCompany,
   type FetchLike,
+  type ProbeableAtsPlatform,
 } from "@/lib/ingestion/discovery/ats-slug-probe";
 
 test("slug candidates prefer the domain label and strip legal suffixes", () => {
@@ -105,6 +106,31 @@ test("empty boards below minJobCount are not reported as hits", async () => {
   });
 
   assert.deepEqual(summary.hits, []);
+});
+
+test("known ATS tenants are skipped before making outbound probe requests", async () => {
+  const calls: string[] = [];
+  const fetchImpl: FetchLike = async (url) => {
+    calls.push(url);
+    return { status: 200, json: async () => ({ jobs: [{ id: 1 }] }) };
+  };
+  const knownTenantKeys = new Map<ProbeableAtsPlatform, ReadonlySet<string>>([
+    ["greenhouse", new Set(["acme"])],
+  ]);
+
+  const summary = await probeAtsSlugsForCompany({
+    name: "Acme",
+    domain: "acme.com",
+    platforms: ["greenhouse"],
+    knownTenantKeys,
+    fetchImpl,
+    requestDelayMs: 0,
+  });
+
+  assert.equal(summary.knownTenantSkips, 1);
+  assert.equal(summary.attempts, 0);
+  assert.deepEqual(summary.hits, []);
+  assert.deepEqual(calls, []);
 });
 
 test("429/403 responses classify as blocked, not miss", async () => {

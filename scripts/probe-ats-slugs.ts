@@ -24,6 +24,7 @@ import {
   createProbeRunContext,
   probeAtsSlugsForCompany,
   type AtsSlugProbeResult,
+  type KnownProbeTenantKeys,
   type ProbeableAtsPlatform,
 } from "../src/lib/ingestion/discovery/ats-slug-probe";
 import { registerSourceCandidate } from "../src/lib/ingestion/discovery/source-registry";
@@ -32,6 +33,7 @@ import {
   FAST_TRACK_VALIDATION_PRIORITY,
   shouldFastTrackRegisteredProbeHit,
 } from "../src/lib/ingestion/discovery/probe-fast-track-policy";
+import type { AtsPlatform } from "../src/generated/prisma/client";
 
 type Mode = "coverage" | "repair" | "names";
 
@@ -113,6 +115,51 @@ type ProbeTargetCompany = {
 };
 
 const HEALTHY_SOURCE_STATUSES = ["ACTIVE", "PROVISIONED"] as const;
+
+async function loadKnownProbeTenantKeys(
+  platforms: ProbeableAtsPlatform[]
+): Promise<KnownProbeTenantKeys> {
+  const supportedPlatforms = platforms.map(
+    (platform) => platform.toUpperCase() as AtsPlatform
+  );
+  const known = new Map<ProbeableAtsPlatform, Set<string>>(
+    platforms.map((platform) => [platform, new Set<string>()])
+  );
+
+  const add = (platform: AtsPlatform | null, tenantKey: string | null) => {
+    const normalizedPlatform = platform?.toLowerCase() as ProbeableAtsPlatform | undefined;
+    const normalizedKey = tenantKey?.trim().toLowerCase();
+    if (!normalizedKey || !normalizedPlatform || !known.has(normalizedPlatform)) return;
+    known.get(normalizedPlatform)?.add(normalizedKey);
+  };
+
+  const [activeSources, promotedCandidates] = await Promise.all([
+    prisma.companySource.findMany({
+      where: {
+        status: { in: [...HEALTHY_SOURCE_STATUSES] },
+        atsTenant: { is: { platform: { in: supportedPlatforms } } },
+      },
+      select: { atsTenant: { select: { platform: true, tenantKey: true } } },
+    }),
+    prisma.sourceCandidate.findMany({
+      where: {
+        status: "PROMOTED",
+        atsPlatform: { in: supportedPlatforms },
+        atsTenantKey: { not: null },
+      },
+      select: { atsPlatform: true, atsTenantKey: true },
+    }),
+  ]);
+
+  for (const source of activeSources) {
+    add(source.atsTenant?.platform ?? null, source.atsTenant?.tenantKey ?? null);
+  }
+  for (const candidate of promotedCandidates) {
+    add(candidate.atsPlatform, candidate.atsTenantKey);
+  }
+
+  return known;
+}
 
 async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]> {
   // Randomized sampling across the entire unsourced runway.
@@ -345,12 +392,14 @@ async function registerHit(
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const targets =
+  const [targets, knownTenantKeys] = await Promise.all([
     args.mode === "names"
-      ? await loadNamedTargets(args.names)
+      ? loadNamedTargets(args.names)
       : args.mode === "repair"
-        ? await loadRepairTargets(args.limit)
-        : await loadCoverageTargets(args.limit);
+        ? loadRepairTargets(args.limit)
+        : loadCoverageTargets(args.limit),
+    args.mode === "coverage" ? loadKnownProbeTenantKeys(args.platforms) : undefined,
+  ]);
 
   console.log(
     `[probe] mode=${args.mode} targets=${targets.length} platforms=${args.platforms.join(",")} apply=${args.apply}`
@@ -365,6 +414,7 @@ async function main() {
   let totalMismatches = 0;
   let totalBlocked = 0;
   let totalPlatformSkips = 0;
+  let totalKnownTenantSkips = 0;
   let totalRegistered = 0;
   let totalFastTracked = 0;
   const queue = [...targets];
@@ -393,12 +443,14 @@ async function main() {
           minJobCount: args.minJobCount,
           requestDelayMs: args.requestDelayMs,
           runContext,
+          knownTenantKeys,
         });
         processed += 1;
         totalHits += summary.hits.length;
         totalMismatches += summary.identityMismatches.length;
         totalBlocked += summary.blocked.length;
         totalPlatformSkips += summary.skippedPlatforms.length;
+        totalKnownTenantSkips += summary.knownTenantSkips;
 
         for (const mismatch of summary.identityMismatches) {
           console.warn(
@@ -440,7 +492,7 @@ async function main() {
   await Promise.all(workers);
 
   console.log(
-    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} fastTracked=${totalFastTracked} identityMismatches=${totalMismatches} blocked=${totalBlocked} platformSkips=${totalPlatformSkips}${
+    `[probe] done: companies=${processed} hits=${totalHits} registered=${totalRegistered} fastTracked=${totalFastTracked} identityMismatches=${totalMismatches} blocked=${totalBlocked} platformSkips=${totalPlatformSkips} knownTenantSkips=${totalKnownTenantSkips}${
       args.apply ? "" : " (dry run — pass --apply to register hits)"
     }`
   );

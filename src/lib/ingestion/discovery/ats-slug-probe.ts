@@ -466,8 +466,17 @@ export type CompanySlugProbeSummary = {
   // Platforms not probed for this company because an earlier company in the
   // same run saw them blocked (run-level bench, see createProbeRunContext).
   skippedPlatforms: ProbeableAtsPlatform[];
+  // Candidate slugs omitted because this exact ATS tenant is already covered
+  // by a healthy source or promoted candidate. These are skipped before any
+  // outbound request so coverage capacity stays focused on net-new boards.
+  knownTenantSkips: number;
   attempts: number;
 };
+
+export type KnownProbeTenantKeys = ReadonlyMap<
+  ProbeableAtsPlatform,
+  ReadonlySet<string>
+>;
 
 // Run-level shared state, one per script/daemon run. A platform that starts
 // returning 403/429 will keep doing so for every subsequent company, so the
@@ -542,6 +551,9 @@ export async function probeAtsSlugsForCompany(input: {
   // Shared across companies in one run: benched (blocked) platforms are
   // skipped for every subsequent company instead of re-probed.
   runContext?: ProbeRunContext;
+  // Existing productive/promoted boards, keyed by platform and normalized
+  // tenant slug. Used by coverage mode to avoid rediscovering known boards.
+  knownTenantKeys?: KnownProbeTenantKeys;
 }): Promise<CompanySlugProbeSummary> {
   const slugCandidates = buildCompanySlugCandidates(input);
   const platforms = input.platforms ?? PROBEABLE_ATS_PLATFORMS;
@@ -556,6 +568,7 @@ export async function probeAtsSlugsForCompany(input: {
   const blocked: AtsSlugProbeResult[] = [];
   const errors: AtsSlugProbeResult[] = [];
   const skippedPlatforms: ProbeableAtsPlatform[] = [];
+  let knownTenantSkips = 0;
   let attempts = 0;
 
   // Pacing: no delay ahead of the first request, then requestDelayMs between
@@ -572,6 +585,10 @@ export async function probeAtsSlugsForCompany(input: {
       continue;
     }
     for (const slug of slugCandidates) {
+      if (input.knownTenantKeys?.get(platform)?.has(slug)) {
+        knownTenantSkips += 1;
+        continue;
+      }
       attempts += 1;
       const result = await probeOne(platform, slug, {
         fetchImpl,
@@ -620,6 +637,7 @@ export async function probeAtsSlugsForCompany(input: {
     blocked,
     errors,
     skippedPlatforms,
+    knownTenantSkips,
     attempts,
   };
 }
