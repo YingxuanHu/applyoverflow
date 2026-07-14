@@ -134,25 +134,49 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
   // this finite pass. Broken source repair remains in the dedicated repair
   // mode.
   //
+  // Company imports can create several records for the same employer domain
+  // (for example, aliases such as "Anduril", "Anduril Industries", and
+  // "anduril-industries"). Coverage used to assess each record in isolation,
+  // so one already-covered employer could consume multiple probe slots. Build
+  // coverage at the company-domain level and choose one representative per
+  // remaining domain. This keeps the pass focused on net-new employers rather
+  // than URL variants of sources we already know about.
+  //
   // The enum literals are internal constants, not user input.
   const rows = await prisma.$queryRaw<
     Array<{ id: string; name: string; domain: string | null }>
   >`
-    SELECT c."id", c."name", c."domain"
-    FROM "Company" c
-    WHERE c."domain" IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "CompanySource" cs
-        WHERE cs."companyId" = c."id"
-          AND cs."status" IN ('ACTIVE', 'PROVISIONED')
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM "SourceCandidate" sc
-        WHERE sc."companyId" = c."id"
-          AND sc."status" = 'PROMOTED'
-      )
+    WITH covered_domains AS (
+      SELECT DISTINCT lower(owner."domain") AS "domain"
+      FROM "CompanySource" cs
+      INNER JOIN "Company" owner ON owner."id" = cs."companyId"
+      WHERE owner."domain" IS NOT NULL
+        AND cs."status" IN ('ACTIVE', 'PROVISIONED')
+
+      UNION
+
+      SELECT DISTINCT lower(owner."domain") AS "domain"
+      FROM "SourceCandidate" sc
+      INNER JOIN "Company" owner ON owner."id" = sc."companyId"
+      WHERE owner."domain" IS NOT NULL
+        AND sc."status" = 'PROMOTED'
+    ),
+    uncovered_domains AS (
+      SELECT DISTINCT ON (lower(c."domain")) c."id", c."name", c."domain"
+      FROM "Company" c
+      WHERE c."domain" IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM covered_domains covered
+          WHERE covered."domain" = lower(c."domain")
+        )
+      ORDER BY
+        lower(c."domain"),
+        c."discoveryConfidence" DESC,
+        c."updatedAt" DESC
+    )
+    SELECT "id", "name", "domain"
+    FROM uncovered_domains
     ORDER BY random()
     LIMIT ${limit}
   `;
