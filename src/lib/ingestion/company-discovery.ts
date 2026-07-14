@@ -46,6 +46,7 @@ import {
   DEFAULT_ZERO_GROWTH_ACCEPTED_THRESHOLD,
   shouldDeferZeroGrowthPollSource,
 } from "@/lib/ingestion/source-poll-growth-guards";
+import { getValidatedSourceFastTrackPollPriority } from "@/lib/ingestion/source-bootstrap-poll-priority";
 import {
   computeRetentionPriorityBoost,
   computeRetentionUrgency,
@@ -4983,7 +4984,7 @@ async function runSourceValidation(companySourceId: string, now: Date) {
         kind: "CONNECTOR_POLL",
         companyId: source.companyId,
         companySourceId: source.id,
-        priorityScore: Math.max(70, Math.round(source.priorityScore * 100)),
+        priorityScore: getValidatedSourceFastTrackPollPriority(source),
         notBeforeAt: now,
       });
     }
