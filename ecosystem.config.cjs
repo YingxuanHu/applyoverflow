@@ -830,7 +830,7 @@ const autoDiscoveryApps =
         ),
         buildAutoDiscoveryShellApp(
           "ingest-slug-probe-coverage",
-          `-lc 'sleep ${process.env.SLUG_PROBE_COVERAGE_INITIAL_DELAY_SECONDS || 1800}; while true; do timeout ${process.env.SLUG_PROBE_COVERAGE_TIMEOUT_SECONDS || 7200}s node_modules/.bin/tsx -r dotenv/config scripts/probe-ats-slugs.ts --mode=coverage --limit=${process.env.SLUG_PROBE_COVERAGE_LIMIT || 600} --concurrency=${process.env.SLUG_PROBE_CONCURRENCY || 3} --apply || true; sleep ${process.env.SLUG_PROBE_COVERAGE_INTERVAL_SECONDS || 43200}; done'`,
+          `-lc 'sleep ${process.env.SLUG_PROBE_COVERAGE_INITIAL_DELAY_SECONDS || 1800}; while true; do timeout ${process.env.SLUG_PROBE_COVERAGE_TIMEOUT_SECONDS || 7200}s node_modules/.bin/tsx -r dotenv/config scripts/probe-ats-slugs.ts --mode=coverage --limit=${process.env.SLUG_PROBE_COVERAGE_LIMIT || 600} --concurrency=${process.env.SLUG_PROBE_CONCURRENCY || 3} --apply || true; sleep ${process.env.SLUG_PROBE_COVERAGE_INTERVAL_SECONDS || 1800}; done'`,
           "./logs/slug-probe-coverage-out.log",
           "./logs/slug-probe-coverage-err.log"
         ),
