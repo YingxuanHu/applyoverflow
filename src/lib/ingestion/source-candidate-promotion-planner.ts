@@ -467,6 +467,27 @@ function hasStrongEnoughAutoPromotionOwnership(
   return ownership.score >= 0.38;
 }
 
+function isStructuredAtsValidationCandidate(
+  candidate: PromotionCandidate,
+  source: CandidateDetectedSource,
+  ownership: CandidateOwnership
+) {
+  // A discovered ATS board can be valuable even before it has accrued a high
+  // novelty score. Keep this as validation-only: the validator still confirms
+  // the route and the normal ingestion filters decide whether it has eligible
+  // North American knowledge-work postings.
+  return (
+    candidate.candidateType === "ATS_BOARD" &&
+    candidate.status !== "PROMOTED" &&
+    candidate.failureCount === 0 &&
+    candidate.confidence >= 0.6 &&
+    candidate.sourceQualityScore >= 0.6 &&
+    ownership.score >= 0.5 &&
+    !UNSAFE_AUTO_PROMOTE_CONNECTORS.has(source.connectorName) &&
+    !isGenericDetectedSource(source)
+  );
+}
+
 function planCandidate(
   candidate: PromotionCandidate,
   existingByIdentity: Map<string, ExistingPromotionSource>,
@@ -583,14 +604,20 @@ function planCandidate(
       });
     }
 
-    if (baseScore >= options.minValidationScore) {
+    if (
+      baseScore >= options.minValidationScore ||
+      isStructuredAtsValidationCandidate(candidate, detectedSource, ownership)
+    ) {
       return buildAction({
         kind: "VALIDATE_ATS_SOURCE",
         candidate,
         detectedSource,
         ownership,
         priorityScore: baseScore,
-        reason: "Candidate has an ATS route but needs validation before promotion.",
+        reason:
+          baseScore >= options.minValidationScore
+            ? "Candidate has an ATS route but needs validation before promotion."
+            : "High-confidence owned ATS board is routed to validation before promotion.",
         evidence: [
           ...evidence,
           `connector=${detectedSource.connectorName}`,

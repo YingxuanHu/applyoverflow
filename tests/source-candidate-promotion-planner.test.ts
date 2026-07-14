@@ -142,6 +142,56 @@ test("buildSourceCandidatePromotionPlan promotes strong owned ATS candidates", (
   assert.equal(action?.detectedSource?.connectorName, "ashby");
 });
 
+test("buildSourceCandidatePromotionPlan validates a linked ATS board with low novelty", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        status: "NEW",
+        confidence: 0.61,
+        noveltyScore: 0.04,
+        coverageGapScore: 0,
+        potentialYieldScore: 0.16,
+        sourceQualityScore: 0.6,
+        lastValidatedAt: null,
+      }),
+    ],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "VALIDATE_ATS_SOURCE");
+  assert.equal(action?.canApply, false);
+  assert.match(action?.reason ?? "", /High-confidence owned ATS board/);
+});
+
+test("buildSourceCandidatePromotionPlan does not relax ownership for low-novelty ATS boards", () => {
+  const [action] = buildSourceCandidatePromotionPlan({
+    candidates: [
+      candidate({
+        status: "NEW",
+        company: {
+          id: "company_1",
+          name: "Different Company",
+          companyKey: "differentcompany",
+          domain: "different.example",
+          careersUrl: "https://different.example/careers",
+        },
+        companyNameHint: null,
+        atsTenantKey: "opaque-board",
+        candidateUrl: "https://jobs.ashbyhq.com/opaque-board",
+        confidence: 0.61,
+        noveltyScore: 0.04,
+        coverageGapScore: 0,
+        potentialYieldScore: 0.16,
+        sourceQualityScore: 0.6,
+        lastValidatedAt: null,
+      }),
+    ],
+    existingSources: [],
+  });
+
+  assert.equal(action?.kind, "MANUAL_REVIEW");
+});
+
 test("buildSourceCandidatePromotionPlan repairs promoted ATS candidates missing their source", () => {
   const [action] = buildSourceCandidatePromotionPlan({
     candidates: [
