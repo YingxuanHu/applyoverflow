@@ -134,6 +134,13 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
   // this finite pass. Broken source repair remains in the dedicated repair
   // mode.
   //
+  // Fresh probe hits also receive a short coverage reservation, even before
+  // they finish validation. The validation pipeline may take a few minutes to
+  // turn a hit into a source, and repeatedly probing the same unpromoted board
+  // during that window wastes the coverage lane. Stale or rejected candidates
+  // are intentionally not reserved, so a failed lead remains eligible for a
+  // later retry.
+  //
   // Company imports can create several records for the same employer domain
   // (for example, aliases such as "Anduril", "Anduril Industries", and
   // "anduril-industries"). Coverage used to assess each record in isolation,
@@ -160,6 +167,17 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
       INNER JOIN "Company" owner ON owner."id" = sc."companyId"
       WHERE owner."domain" IS NOT NULL
         AND sc."status" = 'PROMOTED'
+
+      UNION
+
+      SELECT DISTINCT lower(owner."domain") AS "domain"
+      FROM "SourceCandidate" sc
+      INNER JOIN "Company" owner ON owner."id" = sc."companyId"
+      WHERE owner."domain" IS NOT NULL
+        AND sc."candidateType" = 'ATS_BOARD'
+        AND sc."atsPlatform" IS NOT NULL
+        AND sc."status" IN ('NEW', 'VALIDATED')
+        AND sc."lastSeenAt" >= now() - interval '12 hours'
     ),
     uncovered_domains AS (
       SELECT DISTINCT ON (lower(c."domain")) c."id", c."name", c."domain"
