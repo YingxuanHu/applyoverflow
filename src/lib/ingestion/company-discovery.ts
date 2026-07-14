@@ -83,6 +83,10 @@ import type {
 } from "@/lib/ingestion/types";
 
 const DISCOVERY_TASK_LIMIT = 200;
+const COMPANY_DISCOVERY_RETRY_DAYS = Math.max(
+  1,
+  readNonNegativeIntegerEnv("COMPANY_DISCOVERY_RETRY_DAYS") ?? 14
+);
 const SOURCE_VALIDATION_TASK_LIMIT = 500;
 // Bumped 500 → 1500. Diagnostic at 271k LIVE showed ~843 validated +
 // READY+ACTIVE healthy company boards (across Greenhouse / Ashby / Lever /
@@ -2488,6 +2492,10 @@ export async function enqueueCompanyDiscoveryTasks(options: {
 } = {}) {
   const now = options.now ?? new Date();
   const discoveryLimit = options.limit ?? DISCOVERY_TASK_LIMIT;
+  const candidateLimit = Math.max(discoveryLimit * 6, discoveryLimit);
+  const retryBefore = new Date(
+    now.getTime() - COMPANY_DISCOVERY_RETRY_DAYS * 24 * 60 * 60 * 1000
+  );
   await syncCompaniesFromJobs({ limit: discoveryLimit * 30 });
   await seedCompanyDiscoveryUniverse({
     inventoryLimit: Math.max(3_000, discoveryLimit * 100),
@@ -2496,27 +2504,77 @@ export async function enqueueCompanyDiscoveryTasks(options: {
     corpusLimit: Math.max(3_500, discoveryLimit * 70),
   });
 
-  const candidates = await prisma.company.findMany({
-    where: {
-      OR: [
-        { discoveryStatus: { in: ["PENDING", "FAILED", "NEEDS_REVIEW"] } },
-        { lastDiscoveryAt: null },
-        { sources: { none: {} } },
-      ],
+  const candidateInclude = {
+    jobs: {
+      where: { status: { in: ["LIVE", "AGING"] } },
+      select: { id: true },
+      take: 10,
     },
-    include: {
-      jobs: {
-        where: { status: { in: ["LIVE", "AGING"] } },
-        select: { id: true },
-        take: 10,
-      },
-      sources: { select: { id: true } },
-    },
-    take: Math.max(
-      (options.limit ?? DISCOVERY_TASK_LIMIT) * 6,
-      options.limit ?? DISCOVERY_TASK_LIMIT
-    ),
-  });
+    sources: { select: { id: true } },
+  } satisfies Prisma.CompanyInclude;
+
+  // Route-ready companies that have never been inspected are the growth lane.
+  // The old unbounded query took an arbitrary subset before sorting, so a small
+  // set of repeatedly failing companies consumed every cycle while thousands
+  // of unseen career URLs never reached the discovery worker.
+  const sourceLess = { none: {} };
+  const [unseenCareerUrlCandidates, unseenDomainCandidates, retryCandidates, fallbackCandidates] =
+    await Promise.all([
+      prisma.company.findMany({
+        where: {
+          sources: sourceLess,
+          lastDiscoveryAt: null,
+          careersUrl: { not: null },
+        },
+        include: candidateInclude,
+        orderBy: [{ discoveryConfidence: "desc" }, { updatedAt: "desc" }],
+        take: candidateLimit,
+      }),
+      prisma.company.findMany({
+        where: {
+          sources: sourceLess,
+          lastDiscoveryAt: null,
+          careersUrl: null,
+          domain: { not: null },
+        },
+        include: candidateInclude,
+        orderBy: [{ discoveryConfidence: "desc" }, { updatedAt: "desc" }],
+        take: candidateLimit,
+      }),
+      prisma.company.findMany({
+        where: {
+          sources: sourceLess,
+          lastDiscoveryAt: { lte: retryBefore },
+          discoveryStatus: { in: ["PENDING", "FAILED", "NEEDS_REVIEW", "DISCOVERED"] },
+          OR: [{ careersUrl: { not: null } }, { domain: { not: null } }],
+        },
+        include: candidateInclude,
+        orderBy: [{ discoveryConfidence: "desc" }, { lastDiscoveryAt: "asc" }],
+        take: candidateLimit,
+      }),
+      prisma.company.findMany({
+        where: {
+          sources: sourceLess,
+          lastDiscoveryAt: null,
+          careersUrl: null,
+          domain: null,
+        },
+        include: candidateInclude,
+        orderBy: [{ discoveryConfidence: "desc" }, { updatedAt: "desc" }],
+        take: candidateLimit,
+      }),
+    ]);
+
+  const candidates = Array.from(
+    new Map(
+      [
+        ...unseenCareerUrlCandidates,
+        ...unseenDomainCandidates,
+        ...retryCandidates,
+        ...fallbackCandidates,
+      ].map((company) => [company.id, company])
+    ).values()
+  );
 
   const companies = candidates
     .sort((left, right) => {
@@ -2525,7 +2583,7 @@ export async function enqueueCompanyDiscoveryTasks(options: {
       const leftScore =
         (left.sources.length === 0 ? 50 : 0) +
         (left.detectedAts ? 40 : 0) +
-        (left.careersUrl ? 18 : 0) +
+        (left.careersUrl ? 60 : left.domain ? 30 : 0) +
         computeCompanyFrontierSeedBoost(leftSeedSource, "discovery") +
         Math.round(left.discoveryConfidence * 20) +
         Math.min(30, left.jobs.length * 3) +
@@ -2534,7 +2592,7 @@ export async function enqueueCompanyDiscoveryTasks(options: {
       const rightScore =
         (right.sources.length === 0 ? 50 : 0) +
         (right.detectedAts ? 40 : 0) +
-        (right.careersUrl ? 18 : 0) +
+        (right.careersUrl ? 60 : right.domain ? 30 : 0) +
         computeCompanyFrontierSeedBoost(rightSeedSource, "discovery") +
         Math.round(right.discoveryConfidence * 20) +
         Math.min(30, right.jobs.length * 3) +
