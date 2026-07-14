@@ -149,6 +149,14 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
   // remaining domain. This keeps the pass focused on net-new employers rather
   // than URL variants of sources we already know about.
   //
+  // Some imports use an employer's main domain while others use a jobs
+  // subdomain or a legacy alias (for example, `example.com` and
+  // `jobs.example.com`). Those records are distinct at the domain level, but
+  // the registry resolves both ATS hits to the same employer. Exclude exact
+  // normalized employer-name aliases that already have healthy coverage too;
+  // otherwise the probe repeatedly spends a slot rediscovering the existing
+  // board. Repair mode remains responsible for legitimately broken sources.
+  //
   // The enum literals are internal constants, not user input.
   const rows = await prisma.$queryRaw<
     Array<{ id: string; name: string; domain: string | null }>
@@ -179,6 +187,19 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
         AND sc."status" IN ('NEW', 'VALIDATED')
         AND sc."lastSeenAt" >= now() - interval '12 hours'
     ),
+    covered_company_names AS (
+      SELECT DISTINCT lower(regexp_replace(owner."name", '[^a-z0-9]+', '', 'g')) AS "normalizedName"
+      FROM "CompanySource" cs
+      INNER JOIN "Company" owner ON owner."id" = cs."companyId"
+      WHERE cs."status" IN ('ACTIVE', 'PROVISIONED')
+
+      UNION
+
+      SELECT DISTINCT lower(regexp_replace(owner."name", '[^a-z0-9]+', '', 'g')) AS "normalizedName"
+      FROM "SourceCandidate" sc
+      INNER JOIN "Company" owner ON owner."id" = sc."companyId"
+      WHERE sc."status" = 'PROMOTED'
+    ),
     uncovered_domains AS (
       SELECT DISTINCT ON (lower(c."domain")) c."id", c."name", c."domain"
       FROM "Company" c
@@ -187,6 +208,11 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
           SELECT 1
           FROM covered_domains covered
           WHERE covered."domain" = lower(c."domain")
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM covered_company_names covered
+          WHERE covered."normalizedName" = lower(regexp_replace(c."name", '[^a-z0-9]+', '', 'g'))
         )
       ORDER BY
         lower(c."domain"),
