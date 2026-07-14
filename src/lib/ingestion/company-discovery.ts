@@ -2576,7 +2576,39 @@ export async function enqueueCompanyDiscoveryTasks(options: {
     ).values()
   );
 
-  const companies = candidates
+  // Historical imports created a small number of duplicate Company records
+  // whose keys differ only by punctuation (for example, `liquidai` versus
+  // `liquid-ai`). Do not spend a discovery cycle creating a weak company-site
+  // fallback when an equivalent named record already owns a real source.
+  const candidateNames = Array.from(
+    new Set(candidates.map((company) => company.name.trim()).filter(Boolean))
+  );
+  const sourceOwningNameKeys = new Set(
+    (
+      candidateNames.length > 0
+        ? await prisma.company.findMany({
+            where: {
+              name: { in: candidateNames },
+              sources: {
+                some: {
+                  status: "ACTIVE",
+                  validationState: "VALIDATED",
+                  pollState: { in: ["READY", "ACTIVE"] },
+                },
+              },
+            },
+            select: { name: true },
+          })
+        : []
+    )
+      .map((company) => buildCompanyKey(company.name))
+      .filter(Boolean)
+  );
+  const candidatesWithoutKnownSource = candidates.filter(
+    (company) => !sourceOwningNameKeys.has(buildCompanyKey(company.name))
+  );
+
+  const companies = candidatesWithoutKnownSource
     .sort((left, right) => {
       const leftSeedSource = readSeedSource(left.metadataJson);
       const rightSeedSource = readSeedSource(right.metadataJson);
@@ -2625,6 +2657,8 @@ export async function enqueueCompanyDiscoveryTasks(options: {
   return {
     enqueuedCount: companies.length,
     companyIds: companies.map((company) => company.id),
+    skippedDuplicateSourceOwnedCount:
+      candidates.length - candidatesWithoutKnownSource.length,
   };
 }
 
