@@ -30,6 +30,7 @@ import {
   seedCompanySourcesFromExistingAts,
 } from "@/lib/ingestion/company-seeder";
 import { upsertCompanySourceByIdentity } from "@/lib/ingestion/company-source-upsert";
+import { decideSourcePromotionLifecycle } from "@/lib/ingestion/source-promotion-lifecycle";
 import {
   ingestConnector,
   recoverStaleRunningIngestionRuns,
@@ -4545,6 +4546,17 @@ async function persistAtsCandidate(
     });
   }
 
+  const existingSource = await prisma.companySource.findUnique({
+    where: { sourceName: candidate.sourceName },
+    select: {
+      id: true,
+      status: true,
+      validationState: true,
+      pollState: true,
+    },
+  });
+  const lifecycle = decideSourcePromotionLifecycle(existingSource);
+
   const companySource = await upsertCompanySourceByIdentity({
     identity: {
       companyId,
@@ -4579,33 +4591,39 @@ async function persistAtsCandidate(
       companyId,
       atsTenantId: candidate.atsTenantId ?? null,
       boardUrl: candidate.boardUrl,
-      status: "PROVISIONED",
-      validationState: "UNVALIDATED",
-      pollState: "READY",
       sourceType: "ATS",
       extractionRoute: "ATS_NATIVE",
       parserVersion: "ats-native:v1",
       priorityScore: Math.max(0.95, 0.9),
       sourceQualityScore: Math.max(0.8, 0.75),
       yieldScore: Math.max(0.56, 0.75 * 0.7),
-      lastProvisionedAt: now,
       lastDiscoveryAt: now,
-      lastValidatedAt: null,
-      lastHttpStatus: null,
-      consecutiveFailures: 0,
-      failureStreak: 0,
-      validationMessage: null,
       metadataJson: candidateMetadata,
+      ...(lifecycle.preserveExistingLifecycle
+        ? {}
+        : {
+            status: "PROVISIONED" as const,
+            validationState: "UNVALIDATED" as const,
+            pollState: "READY" as const,
+            lastProvisionedAt: now,
+            lastValidatedAt: null,
+            lastHttpStatus: null,
+            consecutiveFailures: 0,
+            failureStreak: 0,
+            validationMessage: null,
+          }),
     },
   });
 
-  await enqueueUniqueSourceTask({
-    kind: "SOURCE_VALIDATION",
-    companyId,
-    companySourceId: companySource.id,
-    priorityScore: 95,
-    notBeforeAt: now,
-  });
+  if (lifecycle.enqueueValidation) {
+    await enqueueUniqueSourceTask({
+      kind: "SOURCE_VALIDATION",
+      companyId,
+      companySourceId: companySource.id,
+      priorityScore: 95,
+      notBeforeAt: now,
+    });
+  }
 
   return companySource;
 }
@@ -4658,6 +4676,17 @@ async function provisionCompanySiteSource(
     return null;
   }
 
+  const existingSource = await prisma.companySource.findUnique({
+    where: { sourceName },
+    select: {
+      id: true,
+      status: true,
+      validationState: true,
+      pollState: true,
+    },
+  });
+  const lifecycle = decideSourcePromotionLifecycle(existingSource);
+
   const companySource = await upsertCompanySourceByIdentity({
     identity: {
       companyId,
@@ -4691,9 +4720,6 @@ async function provisionCompanySiteSource(
     update: {
       companyId,
       boardUrl: route.url,
-      status: "PROVISIONED",
-      validationState: "UNVALIDATED",
-      pollState: "READY",
       sourceType:
         route.extractionRoute === "HTML_FALLBACK" ? "COMPANY_HTML" : "COMPANY_JSON",
       extractionRoute: route.extractionRoute,
@@ -4703,14 +4729,21 @@ async function provisionCompanySiteSource(
       priorityScore: route.confidence,
       sourceQualityScore: Math.max(0.18, route.confidence),
       yieldScore: Math.max(0.08, Math.max(0.18, route.confidence) * 0.55),
-      lastProvisionedAt: now,
       lastDiscoveryAt: now,
-      lastValidatedAt: null,
-      lastHttpStatus: null,
-      consecutiveFailures: 0,
-      failureStreak: 0,
-      validationMessage: null,
       metadataJson: route.metadata as Prisma.InputJsonValue,
+      ...(lifecycle.preserveExistingLifecycle
+        ? {}
+        : {
+            status: "PROVISIONED" as const,
+            validationState: "UNVALIDATED" as const,
+            pollState: "READY" as const,
+            lastProvisionedAt: now,
+            lastValidatedAt: null,
+            lastHttpStatus: null,
+            consecutiveFailures: 0,
+            failureStreak: 0,
+            validationMessage: null,
+          }),
     },
   });
 
@@ -4723,13 +4756,15 @@ async function provisionCompanySiteSource(
     data: { isChosen: true },
   });
 
-  await enqueueUniqueSourceTask({
-    kind: "SOURCE_VALIDATION",
-    companyId,
-    companySourceId: companySource.id,
-    priorityScore: Math.round(route.confidence * 100),
-    notBeforeAt: now,
-  });
+  if (lifecycle.enqueueValidation) {
+    await enqueueUniqueSourceTask({
+      kind: "SOURCE_VALIDATION",
+      companyId,
+      companySourceId: companySource.id,
+      priorityScore: Math.round(route.confidence * 100),
+      notBeforeAt: now,
+    });
+  }
 
   return companySource;
 }
