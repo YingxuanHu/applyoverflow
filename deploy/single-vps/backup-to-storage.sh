@@ -73,10 +73,20 @@ echo "Dumping $POSTGRES_DB to $BACKUP_FILE"
 echo "Uploading $BACKUP_BASENAME to object storage"
 # The dump is already complete. The uploader only needs the mounted dump and
 # object-storage credentials, so never let Compose recreate Postgres here.
-"${COMPOSE[@]}" run --rm --no-deps backup-runner \
-  npm run db:backup:storage -- \
-  --upload-file="/backups/$BACKUP_BASENAME" \
-  --label="$SAFE_LABEL"
+upload_command=(
+  "${COMPOSE[@]}"
+  run
+  --rm
+  --no-deps
+  backup-runner
+  npm
+  run
+  db:backup:storage
+  --
+  "--upload-file=/backups/$BACKUP_BASENAME"
+  "--label=$SAFE_LABEL"
+)
+"${upload_command[@]}"
 
 if [[ "${DB_BACKUP_KEEP_LOCAL:-0}" != "1" ]]; then
   rm -f "$BACKUP_FILE"
