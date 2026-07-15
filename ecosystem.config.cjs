@@ -888,11 +888,53 @@ const focusedAdzunaApps =
       ]
     : [];
 
+const generalAdzunaApps =
+  process.env.INGEST_ADZUNA_GENERAL_ENABLED === "1"
+    ? [
+        withWorkerGroups(
+          {
+            name: "ingest-adzuna-general",
+            script: "node_modules/.bin/tsx",
+            args: `-r dotenv/config scripts/bulk-recovery-loop.ts --interval=${process.env.ADZUNA_GENERAL_LOOP_INTERVAL_MINUTES || 180} --catchup-seconds=${process.env.ADZUNA_GENERAL_CATCHUP_SECONDS || 30} --keys=adzuna:us:general-people,adzuna:ca:general-people,adzuna:us:general-commercial,adzuna:ca:general-commercial`,
+            cwd: __dirname,
+            autorestart: true,
+            max_restarts: 10,
+            min_uptime: "30s",
+            restart_delay: 10000,
+            output: "./logs/adzuna-general-out.log",
+            error: "./logs/adzuna-general-err.log",
+            log_date_format: "YYYY-MM-DD HH:mm:ss",
+            merge_logs: true,
+            env: {
+              ...process.env,
+              NODE_ENV: process.env.NODE_ENV || "production",
+              DATABASE_PROCESS_ROLE: "daemon",
+              DATABASE_POOL_MAX_DAEMON:
+                process.env.DATABASE_POOL_MAX_DAEMON || "3",
+              DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+                process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+              ADZUNA_ENABLED: "true",
+              ADZUNA_COUNTRIES: "us,ca",
+              BULK_RECOVERY_ADZUNA_GENERAL_LIMIT:
+                process.env.ADZUNA_GENERAL_LIMIT || "120",
+              BULK_RECOVERY_ADZUNA_GENERAL_CADENCE_MINUTES:
+                process.env.ADZUNA_GENERAL_CADENCE_MINUTES || "180",
+              BULK_RECOVERY_ADZUNA_GENERAL_MAX_RUNTIME_MS:
+                process.env.ADZUNA_GENERAL_MAX_RUNTIME_MS || "180000",
+            },
+            max_memory_restart: "768M",
+          },
+          ["source-workers"]
+        ),
+      ]
+    : [];
+
 module.exports = {
   apps: selectWorkerApps([
     ...steadyWorkerApps,
     ...autoDiscoveryApps,
     ...focusedAdzunaApps,
+    ...generalAdzunaApps,
     ...maintenanceApps,
     ...topPicksApps,
     ...overnightAccelerationApps,

@@ -156,6 +156,18 @@ function getBulkRecoveryEntries(): Entry[] {
     process.env.BULK_RECOVERY_ADZUNA_BROAD_LIMIT,
     2_500
   );
+  const adzunaGeneralCadence = parsePositiveInteger(
+    process.env.BULK_RECOVERY_ADZUNA_GENERAL_CADENCE_MINUTES,
+    180
+  );
+  const adzunaGeneralRuntimeMs = parsePositiveInteger(
+    process.env.BULK_RECOVERY_ADZUNA_GENERAL_MAX_RUNTIME_MS,
+    180_000
+  );
+  const adzunaGeneralLimit = parsePositiveInteger(
+    process.env.BULK_RECOVERY_ADZUNA_GENERAL_LIMIT,
+    120
+  );
   const usaJobsCadence = parsePositiveInteger(
     process.env.BULK_RECOVERY_USAJOBS_CADENCE_MINUTES,
     90
@@ -328,6 +340,31 @@ function getBulkRecoveryEntries(): Entry[] {
       maxRuntimeMs: adzunaBroadRuntimeMs,
       limit: adzunaBroadLimit,
     },
+    // General white-collar profiles intentionally exclude the focused
+    // technical/finance categories, so they expand coverage rather than
+    // competing with the higher-frequency focused lane.
+    ...["us", "ca"].flatMap((country) => [
+      {
+        key: `adzuna:${country}:general-people`,
+        connector: createAdzunaConnector({
+          country,
+          profile: "general-people",
+        }),
+        cadenceMinutes: adzunaGeneralCadence,
+        maxRuntimeMs: adzunaGeneralRuntimeMs,
+        limit: adzunaGeneralLimit,
+      },
+      {
+        key: `adzuna:${country}:general-commercial`,
+        connector: createAdzunaConnector({
+          country,
+          profile: "general-commercial",
+        }),
+        cadenceMinutes: adzunaGeneralCadence,
+        maxRuntimeMs: adzunaGeneralRuntimeMs,
+        limit: adzunaGeneralLimit,
+      },
+    ]),
     {
       key: "himalayas:na_scale",
       connector: createHimalayasConnector({ profile: "na_scale" }),
