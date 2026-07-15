@@ -4111,6 +4111,27 @@ export async function runCompanySourcePollSlice(options: {
     { companySourceIds }
   );
 
+  // High-yield and retention passes call this slice directly instead of the
+  // shared queue. Apply the same connector admission rules here so a single
+  // pass cannot fan out several Workday/Workable requests at once and trigger
+  // provider-wide rate limits.
+  const admission = await selectRuntimeAdmittedConnectorPollTasks({
+    tasks,
+    connectorCounts: new Map<string, number>(),
+    now,
+  });
+  const admittedTasks = admission.admittedTasks;
+
+  if (
+    admission.skippedGenericCompanySiteCount > 0 ||
+    admission.deferredBatchOverflowCount > 0 ||
+    admission.deferredCycleOverflowCount > 0
+  ) {
+    console.log(
+      `[sourcePollSlice] deferred ${admission.deferredBatchOverflowCount} batch-overflow and ${admission.deferredCycleOverflowCount} cycle-overflow connector poll task(s) by source family cap; skipped ${admission.skippedGenericCompanySiteCount} generic company-site task(s).`
+    );
+  }
+
   let successCount = 0;
   let failedCount = 0;
   let processedCount = 0;
@@ -4126,7 +4147,7 @@ export async function runCompanySourcePollSlice(options: {
       const remainingMs = deadlineAtMs - Date.now();
       if (remainingMs <= 2_000) return;
 
-      const task = tasks[cursor]!;
+      const task = admittedTasks[cursor]!;
       if (!task) return;
       cursor += 1;
       startedTaskIds.add(task.id);
@@ -4176,12 +4197,17 @@ export async function runCompanySourcePollSlice(options: {
 
   await Promise.all(
     Array.from(
-      { length: Math.min(options.concurrency ?? FRONTIER_POLL_SLICE_CONCURRENCY, tasks.length) },
+      {
+        length: Math.min(
+          options.concurrency ?? FRONTIER_POLL_SLICE_CONCURRENCY,
+          admittedTasks.length
+        ),
+      },
       () => worker()
     )
   );
 
-  const unstartedTaskIds = tasks
+  const unstartedTaskIds = admittedTasks
     .filter((task) => !startedTaskIds.has(task.id))
     .map((task) => task.id);
   if (unstartedTaskIds.length > 0) {
