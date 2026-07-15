@@ -843,10 +843,56 @@ const autoDiscoveryApps =
       ]
     : [];
 
+// Adzuna is a useful North American supply lane, but it is an aggregator and
+// must remain isolated from the official-company/ATS workers. This explicit
+// opt-in runs only the focused US/Canada profiles with a bounded result count;
+// `ingestConnector` therefore keeps its partial-snapshot safety guard enabled.
+const focusedAdzunaApps =
+  process.env.INGEST_ADZUNA_FOCUSED_ENABLED === "1"
+    ? [
+        withWorkerGroups(
+          {
+            name: "ingest-adzuna-focused",
+            script: "node_modules/.bin/tsx",
+            args: `-r dotenv/config scripts/bulk-recovery-loop.ts --interval=${process.env.ADZUNA_FOCUSED_LOOP_INTERVAL_MINUTES || 90} --catchup-seconds=${process.env.ADZUNA_FOCUSED_CATCHUP_SECONDS || 30} --keys=adzuna:us:focused,adzuna:ca:focused`,
+            cwd: __dirname,
+            autorestart: true,
+            max_restarts: 10,
+            min_uptime: "30s",
+            restart_delay: 10000,
+            output: "./logs/adzuna-focused-out.log",
+            error: "./logs/adzuna-focused-err.log",
+            log_date_format: "YYYY-MM-DD HH:mm:ss",
+            merge_logs: true,
+            env: {
+              ...process.env,
+              NODE_ENV: process.env.NODE_ENV || "production",
+              DATABASE_PROCESS_ROLE: "daemon",
+              DATABASE_POOL_MAX_DAEMON:
+                process.env.DATABASE_POOL_MAX_DAEMON || "3",
+              DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+                process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "30000",
+              ADZUNA_ENABLED: "true",
+              ADZUNA_COUNTRIES: "us,ca",
+              BULK_RECOVERY_ADZUNA_LIMIT:
+                process.env.ADZUNA_FOCUSED_LIMIT || "200",
+              BULK_RECOVERY_ADZUNA_PRIMARY_CADENCE_MINUTES:
+                process.env.ADZUNA_FOCUSED_CADENCE_MINUTES || "90",
+              BULK_RECOVERY_ADZUNA_MAX_RUNTIME_MS:
+                process.env.ADZUNA_FOCUSED_MAX_RUNTIME_MS || "180000",
+            },
+            max_memory_restart: "768M",
+          },
+          ["source-workers"]
+        ),
+      ]
+    : [];
+
 module.exports = {
   apps: selectWorkerApps([
     ...steadyWorkerApps,
     ...autoDiscoveryApps,
+    ...focusedAdzunaApps,
     ...maintenanceApps,
     ...topPicksApps,
     ...overnightAccelerationApps,
