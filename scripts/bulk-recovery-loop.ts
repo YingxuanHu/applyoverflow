@@ -3,6 +3,10 @@ import "dotenv/config";
 import process from "node:process";
 import { prisma } from "@/lib/db";
 import { ingestConnector } from "@/lib/ingestion/pipeline";
+import {
+  getBulkRecoverySleepMs,
+  type BulkRecoveryCycleResult,
+} from "@/lib/ingestion/bulk-recovery-schedule";
 import { installProcessDiagnostics } from "./_process-diagnostics";
 
 const bulkRecoveryProcessName = (() => {
@@ -718,9 +722,8 @@ async function getLastSuccessAgeMinutes(connectorKey: string, now: Date) {
 
 async function runCycle(entries: Entry[]) {
   const now = new Date();
-  const results: Array<{
+  const results: Array<BulkRecoveryCycleResult & {
     key: string;
-    skipped?: string;
     status?: string;
     live?: number;
     accepted?: number;
@@ -735,6 +738,10 @@ async function runCycle(entries: Entry[]) {
       results.push({
         key: entry.key,
         skipped: `not due (age=${ageMinutes.toFixed(0)}m < cadence=${entry.cadenceMinutes}m)`,
+        nextDueInMs: Math.max(
+          0,
+          (entry.cadenceMinutes - ageMinutes) * 60_000
+        ),
       });
       continue;
     }
@@ -853,12 +860,12 @@ async function main() {
 
     if (args.once || !running) break;
 
-    const hadActiveWork = cycle?.results.some(
-      (result) => !result.skipped
-    ) ?? false;
-
     await sleep(
-      hadActiveWork ? args.catchupSeconds * 1_000 : args.intervalMinutes * 60_000
+      getBulkRecoverySleepMs({
+        results: cycle?.results,
+        catchupSeconds: args.catchupSeconds,
+        fallbackIntervalMinutes: args.intervalMinutes,
+      })
     );
   }
 
