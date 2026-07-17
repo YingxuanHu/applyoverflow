@@ -17,6 +17,7 @@ import {
 import {
   buildDiscoveredSourceName,
   createConnectorForCandidate,
+  extractSourceCandidateFromUrl,
   isKnownAtsHost,
   type DiscoveredSourceCandidate,
 } from "@/lib/ingestion/discovery/sources";
@@ -4447,8 +4448,26 @@ async function discoverCompanySurface(
 
   let discoveredSourceCount = 0;
   let atsSourceName: string | null = null;
+  const promotedAtsSourceKeys = new Set<string>();
 
-  for (const candidate of discovery.records) {
+  const candidatePages = new Set<string>();
+  if (company.careersUrl) candidatePages.add(company.careersUrl);
+  if (company.domain) {
+    candidatePages.add(`https://${company.domain}/careers`);
+    candidatePages.add(`https://${company.domain}/jobs`);
+  }
+
+  const persistDiscoveredAtsCandidate = async (candidate: {
+    connectorName: string;
+    token: string;
+    boardUrl: string;
+    careerPageUrls: string[];
+    directAtsUrls: string[];
+    matchedReasons: string[];
+  }) => {
+    const sourceKey = `${candidate.connectorName}:${candidate.token}`.toLowerCase();
+    if (promotedAtsSourceKeys.has(sourceKey)) return;
+
     await persistAtsCandidate(
       company.id,
       {
@@ -4460,21 +4479,34 @@ async function discoverCompanySurface(
       },
       now
     );
+    promotedAtsSourceKeys.add(sourceKey);
     discoveredSourceCount += 1;
     atsSourceName = atsSourceName ?? candidate.connectorName;
-  }
+  };
 
-  const candidatePages = new Set<string>();
-  if (company.careersUrl) candidatePages.add(company.careersUrl);
-  if (company.domain) {
-    candidatePages.add(`https://${company.domain}/careers`);
-    candidatePages.add(`https://${company.domain}/jobs`);
-  }
-
-  for (const recordCandidate of discovery.records) {
-    for (const careerPageUrl of recordCandidate.careerPageUrls) {
+  for (const candidate of discovery.records) {
+    await persistDiscoveredAtsCandidate(candidate);
+    for (const careerPageUrl of candidate.careerPageUrls) {
       candidatePages.add(careerPageUrl);
     }
+  }
+
+  // A saved careers URL can already be a first-party ATS board. Promote that
+  // deterministic evidence before inspecting it as a generic HTML surface:
+  // otherwise a transient crawl miss leaves a low-yield CompanyHtml source
+  // for a URL the ATS parser can handle natively.
+  for (const pageUrl of candidatePages) {
+    const candidate = extractSourceCandidateFromUrl(pageUrl);
+    if (!candidate) continue;
+
+    await persistDiscoveredAtsCandidate({
+      connectorName: candidate.connectorName,
+      token: candidate.token,
+      boardUrl: candidate.boardUrl,
+      careerPageUrls: [pageUrl],
+      directAtsUrls: [pageUrl],
+      matchedReasons: ["saved-direct-ats-careers-url"],
+    });
   }
 
   let bestCustomRoute: {
