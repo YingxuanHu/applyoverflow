@@ -14,7 +14,11 @@ const ACTIVE_COMPANY_SOURCE_POLL_STATES = ["READY", "ACTIVE", "BACKOFF"] as cons
 // (workers + lifecycle sweep run on a 30-min cadence). A short TTL was causing
 // every tab switch to re-run the 3 queries against the shared DB pool.
 const INGESTION_STATUS_TTL_MS = 300_000;
-const INGESTION_HEARTBEAT_TTL_MS = 30_000;
+// The default job feed includes this timestamp in its cache key. Refreshing it
+// every 30 seconds defeated the hot-feed cache and repeatedly exposed users to
+// its expensive cold ranking query while ingestion is active. Keep it aligned
+// with the five-minute hot-feed snapshot and summary refresh cadence.
+const INGESTION_HEARTBEAT_TTL_MS = 5 * 60_000;
 const INGESTION_OBSERVABILITY_TTL_MS = 5 * 60_000;
 const INGESTION_OBSERVABILITY_LOOKBACK_DAYS = 7;
 const INGESTION_FRESHNESS_WINDOW_DAYS = 3;
