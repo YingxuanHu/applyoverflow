@@ -17,6 +17,7 @@ import {
   INDUSTRY_FILTER_CONFIDENCE_THRESHOLD,
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "../src/lib/job-metadata";
+import { RETENTION_POLL_PRIORITY_FLOOR } from "../src/lib/ingestion/task-queue";
 
 const EVIDENCE_WINDOW_DAYS = 14;
 const ALIVE_WINDOW_DAYS = 30;
@@ -157,11 +158,9 @@ async function pollCoverage() {
   return row;
 }
 
-// Retention effectiveness: proves whether the retention claim quota is
-// actually re-polling stale sources. For each successful run in the last
-// 24h, staleness is the gap since the previous run of the same sourceName
-// (LAG over an 8-day lookback so a 7d+ gap is still observable).
-async function retentionEffectiveness() {
+// Poll cadence across every connector run. This is intentionally not a
+// retention measure: growth and repair polls also contribute to the cadence.
+async function successfulPollCadence() {
   const [row] = await prisma.$queryRaw<
     Array<{
       polls_24h: bigint;
@@ -194,6 +193,65 @@ async function retentionEffectiveness() {
     FROM runs
     WHERE "startedAt" > now() - interval '24 hours'
       AND status = 'SUCCESS'
+  `);
+  return row;
+}
+
+// The retention poll pass stores the source age at selection time. Measuring
+// that snapshot avoids the false conclusion that a successful retention poll
+// targeted a recently refreshed source just because the poll itself made it
+// fresh. Historical tasks without this telemetry remain untracked.
+async function retentionLaneEffectiveness() {
+  const [row] = await prisma.$queryRaw<
+    Array<{
+      successful_polls: bigint;
+      tracked_successful_polls: bigint;
+      selected_48h: bigint;
+      selected_7d: bigint;
+      selected_14d: bigint;
+      protected_live_jobs: bigint;
+    }>
+  >(Prisma.sql`
+    WITH retention_tasks AS (
+      SELECT
+        st."status",
+        CASE
+          WHEN (st."payloadJson"->'retentionSelection'->>'ageMinutes') ~ '^[0-9]+$'
+            THEN (st."payloadJson"->'retentionSelection'->>'ageMinutes')::bigint
+          ELSE NULL
+        END AS "selectionAgeMinutes",
+        CASE
+          WHEN (st."payloadJson"->'retentionSelection'->>'retainedLiveJobCount') ~ '^[0-9]+$'
+            THEN (st."payloadJson"->'retentionSelection'->>'retainedLiveJobCount')::bigint
+          ELSE NULL
+        END AS "selectionRetainedLiveJobCount"
+      FROM "SourceTask" st
+      WHERE st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+        AND st."priorityScore" >= ${RETENTION_POLL_PRIORITY_FLOOR}
+        AND st."finishedAt" >= now() - interval '24 hours'
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE "status" = 'SUCCESS'::"SourceTaskStatus") AS successful_polls,
+      COUNT(*) FILTER (
+        WHERE "status" = 'SUCCESS'::"SourceTaskStatus"
+          AND "selectionAgeMinutes" IS NOT NULL
+      ) AS tracked_successful_polls,
+      COUNT(*) FILTER (
+        WHERE "status" = 'SUCCESS'::"SourceTaskStatus"
+          AND "selectionAgeMinutes" >= 2880
+      ) AS selected_48h,
+      COUNT(*) FILTER (
+        WHERE "status" = 'SUCCESS'::"SourceTaskStatus"
+          AND "selectionAgeMinutes" >= 10080
+      ) AS selected_7d,
+      COUNT(*) FILTER (
+        WHERE "status" = 'SUCCESS'::"SourceTaskStatus"
+          AND "selectionAgeMinutes" >= 20160
+      ) AS selected_14d,
+      COALESCE(SUM("selectionRetainedLiveJobCount") FILTER (
+        WHERE "status" = 'SUCCESS'::"SourceTaskStatus"
+      ), 0)::bigint AS protected_live_jobs
+    FROM retention_tasks
   `);
   return row;
 }
@@ -313,7 +371,8 @@ async function main() {
     evidence,
     hiddenLive,
     coverage,
-    retention,
+    cadence,
+    retentionLane,
     atRisk,
     expiry,
     backlog,
@@ -326,7 +385,8 @@ async function main() {
     liveEvidenceBuckets(),
     hiddenButLive(),
     pollCoverage(),
-    retentionEffectiveness(),
+    successfulPollCadence(),
+    retentionLaneEffectiveness(),
     jobsAtRisk(),
     expiryAttribution(),
     queueBacklog(),
@@ -341,8 +401,11 @@ async function main() {
   const polled7d = toNumber(coverage?.polled_7d);
   const expired14 = toNumber(expiry?.expired_14d);
   const starved = toNumber(expiry?.evidence_starved);
-  const retentionPolls24h = toNumber(retention?.polls_24h);
-  const retentionOver7d = toNumber(retention?.over_7d);
+  const cadencePolls24h = toNumber(cadence?.polls_24h);
+  const cadenceOver7d = toNumber(cadence?.over_7d);
+  const retentionLaneSuccesses = toNumber(retentionLane?.successful_polls);
+  const retentionLaneTracked = toNumber(retentionLane?.tracked_successful_polls);
+  const retentionLaneAtLeast48h = toNumber(retentionLane?.selected_48h);
 
   const recentFlow = flow.slice(-4).map((row) => ({
     week: row.week.toISOString().slice(0, 10),
@@ -373,9 +436,12 @@ async function main() {
       `${formatPercent(starved, expired14)} of expiries in the last 14d were evidence-starved (we stopped looking), not confirmed closures.`
     );
   }
-  if (retentionPolls24h >= 50 && retentionOver7d / retentionPolls24h < 0.1) {
+  if (
+    retentionLaneTracked >= 25 &&
+    retentionLaneAtLeast48h / retentionLaneTracked < 0.95
+  ) {
     warnings.push(
-      `Retention quota ineffective: only ${formatPercent(retentionOver7d, retentionPolls24h)} of executed polls went to 7d+ stale sources.`
+      `Retention lane selected only ${formatPercent(retentionLaneAtLeast48h, retentionLaneTracked)} of tracked successful polls at 48h+ age.`
     );
   }
   const lastNet = recentFlow[recentFlow.length - 1]?.net ?? 0;
@@ -443,12 +509,20 @@ async function main() {
       polled14d: toNumber(coverage?.polled_14d),
       neverPolled: toNumber(coverage?.never_polled),
     },
-    retentionEffectiveness: {
-      polls24h: retentionPolls24h,
-      freshUnder3d: toNumber(retention?.fresh_under_3d),
-      d3to7: toNumber(retention?.d3_to_7),
-      over7d: retentionOver7d,
-      firstInWindow: toNumber(retention?.first_in_window),
+    pollCadence: {
+      successfulPolls24h: cadencePolls24h,
+      previousPollUnder3d: toNumber(cadence?.fresh_under_3d),
+      previousPoll3to7d: toNumber(cadence?.d3_to_7),
+      previousPollOver7d: cadenceOver7d,
+      firstInWindow: toNumber(cadence?.first_in_window),
+    },
+    retentionLane: {
+      successfulPolls24h: retentionLaneSuccesses,
+      trackedSuccessfulPolls24h: retentionLaneTracked,
+      selectedAtLeast48h: retentionLaneAtLeast48h,
+      selectedAtLeast7d: toNumber(retentionLane?.selected_7d),
+      selectedAtLeast14d: toNumber(retentionLane?.selected_14d),
+      protectedLiveJobs: toNumber(retentionLane?.protected_live_jobs),
     },
     jobsAtRisk: {
       staleSources: toNumber(atRisk?.sources),
@@ -512,7 +586,10 @@ async function main() {
     `Poll coverage: pollable ${pollable} | 24h ${toNumber(coverage?.polled_24h)} | 3d ${toNumber(coverage?.polled_3d)} | 7d ${polled7d} (${formatPercent(polled7d, pollable)}) | 14d ${toNumber(coverage?.polled_14d)} | never ${toNumber(coverage?.never_polled)}`
   );
   console.log(
-    `Retention effectiveness (24h): ${retentionPolls24h} successful polls | prev-poll <3d ${toNumber(retention?.fresh_under_3d)} (${formatPercent(toNumber(retention?.fresh_under_3d), retentionPolls24h)}) | 3-7d ${toNumber(retention?.d3_to_7)} (${formatPercent(toNumber(retention?.d3_to_7), retentionPolls24h)}) | >7d ${retentionOver7d} (${formatPercent(retentionOver7d, retentionPolls24h)}) | first-in-window ${toNumber(retention?.first_in_window)}`
+    `Connector poll cadence (24h): ${cadencePolls24h} successful polls | prev-poll <3d ${toNumber(cadence?.fresh_under_3d)} (${formatPercent(toNumber(cadence?.fresh_under_3d), cadencePolls24h)}) | 3-7d ${toNumber(cadence?.d3_to_7)} (${formatPercent(toNumber(cadence?.d3_to_7), cadencePolls24h)}) | >7d ${cadenceOver7d} (${formatPercent(cadenceOver7d, cadencePolls24h)}) | first-in-window ${toNumber(cadence?.first_in_window)}`
+  );
+  console.log(
+    `Retention lane (24h): ${retentionLaneSuccesses} successful polls | ${retentionLaneTracked} with selection-age telemetry | >=48h ${retentionLaneAtLeast48h} | >=7d ${toNumber(retentionLane?.selected_7d)} | >=14d ${toNumber(retentionLane?.selected_14d)} | protected live jobs ${toNumber(retentionLane?.protected_live_jobs)}`
   );
   console.log(
     `Jobs at risk: ${toNumber(atRisk?.retained_live_jobs)} live jobs on ${toNumber(atRisk?.sources)} sources not polled in 7d+`

@@ -51,7 +51,7 @@ const CONNECTOR_POLL_ZERO_GROWTH_ACCEPTED_THRESHOLD = Math.max(
 // passes (zero-growth / churn / family-churn) — those would defer them forever
 // and let their live jobs be removed. Legit cooldown/eligibility defers still
 // apply. Keep in sync with the enqueue priority in the poll pass.
-const RETENTION_POLL_PRIORITY_FLOOR = 250_000;
+export const RETENTION_POLL_PRIORITY_FLOOR = 250_000;
 const CONNECTOR_POLL_FAMILY_CHURN_LOOKBACK_HOURS = Math.max(
   1,
   readPositiveIntegerEnv("INGEST_GROWTH_FAMILY_CHURN_LOOKBACK_HOURS", 2)

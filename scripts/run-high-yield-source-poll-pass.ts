@@ -6,7 +6,10 @@ process.env.INGEST_GROWTH_MODE ??= "true";
 
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
-import { enqueueUniqueSourceTask } from "@/lib/ingestion/task-queue";
+import {
+  enqueueUniqueSourceTask,
+  RETENTION_POLL_PRIORITY_FLOOR,
+} from "@/lib/ingestion/task-queue";
 import { runCompanySourcePollSlice } from "@/lib/ingestion/company-discovery";
 import { acquireRuntimeLock } from "./_runtime-lock";
 
@@ -554,6 +557,23 @@ async function main() {
 
     if (!args.dryRun) {
       for (const { source, score } of selected) {
+        const retentionSelection = args.retention
+          ? {
+              ageMinutes: source.lastSuccessfulPollAt
+                ? Math.max(
+                    0,
+                    Math.round(
+                      (startedAt.getTime() - source.lastSuccessfulPollAt.getTime()) /
+                        60_000
+                    )
+                  )
+                : null,
+              lastSuccessfulPollAt:
+                source.lastSuccessfulPollAt?.toISOString() ?? null,
+              retainedLiveJobCount: source.retainedLiveJobCount,
+            }
+          : null;
+
         await enqueueUniqueSourceTask({
           kind: "CONNECTOR_POLL",
           companyId: source.companyId,
@@ -564,13 +584,14 @@ async function main() {
           // tasks (observed up to ~200k). Boost retention above them so the
           // ample poll capacity (~14.6k/day) redistributes to the stale tail.
           priorityScore: args.retention
-            ? Math.round(250_000 + score)
+            ? Math.round(RETENTION_POLL_PRIORITY_FLOOR + score)
             : Math.round(150_000 + score),
           payloadJson: {
             source: args.retention
               ? "retention-source-poll-pass"
               : "high-yield-source-poll-pass",
             score: Math.round(score * 100) / 100,
+            retentionSelection,
           },
         });
       }
