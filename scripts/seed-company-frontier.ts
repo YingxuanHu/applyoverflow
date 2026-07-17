@@ -89,7 +89,18 @@ type OpenCorporatesSearchResponse = {
   };
 };
 
-const SEC_FRONTIER_ROTATION_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_SEC_FRONTIER_ROTATION_WINDOW_MINUTES = 24 * 60;
+
+function resolveSecFrontierRotationWindowMs() {
+  const raw = process.env.SEC_FRONTIER_ROTATION_WINDOW_MINUTES?.trim();
+  const minutes = raw ? Number.parseInt(raw, 10) : NaN;
+  const resolvedMinutes =
+    Number.isFinite(minutes) && minutes >= 15
+      ? minutes
+      : DEFAULT_SEC_FRONTIER_ROTATION_WINDOW_MINUTES;
+
+  return resolvedMinutes * 60 * 1_000;
+}
 
 function parseArgs(argv: string[]): CliArgs {
   const providersRaw = readArg(argv, "--providers");
@@ -306,9 +317,8 @@ async function loadSecEdgarSeeds(
     return { seeds: [], offset: null };
   }
 
-  // The daily slot advances by exactly one batch. That covers the registry in
-  // order even when the scheduler restarts, unlike an elapsed-time offset that
-  // can repeatedly jump over the same subset of companies.
+  // The configured slot advances by exactly one batch. Align its duration with
+  // the scheduler cadence so each normal run covers the next contiguous slice.
   const start =
     options.offset == null
       ? getCompanyFrontierWindow(eligibleRows.length, limit, options.rotationSlot).offset
@@ -531,7 +541,8 @@ async function main() {
   const queryDrivenProviders = new Set<ProviderName>(["companies-house", "opencorporates"]);
   const requiresQueries = args.providers.some((provider) => queryDrivenProviders.has(provider));
   const queries = requiresQueries ? await loadFrontierQueries(args.queryLimit) : [];
-  const secRotationSlot = Math.floor(Date.now() / SEC_FRONTIER_ROTATION_WINDOW_MS);
+  const secRotationWindowMs = resolveSecFrontierRotationWindowMs();
+  const secRotationSlot = Math.floor(Date.now() / secRotationWindowMs);
   let effectiveSecOffset: number | null = null;
   const providerCounts: Record<string, number> = {};
   const seeds: CompanyFrontierSeed[] = [];
@@ -581,6 +592,9 @@ async function main() {
         queryCount: queries.length,
         secOffset: effectiveSecOffset,
         secRotationSlot: args.providers.includes("sec-edgar") ? secRotationSlot : null,
+        secRotationWindowMinutes: args.providers.includes("sec-edgar")
+          ? Math.round(secRotationWindowMs / 60_000)
+          : null,
         seedCount: seeds.length,
         ...result,
       },
