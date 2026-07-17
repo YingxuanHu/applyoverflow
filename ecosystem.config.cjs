@@ -580,6 +580,39 @@ const steadyWorkerApps = [
     },
     {
       __workerGroups: ["source-workers"],
+      // Adds a rotating US public-company lane to the discovery universe.
+      // Seeding only queues candidates; existing discovery, validation, and
+      // feed eligibility gates decide whether a source or job becomes live.
+      name: "ingest-sec-frontier-seed",
+      script: "bash",
+      args: `-lc 'sleep ${process.env.SEC_FRONTIER_INITIAL_DELAY_SECONDS || 7200}; while true; do timeout ${process.env.SEC_FRONTIER_TIMEOUT_SECONDS || 900}s node_modules/.bin/tsx -r dotenv/config scripts/seed-company-frontier.ts --providers=sec-edgar --limit=${process.env.SEC_FRONTIER_LIMIT || 1000} --page-scan-limit=0 || true; sleep ${process.env.SEC_FRONTIER_INTERVAL_SECONDS || 86400}; done'`,
+      cwd: __dirname,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "30s",
+      restart_delay: 10000,
+      output: "./logs/sec-frontier-seed-out.log",
+      error: "./logs/sec-frontier-seed-err.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      merge_logs: true,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        DATABASE_PROCESS_ROLE: "recovery_discovery",
+        DATABASE_POOL_CONNECTION_TIMEOUT_MS:
+          process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS || "10000",
+        INGEST_GROWTH_MODE: process.env.INGEST_GROWTH_MODE || "1",
+        JOOBLE_ENABLED: "false",
+        SOURCE_JOOBLE_ENABLED: "false",
+        INGEST_JOOBLE_ENABLED: "false",
+        ADZUNA_ENABLED: "false",
+        SOURCE_ADZUNA_ENABLED: "false",
+        INGEST_ADZUNA_ENABLED: "false",
+      },
+      max_memory_restart: "384M",
+    },
+    {
+      __workerGroups: ["source-workers"],
       name: "ingest-source-candidate-scheduler",
       script: "node_modules/.bin/tsx",
       args: `-r dotenv/config scripts/run-expansion-pipeline.ts --mode=exploration --schedule-only --skip-seed --limit=${process.env.SOURCE_CANDIDATE_SCHEDULER_LIMIT || 300} --idle-sleep-ms=${process.env.SOURCE_CANDIDATE_SCHEDULER_INTERVAL_MS || 300000} --error-sleep-ms=${process.env.SOURCE_CANDIDATE_SCHEDULER_ERROR_SLEEP_MS || 120000} --forever --skip-metrics`,

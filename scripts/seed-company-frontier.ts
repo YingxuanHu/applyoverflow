@@ -6,6 +6,7 @@ import {
   processCompanyFrontierSeeds,
 } from "../src/lib/ingestion/frontier-expansion";
 import { buildCompanyDiscoveryCorpus } from "../src/lib/ingestion/discovery/company-corpus";
+import { getCompanyFrontierWindow } from "../src/lib/ingestion/frontier-rotation";
 
 type ProviderName =
   | "internal-corpus"
@@ -20,6 +21,7 @@ type CliArgs = {
   queryLimit: number;
   pageScanLimit: number;
   githubSinceId: number;
+  secOffset: number | null;
   dryRun: boolean;
 };
 
@@ -87,6 +89,8 @@ type OpenCorporatesSearchResponse = {
   };
 };
 
+const SEC_FRONTIER_ROTATION_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
 function parseArgs(argv: string[]): CliArgs {
   const providersRaw = readArg(argv, "--providers");
   const providers = providersRaw
@@ -99,6 +103,7 @@ function parseArgs(argv: string[]): CliArgs {
     queryLimit: readIntArg(argv, "--query-limit", 250),
     pageScanLimit: readIntArg(argv, "--page-scan-limit", 300),
     githubSinceId: readIntArg(argv, "--github-since-id", 0),
+    secOffset: readOptionalNonNegativeIntArg(argv, "--sec-offset"),
     dryRun: argv.includes("--dry-run"),
   };
 }
@@ -113,6 +118,13 @@ function readIntArg(argv: string[], name: string, fallback: number) {
   if (!raw) return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readOptionalNonNegativeIntArg(argv: string[], name: string) {
+  const raw = readArg(argv, name);
+  if (raw == null) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function resolveDefaultProviders(): ProviderName[] {
@@ -256,7 +268,10 @@ async function loadInternalCorpusSeeds(limit: number) {
   });
 }
 
-async function loadSecEdgarSeeds(limit: number) {
+async function loadSecEdgarSeeds(
+  limit: number,
+  options: { offset: number | null; rotationSlot: number }
+) {
   const response = await fetch(
     "https://www.sec.gov/files/company_tickers_exchange.json",
     { headers: buildSecHeaders() }
@@ -278,16 +293,34 @@ async function loadSecEdgarSeeds(limit: number) {
       : []
   );
 
-  return (payload.data ?? [])
+  const eligibleRows = (payload.data ?? [])
     .filter((row) => {
       if (allowedExchanges.size === 0) return true;
       const exchange = String(row[fieldIndex.get("exchange") ?? -1] ?? "")
         .trim()
         .toLowerCase();
       return exchange.length > 0 && allowedExchanges.has(exchange);
-    })
-    .slice(0, limit)
-    .map((row) => {
+    });
+
+  if (eligibleRows.length === 0 || limit <= 0) {
+    return { seeds: [], offset: null };
+  }
+
+  // The daily slot advances by exactly one batch. That covers the registry in
+  // order even when the scheduler restarts, unlike an elapsed-time offset that
+  // can repeatedly jump over the same subset of companies.
+  const start =
+    options.offset == null
+      ? getCompanyFrontierWindow(eligibleRows.length, limit, options.rotationSlot).offset
+      : options.offset % eligibleRows.length;
+  const selectedRows = Array.from(
+    { length: Math.min(limit, eligibleRows.length) },
+    (_, index) => eligibleRows[(start + index) % eligibleRows.length]!
+  );
+
+  return {
+    offset: start,
+    seeds: selectedRows.map((row) => {
       const cik = String(row[fieldIndex.get("cik") ?? -1] ?? "").trim();
       const name = String(row[fieldIndex.get("name") ?? -1] ?? "").trim();
       const ticker = String(row[fieldIndex.get("ticker") ?? -1] ?? "").trim();
@@ -308,7 +341,8 @@ async function loadSecEdgarSeeds(limit: number) {
           exchange,
         },
       } satisfies CompanyFrontierSeed;
-    });
+    }),
+  };
 }
 
 async function loadGitHubOrgSeeds(limit: number, sinceId: number) {
@@ -494,7 +528,11 @@ async function loadOpenCorporatesSeeds(limit: number, queries: string[]) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const queries = await loadFrontierQueries(args.queryLimit);
+  const queryDrivenProviders = new Set<ProviderName>(["companies-house", "opencorporates"]);
+  const requiresQueries = args.providers.some((provider) => queryDrivenProviders.has(provider));
+  const queries = requiresQueries ? await loadFrontierQueries(args.queryLimit) : [];
+  const secRotationSlot = Math.floor(Date.now() / SEC_FRONTIER_ROTATION_WINDOW_MS);
+  let effectiveSecOffset: number | null = null;
   const providerCounts: Record<string, number> = {};
   const seeds: CompanyFrontierSeed[] = [];
   const skippedProviders: Array<{ provider: ProviderName; reason: string }> = [];
@@ -505,7 +543,12 @@ async function main() {
       if (provider === "internal-corpus") {
         nextSeeds = await loadInternalCorpusSeeds(args.limit);
       } else if (provider === "sec-edgar") {
-        nextSeeds = await loadSecEdgarSeeds(args.limit);
+        const secResult = await loadSecEdgarSeeds(args.limit, {
+          offset: args.secOffset,
+          rotationSlot: secRotationSlot,
+        });
+        nextSeeds = secResult.seeds;
+        effectiveSecOffset = secResult.offset;
       } else if (provider === "github-org") {
         nextSeeds = await loadGitHubOrgSeeds(args.limit, args.githubSinceId);
       } else if (provider === "companies-house") {
@@ -536,6 +579,8 @@ async function main() {
         providerCounts,
         skippedProviders,
         queryCount: queries.length,
+        secOffset: effectiveSecOffset,
+        secRotationSlot: args.providers.includes("sec-edgar") ? secRotationSlot : null,
         seedCount: seeds.length,
         ...result,
       },

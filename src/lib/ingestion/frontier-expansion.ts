@@ -132,6 +132,10 @@ type AggregatedAtsSignal = {
 const DEFAULT_FRONTIER_PROMOTION_THRESHOLD = 0.82;
 const DEFAULT_PAGE_DISCOVERY_LIMIT = 300;
 const DEFAULT_PAGE_DISCOVERY_CONCURRENCY = 8;
+// SEC-listed companies are a high-confidence, rotating growth lane. Keep
+// their discovery tasks ahead of the generic backlog, while downstream
+// discovery and source validation still decide whether they become live.
+const SEC_FRONTIER_DISCOVERY_PRIORITY_FLOOR = 70;
 const LOW_QUALITY_ATS_TENANT_RE =
   /(?:^|[-_.:/])(jooble|jobgether|lensa|talentify|jobcase|jobillico|ziprecruiter|indeed|linkedin\d*|glassdoor|monster|careerbuilder|simplyhired|adzuna|neuvoo|whatjobs|grabjobs|bebee|jobrapido|jobleads|recruit\.net|jobstreet|jobsora|workcircle|myjobhelper|usasurveyjob)(?:$|[-_.:/])/i;
 const EXTERNAL_FRONTIER_SOURCE_SET = new Set<CompanyFrontierSeedFamily>([
@@ -157,6 +161,32 @@ export async function processCompanyFrontierSeeds(
   const promotionThreshold =
     options.promotionThreshold ?? DEFAULT_FRONTIER_PROMOTION_THRESHOLD;
   const consolidated = consolidateSeeds(seeds);
+
+  // Frontier seeds discover companies; source refresh handles companies that
+  // have already completed discovery. Re-enqueuing successful companies
+  // wastes the bounded discovery lane, especially after scheduler restarts.
+  const knownCompanies =
+    consolidated.length > 0
+      ? await prisma.company.findMany({
+          where: { companyKey: { in: consolidated.map((seed) => seed.companyKey) } },
+          select: { id: true },
+        })
+      : [];
+  const completedDiscoveryCompanyIds = new Set(
+    (
+      knownCompanies.length > 0
+        ? await prisma.sourceTask.findMany({
+            where: {
+              kind: "COMPANY_DISCOVERY",
+              status: "SUCCESS",
+              companyId: { in: knownCompanies.map((company) => company.id) },
+            },
+            distinct: ["companyId"],
+            select: { companyId: true },
+          })
+        : []
+    ).flatMap((task) => (task.companyId ? [task.companyId] : []))
+  );
 
   if (options.dryRun) {
     return {
@@ -194,8 +224,6 @@ export async function processCompanyFrontierSeeds(
       urls,
       careersUrl: preferredCareersUrl,
       detectedAts: seed.detectedAts,
-      discoveryStatus: "PENDING",
-      crawlStatus: "IDLE",
       discoveryConfidence: seed.discoveryConfidence,
       metadataJson: buildCompanyMetadata(seed, now),
     });
@@ -253,18 +281,20 @@ export async function processCompanyFrontierSeeds(
       });
     }
 
-    await enqueueUniqueSourceTask({
-      kind: "COMPANY_DISCOVERY",
-      companyId: company.id,
-      priorityScore: computeFrontierDiscoveryPriority(seed),
-      notBeforeAt: now,
-      payloadJson: {
-        origin: "frontier-seed",
-        seedSource: seed.primaryFamily,
-        frontierExpansion: true,
-      },
-    });
-    companyDiscoveryTasksQueued += 1;
+    if (!completedDiscoveryCompanyIds.has(company.id)) {
+      await enqueueUniqueSourceTask({
+        kind: "COMPANY_DISCOVERY",
+        companyId: company.id,
+        priorityScore: computeFrontierDiscoveryPriority(seed),
+        notBeforeAt: now,
+        payloadJson: {
+          origin: "frontier-seed",
+          seedSource: seed.primaryFamily,
+          frontierExpansion: true,
+        },
+      });
+      companyDiscoveryTasksQueued += 1;
+    }
   }
 
   const uniquePageSeeds = dedupePageSeeds(pageSeeds).slice(
@@ -662,14 +692,17 @@ function classifyCompanyUrl(url: string): SourceCandidateType | null {
 }
 
 function computeFrontierDiscoveryPriority(seed: ConsolidatedSeed) {
-  return (
+  const evidencePriority =
     Math.min(42, seed.searchTerms.size * 2) +
     Math.min(24, seed.domains.size * 12) +
     Math.min(30, seed.careersUrls.size * 10) +
     (seed.directAtsUrls.size > 0 ? 32 : 0) +
     (isLikelyUndercoveredSeed(seed.primaryFamily) ? 24 : 10) +
-    Math.round(seed.discoveryConfidence * 25)
-  );
+    Math.round(seed.discoveryConfidence * 25);
+
+  return seed.primaryFamily === "sec-edgar"
+    ? Math.max(SEC_FRONTIER_DISCOVERY_PRIORITY_FLOOR, evidencePriority)
+    : evidencePriority;
 }
 
 function dedupePageSeeds(pageSeeds: PageSeed[]) {
