@@ -17,6 +17,7 @@ type SignInFormProps = {
   emailVerificationError?: string;
   googleError?: string;
   justVerified?: boolean;
+  passwordReset?: boolean;
   googleEnabled?: boolean;
 };
 
@@ -43,6 +44,7 @@ export function SignInForm({
   emailVerificationError,
   googleError,
   justVerified,
+  passwordReset,
   googleEnabled = false,
 }: SignInFormProps) {
   const router = useRouter();
@@ -93,6 +95,11 @@ export function SignInForm({
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 sm:px-6">
+        {passwordReset ? (
+          <p className="mb-4 rounded-[14px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-700 dark:text-emerald-400">
+            Password reset successful. Sign in with your new password.
+          </p>
+        ) : null}
         {justVerified ? (
           <p className="mb-4 rounded-[14px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-700 dark:text-emerald-400">
             Email verified. You can now sign in.

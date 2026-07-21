@@ -68,6 +68,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accountCheckEmail, setAccountCheckEmail] = useState<string | null>(null);
   const [existingEmail, setExistingEmail] = useState<string | null>(null);
   const [existingEmailVerified, setExistingEmailVerified] = useState<boolean | null>(null);
   const [resendPending, setResendPending] = useState(false);
@@ -93,6 +94,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
     event.preventDefault();
     setPending(true);
     setError(null);
+    setAccountCheckEmail(null);
     setExistingEmail(null);
     setExistingEmailVerified(null);
     setResendMessage(null);
@@ -111,7 +113,8 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
     try {
       status = await getSignUpStatus(email);
     } catch {
-      setError("Unable to check whether this email is already registered. Try again.");
+      setError("We could not check this email right now.");
+      setAccountCheckEmail(email);
       setPending(false);
       return;
     }
@@ -294,6 +297,34 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
               {error}
             </p>
           ) : null}
+          {accountCheckEmail ? (
+            <div className="space-y-3 rounded-[18px] border border-border/70 bg-muted/45 px-4 py-4 text-sm">
+              <div>
+                <p className="font-medium text-foreground">Already have an account?</p>
+                <p className="mt-1 text-muted-foreground">
+                  Continue with your password, or request a reset link for {accountCheckEmail}.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  className="h-10 flex-1 rounded-full"
+                  render={<Link href={`/sign-in?email=${encodeURIComponent(accountCheckEmail)}`} />}
+                  variant="outline"
+                >
+                  Sign in
+                </Button>
+                <Button
+                  className="h-10 flex-1 rounded-full"
+                  render={
+                    <Link href={`/forgot-password?email=${encodeURIComponent(accountCheckEmail)}`} />
+                  }
+                  variant="outline"
+                >
+                  Reset password
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {existingEmail ? (
             <div className="space-y-3 rounded-[18px] border border-border/70 bg-muted/45 px-4 py-4 text-sm">
               <div>
@@ -377,6 +408,10 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
           Already have an account?{" "}
           <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-in">
             Sign in
+          </Link>
+          {" "}or{" "}
+          <Link className="text-foreground underline-offset-4 hover:underline" href="/forgot-password">
+            reset your password
           </Link>
         </p>
       </CardContent>

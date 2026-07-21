@@ -10,6 +10,7 @@ type SignInPageProps = {
     email?: string;
     error?: string;
     google?: string;
+    passwordReset?: string;
     verified?: string;
   }>;
 };
@@ -33,6 +34,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
       googleError={params.google === "error" ? params.error ?? "google_error" : undefined}
       googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true" && !emailVerificationError}
+      passwordReset={params.passwordReset === "true"}
     />
   );
 }

@@ -34,6 +34,7 @@ export function resolveCanonicalAppUrl() {
  * but deliberately ignored.
  */
 export function buildRuntimeTrustedOrigins(_headers?: HeaderSource | null) {
+  void _headers;
   const origins = new Set<string>();
 
   for (const value of [
@@ -55,6 +56,8 @@ export function buildRuntimeTrustedOrigins(_headers?: HeaderSource | null) {
   origins.add("http://127.0.0.1:3002");
   origins.add("http://localhost:3003");
   origins.add("http://127.0.0.1:3003");
+  origins.add("http://localhost:3004");
+  origins.add("http://127.0.0.1:3004");
 
   return [...origins];
 }

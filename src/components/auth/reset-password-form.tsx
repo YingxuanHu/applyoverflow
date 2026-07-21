@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 
@@ -14,8 +15,8 @@ type ResetPasswordFormProps = {
 };
 
 export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) {
+  const router = useRouter();
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -36,7 +37,6 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPending(true);
-    setMessage(null);
     setError(null);
 
     if (!token) {
@@ -69,7 +69,8 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
         return;
       }
 
-      setMessage("Password reset successful. Sign in with your new password.");
+      router.replace("/sign-in?passwordReset=true");
+      router.refresh();
     } catch {
       setError("Unable to reset password. Request a new link and try again.");
     } finally {
@@ -131,14 +132,6 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
               className="rounded-[14px] border border-destructive/25 bg-destructive/5 px-3.5 py-3 text-sm text-destructive"
             >
               {error}
-            </p>
-          ) : null}
-          {message ? (
-            <p
-              aria-live="polite"
-              className="rounded-[14px] border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-sm text-emerald-700 dark:text-emerald-400"
-            >
-              {message}
             </p>
           ) : null}
           <Button

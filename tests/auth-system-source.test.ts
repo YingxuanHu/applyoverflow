@@ -16,6 +16,9 @@ test("signup checks duplicate accounts before creating or resending verification
   assert.match(signUpForm, /This email is already registered/);
   assert.match(signUpForm, /forgot-password\?email/);
   assert.match(signUpForm, /sign-in\?email/);
+  assert.match(signUpForm, /accountCheckEmail/);
+  assert.match(signUpForm, /We could not check this email right now/);
+  assert.match(signUpForm, /Already have an account\?/);
   assert.match(signUpStatusRoute, /emailVerified/);
   assert.match(resendRoute, /already_verified/);
   assert.match(resendRoute, /sendVerificationEmailForUser/);
@@ -33,9 +36,11 @@ test("auth recovery pages keep duplicate-account guidance clear", () => {
   const verificationMailer = readRepoFile("src/lib/auth-verification.ts");
 
   assert.match(signInPage, /email\?: string/);
+  assert.match(signInPage, /passwordReset\?: string/);
   assert.match(signInPage, /verified\?: string/);
   assert.match(signInForm, /defaultEmail/);
   assert.match(signInForm, /Email verified\. You can now sign in/);
+  assert.match(signInForm, /Password reset successful\. Sign in with your new password\./);
   assert.match(verifyCard, /already verified\. Sign in instead/);
   assert.match(verifyCard, /\/sign-in\?verified=true/);
   assert.match(verifyCard, /\/api\/auth\/resend-verification/);
@@ -76,6 +81,8 @@ test("app password reset flow stores hashed reset tokens and revokes sessions", 
   const resetSource = readRepoFile("src/lib/auth-password-reset.ts");
   const forgotForm = readRepoFile("src/components/auth/forgot-password-form.tsx");
   const resetForm = readRepoFile("src/components/auth/reset-password-form.tsx");
+  const signInPage = readRepoFile("src/app/sign-in/page.tsx");
+  const signInScreen = readRepoFile("src/components/auth/sign-in-screen.tsx");
 
   assert.match(resetSource, /createHmac\("sha256"/);
   assert.match(resetSource, /tokenHash/);
@@ -83,6 +90,9 @@ test("app password reset flow stores hashed reset tokens and revokes sessions", 
   assert.match(resetSource, /session\.deleteMany/);
   assert.match(forgotForm, /\/api\/auth\/password-reset\/request/);
   assert.match(resetForm, /\/api\/auth\/password-reset\/confirm/);
+  assert.match(resetForm, /router\.replace\("\/sign-in\?passwordReset=true"\)/);
+  assert.match(signInPage, /passwordReset=\{params\.passwordReset === "true"\}/);
+  assert.match(signInScreen, /passwordReset=\{passwordReset\}/);
   assert.doesNotMatch(forgotForm, /requestPasswordReset/);
   assert.doesNotMatch(resetForm, /authClient\.resetPassword/);
 });

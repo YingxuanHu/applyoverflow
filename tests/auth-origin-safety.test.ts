@@ -128,6 +128,7 @@ test("buildRuntimeTrustedOrigins includes configured env URLs and localhost defa
       assert.ok(origins.includes("https://canonical.example.com"));
       assert.ok(origins.includes("https://app.example.com"));
       assert.ok(origins.includes("http://localhost:3000"));
+      assert.ok(origins.includes("http://localhost:3004"));
       assert.ok(origins.includes("http://127.0.0.1:3000"));
     }
   );

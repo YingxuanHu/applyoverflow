@@ -9,6 +9,7 @@ type SignInScreenProps = {
   emailVerificationError?: string;
   googleError?: string;
   justVerified?: boolean;
+  passwordReset?: boolean;
   googleEnabled?: boolean;
   mobileMode?: "landing" | "form";
 };
@@ -19,6 +20,7 @@ export function SignInScreen({
   emailVerificationError,
   googleError,
   justVerified = false,
+  passwordReset = false,
   googleEnabled = false,
   mobileMode = "form",
 }: SignInScreenProps) {
@@ -43,6 +45,7 @@ export function SignInScreen({
         googleError={googleError}
         googleEnabled={googleEnabled}
         justVerified={justVerified}
+        passwordReset={passwordReset}
       />
     </AuthShell>
   );
