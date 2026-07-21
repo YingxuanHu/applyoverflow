@@ -15,6 +15,9 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
+      # Keep selected large indexes on the attached volume without moving the
+      # primary database cluster, which is larger than the volume itself.
+      - ${POSTGRES_TABLESPACE_HOST_DIR:-/mnt/HC_Volume_105915443/autoapplication/postgres-tablespace}:/var/lib/postgresql/tablespace
     healthcheck:
       test:
         [
@@ -101,6 +104,7 @@ services:
     volumes:
       - ../../logs:/app/logs
       - ../../ecosystem.config.cjs:/app/ecosystem.config.cjs:ro
+      - ../../scripts/apply-storage-lifecycle.ts:/app/scripts/apply-storage-lifecycle.ts:ro
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   worker:

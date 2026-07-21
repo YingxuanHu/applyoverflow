@@ -39,12 +39,16 @@ test("storage lifecycle preserves user material while removing inactive and orph
   assert.match(source, /args\.targetNames\.includes\(target\.name\)/);
 });
 
-test("scheduled maintenance limits its routine work to inactive jobs and orphaned payloads", () => {
+test("scheduled maintenance runs only explicit guarded retention targets", () => {
   const source = readRepoFile("ecosystem.config.cjs");
 
   assert.match(source, /maintenance-storage-lifecycle/);
   assert.match(source, /--target=old-unreferenced-inactive-canonical-jobs/);
   assert.match(source, /--target=old-unmapped-raw-jobs/);
+  assert.doesNotMatch(source, /--target=old-url-health-checks/);
+  assert.doesNotMatch(source, /--target=old-ingestion-runs/);
+  assert.doesNotMatch(source, /--target=old-success-source-tasks/);
+  assert.doesNotMatch(source, /--target=old-failed-source-tasks/);
 });
 
 test("backup runner never evaluates the compose dotenv file as shell code", () => {
