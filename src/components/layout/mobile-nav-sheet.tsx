@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Briefcase,
@@ -30,7 +30,7 @@ type MobileNavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
-  isActive: (pathname: string, tab: string | null) => boolean;
+  isActive: (pathname: string) => boolean;
 };
 
 const MOBILE_NAV_ITEMS: MobileNavItem[] = [
@@ -57,20 +57,16 @@ const MOBILE_NAV_ITEMS: MobileNavItem[] = [
       pathname === "/applications" || pathname.startsWith("/applications/"),
   },
   {
-    href: "/profile?tab=documents",
+    href: "/documents",
     label: "Documents",
     icon: FileText,
-    isActive: (pathname, tab) =>
-      pathname.startsWith("/documents") ||
-      (pathname === "/profile" && tab === "documents"),
+    isActive: (pathname) => pathname === "/documents" || pathname.startsWith("/documents/"),
   },
   {
     href: "/profile",
     label: "Profile",
     icon: User,
-    isActive: (pathname, tab) =>
-      (pathname === "/profile" && tab !== "documents") ||
-      pathname.startsWith("/profile/"),
+    isActive: (pathname) => pathname === "/profile" || pathname.startsWith("/profile/"),
   },
   {
     href: "/settings",
@@ -83,8 +79,6 @@ const MOBILE_NAV_ITEMS: MobileNavItem[] = [
 
 export function MobileNavSheet() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const tab = searchParams.get("tab");
   const [open, setOpen] = useState(false);
 
   return (
@@ -116,7 +110,7 @@ export function MobileNavSheet() {
         <nav aria-label="Mobile navigation" className="grid gap-1 p-3">
           {MOBILE_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const active = item.isActive(pathname, tab);
+            const active = item.isActive(pathname);
 
             return (
               <Link

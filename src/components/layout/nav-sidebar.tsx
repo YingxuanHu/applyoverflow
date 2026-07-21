@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 const PRIMARY_NAV_ITEMS = [
   { href: "/applications", label: "Applications", icon: FileCheck2 },
-  { href: "/profile?tab=documents", label: "Documents", icon: FileText },
+  { href: "/documents", label: "Documents", icon: FileText },
 ];
 
 const JOBS_LINKS = [
@@ -26,8 +26,8 @@ const JOBS_LINKS = [
 ];
 
 const PROFILE_LINKS = [
-  { href: "/profile?tab=details#application-profile", label: "Application profile" },
-  { href: "/profile?tab=details#job-preferences", label: "Job preferences" },
+  { href: "/profile#application-profile", label: "Application profile" },
+  { href: "/profile#job-preferences", label: "Job preferences" },
 ];
 
 const SETTINGS_LINKS = [
@@ -126,16 +126,6 @@ export function NavSidebar() {
           label="Settings"
           links={SETTINGS_LINKS}
         />
-        </div>
-
-        <div className="border-t border-sidebar-border pt-4">
-          <Link
-            className="flex items-center gap-3 rounded-[12px] px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-            href="/documents/compare"
-          >
-            <FileText className="h-4 w-4" />
-            Compare documents
-          </Link>
         </div>
       </nav>
     </aside>

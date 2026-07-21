@@ -9,6 +9,8 @@ export function revalidatePaths(paths: Iterable<string>) {
 export function revalidateProfileViews() {
   revalidatePaths([
     "/profile",
+    "/documents",
+    "/documents/compare",
     "/applications",
     "/applications/history",
     "/dashboard",

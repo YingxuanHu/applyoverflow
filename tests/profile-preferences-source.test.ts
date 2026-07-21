@@ -17,7 +17,7 @@ test("job preferences live with the profile application surface", () => {
   assert.match(profilePage, /id="job-preferences"/);
   assert.match(profilePage, /Application profile/);
   assert.match(profileForm, /export function ProfileForm/);
-  assert.match(navSidebar, /profile\?tab=details#job-preferences/);
+  assert.match(navSidebar, /profile#job-preferences/);
   assert.doesNotMatch(navSidebar, /settings#job-preferences/);
   assert.doesNotMatch(settingsPage, /id="job-preferences"/);
 });

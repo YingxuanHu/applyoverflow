@@ -23,8 +23,8 @@ export default async function DocumentComparePage() {
           </p>
         </div>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Link href="/profile" className="hover:text-foreground">
-            Profile
+          <Link href="/documents" className="hover:text-foreground">
+            Documents
           </Link>
           <Link href="/applications" className="hover:text-foreground">
             Applications
@@ -34,7 +34,7 @@ export default async function DocumentComparePage() {
 
       {documents.length < 2 ? (
         <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-          Upload at least two documents from your profile to compare them here.
+          Upload at least two documents from your document library to compare them here.
         </div>
       ) : (
         <DocumentComparison documents={documents} />

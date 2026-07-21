@@ -1,17 +1,13 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Briefcase, FileText, FolderOpen, User2 } from "lucide-react";
+import { Briefcase, FileText, ListChecks, User2 } from "lucide-react";
 
-import { prisma } from "@/lib/db";
-import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
-import { formatFileSize, formatMediumDateTimeEnCa } from "@/lib/formatting";
-import { buildProfileFormValues } from "@/lib/profile";
-import { type ResumeImportSummary } from "@/lib/resume-shared";
-import { getStorageReadiness } from "@/lib/storage";
-import { CoverLetterManager } from "@/components/profile/cover-letter-manager";
-import { ProfileForm } from "@/components/profile/profile-form";
-import { ResumeManager } from "@/components/profile/resume-manager";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PreferencesForm } from "@/app/settings/settings-forms";
+import { ProfileForm } from "@/components/profile/profile-form";
+import { Button } from "@/components/ui/button";
+import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
+import { prisma } from "@/lib/db";
+import { buildProfileFormValues } from "@/lib/profile";
 
 type ProfileSummary = {
   headline: boolean;
@@ -49,11 +45,7 @@ function buildCompleteness(values: ReturnType<typeof buildProfileFormValues>): {
   return { pct, filled, total, missing };
 }
 
-export default async function ProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>;
-}) {
+export default async function ProfilePage() {
   const sessionUser = await getOptionalSessionUser();
 
   if (!sessionUser) {
@@ -61,112 +53,53 @@ export default async function ProfilePage({
   }
 
   const profileId = await requireCurrentProfileId();
-  const storageReadiness = getStorageReadiness();
-
-  const [profile, resumes, templates, coverLetters] = await Promise.all([
-    prisma.userProfile.findUnique({
-      where: { id: profileId },
-      select: {
-        updatedAt: true,
-        location: true,
-        headline: true,
-        summary: true,
-        phone: true,
-        linkedinUrl: true,
-        githubUrl: true,
-        portfolioUrl: true,
-        preferredWorkMode: true,
-        experienceLevel: true,
-        salaryMin: true,
-        salaryMax: true,
-        salaryCurrency: true,
-        skillsText: true,
-        experienceText: true,
-        educationText: true,
-        projectsText: true,
-        contactJson: true,
-        skillsJson: true,
-        educationsJson: true,
-        experiencesJson: true,
-        projectsJson: true,
-      },
-    }),
-    prisma.document.findMany({
-      where: { userId: profileId, type: "RESUME" },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
-      select: {
-        id: true,
-        title: true,
-        originalFileName: true,
-        mimeType: true,
-        sizeBytes: true,
-        createdAt: true,
-        isPrimary: true,
-        isAiGenerated: true,
-        analysis: {
-          select: {
-            importSummaryJson: true,
-          },
-        },
-      },
-    }),
-    prisma.document.findMany({
-      where: { userId: profileId, type: "RESUME_TEMPLATE" },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
-      select: {
-        id: true,
-        title: true,
-        originalFileName: true,
-        mimeType: true,
-        isPrimary: true,
-      },
-    }),
-    prisma.document.findMany({
-      where: { userId: profileId, type: "COVER_LETTER" },
-      orderBy: [{ createdAt: "desc" }],
-      select: {
-        id: true,
-        title: true,
-        originalFileName: true,
-        mimeType: true,
-        sizeBytes: true,
-        createdAt: true,
-        isAiGenerated: true,
-      },
-    }),
-  ]);
+  const profile = await prisma.userProfile.findUnique({
+    where: { id: profileId },
+    select: {
+      updatedAt: true,
+      location: true,
+      headline: true,
+      summary: true,
+      phone: true,
+      linkedinUrl: true,
+      githubUrl: true,
+      portfolioUrl: true,
+      preferredWorkMode: true,
+      experienceLevel: true,
+      salaryMin: true,
+      salaryMax: true,
+      salaryCurrency: true,
+      skillsText: true,
+      experienceText: true,
+      educationText: true,
+      projectsText: true,
+      contactJson: true,
+      skillsJson: true,
+      educationsJson: true,
+      experiencesJson: true,
+      projectsJson: true,
+    },
+  });
 
   const initialValues = buildProfileFormValues(profile, sessionUser);
   const profileFormKey = profile?.updatedAt?.toISOString() ?? "blank-profile";
-
   const completeness = buildCompleteness(initialValues);
-  const resumeCount = resumes.length;
-  const primaryResume = resumes.find((resume) => resume.isPrimary) ?? null;
-  const coverLetterCount = coverLetters.length;
-  const documentCount = resumeCount + templates.length + coverLetterCount;
-  const missingApplicationDetails =
-    !initialValues.contact.phone.trim() ||
-    !initialValues.contact.linkedInUrl.trim() ||
-    !initialValues.contact.portfolioUrl.trim();
-
-  const params = await searchParams;
-  const requestedTab =
-    params.tab === "details" ? "details" : params.tab === "documents" ? "documents" : null;
-  const defaultTab =
-    requestedTab ?? (missingApplicationDetails || completeness.pct < 70 ? "details" : "documents");
 
   return (
     <div className="app-page space-y-6">
-      <header className="page-header">
+      <header className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="page-title">Profile</h1>
           <p className="page-description">
-            Your identity across applications — resumes, cover letters, and the details we send with every submission.
+            Personal information, experience, and job preferences used to tailor your search and applications.
           </p>
         </div>
+        <Button render={<Link href="/documents" />} size="sm" variant="outline">
+          <FileText />
+          Manage documents
+        </Button>
       </header>
 
-      {/* Summary strip */}
       <section className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}
@@ -182,147 +115,79 @@ export default async function ProfilePage({
           progress={completeness.pct}
         />
         <SummaryTile
-          icon={<FolderOpen className="h-4 w-4" />}
-          label="Documents"
-          value={documentCount.toString()}
+          icon={<Briefcase className="h-4 w-4" />}
+          label="Experience"
+          value={initialValues.experiences.length.toString()}
           hint={
-            primaryResume
-              ? `Primary: ${primaryResume.title || primaryResume.originalFileName}`
-              : documentCount > 0
-                ? "Resume, template, and cover letter library"
-                : "Upload a resume to start applying"
+            initialValues.experiences.length > 0
+              ? "Roles and achievements used in applications."
+              : "Add your work history."
           }
         />
         <SummaryTile
-          icon={<FileText className="h-4 w-4" />}
-          label="Templates"
-          value={templates.length.toString()}
+          icon={<ListChecks className="h-4 w-4" />}
+          label="Skills"
+          value={initialValues.skills.length.toString()}
           hint={
-            templates.length > 0
-              ? `${coverLetterCount} cover letter${coverLetterCount === 1 ? "" : "s"} saved`
-              : "Optional formatting for generated resumes"
+            initialValues.skills.length > 0
+              ? "Skills used for matching and tailored materials."
+              : "Add skills for stronger matching."
           }
         />
       </section>
 
-      {/* Tabs */}
-      <Tabs defaultValue={defaultTab} key={defaultTab} className="w-full">
-        <TabsList className="w-full justify-start overflow-x-auto" variant="line">
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="details">Application profile</TabsTrigger>
-        </TabsList>
+      <div className="grid gap-4">
+        <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="job-preferences">
+          <header className="flex items-center gap-2">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
+          </header>
+          <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+            Used for best-match ranking, salary-aware filtering defaults, and application materials.
+          </p>
+          <PreferencesForm
+            defaults={{
+              preferredWorkMode: profile?.preferredWorkMode ?? "",
+              experienceLevel: profile?.experienceLevel ?? "",
+              salaryMin:
+                profile?.salaryMin !== null && profile?.salaryMin !== undefined
+                  ? String(profile.salaryMin)
+                  : "",
+              salaryMax:
+                profile?.salaryMax !== null && profile?.salaryMax !== undefined
+                  ? String(profile.salaryMax)
+                  : "",
+              salaryCurrency: profile?.salaryCurrency ?? "USD",
+              location: profile?.location ?? "",
+            }}
+          />
+        </section>
 
-        <TabsContent value="documents" className="mt-4" id="documents">
-          <section className="surface-panel p-3.5 sm:p-6">
-            <header className="flex items-start gap-2">
-              <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">
-                  Resume and cover letter library
-                </h2>
-                <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
-                  Keep uploaded resumes, generation templates, and cover letters organized for applications.
-                </p>
-              </div>
-            </header>
-
-            <div className="mt-3 grid gap-3 sm:mt-5 sm:gap-5">
-              <ResumeManager
-                resumes={resumes.map((resume) => ({
-                  id: resume.id,
-                  title: resume.title,
-                  originalFileName: resume.originalFileName,
-                  mimeType: resume.mimeType,
-                  sizeLabel: formatFileSize(resume.sizeBytes),
-                  createdAtLabel: formatMediumDateTimeEnCa(resume.createdAt),
-                  isPrimary: resume.isPrimary,
-                  isAiGenerated: resume.isAiGenerated,
-                  downloadHref: `/api/profile/documents/${resume.id}/download`,
-                  importSummary:
-                    (resume.analysis?.importSummaryJson as ResumeImportSummary | null) ?? null,
-                  isImported: resume.analysis !== null,
-                }))}
-                templates={templates.map((template) => ({
-                  id: template.id,
-                  title: template.title,
-                  originalFileName: template.originalFileName,
-                  mimeType: template.mimeType,
-                  isPrimary: template.isPrimary,
-                  downloadHref: `/api/profile/documents/${template.id}/download`,
-                }))}
-                storageConfigured={storageReadiness.configured}
-              />
-              <CoverLetterManager
-                coverLetters={coverLetters.map((coverLetter) => ({
-                  id: coverLetter.id,
-                  title: coverLetter.title,
-                  originalFileName: coverLetter.originalFileName,
-                  mimeType: coverLetter.mimeType,
-                  sizeLabel: formatFileSize(coverLetter.sizeBytes),
-                  createdAtLabel: formatMediumDateTimeEnCa(coverLetter.createdAt),
-                  isAiGenerated: coverLetter.isAiGenerated,
-                  downloadHref: `/api/profile/documents/${coverLetter.id}/download`,
-                }))}
-                storageConfigured={storageReadiness.configured}
-              />
-            </div>
-          </section>
-        </TabsContent>
-
-        <TabsContent value="details" className="mt-4" id="application-profile-tab">
-          <div className="grid gap-4">
-            <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="job-preferences">
-              <header className="flex items-center gap-2">
-                <Briefcase className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
-              </header>
-              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-                Used for best-match ranking, salary-aware filtering defaults, and application materials.
+        <section className="surface-panel p-3.5 sm:p-6" id="application-profile">
+          <header className="flex items-start gap-2">
+            <User2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Application profile</h2>
+              <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
+                Structured identity, experience, and contact fields used to map application forms safely.
               </p>
-              <PreferencesForm
-                defaults={{
-                  preferredWorkMode: profile?.preferredWorkMode ?? "",
-                  experienceLevel: profile?.experienceLevel ?? "",
-                  salaryMin:
-                    profile?.salaryMin !== null && profile?.salaryMin !== undefined
-                      ? String(profile.salaryMin)
-                      : "",
-                  salaryMax:
-                    profile?.salaryMax !== null && profile?.salaryMax !== undefined
-                      ? String(profile.salaryMax)
-                      : "",
-                  salaryCurrency: profile?.salaryCurrency ?? "USD",
-                  location: profile?.location ?? "",
-                }}
-              />
-            </section>
-            <section className="surface-panel p-3.5 sm:p-6" id="application-profile">
-              <header className="flex items-start gap-2">
-                <User2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div>
-                  <h2 className="text-sm font-semibold text-foreground">Application profile</h2>
-                  <p className="mt-1 hidden max-w-3xl text-sm text-muted-foreground sm:block">
-                    Structured identity, experience, and contact fields used to map application forms safely.
-                  </p>
-                </div>
-              </header>
-              <ProfileForm
-                key={profileFormKey}
-                initialValues={{
-                  headline: initialValues.headline,
-                  summary: initialValues.summary,
-                  location: initialValues.location,
-                  contact: initialValues.contact,
-                  skills: initialValues.skills,
-                  educations: initialValues.educations,
-                  experiences: initialValues.experiences,
-                  projects: initialValues.projects,
-                }}
-              />
-            </section>
-          </div>
-        </TabsContent>
-      </Tabs>
+            </div>
+          </header>
+          <ProfileForm
+            key={profileFormKey}
+            initialValues={{
+              headline: initialValues.headline,
+              summary: initialValues.summary,
+              location: initialValues.location,
+              contact: initialValues.contact,
+              skills: initialValues.skills,
+              educations: initialValues.educations,
+              experiences: initialValues.experiences,
+              projects: initialValues.projects,
+            }}
+          />
+        </section>
+      </div>
     </div>
   );
 }

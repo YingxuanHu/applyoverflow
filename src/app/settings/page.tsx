@@ -216,7 +216,7 @@ export default async function SettingsPage() {
             </p>
             <Link
               className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              href="/documents/compare"
+              href="/documents"
             >
               <ExternalLink className="h-3 w-3" />
               Open documents

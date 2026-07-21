@@ -276,6 +276,31 @@ enum DocumentType {
   RESUME_TEMPLATE
 }
 
+enum ResumeLibraryEntryType {
+  EDUCATION
+  EXPERIENCE
+  PROJECT
+  SKILL
+  CUSTOM
+}
+
+enum ResumeEntryVariationSource {
+  USER
+  IMPORTED
+  AI_GENERATED
+}
+
+enum ResumeEntryVariationApprovalStatus {
+  APPROVED
+  PENDING
+  REJECTED
+}
+
+enum ResumeBuildStatus {
+  DRAFT
+  ARCHIVED
+}
+
 enum TrackedApplicationStatus {
   WISHLIST
   PREPARING
@@ -398,6 +423,8 @@ model UserProfile {
   topPicks               UserTopPick[]
   topPickRefreshTask     TopPickRefreshTask?
   jobPreferenceFeedback  UserJobPreferenceFeedback[]
+  resumeLibraryEntries   ResumeLibraryEntry[]
+  resumeBuilds           ResumeBuild[]
 }
 
 model Company {
@@ -455,6 +482,92 @@ model ResumeVariant {
   @@index([userId])
 }
 
+model ResumeLibraryEntry {
+  id               String                 @id @default(cuid())
+  userId           String
+  type             ResumeLibraryEntryType
+  title            String
+  organization     String?
+  dateRange        String?
+  location         String?
+  summary          String?
+  tags             String[]               @default([])
+  technologies     String[]               @default([])
+  sourceProfileKey String?
+  archivedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  user       UserProfile                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variations ResumeLibraryEntryVariation[]
+  buildItems ResumeBuildItem[]
+
+  @@unique([userId, sourceProfileKey])
+  @@index([userId, type, archivedAt])
+}
+
+model ResumeLibraryEntryVariation {
+  id                 String                             @id @default(cuid())
+  entryId            String
+  name               String
+  targetRoleTags     String[]                           @default([])
+  targetIndustryTags String[]                           @default([])
+  summary            String?
+  bulletsJson        Json                               @default("[]")
+  technologies       String[]                           @default([])
+  source             ResumeEntryVariationSource         @default(USER)
+  approvalStatus     ResumeEntryVariationApprovalStatus @default(APPROVED)
+  isDefault          Boolean                            @default(false)
+  createdAt          DateTime                           @default(now())
+  updatedAt          DateTime                           @updatedAt
+
+  entry      ResumeLibraryEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  buildItems ResumeBuildItem[]
+
+  @@index([entryId, isDefault])
+}
+
+model ResumeBuild {
+  id               String            @id @default(cuid())
+  userId           String
+  name             String
+  targetJobId      String?
+  templateId       String?
+  status           ResumeBuildStatus @default(DRAFT)
+  sectionOrderJson Json               @default("[]")
+  snapshotJson     Json               @default("{}")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user      UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetJob JobCanonical?     @relation("ResumeBuildTargetJob", fields: [targetJobId], references: [id], onDelete: SetNull)
+  template  Document?         @relation("ResumeBuildTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  items     ResumeBuildItem[]
+
+  @@index([userId, status, updatedAt(sort: Desc)])
+  @@index([targetJobId])
+  @@index([templateId])
+}
+
+model ResumeBuildItem {
+  id                String                 @id @default(cuid())
+  buildId           String
+  entryId           String
+  variationId       String?
+  sectionType       ResumeLibraryEntryType
+  sortOrder         Int
+  includedBulletIds Json                   @default("[]")
+  snapshotJson      Json                   @default("{}")
+  createdAt         DateTime               @default(now())
+
+  build     ResumeBuild                  @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  entry     ResumeLibraryEntry           @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  variation ResumeLibraryEntryVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+
+  @@unique([buildId, entryId])
+  @@index([buildId, sectionType, sortOrder])
+}
+
 model Document {
   id                  String       @id @default(cuid())
   userId              String
@@ -482,6 +595,7 @@ model Document {
   user                    UserProfile                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   analysis                DocumentAnalysis?
   resumeVariant           ResumeVariant?
+  resumeBuildTemplates    ResumeBuild[]              @relation("ResumeBuildTemplate")
   trackedApplicationLinks TrackedApplicationDocument[]
 
   @@index([userId, type])
@@ -638,6 +752,7 @@ model JobCanonical {
   trackedApplications    TrackedApplication[]
   topPicks               UserTopPick[]
   preferenceFeedback     UserJobPreferenceFeedback[]
+  resumeBuilds           ResumeBuild[]            @relation("ResumeBuildTargetJob")
   companyRecord          Company?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
   urlHealthChecks        JobUrlHealthCheck[]
   sourceTasks            SourceTask[]
