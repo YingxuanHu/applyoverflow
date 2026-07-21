@@ -15,7 +15,6 @@ import {
 } from "@/lib/job-display";
 import {
   describeApplyPlatform,
-  describeVerification,
   pickApplyPlatformSourceName,
 } from "@/lib/job-trust-display";
 import { cn } from "@/lib/utils";
@@ -70,10 +69,6 @@ export default async function JobDetailPage({
   const deadlineValue = formatDeadlineValue(job.deadline);
   const applyModeLabel =
     reviewState === "NOT_ELIGIBLE" ? "Unavailable" : "Employer site";
-  const verification = describeVerification({
-    lastConfirmedAliveAt: job.lastConfirmedAliveAt,
-    lastSourceSeenAt: job.lastSourceSeenAt,
-  });
   const applyPlatformLabel = describeApplyPlatform(
     pickApplyPlatformSourceName(job.sourceMappings)
   );
@@ -215,9 +210,6 @@ export default async function JobDetailPage({
         <Field label="Apply method" value={applyModeLabel} />
         {applyPlatformLabel ? (
           <Field label="Application platform" value={applyPlatformLabel} />
-        ) : null}
-        {verification ? (
-          <Field label="Last verified" value={verification.label} />
         ) : null}
       </div>
 

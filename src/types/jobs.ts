@@ -182,6 +182,7 @@ export type JobFilters = {
   salaryMax?: string;
   salaryCurrency?: string;
   includeUnknownSalary?: string;
+  hideApplied?: string;
   experienceLevel?: string;
   careerStage?: string;
   expiry?: string;

@@ -23,3 +23,13 @@ test("job cards expose and render applied state from tracked applications", () =
   assert.match(cardSource, /job\.hasApplied/);
   assert.match(cardSource, />\s*Applied\s*</);
 });
+
+test("job verification metadata stays off public job surfaces", () => {
+  const cardSource = readRepoFile("src/components/jobs/job-summary-card.tsx");
+  const detailSource = readRepoFile("src/app/jobs/[id]/page.tsx");
+
+  assert.match(cardSource, /text-emerald-600 dark:text-emerald-400/);
+  assert.doesNotMatch(cardSource, /describeVerification/);
+  assert.doesNotMatch(detailSource, /describeVerification/);
+  assert.doesNotMatch(detailSource, /Last verified/);
+});

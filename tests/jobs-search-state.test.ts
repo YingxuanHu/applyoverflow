@@ -8,6 +8,7 @@ import {
 
 test("jobs URL params are detected and normalized for restore", () => {
   assert.equal(hasJobsStateParamsRecord({ titleSearch: "backend" }), true);
+  assert.equal(hasJobsStateParamsRecord({ hideApplied: "1" }), true);
   assert.equal(hasJobsStateParamsRecord({ reset: "1" }), false);
   assert.equal(hasJobsStateParamsRecord({ searchScope: "title" }), false);
   assert.equal(hasJobsStateParamsRecord({ field: "company" }), false);
@@ -18,6 +19,7 @@ test("jobs URL params are detected and normalized for restore", () => {
     ),
     "searchScope=title&titleSearch=backend&jobFunction=software_engineering&posted=7d&page=3"
   );
+  assert.equal(normalizeJobsStateQuery("hideApplied=true"), "hideApplied=1");
 });
 
 test("legacy broad search state restores as title keyword search", () => {

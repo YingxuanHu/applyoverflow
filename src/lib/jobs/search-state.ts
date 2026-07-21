@@ -25,6 +25,7 @@ export const JOBS_STATE_PARAM_KEYS = [
   "salaryMax",
   "salaryCurrency",
   "includeUnknownSalary",
+  "hideApplied",
   "careerStage",
   "experienceLevel",
   "expiry",
@@ -81,6 +82,7 @@ const ORDERED_JOBS_STATE_KEYS = [
   "salaryMax",
   "salaryCurrency",
   "includeUnknownSalary",
+  "hideApplied",
   "careerStage",
   "experienceLevel",
   "expiry",
@@ -265,7 +267,7 @@ function normalizeParamValue(key: string, value?: string) {
     const parsed = parsePositiveInt(value);
     return parsed ? String(parsed) : undefined;
   }
-  if (key === "includeUnknownSalary") {
+  if (key === "includeUnknownSalary" || key === "hideApplied") {
     return value === "1" || value === "true" || value === "on" ? "1" : undefined;
   }
   if (MULTI_VALUE_KEYS.has(key)) return normalizeListValue(value);

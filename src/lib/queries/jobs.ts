@@ -661,6 +661,19 @@ function buildNotPassedCanonicalWhere(
   };
 }
 
+function buildNotAppliedCanonicalWhere(
+  authUserId: string
+): Prisma.JobCanonicalWhereInput {
+  return {
+    trackedApplications: {
+      none: {
+        userId: authUserId,
+        status: { notIn: TRACKED_APPLICATION_NOT_APPLIED_STATUSES },
+      },
+    },
+  };
+}
+
 async function countJobFeedIndexMatches(where: Prisma.JobFeedIndexWhereInput) {
   return prisma.jobFeedIndex.count({ where });
 }
@@ -717,7 +730,8 @@ async function getJobsFromFeedIndex(input: {
       filters.experienceLevel ||
       filters.expiry ||
       filters.posted ||
-      filters.submissionCategory
+      filters.submissionCategory ||
+      filters.hideApplied
   );
   // Direct in-app pagination (slicing the prefiltered id list) is valid only
   // when nothing else narrows the set further — then the id list IS the full
@@ -725,6 +739,7 @@ async function getJobsFromFeedIndex(input: {
   const canSlicePrefilterIds =
     !hasStructuredFeedFilters &&
     !filters.status &&
+    !filters.hideApplied &&
     !useSqlDemoVisibilityFilter &&
     (!filters.sortBy || filters.sortBy === "relevance");
   let useDirectPrefilterSlice = false;
@@ -992,6 +1007,12 @@ async function getJobsFromFeedIndex(input: {
     appendAndCondition(
       canonicalRelationWhere,
       buildNotPassedCanonicalWhere(viewerProfileId)
+    );
+  }
+  if (filters.hideApplied && authUserId) {
+    appendAndCondition(
+      canonicalRelationWhere,
+      buildNotAppliedCanonicalWhere(authUserId)
     );
   }
   if (Object.keys(canonicalRelationWhere).length > 0) {
@@ -2839,6 +2860,7 @@ function buildJobsCacheKey(
     posted: filters.posted ?? null,
     submissionCategory: filters.submissionCategory ?? null,
     status: filters.status ?? null,
+    hideApplied: filters.hideApplied ? 1 : null,
     sortBy: filters.sortBy ?? null,
     page: filters.page ?? 1,
     debugFilters: filters.debugFilters ? 1 : null,
@@ -2865,7 +2887,8 @@ function isHotDefaultFeedRequest(filters: JobFilterParams) {
     filters.expiry ||
     filters.posted ||
     filters.submissionCategory ||
-    filters.status
+    filters.status ||
+    filters.hideApplied
   ) &&
     (!filters.sortBy || filters.sortBy === "relevance") &&
     (filters.page ?? 1) === 1;
@@ -3178,6 +3201,7 @@ export type JobFilterParams = {
   posted?: string;
   submissionCategory?: string;
   status?: string;
+  hideApplied?: boolean;
   sortBy?: JobSortBy;
   page?: number;
   debugFilters?: boolean;
@@ -3249,7 +3273,8 @@ export async function getJobs(
       filters.expiry ||
       filters.posted ||
       filters.submissionCategory ||
-      filters.status
+      filters.status ||
+      filters.hideApplied
     );
     const useFeedIndexForRequest = shouldUseJobFeedIndex(filters, viewerProfileId);
     const includeExactTotal = wantsExactTotal && !(useFeedIndexForRequest && filters.search);
@@ -3285,6 +3310,9 @@ export async function getJobs(
           action: "PASS",
         },
       };
+    }
+    if (filters.hideApplied && authUserId) {
+      appendAndCondition(where, buildNotAppliedCanonicalWhere(authUserId));
     }
 
     if (filters.search) {

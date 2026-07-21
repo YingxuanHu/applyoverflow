@@ -29,6 +29,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(querySource, /careerStage\?: string/);
   assert.match(querySource, /roleCategory\?: string/);
   assert.match(querySource, /includeUnknownSalary\?: boolean/);
+  assert.match(querySource, /hideApplied\?: boolean/);
   assert.match(querySource, /posted\?: string/);
   assert.match(querySource, /salaryMax\?: number/);
   assert.match(querySource, /expandLocationSearchTerm/);
@@ -66,6 +67,9 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(querySource, /appendFeedIndexTextSearchWhere\(where, "title", filters\.titleSearch\)/);
   assert.match(querySource, /appendFeedIndexLocationSearchWhere\(where, filters\.locationSearch\)/);
   assert.match(querySource, /canonicalJobIds = canonicalJobIds\.filter\(\(id\) => !passedJobIds\.has\(id\)\)/);
+  assert.match(querySource, /buildNotAppliedCanonicalWhere/);
+  assert.match(querySource, /if \(filters\.hideApplied && authUserId\)/);
+  assert.match(querySource, /!filters\.hideApplied/);
   assert.match(querySource, /searchJobIds\(\s*filters\.search,\s*filters\.searchScope \?\? "all"/);
   assert.match(querySource, /buildSearchTermVariants/);
   assert.match(querySource, /const tsQuery = toTsQuery\(query\)/);
@@ -122,6 +126,8 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /name="salaryMax"/);
   assert.match(pageSource, /name="salaryCurrency"/);
   assert.match(pageSource, /name="includeUnknownSalary"/);
+  assert.match(pageSource, /label="Hide applied jobs"/);
+  assert.match(pageSource, /hideApplied: normalizeBooleanParam/);
   assert.match(pageSource, /SALARY_COMPARISON_CURRENCIES\.map/);
   assert.match(pageSource, /\{ label: "Recommended", value: undefined \}/);
   assert.match(pageSource, /\{ label: "Expiring soon", value: "deadline" \}/);

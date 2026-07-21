@@ -324,9 +324,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
                         <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto p-3 sm:grid-cols-2 sm:p-3.5">
                           <FilterToggleField
+                            label="Expiring soon"
                             name="expiry"
                             selected={filters.expiry}
                             value="soon"
+                          />
+
+                          <FilterToggleField
+                            label="Hide applied jobs"
+                            name="hideApplied"
+                            selected={filters.hideApplied ? "1" : undefined}
+                            value="1"
                           />
 
                           <JobsFilterDropdownField
@@ -645,6 +653,7 @@ function parseJobFilters(
     posted: getSearchParam(searchParams, "posted") ?? getSearchParam(searchParams, "datePosted"),
     submissionCategory: undefined,
     status: getSearchParam(searchParams, "status"),
+    hideApplied: normalizeBooleanParam(getSearchParam(searchParams, "hideApplied")),
     sortBy: normalizeSortByParam(
       getSearchParam(searchParams, "sortBy") ?? getSearchParam(searchParams, "sort")
     ),
@@ -933,6 +942,7 @@ function countActiveFilters(filters: JobFilterParams) {
     "expiry",
     "posted",
     "status",
+    "hideApplied",
   ];
 
   return keys.filter((key) => {
@@ -991,6 +1001,7 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
     ["includeUnknownSalary", includeSalaryFields && filters.includeUnknownSalary ? "1" : undefined],
     ["expiry", filters.expiry],
     ["posted", filters.posted],
+    ["hideApplied", filters.hideApplied ? "1" : undefined],
   ]);
 }
 
@@ -1015,10 +1026,12 @@ function FilterFieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 function FilterToggleField({
+  label,
   name,
   selected,
   value,
 }: {
+  label: string;
   name: string;
   selected: string | undefined;
   value: string;
@@ -1033,7 +1046,7 @@ function FilterToggleField({
           : "border-border/60 bg-card text-foreground hover:bg-muted"
       }`}
     >
-      <span>Expiring soon</span>
+      <span>{label}</span>
       <input
         className="size-4 shrink-0 rounded border-border/70 bg-card"
         defaultChecked={checked}
@@ -1228,6 +1241,11 @@ function buildActiveFilterGroups(
   addSelectedOptionGroup(groups, currentParams, "posted", filters.posted, POSTED_OPTIONS, "Date posted");
   addSelectedOptionGroup(groups, currentParams, "expiry", filters.expiry, EXPIRY_OPTIONS, "Deadline");
   addSelectedOptionGroup(groups, currentParams, "status", filters.status, STATUS_OPTIONS, "Status");
+  if (filters.hideApplied) {
+    addGroup("hideApplied", "Applications", [
+      { key: "hideApplied", label: "Not applied", href: removeParamHref("hideApplied") },
+    ]);
+  }
 
   const salaryItems: ActiveFilterGroup["items"] = [];
   if (filters.salaryMin) {
