@@ -48,6 +48,26 @@ export const tailoredResumeSchema = z.object({
 });
 
 export type TailoredResume = z.infer<typeof tailoredResumeSchema>;
+
+/**
+ * The Documents resume builder uses one deliberate, stable layout instead of
+ * attempting to compile arbitrary uploaded LaTeX. Its structure follows the
+ * product's moderncv template: education, work experience, recent projects,
+ * then skills.
+ */
+export type UnifiedResume = {
+  contact: TailoredResume["contact"];
+  education: TailoredResume["education"];
+  experience: TailoredResume["experience"];
+  projects: Array<{
+    title: string;
+    role: string;
+    time: string;
+    location: string;
+    bullets: string[];
+  }>;
+  skills: string[];
+};
 type ResumeTightness = "standard" | "tight";
 
 export type CompiledResumePdf = {
@@ -327,6 +347,168 @@ export function generateResumeTeX(data: TailoredResume): string {
     lines.push("}");
   }
 
+  lines.push(String.raw`\end{document}`);
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+function compactUrlLabel(value: string, pattern: RegExp) {
+  return value
+    .replace(/^https?:\/\/(www\.)?/i, "")
+    .replace(pattern, "")
+    .replace(/\/$/, "");
+}
+
+function unifiedExtraInfo(contact: UnifiedResume["contact"]) {
+  const parts: string[] = [];
+  if (contact.email) {
+    parts.push(String.raw`\emailsymbol\enspace\emaillink{${tex(contact.email)}}`);
+  }
+  if (contact.phone) {
+    parts.push(String.raw`\phonesymbol\enspace${tex(contact.phone)}`);
+  }
+  if (contact.linkedin) {
+    const label = compactUrlLabel(contact.linkedin, /^linkedin\.com\/(in\/)?/i);
+    const url = contact.linkedin.replace(/^https?:\/\//i, "");
+    parts.push(
+      String.raw`\linkedinsocialsymbol\enspace\httplink[${tex(label)}]{${tex(url)}}`
+    );
+  }
+  if (contact.github) {
+    const label = compactUrlLabel(contact.github, /^github\.com\//i);
+    const url = contact.github.replace(/^https?:\/\//i, "");
+    parts.push(String.raw`\githubsocialsymbol\enspace\httplink[${tex(label)}]{${tex(url)}}`);
+  }
+  if (contact.portfolio) {
+    const label = compactUrlLabel(contact.portfolio, /^/);
+    const url = contact.portfolio.replace(/^https?:\/\//i, "");
+    parts.push(String.raw`\faGlobe\enspace\httplink[${tex(label)}]{${tex(url)}}`);
+  }
+
+  return parts.join(String.raw` \enspace\textbullet\enspace `);
+}
+
+export function generateUnifiedResumeTeX(data: UnifiedResume): string {
+  const lines: string[] = [];
+  const nameParts = normalizeWhitespace(data.contact.name).split(" ").filter(Boolean);
+  const firstName = nameParts.shift() ?? "";
+  const lastName = nameParts.join(" ");
+
+  lines.push(String.raw`\documentclass[11pt,a4paper,sans]{moderncv}`);
+  lines.push(String.raw`\moderncvstyle[nosymbols]{banking}`);
+  lines.push(String.raw`\moderncvcolor{black}`);
+  lines.push(String.raw`\moderncvicons{awesome}`);
+  lines.push("");
+  lines.push(String.raw`\usepackage[utf8]{inputenc}`);
+  lines.push(String.raw`\usepackage{enumitem}`);
+  lines.push(String.raw`\usepackage{times}`);
+  lines.push(String.raw`\usepackage{graphicx}`);
+  lines.push(String.raw`\usepackage{xcolor}`);
+  lines.push("");
+  lines.push(String.raw`\usepackage[top=0.8cm, bottom=0.3cm, left=1cm, right=1cm]{geometry}`);
+  lines.push("");
+  lines.push(
+    String.raw`\setlist[itemize]{label={\Large\textbullet},leftmargin=0.4cm,itemsep=1.8pt,parsep=0pt,topsep=0pt,partopsep=0pt,`
+  );
+  lines.push(String.raw`  before=\linespread{0.93}\selectfont,`);
+  lines.push(String.raw`  after=\linespread{1}\selectfont}`);
+  lines.push("");
+  lines.push(String.raw`\name{${tex(firstName)}}{${tex(lastName)}}`);
+  const extraInfo = unifiedExtraInfo(data.contact);
+  if (extraInfo) {
+    lines.push(String.raw`\extrainfo{%`);
+    lines.push(String.raw`  ${extraInfo}%`);
+    lines.push(String.raw`}`);
+  }
+  lines.push("");
+  lines.push(String.raw`\makeatletter`);
+  lines.push(String.raw`\patchcmd{\makehead}`);
+  lines.push(String.raw`  {\\\addressfont\color{color2}}`);
+  lines.push(String.raw`  {\\[-0.7em]\addressfont\color{color2}}`);
+  lines.push(String.raw`  {}{}`);
+  lines.push(String.raw`\makeatother`);
+  lines.push("");
+  lines.push(String.raw`\begin{document}`);
+  lines.push("");
+  lines.push(String.raw`\makecvtitle`);
+  lines.push(String.raw`\vspace{-2.7em}`);
+  lines.push("");
+
+  if (data.education.length > 0) {
+    lines.push(String.raw`\vspace{-0.9em}`);
+    lines.push(String.raw`\section{Education}`);
+    lines.push("");
+    for (const education of data.education) {
+      lines.push(String.raw`\cventry`);
+      lines.push(String.raw`  {${tex(education.time)}}`);
+      lines.push(String.raw`  {${tex(education.degree)}}`);
+      lines.push(String.raw`  {${tex(education.school)}}`);
+      lines.push(String.raw`  {${tex(education.location)}}`);
+      lines.push(String.raw`  {}`);
+      lines.push(String.raw`  {}`);
+      lines.push("");
+    }
+  }
+
+  if (data.experience.length > 0) {
+    lines.push(String.raw`\vspace{-0.9em}`);
+    lines.push(String.raw`\section{Work Experience}`);
+    lines.push("");
+    for (const experience of data.experience) {
+      lines.push(String.raw`\cventry`);
+      lines.push(String.raw`  {${tex(experience.time)}}`);
+      lines.push(String.raw`  {${tex(experience.title)}}`);
+      lines.push(String.raw`  {${tex(experience.company)}}`);
+      lines.push(String.raw`  {${tex(experience.location)}}`);
+      lines.push(String.raw`  {}`);
+      lines.push(String.raw`  {%`);
+      lines.push(String.raw`  \begin{itemize}`);
+      for (const bullet of experience.bullets) {
+        lines.push(String.raw`    \item ${tex(bullet)}`);
+      }
+      lines.push(String.raw`  \end{itemize}`);
+      lines.push(String.raw`  }`);
+      lines.push("");
+    }
+  }
+
+  if (data.projects.length > 0) {
+    lines.push(String.raw`\vspace{-0.9em}`);
+    lines.push(String.raw`\section{Recent Projects}`);
+    lines.push("");
+    for (const project of data.projects) {
+      lines.push(String.raw`\cventry`);
+      lines.push(String.raw`  {${tex(project.time)}}`);
+      lines.push(String.raw`  {${tex(project.role)}}`);
+      lines.push(String.raw`  {${tex(project.title)}}`);
+      lines.push(String.raw`  {${tex(project.location)}}`);
+      lines.push(String.raw`  {}`);
+      lines.push(String.raw`  {%`);
+      lines.push(String.raw`  \begin{itemize}`);
+      for (const bullet of project.bullets) {
+        lines.push(String.raw`    \item ${tex(bullet)}`);
+      }
+      lines.push(String.raw`  \end{itemize}`);
+      lines.push(String.raw`  }`);
+      lines.push("");
+    }
+  }
+
+  if (data.skills.length > 0) {
+    lines.push(String.raw`\vspace{-0.9em}`);
+    lines.push(String.raw`\section{Skills}`);
+    lines.push("");
+    lines.push("{");
+    lines.push(String.raw`  \footnotesize`);
+    lines.push("");
+    lines.push(String.raw`  \begin{itemize}[itemsep=0.5pt]`);
+    lines.push(String.raw`    \item ${data.skills.map(tex).join(", ")}`);
+    lines.push(String.raw`  \end{itemize}`);
+    lines.push("}");
+  }
+
+  lines.push("");
   lines.push(String.raw`\end{document}`);
   lines.push("");
 

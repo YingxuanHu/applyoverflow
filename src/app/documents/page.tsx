@@ -1,15 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Columns2, FileText } from "lucide-react";
+import { Columns2, FileText, Sparkles } from "lucide-react";
 
 import { CoverLetterManager } from "@/components/profile/cover-letter-manager";
-import { ResumeBuilder } from "@/components/profile/resume-builder";
 import { ResumeManager } from "@/components/profile/resume-manager";
 import { Button } from "@/components/ui/button";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { formatFileSize, formatMediumDateTimeEnCa } from "@/lib/formatting";
-import { normalizeResumeBullets } from "@/lib/resume-builder";
 import { type ResumeImportSummary } from "@/lib/resume-shared";
 import { getStorageReadiness } from "@/lib/storage";
 
@@ -22,7 +20,7 @@ export default async function DocumentsPage() {
 
   const profileId = await requireCurrentProfileId();
   const storageReadiness = getStorageReadiness();
-  const [resumes, templates, coverLetters, resumeLibraryEntries, resumeBuilds, savedJobs] =
+  const [resumes, templates, coverLetters, resumeContentCount, resumeBuildCount] =
     await Promise.all([
       prisma.document.findMany({
         where: { userId: profileId, type: "RESUME" },
@@ -67,46 +65,11 @@ export default async function DocumentsPage() {
           isAiGenerated: true,
         },
       }),
-      prisma.resumeLibraryEntry.findMany({
+      prisma.resumeLibraryEntry.count({
         where: { userId: profileId, archivedAt: null },
-        orderBy: [{ type: "asc" }, { updatedAt: "desc" }],
-        include: {
-          variations: {
-            where: { approvalStatus: "APPROVED" },
-            orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
-            select: {
-              id: true,
-              name: true,
-              summary: true,
-              bulletsJson: true,
-              targetRoleTags: true,
-              isDefault: true,
-            },
-          },
-        },
       }),
-      prisma.resumeBuild.findMany({
-        where: { userId: profileId },
-        orderBy: { updatedAt: "desc" },
-        take: 12,
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          updatedAt: true,
-          template: { select: { title: true } },
-          targetJob: { select: { title: true, company: true } },
-          _count: { select: { items: true } },
-        },
-      }),
-      prisma.savedJob.findMany({
-        where: { userId: profileId, status: "ACTIVE" },
-        orderBy: { updatedAt: "desc" },
-        take: 50,
-        select: {
-          canonicalJobId: true,
-          canonicalJob: { select: { title: true, company: true } },
-        },
+      prisma.resumeBuild.count({
+        where: { userId: profileId, status: "DRAFT" },
       }),
     ]);
 
@@ -125,13 +88,33 @@ export default async function DocumentsPage() {
         </Button>
       </header>
 
-      <section id="resume-library">
+      <section className="border-y border-border/70 py-6" id="resume-builder">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-2">
+            <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground" />
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Resume builder</h2>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                Select profile-backed education, experience, projects, and skills for a focused resume. Review AI wording proposals, save an exact draft, and generate a unified PDF.
+              </p>
+            </div>
+          </div>
+          <Button render={<Link href="/documents/resume-builder" />} size="sm">
+            Open resume builder
+          </Button>
+        </header>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
+        </p>
+      </section>
+
+      <section id="resume-files">
         <header className="flex items-start gap-2">
           <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
           <div>
-            <h2 className="text-base font-semibold text-foreground">Resume library</h2>
+            <h2 className="text-base font-semibold text-foreground">Resume files &amp; templates</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Upload resume versions and formatting templates available when you apply.
+              Upload source resumes and templates. Resume uploads extract and merge profile entries, including education, while preserving your original file.
             </p>
           </div>
         </header>
@@ -163,43 +146,6 @@ export default async function DocumentsPage() {
           />
         </div>
       </section>
-
-      <ResumeBuilder
-        builds={resumeBuilds.map((build) => ({
-          id: build.id,
-          name: build.name,
-          status: build.status,
-          updatedAtLabel: formatMediumDateTimeEnCa(build.updatedAt),
-          itemCount: build._count.items,
-          templateName: build.template?.title ?? null,
-          targetJobLabel: build.targetJob
-            ? `${build.targetJob.title} at ${build.targetJob.company}`
-            : null,
-        }))}
-        entries={resumeLibraryEntries.map((entry) => ({
-          id: entry.id,
-          type: entry.type,
-          title: entry.title,
-          organization: entry.organization,
-          dateRange: entry.dateRange,
-          location: entry.location,
-          summary: entry.summary,
-          technologies: entry.technologies,
-          variations: entry.variations.map((variation) => ({
-            id: variation.id,
-            name: variation.name,
-            summary: variation.summary,
-            bullets: normalizeResumeBullets(variation.bulletsJson),
-            targetRoleTags: variation.targetRoleTags,
-            isDefault: variation.isDefault,
-          })),
-        }))}
-        savedJobs={savedJobs.map((savedJob) => ({
-          id: savedJob.canonicalJobId,
-          label: `${savedJob.canonicalJob.title} at ${savedJob.canonicalJob.company}`,
-        }))}
-        templates={templates.map((template) => ({ id: template.id, title: template.title }))}
-      />
 
       <section className="border-t border-border/70 pt-6" id="cover-letter-library">
         <header className="flex items-start gap-2">

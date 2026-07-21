@@ -10,6 +10,18 @@ export const RESUME_LIBRARY_ENTRY_TYPES = [
 
 export type ResumeLibraryEntryTypeValue = (typeof RESUME_LIBRARY_ENTRY_TYPES)[number];
 
+/**
+ * The resume workspace intentionally keeps the output order fixed. This matches
+ * the unified moderncv template and prevents a selection's click order from
+ * changing the document hierarchy.
+ */
+export const RESUME_BUILD_SECTION_ORDER = [
+  "EDUCATION",
+  "EXPERIENCE",
+  "PROJECT",
+  "SKILL",
+] as const;
+
 export type ResumeLibrarySeed = {
   sourceProfileKey: string;
   type: Exclude<ResumeLibraryEntryTypeValue, "CUSTOM">;
@@ -86,7 +98,7 @@ export function seedResumeLibraryFromProfile(values: ProfileFormValues): ResumeL
         ]
       : [];
 
-  return [...experiences, ...projects, ...education, ...skillEntry];
+  return [...education, ...experiences, ...projects, ...skillEntry];
 }
 
 export function displayResumeEntryType(type: ResumeLibraryEntryTypeValue) {

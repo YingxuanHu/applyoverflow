@@ -533,16 +533,18 @@ model ResumeBuild {
   name             String
   targetJobId      String?
   templateId       String?
+  outputDocumentId String?           @unique
   status           ResumeBuildStatus @default(DRAFT)
   sectionOrderJson Json               @default("[]")
   snapshotJson     Json               @default("{}")
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  user      UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  targetJob JobCanonical?     @relation("ResumeBuildTargetJob", fields: [targetJobId], references: [id], onDelete: SetNull)
-  template  Document?         @relation("ResumeBuildTemplate", fields: [templateId], references: [id], onDelete: SetNull)
-  items     ResumeBuildItem[]
+  user           UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetJob      JobCanonical?     @relation("ResumeBuildTargetJob", fields: [targetJobId], references: [id], onDelete: SetNull)
+  template       Document?         @relation("ResumeBuildTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  outputDocument Document?         @relation("ResumeBuildOutput", fields: [outputDocumentId], references: [id], onDelete: SetNull)
+  items          ResumeBuildItem[]
 
   @@index([userId, status, updatedAt(sort: Desc)])
   @@index([targetJobId])
@@ -596,6 +598,7 @@ model Document {
   analysis                DocumentAnalysis?
   resumeVariant           ResumeVariant?
   resumeBuildTemplates    ResumeBuild[]              @relation("ResumeBuildTemplate")
+  resumeBuildOutputs      ResumeBuild[]              @relation("ResumeBuildOutput")
   trackedApplicationLinks TrackedApplicationDocument[]
 
   @@index([userId, type])

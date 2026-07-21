@@ -30,7 +30,9 @@ UserProfile, ResumeVariant, JobRaw, JobCanonical, JobSourceMapping, JobEligibili
 - `/jobs/[id]/apply` → apply-review flow with package preview and submission tracking
 - `/saved` → shortlist workspace
 - `/applications` → package and submission history across tracked jobs
-- `/profile` → current profile, preferences, and resume variants
+- `/profile` → current profile, preferences, and structured resume source content
+- `/documents` → document hub for resume files, templates, and cover letters
+- `/documents/resume-builder` → profile-backed resume selection, AI revision review, and unified PDF output
 - `/ops/ingestion` → internal ingestion runs, source coverage, and pool counts
 - `/api/ingestion/schedule` → cron-ready scheduled ingestion entrypoint with due-run checks
 

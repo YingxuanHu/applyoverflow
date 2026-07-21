@@ -3,15 +3,26 @@
 import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 
-import { requireCurrentUserProfile, UnauthorizedError } from "@/lib/current-user";
+import { generateResumeEntryVariation as generateAiResumeEntryVariation } from "@/lib/ai/resume-entry-variation";
+import { buildProfileContext } from "@/lib/ai/context-builders";
+import { assessProfileForAi, buildAiProfileText } from "@/lib/ai/profile-context";
+import {
+  requireAiFeatureAccess,
+  requireCurrentUserProfile,
+  UnauthorizedError,
+} from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { buildProfileFormValues } from "@/lib/profile";
 import {
   RESUME_LIBRARY_ENTRY_TYPES,
+  RESUME_BUILD_SECTION_ORDER,
   normalizeResumeBullets,
   seedResumeLibraryFromProfile,
 } from "@/lib/resume-builder";
+import { compileResumePdf, generateUnifiedResumeTeX, type UnifiedResume } from "@/lib/resume-generator";
 import { revalidateProfileViews } from "@/lib/revalidation";
+import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
+import { getOpenAIReadiness } from "@/lib/openai";
 
 export type ResumeBuilderActionState = {
   error: string | null;
@@ -19,6 +30,7 @@ export type ResumeBuilderActionState = {
 };
 
 const entryTypeSchema = z.enum(RESUME_LIBRARY_ENTRY_TYPES);
+const editableEntryTypeSchema = z.enum(["EXPERIENCE", "PROJECT"]);
 const selectionSchema = z
   .array(
     z.object({
@@ -30,6 +42,12 @@ const selectionSchema = z
   )
   .min(1, "Choose at least one content entry.")
   .max(25, "A build can include up to 25 content entries.");
+
+const revisionSchema = z.object({
+  entryId: z.string().min(1).max(80),
+  variationId: z.string().min(1).max(80),
+  instruction: z.string().trim().min(12).max(1_200),
+});
 
 async function currentProfile() {
   try {
@@ -109,9 +127,9 @@ export async function syncResumeLibraryFromProfile(
     };
   }
 
-  await prisma.$transaction(
-    entries.map((entry) =>
-      prisma.resumeLibraryEntry.upsert({
+  await prisma.$transaction(async (tx) => {
+    for (const entry of entries) {
+      const libraryEntry = await tx.resumeLibraryEntry.upsert({
         where: {
           userId_sourceProfileKey: {
             userId: user.id,
@@ -138,21 +156,42 @@ export async function syncResumeLibraryFromProfile(
           summary: entry.summary,
           technologies: entry.technologies,
           sourceProfileKey: entry.sourceProfileKey,
-          variations: {
-            create: {
-              name: "General",
-              summary: entry.summary,
-              bulletsJson: normalizeResumeBullets(entry.summary) as Prisma.InputJsonValue,
-              technologies: entry.technologies,
-              source: "IMPORTED",
-              approvalStatus: "APPROVED",
-              isDefault: true,
-            },
-          },
         },
-      })
-    )
-  );
+      });
+
+      const importedVariation = await tx.resumeLibraryEntryVariation.findFirst({
+        where: {
+          entryId: libraryEntry.id,
+          source: "IMPORTED",
+          name: "General",
+        },
+        select: { id: true },
+      });
+      const variationData = {
+        summary: entry.summary,
+        bulletsJson: normalizeResumeBullets(entry.summary) as Prisma.InputJsonValue,
+        technologies: entry.technologies,
+      };
+
+      if (importedVariation) {
+        await tx.resumeLibraryEntryVariation.update({
+          where: { id: importedVariation.id },
+          data: variationData,
+        });
+      } else {
+        await tx.resumeLibraryEntryVariation.create({
+          data: {
+            entryId: libraryEntry.id,
+            name: "General",
+            ...variationData,
+            source: "IMPORTED",
+            approvalStatus: "APPROVED",
+            isDefault: true,
+          },
+        });
+      }
+    }
+  });
 
   revalidateProfileViews();
   return { error: null, success: `Added or refreshed ${entries.length} master content entries.` };
@@ -268,6 +307,127 @@ export async function setDefaultResumeEntryVariation(
   return { error: null, success: "Default variation updated." };
 }
 
+export async function generateResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) {
+    return { error: "You must sign in before generating a revision.", success: null };
+  }
+
+  const parsed = revisionSchema.safeParse({
+    entryId: text(formData, "entryId", 80),
+    variationId: text(formData, "variationId", 80),
+    instruction: text(formData, "instruction", 1_200),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Describe the focus for this revision.",
+      success: null,
+    };
+  }
+  if (!getOpenAIReadiness().configured) {
+    return { error: "AI revisions are not configured right now.", success: null };
+  }
+
+  try {
+    await requireAiFeatureAccess();
+    const [entry, profileContext] = await Promise.all([
+      prisma.resumeLibraryEntry.findFirst({
+        where: { id: parsed.data.entryId, userId: user.id, archivedAt: null },
+        include: {
+          variations: {
+            where: { id: parsed.data.variationId, approvalStatus: "APPROVED" },
+            select: {
+              id: true,
+              name: true,
+              bulletsJson: true,
+              technologies: true,
+              targetRoleTags: true,
+            },
+          },
+        },
+      }),
+      buildProfileContext(),
+    ]);
+
+    const editableType = entry ? editableEntryTypeSchema.safeParse(entry.type) : null;
+    if (!entry || !editableType?.success) {
+      return { error: "Only experience and project entries can be revised this way.", success: null };
+    }
+    const baseVariation = entry.variations[0];
+    if (!baseVariation) {
+      return { error: "Choose an approved base version before revising it.", success: null };
+    }
+    if (!profileContext) {
+      return { error: "Your application profile could not be found.", success: null };
+    }
+    const readiness = assessProfileForAi(profileContext);
+    if (!readiness.canUseAi) {
+      return { error: readiness.blockingMessage, success: null };
+    }
+
+    const generated = await generateAiResumeEntryVariation({
+      entryTitle: entry.title,
+      entryType: editableType.data,
+      organization: entry.organization,
+      currentBullets: normalizeResumeBullets(baseVariation.bulletsJson),
+      instruction: parsed.data.instruction,
+      profileContext: buildAiProfileText(profileContext),
+    });
+
+    await prisma.resumeLibraryEntryVariation.create({
+      data: {
+        entryId: entry.id,
+        name: `AI: ${generated.name}`.slice(0, 100),
+        summary: null,
+        bulletsJson: generated.bullets as Prisma.InputJsonValue,
+        technologies: baseVariation.technologies,
+        targetRoleTags: baseVariation.targetRoleTags,
+        source: "AI_GENERATED",
+        approvalStatus: "PENDING",
+      },
+    });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return { error: "You must sign in before generating a revision.", success: null };
+    }
+    return {
+      error: error instanceof Error ? error.message.slice(0, 500) : "Could not generate a revision.",
+      success: null,
+    };
+  }
+
+  revalidateProfileViews();
+  return { error: null, success: "Revision ready to compare. Approve it before using it in a build." };
+}
+
+export async function approveResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before approving a revision.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const result = await prisma.resumeLibraryEntryVariation.updateMany({
+    where: {
+      id: variationId,
+      source: "AI_GENERATED",
+      approvalStatus: "PENDING",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    data: { approvalStatus: "APPROVED" },
+  });
+  if (result.count === 0) {
+    return { error: "That revision is no longer available for approval.", success: null };
+  }
+
+  revalidateProfileViews();
+  return { error: null, success: "Revision approved and ready to use in a resume." };
+}
+
 export async function createResumeBuild(
   _previous: ResumeBuilderActionState,
   formData: FormData
@@ -319,10 +479,19 @@ export async function createResumeBuild(
     includedBulletIds: string[];
     snapshotJson: Record<string, unknown>;
   }> = [];
-  for (const [sortOrder, selected] of selection.data
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .entries()) {
+  const orderedSelection = [...selection.data].sort((left, right) => {
+    const leftEntry = entryById.get(left.entryId)!;
+    const rightEntry = entryById.get(right.entryId)!;
+    const sectionDifference =
+      RESUME_BUILD_SECTION_ORDER.indexOf(leftEntry.type as (typeof RESUME_BUILD_SECTION_ORDER)[number]) -
+      RESUME_BUILD_SECTION_ORDER.indexOf(rightEntry.type as (typeof RESUME_BUILD_SECTION_ORDER)[number]);
+    return sectionDifference !== 0 ? sectionDifference : left.sortOrder - right.sortOrder;
+  });
+  for (const [sortOrder, selected] of orderedSelection.entries()) {
     const entry = entryById.get(selected.entryId)!;
+    if (!RESUME_BUILD_SECTION_ORDER.includes(entry.type as (typeof RESUME_BUILD_SECTION_ORDER)[number])) {
+      return { error: "A resume build can only include education, experience, projects, and skills.", success: null };
+    }
     const variation = entry.variations.find((candidate) => candidate.id === selected.variationId);
     if (!variation) {
       return { error: "Choose an approved variation for each entry.", success: null };
@@ -376,9 +545,11 @@ export async function createResumeBuild(
   }
 
   const snapshot = {
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
-    sectionOrder: [...new Set(buildItems.map((item) => item.sectionType))],
+    sectionOrder: RESUME_BUILD_SECTION_ORDER.filter((section) =>
+      buildItems.some((item) => item.sectionType === section)
+    ),
     items: buildItems.map((item) => item.snapshotJson),
   };
   await prisma.resumeBuild.create({
@@ -396,6 +567,201 @@ export async function createResumeBuild(
 
   revalidateProfileViews();
   return { error: null, success: "Resume build saved as a reproducible draft." };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asText(value: unknown, maxLength = 4_000) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function asTextArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => asText(item, 1_000))
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+}
+
+function resumeFromBuildSnapshot(
+  items: Array<{ sectionType: string; snapshotJson: unknown }>,
+  values: ReturnType<typeof buildProfileFormValues>
+): UnifiedResume {
+  const education: UnifiedResume["education"] = [];
+  const experience: UnifiedResume["experience"] = [];
+  const projects: UnifiedResume["projects"] = [];
+  const skills: string[] = [];
+
+  for (const item of items) {
+    const snapshot = asRecord(item.snapshotJson);
+    const entry = asRecord(snapshot.entry);
+    const variation = asRecord(snapshot.variation);
+    const bullets = asTextArray(variation.bullets);
+    const entryTechnologies = asTextArray(entry.technologies);
+    const variationTechnologies = asTextArray(variation.technologies);
+
+    switch (item.sectionType) {
+      case "EDUCATION":
+        education.push({
+          degree: asText(entry.title, 160),
+          school: asText(entry.organization, 160),
+          time: asText(entry.dateRange, 120),
+          location: asText(entry.location, 160),
+          description: asText(variation.summary ?? entry.summary, 4_000),
+        });
+        break;
+      case "EXPERIENCE":
+        experience.push({
+          title: asText(entry.title, 160),
+          company: asText(entry.organization, 160),
+          time: asText(entry.dateRange, 120),
+          location: asText(entry.location, 160),
+          bullets,
+        });
+        break;
+      case "PROJECT":
+        projects.push({
+          title: asText(entry.title, 160),
+          role: asText(entry.organization, 160),
+          time: asText(entry.dateRange, 120),
+          location: asText(entry.location, 160),
+          bullets,
+        });
+        break;
+      case "SKILL":
+        skills.push(...variationTechnologies, ...entryTechnologies, ...bullets);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    contact: {
+      name: values.contact.fullName,
+      email: values.contact.email,
+      phone: values.contact.phone,
+      location: values.contact.location,
+      linkedin: values.contact.linkedInUrl,
+      github: values.contact.githubUrl,
+      portfolio: values.contact.portfolioUrl,
+    },
+    education,
+    experience,
+    projects,
+    skills: [...new Set(skills.map((skill) => skill.trim()).filter(Boolean))].slice(0, 40),
+  };
+}
+
+export async function generateResumeBuildPdf(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before generating a resume.", success: null };
+
+  const buildId = text(formData, "buildId", 80);
+  const [build, profile] = await Promise.all([
+    prisma.resumeBuild.findFirst({
+      where: { id: buildId, userId: user.id, status: "DRAFT" },
+      include: {
+        items: { orderBy: { sortOrder: "asc" } },
+        outputDocument: { select: { id: true, storageKey: true } },
+      },
+    }),
+    prisma.userProfile.findUnique({
+      where: { id: user.id },
+      select: {
+        name: true,
+        email: true,
+        location: true,
+        headline: true,
+        summary: true,
+        phone: true,
+        linkedinUrl: true,
+        githubUrl: true,
+        portfolioUrl: true,
+        workAuthorization: true,
+        skillsText: true,
+        experienceText: true,
+        educationText: true,
+        projectsText: true,
+        contactJson: true,
+        skillsJson: true,
+        educationsJson: true,
+        experiencesJson: true,
+        projectsJson: true,
+      },
+    }),
+  ]);
+
+  if (!build) return { error: "Resume build not found.", success: null };
+  if (!profile) return { error: "Your application profile could not be found.", success: null };
+  if (build.items.length === 0) return { error: "Add content to this build before generating it.", success: null };
+
+  const profileValues = buildProfileFormValues(profile, { name: profile.name, email: profile.email });
+  const resume = resumeFromBuildSnapshot(build.items, profileValues);
+  if (!resume.contact.name || !resume.contact.email) {
+    return { error: "Add your name and email in Application profile before generating a resume.", success: null };
+  }
+
+  const title = `${build.name} resume`.slice(0, 180);
+  const storageKey = buildDocumentStorageKey({
+    userId: user.id,
+    title,
+    extension: ".pdf",
+    type: "RESUME",
+  });
+
+  try {
+    const compiled = await compileResumePdf(generateUnifiedResumeTeX(resume), "apply-overflow-resume");
+    await saveFile(storageKey, compiled.pdfBuffer, { contentType: "application/pdf" });
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const outputDocument = await tx.document.create({
+          data: {
+            userId: user.id,
+            type: "RESUME",
+            title,
+            originalFileName: `${title}.pdf`,
+            filename: `${title}.pdf`,
+            mimeType: "application/pdf",
+            sizeBytes: compiled.pdfBuffer.byteLength,
+            storageKey,
+            isAiGenerated: true,
+          },
+        });
+        await tx.resumeBuild.update({
+          where: { id: build.id },
+          data: { outputDocumentId: outputDocument.id },
+        });
+        if (build.outputDocument) {
+          await tx.document.delete({ where: { id: build.outputDocument.id } });
+        }
+      });
+    } catch (error) {
+      await deleteFile(storageKey);
+      throw error;
+    }
+
+    if (build.outputDocument) {
+      await deleteFile(build.outputDocument.storageKey);
+    }
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message.slice(0, 500) : "Could not generate the resume PDF.",
+      success: null,
+    };
+  }
+
+  revalidateProfileViews();
+  return { error: null, success: "Resume PDF generated and added to your Documents library." };
 }
 
 export async function archiveResumeBuild(

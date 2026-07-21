@@ -10,6 +10,7 @@ export function revalidateProfileViews() {
   revalidatePaths([
     "/profile",
     "/documents",
+    "/documents/resume-builder",
     "/documents/compare",
     "/applications",
     "/applications/history",
