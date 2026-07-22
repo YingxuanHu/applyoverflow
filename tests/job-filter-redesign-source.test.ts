@@ -64,7 +64,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(querySource, /salaryCurrency:\s*\{\s*notIn/);
   assert.match(querySource, /loadSalaryComparisonCurrency/);
   assert.match(querySource, /shouldUseJobFeedIndex\(filters: JobFilterParams, viewerProfileId: string \| null\)/);
-  assert.match(querySource, /JOB_FEED_INDEX_COUNT_TIMEOUT_MS/);
+  assert.match(querySource, /const includeExactTotal = wantsExactTotal/);
   assert.match(querySource, /getSelectiveScopedSearchIds/);
   assert.match(querySource, /structured filters, we still use[\s\S]*selective id list as a prefilter/);
   assert.match(querySource, /useDirectPrefilterSlice = canSlicePrefilterIds/);
@@ -88,8 +88,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
 
   assert.match(pageSource, /buildActiveFilterGroups\(filters, resolvedSearchParams\)/);
   assert.match(pageSource, /formatJobResultCount/);
-  assert.match(resultCountSource, /const floor = Math\.max/);
-  assert.match(resultCountSource, /input\.hasNextPage/);
+  assert.match(resultCountSource, /Exact count unavailable/);
   assert.match(pageSource, /buildLocationSearchRemoveHref/);
   assert.match(pageSource, /currentHadValues/);
   assert.match(pageSource, /return "\/jobs\?reset=1"/);

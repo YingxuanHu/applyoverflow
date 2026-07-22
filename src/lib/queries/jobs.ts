@@ -124,8 +124,6 @@ const GENERIC_ATS_COMPANY_VISIBILITY_BLOCKS = [
 const JOB_FEED_SUMMARY_TTL_MS = 300_000;
 const JOB_FEED_QUERY_TTL_MS = 60_000;
 const HOT_FEED_QUERY_TTL_MS = 300_000;
-const JOB_COUNT_TIMEOUT_MS = 1_200;
-const JOB_FEED_INDEX_COUNT_TIMEOUT_MS = 5_000;
 const FEED_INDEX_SEARCH_MATCH_ID_LIMIT = 10_000;
 // A sole title/company search for a SELECTIVE term (few matches relative to the
 // pool) is pathologically slow on the default feed path: Postgres scans the
@@ -150,32 +148,6 @@ const SEARCH_SCOPE_COLUMNS: Record<ScopedJobSearchScope, string> = {
   company: "company",
   location: "location",
 };
-
-/**
- * Race a count() query against a timeout. Returns `null` if the count doesn't
- * resolve within `timeoutMs`. The page renders with an approximate total
- * (or no total) instead of waiting tens of seconds when the DB is loaded.
- *
- * We don't cancel the underlying Prisma query — it'll complete in the
- * background and the next request can benefit from a warm cache.
- */
-async function withCountTimeout(
-  fn: () => Promise<number>,
-  timeoutMs: number
-): Promise<number | null> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<null>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
-  });
-  try {
-    const value = await Promise.race([fn(), timeoutPromise]);
-    return value;
-  } catch {
-    return null;
-  } finally {
-    if (timeoutHandle) clearTimeout(timeoutHandle);
-  }
-}
 
 const inflightJobsQueryStore = new Map<string, Promise<JobsResult>>();
 const TRACKED_APPLICATION_NOT_APPLIED_STATUSES: TrackedApplicationStatus[] = [
@@ -1024,10 +996,7 @@ async function getJobsFromFeedIndex(input: {
   const orderBy = buildJobFeedIndexOrderBy(filters.sortBy);
 
   const totalPromise = includeExactTotal
-    ? withCountTimeout(
-        () => countJobFeedIndexMatches(where),
-        JOB_FEED_INDEX_COUNT_TIMEOUT_MS
-      )
+    ? countJobFeedIndexMatches(where)
     : Promise.resolve(null);
 
   const indexedRows =
@@ -3022,10 +2991,7 @@ async function getJobsByRelevance(
       };
     }
 
-    const total = await withCountTimeout(
-      () => prisma.jobCanonical.count({ where }),
-      JOB_COUNT_TIMEOUT_MS
-    );
+    const total = await prisma.jobCanonical.count({ where });
     const effectiveTotal = total ?? totalFallback;
     return {
       data,
@@ -3074,7 +3040,7 @@ async function getJobsByRelevance(
   });
 
   const totalPromise = includeExactTotal
-    ? withCountTimeout(() => prisma.jobCanonical.count({ where }), JOB_COUNT_TIMEOUT_MS)
+    ? prisma.jobCanonical.count({ where })
     : Promise.resolve(null);
 
   const [scoringJobs, total] = await Promise.all([
@@ -3277,7 +3243,8 @@ export async function getJobs(
       filters.hideApplied
     );
     const useFeedIndexForRequest = shouldUseJobFeedIndex(filters, viewerProfileId);
-    const includeExactTotal = wantsExactTotal && !(useFeedIndexForRequest && filters.search);
+    // Scoped feeds wait for the real count instead of rendering a 50+ estimate.
+    const includeExactTotal = wantsExactTotal;
     const isExplicitSort = Boolean(filters.sortBy && filters.sortBy !== "relevance");
     const defaultScoringWindowPages = Math.floor(DEFAULT_SCORING_WINDOW_SIZE / PAGE_SIZE);
     const useSqlDemoVisibilityFilter =
@@ -3608,10 +3575,7 @@ export async function getJobs(
       });
     }
 
-    const total = await withCountTimeout(
-      () => prisma.jobCanonical.count({ where }),
-      JOB_COUNT_TIMEOUT_MS
-    );
+    const total = await prisma.jobCanonical.count({ where });
 
     const effectiveTotal = total ?? searchMatchTotalHint;
     return cacheResult({
