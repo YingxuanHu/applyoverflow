@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import { formatMediumDateTimeEnCa } from "@/lib/formatting";
 import {
+  dismissNotification,
+  dismissReadNotifications,
   getNotificationCenterData,
   markAllNotificationsRead,
   markNotificationRead,
@@ -11,15 +13,23 @@ import {
 import { revalidateNotificationCenterViews } from "@/lib/revalidation";
 
 function getNotificationHref(notification: Awaited<ReturnType<typeof getNotificationCenterData>>["notifications"][number]) {
-  if (notification.trackedApplication?.canonicalJobId) {
-    return `/jobs/${notification.trackedApplication.canonicalJobId}`;
-  }
-
   if (notification.trackedApplicationId) {
     return `/applications/${notification.trackedApplicationId}`;
   }
 
+  if (notification.trackedApplication?.canonicalJobId) {
+    return `/jobs/${notification.trackedApplication.canonicalJobId}`;
+  }
+
   return null;
+}
+
+function getNotificationCategory(
+  type: "DEADLINE_REMINDER" | "APPLICATION_STATUS_CHANGED" | "SYSTEM"
+) {
+  if (type === "DEADLINE_REMINDER") return "Deadline";
+  if (type === "APPLICATION_STATUS_CHANGED") return "Status update";
+  return "Reminder";
 }
 
 export default async function NotificationsPage() {
@@ -45,7 +55,25 @@ export default async function NotificationsPage() {
     revalidateNotificationCenterViews();
   }
 
+  async function dismissAction(formData: FormData) {
+    "use server";
+
+    const notificationId = String(formData.get("notificationId") ?? "").trim();
+    if (!notificationId) return;
+
+    await dismissNotification(notificationId);
+    revalidateNotificationCenterViews();
+  }
+
+  async function dismissReadAction() {
+    "use server";
+
+    await dismissReadNotifications();
+    revalidateNotificationCenterViews();
+  }
+
   const { notifications, unreadCount } = await getNotificationCenterData();
+  const hasReadNotifications = notifications.some((notification) => notification.readAt);
 
   return (
     <div className="app-page space-y-6">
@@ -53,7 +81,7 @@ export default async function NotificationsPage() {
         <div>
           <h1 className="page-title">Notifications</h1>
           <p className="page-description">
-            Deadline reminders and tracker updates.
+            Deadlines, scheduled reminders, and automated application updates.
           </p>
         </div>
       </div>
@@ -63,23 +91,35 @@ export default async function NotificationsPage() {
           <p className="text-sm text-muted-foreground">
             {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
           </p>
-          {unreadCount > 0 ? (
-            <form action={markAllAction}>
-              <button
-                type="submit"
-                className="h-9 rounded-lg border border-border/70 bg-background/60 px-4 text-sm font-medium"
-              >
-                Mark all as read
-              </button>
-            </form>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {unreadCount > 0 ? (
+              <form action={markAllAction}>
+                <button
+                  type="submit"
+                  className="h-9 rounded-lg border border-border/70 bg-background/60 px-4 text-sm font-medium"
+                >
+                  Mark all as read
+                </button>
+              </form>
+            ) : null}
+            {hasReadNotifications ? (
+              <form action={dismissReadAction}>
+                <button
+                  type="submit"
+                  className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+                >
+                  Clear read
+                </button>
+              </form>
+            ) : null}
+          </div>
         </div>
 
         {notifications.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border/70 bg-background/50 px-4 py-10 text-center">
             <p className="text-sm font-medium text-foreground">No notifications yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Deadline reminders and tracker activity will appear here.
+              Deadlines, scheduled reminders, and automatic status updates will appear here.
             </p>
           </div>
         ) : (
@@ -103,19 +143,25 @@ export default async function NotificationsPage() {
               return (
                 <article
                   key={notification.id}
-                  className="rounded-lg border border-border/60 bg-background/50 p-4"
+                  className="rounded-lg border border-border/60 bg-background/50 p-4 data-[unread=true]:border-primary/30 data-[unread=true]:bg-primary/[0.035]"
+                  data-unread={notification.readAt ? undefined : "true"}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    {href ? (
-                      <Link
-                        className="min-w-0 flex-1 rounded-lg transition hover:bg-muted/35"
-                        href={href}
-                      >
-                        {content}
-                      </Link>
-                    ) : (
-                      <div className="min-w-0 flex-1">{content}</div>
-                    )}
+                    <div className="min-w-0 flex-1">
+                      <span className="mb-2 inline-flex rounded-full border border-border/70 bg-muted/35 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {getNotificationCategory(notification.type)}
+                      </span>
+                      {href ? (
+                        <Link
+                          className="block rounded-lg transition hover:bg-muted/35"
+                          href={href}
+                        >
+                          {content}
+                        </Link>
+                      ) : (
+                        content
+                      )}
+                    </div>
 
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       {notification.readAt ? (
@@ -138,6 +184,15 @@ export default async function NotificationsPage() {
                           </form>
                         </>
                       )}
+                      <form action={dismissAction}>
+                        <input type="hidden" name="notificationId" value={notification.id} />
+                        <button
+                          type="submit"
+                          className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                        >
+                          Dismiss
+                        </button>
+                      </form>
                     </div>
                   </div>
                 </article>

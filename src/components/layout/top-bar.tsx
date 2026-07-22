@@ -10,17 +10,27 @@ export async function TopBar() {
     return <TopBarInner user={null} />;
   }
 
-  const userRecord = await withPrismaConnectionRetry(() =>
-    prisma.user.findUnique({
-      where: { id: sessionUser.id },
-      select: {
-        email: true,
-        emailVerified: true,
-        image: true,
-        name: true,
-      },
-    })
-  ).catch(() => null);
+  const [userRecord, unreadNotificationCount] = await Promise.all([
+    withPrismaConnectionRetry(() =>
+      prisma.user.findUnique({
+        where: { id: sessionUser.id },
+        select: {
+          email: true,
+          emailVerified: true,
+          image: true,
+          name: true,
+        },
+      })
+    ).catch(() => null),
+    withPrismaConnectionRetry(() =>
+      prisma.notification.count({
+        where: {
+          userId: sessionUser.id,
+          readAt: null,
+        },
+      })
+    ).catch(() => 0),
+  ]);
 
   const user = userRecord
     ? {
@@ -36,5 +46,5 @@ export async function TopBar() {
         name: sessionUser.name,
       };
 
-  return <TopBarInner user={user} />;
+  return <TopBarInner unreadNotificationCount={unreadNotificationCount} user={user} />;
 }

@@ -18,6 +18,7 @@ type TrackedApplicationWithUser = {
   roleTitle: string;
   deadline: Date | null;
   userId: string;
+  status: TrackedApplicationStatus;
   user: {
     email: string;
     emailNotificationsEnabled: boolean;
@@ -47,6 +48,7 @@ function buildReminderCopy(input: {
   company: string;
   roleTitle: string;
   deadline: Date;
+  status: TrackedApplicationStatus;
 }) {
   // Format in UTC to match the UTC day-boundary tier computation
   // (mapReminderType/daysUntil); otherwise the printed date can disagree with
@@ -56,38 +58,40 @@ function buildReminderCopy(input: {
     dateStyle: "medium",
     timeZone: "UTC",
   }).format(input.deadline);
-  const base = `${input.company} — ${input.roleTitle}`;
+  const isSavedJob = input.status === "WISHLIST" || input.status === "PREPARING";
+  const targetLabel = isSavedJob ? "Saved job" : "Application";
+  const base = `${targetLabel}: ${input.company} — ${input.roleTitle}`;
 
   if (input.reminderType === "DEADLINE_D7") {
     return {
-      title: `Deadline in 7 days: ${input.company}`,
+      title: `${targetLabel} deadline in 7 days: ${input.company}`,
       message: `${base} is due in 7 days (${deadlineText}).`,
     };
   }
 
   if (input.reminderType === "DEADLINE_D3") {
     return {
-      title: `Deadline in 3 days: ${input.company}`,
+      title: `${targetLabel} deadline in 3 days: ${input.company}`,
       message: `${base} is due in 3 days (${deadlineText}).`,
     };
   }
 
   if (input.reminderType === "DEADLINE_D1") {
     return {
-      title: `Deadline tomorrow: ${input.company}`,
+      title: `${targetLabel} deadline tomorrow: ${input.company}`,
       message: `${base} is due tomorrow (${deadlineText}).`,
     };
   }
 
   if (input.reminderType === "DEADLINE_TODAY") {
     return {
-      title: `Deadline today: ${input.company}`,
+      title: `${targetLabel} deadline today: ${input.company}`,
       message: `${base} is due today (${deadlineText}).`,
     };
   }
 
   return {
-    title: `Deadline passed: ${input.company}`,
+    title: `${targetLabel} deadline passed: ${input.company}`,
     message: `${base} deadline passed on ${deadlineText}.`,
   };
 }
@@ -138,6 +142,7 @@ async function processTrackedApplicationReminder(
     company: application.company,
     roleTitle: application.roleTitle,
     deadline: application.deadline,
+    status: application.status,
   });
 
   // Claim the dedup marker AND write the in-app notification atomically, so a
@@ -220,6 +225,7 @@ export async function runDeadlineReminders(now = new Date()): Promise<ReminderRu
       company: true,
       roleTitle: true,
       deadline: true,
+      status: true,
       userId: true,
       user: {
         select: {
@@ -367,6 +373,7 @@ export async function checkSingleTrackedApplicationReminder(applicationId: strin
       company: true,
       roleTitle: true,
       deadline: true,
+      status: true,
       userId: true,
       user: {
         select: {

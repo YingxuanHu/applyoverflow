@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Bell } from "lucide-react";
 
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { MobileNavSheet } from "@/components/layout/mobile-nav-sheet";
 import { UserMenu } from "@/components/layout/user-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const AUTH_ROUTES = new Set([
   "/",
@@ -24,8 +30,10 @@ type SessionSnapshot = {
 };
 
 export function TopBarInner({
+  unreadNotificationCount = 0,
   user,
 }: {
+  unreadNotificationCount?: number;
   user: SessionSnapshot | null;
 }) {
   const pathname = usePathname();
@@ -52,6 +60,33 @@ export function TopBarInner({
       <div className="flex shrink-0 items-center gap-2">
         {user ? (
           <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Link
+                    aria-label={
+                      unreadNotificationCount > 0
+                        ? `Notifications, ${unreadNotificationCount} unread`
+                        : "Notifications"
+                    }
+                    className="relative inline-flex size-9 items-center justify-center rounded-full border border-border/70 bg-background/70 text-muted-foreground outline-none transition hover:bg-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                    href="/notifications"
+                  >
+                    <Bell className="size-4" />
+                    {unreadNotificationCount > 0 ? (
+                      <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-primary text-[9px] font-semibold leading-none text-primary-foreground">
+                        {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                      </span>
+                    ) : null}
+                  </Link>
+                }
+              />
+              <TooltipContent>
+                {unreadNotificationCount > 0
+                  ? `${unreadNotificationCount} unread notifications`
+                  : "Notifications"}
+              </TooltipContent>
+            </Tooltip>
             <UserMenu user={user} />
             <MobileNavSheet />
           </>

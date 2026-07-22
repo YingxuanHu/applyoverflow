@@ -333,6 +333,7 @@ enum TrackedApplicationDocumentSlot {
 
 enum NotificationType {
   DEADLINE_REMINDER
+  APPLICATION_STATUS_CHANGED
   SYSTEM
 }
 
