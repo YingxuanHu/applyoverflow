@@ -1,14 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Mic, MicOff, Search, Sparkles } from "lucide-react";
+import { Loader2, Mic, MicOff, Search, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { showJobsLoadingPopup } from "@/components/jobs/jobs-navigation-pending-boundary";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { mergeNaturalLanguageJobsSearch } from "@/lib/jobs/search-state";
 import type { NaturalLanguageJobSearchResult } from "@/lib/jobs/natural-language-search";
 
-const DESCRIPTION_PLACEHOLDER = "Type or speak what jobs you want";
+const DESCRIPTION_PLACEHOLDER = "Describe a role, location, level, or work style";
 const MAX_DESCRIPTION_LENGTH = 600;
 
 type SpeechRecognitionAlternativeLike = {
@@ -80,6 +87,7 @@ function getSpeechErrorMessage(error?: string) {
 
 export function NaturalLanguageJobSearch() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
@@ -207,7 +215,9 @@ export function NaturalLanguageJobSearch() {
       }
 
       const searchResult = payload as NaturalLanguageJobSearchResult;
-      router.push(searchResult.href);
+      const href = mergeNaturalLanguageJobsSearch(searchParams, searchResult.params);
+      showJobsLoadingPopup(href);
+      router.push(href);
     } catch {
       setError("Could not interpret this search.");
     } finally {
@@ -218,14 +228,11 @@ export function NaturalLanguageJobSearch() {
   return (
     <section className="space-y-2">
       <form className="flex flex-col gap-2 sm:flex-row sm:items-center" onSubmit={handleSubmit}>
-        <label className="flex min-w-0 flex-1 flex-col rounded-[14px] border border-border/70 bg-background transition focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20 sm:flex-row sm:items-center">
-          <span className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-xs font-medium text-muted-foreground sm:h-11 sm:border-b-0 sm:border-r">
-            <Sparkles className="h-4 w-4 text-primary" />
-            Describe jobs
-          </span>
+        <label className="flex min-w-0 flex-1 items-center rounded-[14px] border border-border/70 bg-background transition focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+          <Sparkles className="ml-3.5 h-4 w-4 shrink-0 text-primary" />
           <Input
             aria-label="Describe the jobs you want"
-            className="h-10 border-0 bg-transparent px-3 text-sm shadow-none focus-visible:ring-0 sm:h-11"
+            className="h-11 border-0 bg-transparent px-3 text-sm shadow-none focus-visible:ring-0"
             maxLength={MAX_DESCRIPTION_LENGTH}
             onChange={(event) => {
               if (isListening) stopListening();
@@ -235,39 +242,57 @@ export function NaturalLanguageJobSearch() {
             placeholder={DESCRIPTION_PLACEHOLDER}
             value={text}
           />
+          <div className="mr-1.5 flex shrink-0 items-center gap-0.5">
+            {text ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      aria-label="Clear description"
+                      onClick={() => {
+                        if (isListening) stopListening();
+                        setText("");
+                        setError(null);
+                        setVoiceMessage(null);
+                      }}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  }
+                />
+                <TooltipContent>Clear description</TooltipContent>
+              </Tooltip>
+            ) : null}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                    aria-pressed={isListening}
+                    className={
+                      isListening
+                        ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:text-destructive-foreground"
+                        : ""
+                    }
+                    disabled={isPending || speechSupported === false}
+                    onClick={toggleListening}
+                    size="icon-sm"
+                    type="button"
+                    variant={isListening ? "destructive" : "ghost"}
+                  >
+                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                }
+              />
+              <TooltipContent>{isListening ? "Stop voice input" : "Use voice input"}</TooltipContent>
+            </Tooltip>
+          </div>
         </label>
-        <div className="flex gap-2 sm:shrink-0">
-          <Button
-            aria-pressed={isListening}
-            className={`flex-1 sm:flex-none ${
-              isListening
-                ? "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : ""
-            }`}
-            disabled={isPending || speechSupported === false}
-            onClick={toggleListening}
-            type="button"
-            variant={isListening ? "destructive" : "outline"}
-          >
-            {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            {isListening ? "Stop" : "Voice"}
-          </Button>
-          {text ? (
-            <Button
-              className="flex-1 sm:flex-none"
-              onClick={() => {
-                if (isListening) stopListening();
-                setText("");
-                setError(null);
-                setVoiceMessage(null);
-              }}
-              type="button"
-              variant="outline"
-            >
-              Clear
-            </Button>
-          ) : null}
-          <Button className="flex-1 sm:flex-none" disabled={isPending} type="submit">
+        <div className="flex sm:shrink-0">
+          <Button className="w-full sm:w-auto" disabled={isPending} type="submit">
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             Find jobs
           </Button>

@@ -14,13 +14,15 @@ describe("natural language job search integration", () => {
 
     assert.match(pageSource, /NaturalLanguageJobSearch/);
     assert.match(componentSource, /\/api\/jobs\/natural-language-search/);
-    assert.match(componentSource, /router\.push\(searchResult\.href\)/);
-    assert.match(componentSource, /searchResult\.href/);
+    assert.match(componentSource, /router\.push\(href\)/);
+    assert.match(componentSource, /searchResult\.params/);
     assert.match(componentSource, /SpeechRecognition/);
     assert.match(componentSource, /webkitSpeechRecognition/);
     assert.match(componentSource, /interimResults = true/);
-    assert.match(componentSource, /Type or speak what jobs you want/);
+    assert.match(componentSource, /Describe a role, location, level, or work style/);
     assert.match(componentSource, /Find jobs/);
+    assert.match(componentSource, /mergeNaturalLanguageJobsSearch/);
+    assert.match(componentSource, /Use voice input/);
     assert.doesNotMatch(componentSource, /Use this search/);
     assert.doesNotMatch(componentSource, /Interpret/);
     assert.doesNotMatch(componentSource, /confidence/);

@@ -37,6 +37,35 @@ export const JOBS_STATE_PARAM_KEYS = [
   "page",
 ] as const;
 
+// Saved filters intentionally exclude one-off title and company queries. A
+// returning user should get their preferred job pool, not an old ad-hoc search.
+export const JOBS_SAVED_FILTER_PARAM_KEYS = [
+  "locationSearch",
+  "location",
+  "source",
+  "region",
+  "workMode",
+  "employmentType",
+  "industry",
+  "function",
+  "jobFunction",
+  "roleCategory",
+  "roleFamily",
+  "salaryMin",
+  "salaryMax",
+  "salaryCurrency",
+  "includeUnknownSalary",
+  "hideApplied",
+  "careerStage",
+  "experienceLevel",
+  "expiry",
+  "datePosted",
+  "posted",
+  "status",
+  "sortBy",
+  "sort",
+] as const;
+
 const DEFAULT_KEYWORD_SEARCH_FIELD = "title" as const;
 const JOBS_STATE_PARAM_KEY_SET = new Set<string>(JOBS_STATE_PARAM_KEYS);
 
@@ -162,6 +191,76 @@ export function normalizeJobsStateQuery(
   }
 
   return output.toString();
+}
+
+export function mergeNaturalLanguageJobsSearch(
+  currentSearch: string | URLSearchParams,
+  interpretedParams: Record<string, string | undefined>
+) {
+  const current = toURLSearchParams(currentSearch);
+  const interpreted = cleanInterpretedParams(interpretedParams);
+  const clearedConflictGroups = new Set<string>();
+
+  for (const [key, value] of Object.entries(interpreted)) {
+    if (!value || key === "searchScope") continue;
+    const conflictingKeys = getConflictingJobsStateKeys(key);
+    const conflictGroup = conflictingKeys.join(":");
+    if (!clearedConflictGroups.has(conflictGroup)) {
+      for (const conflictingKey of conflictingKeys) {
+        current.delete(conflictingKey);
+      }
+      clearedConflictGroups.add(conflictGroup);
+    }
+    current.set(key, value);
+  }
+
+  // Scope is presentation state for the keyword control. Apply it after the
+  // parsed title/company search has replaced the previous search state.
+  if (
+    interpreted.searchScope &&
+    (interpreted.titleSearch || interpreted.companySearch || interpreted.locationSearch)
+  ) {
+    current.set("searchScope", interpreted.searchScope);
+  }
+
+  current.delete("page");
+  const normalized = normalizeJobsStateQuery(current, { includePage: false });
+  return normalized ? `/jobs?${normalized}` : "/jobs";
+}
+
+function cleanInterpretedParams(input: Record<string, string | undefined>) {
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!JOBS_STATE_PARAM_KEY_SET.has(key)) continue;
+    const normalized = normalizeParamValue(key, value);
+    if (normalized) params[key] = normalized;
+  }
+  return params;
+}
+
+function getConflictingJobsStateKeys(key: string) {
+  switch (key) {
+    case "titleSearch":
+      return ["q", "field", "search", "searchScope", "titleSearch"];
+    case "companySearch":
+      return ["q", "field", "search", "searchScope", "companySearch"];
+    case "locationSearch":
+      return ["locationSearch"];
+    case "jobFunction":
+      return ["function", "jobFunction", "roleCategory"];
+    case "careerStage":
+      return ["careerStage", "experienceLevel"];
+    case "posted":
+      return ["datePosted", "posted"];
+    case "sortBy":
+      return ["sort", "sortBy"];
+    case "salaryMin":
+    case "salaryMax":
+    case "salaryCurrency":
+      return ["salaryMin", "salaryMax", "salaryCurrency", "includeUnknownSalary"];
+    default:
+      return [key];
+  }
 }
 
 function toURLSearchParams(
