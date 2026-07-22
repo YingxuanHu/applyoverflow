@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Briefcase,
+  Bell,
   ChevronDown,
   FileCheck2,
   FileText,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 const PRIMARY_NAV_ITEMS = [
   { href: "/applications", label: "Applications", icon: FileCheck2 },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/documents", label: "Documents", icon: FileText },
 ];
 
@@ -55,6 +57,7 @@ export function NavSidebar() {
   }
 
   const isDocumentsActive = pathname.startsWith("/documents");
+  const isNotificationsActive = pathname === "/notifications";
   const isJobsActive = pathname === "/jobs" || pathname.startsWith("/jobs/");
   const isProfileActive = pathname === "/profile" || pathname.startsWith("/profile/");
   const isSettingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
@@ -88,6 +91,8 @@ export function NavSidebar() {
             const isActive =
               item.label === "Documents"
                 ? isDocumentsActive
+                : item.label === "Notifications"
+                  ? isNotificationsActive
                 : pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link

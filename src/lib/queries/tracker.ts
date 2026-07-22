@@ -13,6 +13,7 @@ import {
 import { checkSingleTrackedApplicationReminder } from "@/lib/reminders";
 import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
 import { TRACKED_ACTIVE_STATUSES } from "@/lib/tracker-constants";
+import { TRACKED_STATUS_LABEL } from "@/lib/tracker-ui";
 import { startOfUtcDay } from "@/lib/time-zone";
 
 export type TrackerDeadlineFilter = "ALL" | "UPCOMING" | "OVERDUE" | "NO_DEADLINE";
@@ -728,6 +729,7 @@ export async function getNotificationCenterData() {
       select: {
         id: true,
         trackedApplicationId: true,
+        type: true,
         title: true,
         message: true,
         createdAt: true,
@@ -919,6 +921,18 @@ const TRACKED_STATUS_NOTE: Record<TrackedApplicationStatus, string> = {
   DECLINED: "declined",
   WITHDRAWN: "closed",
 };
+
+function buildAutomatedStatusNotification(input: {
+  company: string;
+  previousStatus: TrackedApplicationStatus;
+  roleTitle: string;
+  status: TrackedApplicationStatus;
+}) {
+  return {
+    title: `${input.company}: application status updated`,
+    message: `${input.roleTitle} changed from ${TRACKED_STATUS_LABEL[input.previousStatus]} to ${TRACKED_STATUS_LABEL[input.status]} after an email update.`,
+  };
+}
 
 function isUniqueConstraintError(error: unknown) {
   return (
@@ -1284,6 +1298,86 @@ export async function updateTrackedApplicationStatus(input: {
     status: input.status,
   });
   queueReminderCheck(input.applicationId);
+  return { changed: true };
+}
+
+/**
+ * Trusted mailbox workers call this only after matching a recruiting email to
+ * one tracked application. It records the transition, not the email body.
+ */
+export async function applyAutomatedTrackedApplicationStatusUpdate(input: {
+  applicationId: string;
+  status: TrackedApplicationStatus;
+  userId: string;
+}) {
+  const existing = await prisma.trackedApplication.findFirst({
+    where: {
+      id: input.applicationId,
+      userId: input.userId,
+    },
+    select: {
+      id: true,
+      canonicalJobId: true,
+      company: true,
+      roleTitle: true,
+      status: true,
+    },
+  });
+
+  if (!existing) {
+    throw new Error("Tracked application not found");
+  }
+
+  if (existing.status === input.status) {
+    return { changed: false };
+  }
+
+  const notification = buildAutomatedStatusNotification({
+    company: existing.company,
+    previousStatus: existing.status,
+    roleTitle: existing.roleTitle,
+    status: input.status,
+  });
+
+  await prisma.$transaction([
+    prisma.trackedApplication.update({
+      where: { id: existing.id },
+      data: {
+        status: input.status,
+        updatedAt: new Date(),
+      },
+    }),
+    prisma.trackedApplicationEvent.create({
+      data: {
+        trackedApplicationId: existing.id,
+        type: statusToEventType(input.status),
+        note: `Status updated from ${TRACKED_STATUS_NOTE[existing.status]} to ${TRACKED_STATUS_NOTE[input.status]} after an email update.`,
+      },
+    }),
+    prisma.notification.create({
+      data: {
+        userId: input.userId,
+        trackedApplicationId: existing.id,
+        type: "APPLICATION_STATUS_CHANGED",
+        title: notification.title,
+        message: notification.message,
+      },
+    }),
+  ]);
+
+  const profile = await prisma.userProfile.findUnique({
+    where: { authUserId: input.userId },
+    select: { id: true },
+  });
+  if (profile) {
+    await queueTopPicksRefreshForApplicationSignal({
+      profileId: profile.id,
+      canonicalJobId: existing.canonicalJobId,
+      status: input.status,
+    });
+  }
+  queueReminderCheck(existing.id);
+
   return { changed: true };
 }
 
@@ -1716,6 +1810,26 @@ export async function markAllNotificationsRead() {
     },
     data: {
       readAt: new Date(),
+    },
+  });
+}
+
+export async function dismissNotification(notificationId: string) {
+  const userId = await requireCurrentAuthUserId();
+  await prisma.notification.deleteMany({
+    where: {
+      id: notificationId,
+      userId,
+    },
+  });
+}
+
+export async function dismissReadNotifications() {
+  const userId = await requireCurrentAuthUserId();
+  await prisma.notification.deleteMany({
+    where: {
+      userId,
+      readAt: { not: null },
     },
   });
 }

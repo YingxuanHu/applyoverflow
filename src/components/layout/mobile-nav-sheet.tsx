@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Briefcase,
+  Bell,
   FileCheck2,
   FileText,
   Menu,
@@ -55,6 +56,12 @@ const MOBILE_NAV_ITEMS: MobileNavItem[] = [
     icon: FileCheck2,
     isActive: (pathname) =>
       pathname === "/applications" || pathname.startsWith("/applications/"),
+  },
+  {
+    href: "/notifications",
+    label: "Notifications",
+    icon: Bell,
+    isActive: (pathname) => pathname === "/notifications",
   },
   {
     href: "/documents",
