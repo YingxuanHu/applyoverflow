@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   hasJobsStateParamsRecord,
+  mergeNaturalLanguageJobsSearch,
   normalizeJobsStateQuery,
 } from "../src/lib/jobs/search-state";
 
@@ -46,4 +47,39 @@ test("in-app restored jobs state omits stale page numbers", () => {
 test("empty or cleared jobs state normalizes to default", () => {
   assert.equal(normalizeJobsStateQuery("", { includePage: false }), "");
   assert.equal(normalizeJobsStateQuery("reset=1", { includePage: false }), "");
+});
+
+test("guided job search replaces only the filter groups it recognizes", () => {
+  assert.equal(
+    mergeNaturalLanguageJobsSearch(
+      "titleSearch=analyst&companySearch=OpenAI&workMode=ONSITE&hideApplied=1&sortBy=newest&page=4",
+      {
+        jobFunction: "Software Engineering",
+        searchScope: "title",
+        titleSearch: "backend",
+        workMode: "REMOTE",
+      }
+    ),
+    "/jobs?searchScope=title&titleSearch=backend&companySearch=OpenAI&workMode=REMOTE&jobFunction=Software+Engineering&hideApplied=1&sortBy=newest"
+  );
+});
+
+test("guided job search preserves unrelated saved filters", () => {
+  assert.equal(
+    mergeNaturalLanguageJobsSearch(
+      "locationSearch=Toronto&careerStage=ENTRY_LEVEL&hideApplied=1",
+      { posted: "7d" }
+    ),
+    "/jobs?searchScope=location&locationSearch=Toronto&hideApplied=1&careerStage=ENTRY_LEVEL&posted=7d"
+  );
+});
+
+test("guided job search keeps both salary bounds when it replaces a salary filter", () => {
+  assert.equal(
+    mergeNaturalLanguageJobsSearch(
+      "salaryMin=80000&salaryMax=110000&includeUnknownSalary=1",
+      { salaryCurrency: "USD", salaryMin: "120000", salaryMax: "160000" }
+    ),
+    "/jobs?salaryMin=120000&salaryMax=160000&salaryCurrency=USD"
+  );
 });

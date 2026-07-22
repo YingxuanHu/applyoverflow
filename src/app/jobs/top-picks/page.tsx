@@ -10,7 +10,6 @@ import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chip
 import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
-import { JobsNavigationPendingBoundary } from "@/components/jobs/jobs-navigation-pending-boundary";
 import {
   TopPicksAutoRefresh,
   TopPicksList,
@@ -549,11 +548,7 @@ export default async function JobsTopPicksPage({
 
       <JobsSectionTabs active="top-picks" />
 
-      <JobsNavigationPendingBoundary
-        description="Updating your ranked picks with the selected filters."
-        label="Loading picks"
-      >
-        <section className="surface-panel p-3.5 sm:p-6">
+      <section className="surface-panel p-3.5 sm:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
@@ -689,9 +684,9 @@ export default async function JobsTopPicksPage({
               />
             ) : null}
           </div>
-        </section>
+      </section>
 
-        <section>
+      <section>
           {showPagination ? (
             <PaginationControls
               ariaLabel="Top picks top pagination"
@@ -730,8 +725,7 @@ export default async function JobsTopPicksPage({
               totalPages={totalPages}
             />
           ) : null}
-        </section>
-      </JobsNavigationPendingBoundary>
+      </section>
     </div>
   );
 }

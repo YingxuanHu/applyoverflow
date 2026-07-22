@@ -16,7 +16,7 @@ import {
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
-import { JobsNavigationPendingBoundary } from "@/components/jobs/jobs-navigation-pending-boundary";
+import { JobsSavedFiltersControl } from "@/components/jobs/jobs-saved-filters-control";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
 import { NaturalLanguageJobSearch } from "@/components/jobs/natural-language-job-search";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
@@ -45,7 +45,7 @@ import {
 import { formatPostedAge } from "@/lib/job-display";
 import {
   JOBS_SEARCH_STATE_STORAGE_KEY,
-  JOBS_STATE_PARAM_KEYS,
+  JOBS_SAVED_FILTER_PARAM_KEYS,
 } from "@/lib/jobs/search-state";
 import { formatJobResultCount } from "@/lib/jobs/result-count";
 import { serializeJobCardData } from "@/lib/job-serialization";
@@ -189,6 +189,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const navigationKey = buildSearchParamSignature(resolvedSearchParams);
   const clearFiltersHref = "/jobs?reset=1";
   const searchFormHiddenFields = buildSearchFormHiddenFields(filters);
+  const savedFilterStorageKey = `${JOBS_SEARCH_STATE_STORAGE_KEY}:${viewerProfileId}`;
 
   return (
     <div className="app-page space-y-6">
@@ -199,8 +200,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       <SearchParamMemory
         basePath="/jobs"
         normalizer="jobs"
-        stateParamKeys={JOBS_STATE_PARAM_KEYS}
-        storageKey={JOBS_SEARCH_STATE_STORAGE_KEY}
+        persistence="local"
+        stateParamKeys={JOBS_SAVED_FILTER_PARAM_KEYS}
+        storageKey={savedFilterStorageKey}
       />
       <ScrollPositionMemory
         defaultScrollTop="top"
@@ -220,8 +222,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
       <JobsSectionTabs active="jobs" />
 
-      <JobsNavigationPendingBoundary>
-        <section className="surface-panel p-3.5 sm:p-6">
+      <section className="surface-panel p-3.5 sm:p-6">
           <div>
             <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
               {headlineCountLabel} {hasScopedResults ? "matching jobs" : "live jobs"}
@@ -314,11 +315,14 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                                 Jobs must match all active filter sections. Multiple options in one section use OR.
                               </p>
                             </div>
-                            {activeFilterCount > 0 ? (
-                              <span className="inline-flex h-6 items-center rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] font-medium text-foreground">
-                                {activeFilterCount} active
-                              </span>
-                            ) : null}
+                            <div className="flex shrink-0 items-center gap-2">
+                              <JobsSavedFiltersControl storageKey={savedFilterStorageKey} />
+                              {activeFilterCount > 0 ? (
+                                <span className="inline-flex h-6 items-center rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] font-medium text-foreground">
+                                  {activeFilterCount} active
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
 
@@ -477,9 +481,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </div>
           </div>
           </div>
-        </section>
+      </section>
 
-        <section>
+      <section>
           {showPagination ? (
             <PaginationControls
               ariaLabel="Jobs top pagination"
@@ -538,8 +542,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               totalPages={totalPages}
             />
           ) : null}
-        </section>
-      </JobsNavigationPendingBoundary>
+      </section>
     </div>
   );
 }

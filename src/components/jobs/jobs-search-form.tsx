@@ -169,9 +169,13 @@ export function JobsSearchForm({
         </div>
       </div>
 
-      <Button className="h-10 w-11 rounded-[14px] px-0 sm:w-auto sm:px-5" type="submit">
-        <Search className="h-4 w-4 sm:hidden" />
-        <span className="sr-only sm:not-sr-only">Search</span>
+      <Button
+        aria-label="Search jobs"
+        className="h-10 w-10 rounded-[14px] p-0"
+        title="Search jobs"
+        type="submit"
+      >
+        <Search className="h-4 w-4" />
       </Button>
     </form>
   );

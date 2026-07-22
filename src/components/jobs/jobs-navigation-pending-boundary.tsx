@@ -4,10 +4,11 @@ import type { MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { JobsLoadingPopup } from "@/components/jobs/jobs-loading-popup";
 
 const NAVIGATION_PENDING_TIMEOUT_MS = 15_000;
 const FEED_PATHS = new Set(["/jobs", "/jobs/top-picks"]);
+const JOBS_LOADING_START_EVENT = "autoapplication:jobs-loading-start";
 
 type JobsNavigationPendingBoundaryProps = {
   children: ReactNode;
@@ -17,8 +18,8 @@ type JobsNavigationPendingBoundaryProps = {
 
 export function JobsNavigationPendingBoundary({
   children,
-  description = "Updating the job list with your latest search and filters.",
-  label = "Loading jobs",
+  description,
+  label,
 }: JobsNavigationPendingBoundaryProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -29,6 +30,25 @@ export function JobsNavigationPendingBoundary({
   const currentUrlRef = useRef(currentUrl);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const pending = pendingHref !== null && pendingHref !== currentUrl;
+  const isTopPicksNavigation = pendingHref?.startsWith("/jobs/top-picks");
+  const loadingLabel = label ?? (isTopPicksNavigation ? "Loading picks" : "Loading jobs");
+  const loadingDescription =
+    description ??
+    (isTopPicksNavigation
+      ? "Updating your ranked picks with the selected filters."
+      : "Updating the job list with your latest search and filters.");
+
+  useEffect(() => {
+    const handleLoadingStart = (event: Event) => {
+      const href = (event as CustomEvent<{ href?: string }>).detail?.href;
+      if (!href) return;
+      const nextHref = getPendingNavigationHref(href, currentUrlRef.current);
+      if (nextHref) setPendingHref(nextHref);
+    };
+
+    window.addEventListener(JOBS_LOADING_START_EVENT, handleLoadingStart);
+    return () => window.removeEventListener(JOBS_LOADING_START_EVENT, handleLoadingStart);
+  }, []);
 
   useEffect(() => {
     currentUrlRef.current = currentUrl;
@@ -71,23 +91,19 @@ export function JobsNavigationPendingBoundary({
     >
       {children}
       {pending ? (
-        <div
-          aria-live="polite"
-          className="pointer-events-auto absolute inset-0 z-30 min-h-[16rem] bg-background/55 px-4"
-          role="status"
-        >
-          <div className="sticky top-20 mx-auto mt-6 flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-border/80 bg-popover px-4 py-3 text-left shadow-[0_18px_48px_rgba(0,0,0,0.26)]">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <LoadingSpinner className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{label}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-            </div>
-          </div>
-        </div>
+        <JobsLoadingPopup
+          description={loadingDescription}
+          label={loadingLabel}
+        />
       ) : null}
     </div>
+  );
+}
+
+export function showJobsLoadingPopup(href: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(JOBS_LOADING_START_EVENT, { detail: { href } })
   );
 }
 
