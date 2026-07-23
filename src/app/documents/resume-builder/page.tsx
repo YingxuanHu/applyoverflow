@@ -24,6 +24,8 @@ export default async function ResumeBuilderPage() {
           select: {
             id: true,
             name: true,
+            sourceVariationId: true,
+            rewrittenBulletIndexes: true,
             summary: true,
             bulletsJson: true,
             targetRoleTags: true,
@@ -91,6 +93,8 @@ export default async function ResumeBuilderPage() {
           variations: entry.variations.map((variation) => ({
             id: variation.id,
             name: variation.name,
+            sourceVariationId: variation.sourceVariationId,
+            rewrittenBulletIndexes: variation.rewrittenBulletIndexes,
             summary: variation.summary,
             bullets: normalizeResumeBullets(variation.bulletsJson),
             targetRoleTags: variation.targetRoleTags,

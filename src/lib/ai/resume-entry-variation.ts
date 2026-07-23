@@ -32,6 +32,7 @@ const SYSTEM_PROMPT = `You revise one verified resume entry for a specific audie
 Rules:
 - Use only evidence in the supplied entry and profile. Never invent employers, technologies, ownership, scope, metrics, credentials, outcomes, or dates.
 - Return exactly one rewrite for every requested bullet index, and do not include any other indexes.
+- Every requested bullet must be visibly reworded. Do not return an original bullet unchanged, even if its facts already fit the requested emphasis.
 - Preserve the factual meaning of every rewritten bullet. Make the requested emphasis clearer through wording and organization, rather than adding unrelated claims.
 - Keep each rewritten bullet within roughly 20% of the original bullet's word count. Keep metrics and concrete details when supplied.
 - This is not a chat response. No explanation, markdown, code fences, or extra fields.`;
@@ -71,6 +72,20 @@ function capToComparableLength(rewrite: string, original: string) {
   const maxWords = Math.max(4, Math.ceil(wordCount(original) * 1.2));
   const words = rewrite.trim().split(/\s+/).filter(Boolean);
   return words.slice(0, maxWords).join(" ").slice(0, 1_000);
+}
+
+function comparableBullet(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function unchangedResumeBulletIndexes(
+  currentBullets: string[],
+  nextBullets: string[],
+  requestedIndexes: number[]
+) {
+  return requestedIndexes.filter(
+    (index) => comparableBullet(currentBullets[index] ?? "") === comparableBullet(nextBullets[index] ?? "")
+  );
 }
 
 function selectedIndexes(input: number[] | undefined, bulletCount: number) {
@@ -117,23 +132,35 @@ export async function generateResumeEntryVariation(
   }
   const rewriteIndexes = selectedIndexes(request.selectedBulletIndexes, currentBullets.length);
 
-  const raw = await aiComplete({
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `ENTRY TYPE: ${request.entryType}\nTITLE: ${request.entryTitle}\nORGANIZATION: ${request.organization ?? ""}\n\nREQUESTED EMPHASIS:\n${request.instruction}\n\nREWRITE ONLY THESE BULLET INDEXES:\n${rewriteIndexes.map((index) => index + 1).join(", ")}\n\nCURRENT VERIFIED BULLETS:\n${currentBullets.map((bullet, index) => `${index + 1}. ${bullet}`).join("\n")}\n\nPROFILE EVIDENCE:\n${request.profileContext.slice(0, 8_000)}`,
-      },
-    ],
-    modelFlavor: "standard",
-    maxTokens: 1_000,
-    temperature: 0.2,
-  });
-
-  const result = parseResponse(raw);
-
-  return {
-    name: result.name,
-    bullets: applyResumeBulletRewrites(currentBullets, rewriteIndexes, result.rewrites),
+  const requestRewrite = async (retryIndexes: number[] = []) => {
+    const retryInstruction = retryIndexes.length
+      ? `\n\nThe prior response left bullet ${retryIndexes.map((index) => index + 1).join(", ")} unchanged. Rewrite those bullets with materially different wording now while preserving their facts.`
+      : "";
+    const raw = await aiComplete({
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: `ENTRY TYPE: ${request.entryType}\nTITLE: ${request.entryTitle}\nORGANIZATION: ${request.organization ?? ""}\n\nREQUESTED EMPHASIS:\n${request.instruction}\n\nREWRITE ONLY THESE BULLET INDEXES:\n${rewriteIndexes.map((index) => index + 1).join(", ")}\n\nCURRENT VERIFIED BULLETS:\n${currentBullets.map((bullet, index) => `${index + 1}. ${bullet}`).join("\n")}\n\nPROFILE EVIDENCE:\n${request.profileContext.slice(0, 8_000)}${retryInstruction}`,
+        },
+      ],
+      modelFlavor: "standard",
+      maxTokens: 1_000,
+      temperature: 0.2,
+    });
+    const result = parseResponse(raw);
+    return { name: result.name, bullets: applyResumeBulletRewrites(currentBullets, rewriteIndexes, result.rewrites) };
   };
+
+  let generated = await requestRewrite();
+  let unchangedIndexes = unchangedResumeBulletIndexes(currentBullets, generated.bullets, rewriteIndexes);
+  if (unchangedIndexes.length > 0) {
+    generated = await requestRewrite(unchangedIndexes);
+    unchangedIndexes = unchangedResumeBulletIndexes(currentBullets, generated.bullets, rewriteIndexes);
+  }
+  if (unchangedIndexes.length > 0) {
+    throw new Error("The AI did not materially change every selected bullet. Try a more specific focus or edit the version manually.");
+  }
+
+  return generated;
 }
