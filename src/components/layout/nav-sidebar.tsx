@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 const PRIMARY_NAV_ITEMS = [
   { href: "/applications", label: "Applications", icon: FileCheck2 },
   { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/documents", label: "Documents", icon: FileText },
 ];
 
 const JOBS_LINKS = [
@@ -30,6 +29,12 @@ const JOBS_LINKS = [
 const PROFILE_LINKS = [
   { href: "/profile#application-profile", label: "Application profile" },
   { href: "/profile#job-preferences", label: "Job preferences" },
+];
+
+const DOCUMENTS_LINKS = [
+  { href: "/documents/resume-builder", label: "Resume builder" },
+  { href: "/documents", label: "Document library" },
+  { href: "/documents/compare", label: "Compare documents" },
 ];
 
 const SETTINGS_LINKS = [
@@ -89,10 +94,8 @@ export function NavSidebar() {
           />
           {PRIMARY_NAV_ITEMS.map((item) => {
             const isActive =
-              item.label === "Documents"
-                ? isDocumentsActive
-                : item.label === "Notifications"
-                  ? isNotificationsActive
+              item.label === "Notifications"
+                ? isNotificationsActive
                 : pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
@@ -110,27 +113,37 @@ export function NavSidebar() {
               </Link>
             );
           })}
+          <NavGroup
+            activePathname={pathname}
+            defaultOpen={isDocumentsActive}
+            href="/documents"
+            icon={FileText}
+            isActive={isDocumentsActive}
+            key={`documents:${isDocumentsActive ? pathname : "inactive"}`}
+            label="Documents"
+            links={DOCUMENTS_LINKS}
+          />
         </div>
 
         <div className="space-y-1">
-        <NavGroup
-          activePathname={pathname}
-          defaultOpen={isProfileActive}
-          href="/profile"
-          icon={User}
-          isActive={isProfileActive}
-          label="Profile"
-          links={PROFILE_LINKS}
-        />
-        <NavGroup
-          activePathname={pathname}
-          defaultOpen={isSettingsActive}
-          href="/settings"
-          icon={Settings}
-          isActive={isSettingsActive}
-          label="Settings"
-          links={SETTINGS_LINKS}
-        />
+          <NavGroup
+            activePathname={pathname}
+            defaultOpen={isProfileActive}
+            href="/profile"
+            icon={User}
+            isActive={isProfileActive}
+            label="Profile"
+            links={PROFILE_LINKS}
+          />
+          <NavGroup
+            activePathname={pathname}
+            defaultOpen={isSettingsActive}
+            href="/settings"
+            icon={Settings}
+            isActive={isSettingsActive}
+            label="Settings"
+            links={SETTINGS_LINKS}
+          />
         </div>
       </nav>
     </aside>
@@ -216,6 +229,10 @@ function NavGroup({
 function isNestedNavLinkActive(href: string, pathname: string) {
   if (href === "/jobs") {
     return pathname === "/jobs" || (pathname.startsWith("/jobs/") && !pathname.startsWith("/jobs/top-picks"));
+  }
+
+  if (href === "/documents") {
+    return pathname === "/documents";
   }
 
   return pathname === href || pathname.startsWith(`${href}/`);

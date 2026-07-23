@@ -88,24 +88,27 @@ export default async function DocumentsPage() {
         </Button>
       </header>
 
-      <section className="border-y border-border/70 py-6" id="resume-builder">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground" />
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Resume builder</h2>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Select profile-backed education, experience, projects, and skills for a focused resume. Review AI wording proposals, save an exact draft, and generate a unified PDF.
-              </p>
+      <section className="border-b border-border/70 pb-7" id="resume-builder">
+        <div className="border-l-2 border-primary/70 bg-primary/[0.04] px-4 py-5 sm:px-5">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-1 h-5 w-5 shrink-0 text-primary" />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Resume builder</p>
+                <h2 className="mt-1 text-xl font-semibold text-foreground">Build a tailored resume</h2>
+                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                  Select profile-backed content, tailor the wording for a role, and generate a ready-to-send PDF.
+                </p>
+              </div>
             </div>
-          </div>
-          <Button render={<Link href="/documents/resume-builder" />} size="sm">
-            Open resume builder
-          </Button>
-        </header>
-        <p className="mt-4 text-sm text-muted-foreground">
-          {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
-        </p>
+            <Button render={<Link href="/documents/resume-builder" />} size="sm">
+              Open resume builder
+            </Button>
+          </header>
+          <p className="mt-4 text-sm font-medium text-muted-foreground">
+            {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
+          </p>
+        </div>
       </section>
 
       <section id="resume-files">
