@@ -313,7 +313,7 @@ export function JobAssistant({
   }
 
   return (
-    <section className="surface-panel relative overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(10,132,255,0.08),rgba(99,102,241,0.06)_38%,rgba(255,255,255,0.96))] p-0 shadow-[0_20px_50px_rgba(15,23,42,0.10)] dark:border-primary/20 dark:bg-[linear-gradient(135deg,rgba(10,132,255,0.16),rgba(99,102,241,0.10)_38%,rgba(9,14,22,0.94))] dark:shadow-[0_24px_64px_rgba(2,6,23,0.42)]">
+    <section className="surface-panel min-w-0 relative overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(10,132,255,0.08),rgba(99,102,241,0.06)_38%,rgba(255,255,255,0.96))] p-0 shadow-[0_20px_50px_rgba(15,23,42,0.10)] dark:border-primary/20 dark:bg-[linear-gradient(135deg,rgba(10,132,255,0.16),rgba(99,102,241,0.10)_38%,rgba(9,14,22,0.94))] dark:shadow-[0_24px_64px_rgba(2,6,23,0.42)]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(to_right,rgba(148,163,184,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(148,163,184,0.14)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:linear-gradient(to_bottom,rgba(255,255,255,0.85),transparent)] dark:opacity-[0.08]"
