@@ -71,15 +71,6 @@ export function JobsNavigationPendingBoundary({
     return () => window.clearTimeout(timeout);
   }, [pendingNavigation]);
 
-  useEffect(() => {
-    if (
-      pendingNavigation &&
-      currentUrl !== pendingNavigation.originHref
-    ) {
-      setPendingNavigation(null);
-    }
-  }, [currentUrl, pendingNavigation]);
-
   return (
     <div
       className="relative"
