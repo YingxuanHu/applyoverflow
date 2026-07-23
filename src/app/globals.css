@@ -283,6 +283,23 @@
   }
 }
 
+@keyframes jobs-loading-sweep {
+  0% {
+    transform: translateX(-105%);
+  }
+  55% {
+    transform: translateX(170%);
+  }
+  100% {
+    transform: translateX(170%);
+  }
+}
+
+.jobs-loading-sweep {
+  animation: jobs-loading-sweep 1.45s cubic-bezier(0.35, 0, 0.25, 1) infinite;
+  width: 42%;
+}
+
 .auth-mobile-card {
   animation: auth-mobile-rise 560ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
   animation-delay: var(--auth-delay, 0ms);

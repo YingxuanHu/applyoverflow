@@ -16,6 +16,11 @@ type JobsNavigationPendingBoundaryProps = {
   label?: string;
 };
 
+type PendingNavigation = {
+  href: string;
+  originHref: string;
+};
+
 export function JobsNavigationPendingBoundary({
   children,
   description,
@@ -28,9 +33,10 @@ export function JobsNavigationPendingBoundary({
     [pathname, searchParams]
   );
   const currentUrlRef = useRef(currentUrl);
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
-  const pending = pendingHref !== null && pendingHref !== currentUrl;
-  const isTopPicksNavigation = pendingHref?.startsWith("/jobs/top-picks");
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingNavigation | null>(null);
+  const pending = pendingNavigation?.originHref === currentUrl;
+  const isTopPicksNavigation = pendingNavigation?.href.startsWith("/jobs/top-picks");
   const loadingLabel = label ?? (isTopPicksNavigation ? "Loading picks" : "Loading jobs");
   const loadingDescription =
     description ??
@@ -43,7 +49,9 @@ export function JobsNavigationPendingBoundary({
       const href = (event as CustomEvent<{ href?: string }>).detail?.href;
       if (!href) return;
       const nextHref = getPendingNavigationHref(href, currentUrlRef.current);
-      if (nextHref) setPendingHref(nextHref);
+      if (nextHref) {
+        setPendingNavigation({ href: nextHref, originHref: currentUrlRef.current });
+      }
     };
 
     window.addEventListener(JOBS_LOADING_START_EVENT, handleLoadingStart);
@@ -55,13 +63,22 @@ export function JobsNavigationPendingBoundary({
   }, [currentUrl]);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!pendingNavigation) return;
     const timeout = window.setTimeout(
-      () => setPendingHref(null),
+      () => setPendingNavigation(null),
       NAVIGATION_PENDING_TIMEOUT_MS
     );
     return () => window.clearTimeout(timeout);
-  }, [pending]);
+  }, [pendingNavigation]);
+
+  useEffect(() => {
+    if (
+      pendingNavigation &&
+      currentUrl !== pendingNavigation.originHref
+    ) {
+      setPendingNavigation(null);
+    }
+  }, [currentUrl, pendingNavigation]);
 
   return (
     <div
@@ -74,7 +91,7 @@ export function JobsNavigationPendingBoundary({
         const nextHref = getPendingNavigationHref(link.href, currentUrlRef.current);
         if (nextHref) {
           link.closest("details")?.removeAttribute("open");
-          setPendingHref(nextHref);
+          setPendingNavigation({ href: nextHref, originHref: currentUrlRef.current });
         }
       }}
       onSubmitCapture={(event) => {
@@ -85,7 +102,7 @@ export function JobsNavigationPendingBoundary({
         const nextHref = href ? getPendingNavigationHref(href, currentUrlRef.current) : null;
         if (nextHref) {
           form.closest("details")?.removeAttribute("open");
-          setPendingHref(nextHref);
+          setPendingNavigation({ href: nextHref, originHref: currentUrlRef.current });
         }
       }}
     >
