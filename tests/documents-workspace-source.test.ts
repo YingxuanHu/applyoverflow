@@ -17,6 +17,9 @@ test("documents have a dedicated workspace separate from the application profile
 
   assert.match(documentsPage, /<h1 className="page-title">Documents<\/h1>/);
   assert.match(documentsPage, /Resume builder/);
+  assert.match(documentsPage, /Build a tailored resume/);
+  assert.match(documentsPage, /border-b border-border\/70 pb-7/);
+  assert.doesNotMatch(documentsPage, /border-y border-border\/70 py-6/);
   assert.match(documentsPage, /href="\/documents\/resume-builder"/);
   assert.match(documentsPage, /Resume files &amp; templates/);
   assert.doesNotMatch(documentsPage, /<ResumeBuilder/);
@@ -34,7 +37,11 @@ test("documents have a dedicated workspace separate from the application profile
   assert.doesNotMatch(profilePage, /<CoverLetterManager/);
   assert.doesNotMatch(profilePage, /TabsContent value="documents"/);
 
-  assert.match(sidebar, /href: "\/documents", label: "Documents"/);
+  assert.match(sidebar, /href="\/documents"/);
+  assert.match(sidebar, /label="Documents"/);
+  assert.match(sidebar, /href: "\/documents\/resume-builder", label: "Resume builder"/);
+  assert.match(sidebar, /href: "\/documents\/compare", label: "Compare documents"/);
+  assert.match(sidebar, /defaultOpen=\{isDocumentsActive\}/);
   assert.doesNotMatch(sidebar, /profile\?tab=documents/);
   assert.match(mobileNav, /href: "\/documents"/);
   assert.doesNotMatch(mobileNav, /useSearchParams/);

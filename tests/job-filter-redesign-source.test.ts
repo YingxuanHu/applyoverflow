@@ -111,7 +111,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pendingBoundarySource, /autoapplication:jobs-loading-start/);
   assert.match(pendingBoundarySource, /showJobsLoadingPopup/);
   assert.match(pendingBoundarySource, /originHref/);
-  assert.match(pendingBoundarySource, /currentUrl !== pendingNavigation\.originHref/);
+  assert.match(pendingBoundarySource, /pendingNavigation\?\.originHref === currentUrl/);
   assert.match(appShellSource, /<JobsNavigationPendingBoundary>/);
   assert.match(jobsLoadingSource, /<JobsLoadingPopup \/>/);
   assert.match(naturalLanguageSearchSource, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params\)/);

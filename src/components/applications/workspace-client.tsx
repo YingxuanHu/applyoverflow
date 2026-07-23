@@ -895,7 +895,7 @@ function JobDescriptionField({
 
   return (
     <div
-      className={`surface-panel p-3.5 sm:p-5 ${
+      className={`surface-panel min-w-0 p-3.5 sm:p-5 ${
         compactReadOnlyPreview
           ? "md:flex md:h-[clamp(20rem,42dvh,34rem)] md:flex-col md:overflow-hidden"
           : ""
@@ -1760,12 +1760,12 @@ export function ApplicationWorkspaceClient({
         </div>
       </section>
 
-      <div className="grid items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="grid min-w-0 items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         {/* Main column — flat sections, ordered: job description → AI
             workspace (Fit analysis + Resume tailoring) → small Notes. The
             previous Documents section is gone; attach dropdowns live in the
             title-box footer above. */}
-        <div className="grid content-start gap-4 self-start sm:gap-5">
+        <div className="grid min-w-0 content-start gap-4 self-start sm:gap-5">
           <JobDescriptionField
             applicationId={application.id}
             hasRoleUrl={Boolean(application.roleUrl)}
@@ -1786,7 +1786,7 @@ export function ApplicationWorkspaceClient({
           <RemindersSection applicationId={application.id} reminders={reminders} />
         </div>
 
-        <div className="grid content-start gap-4 self-start sm:gap-5">
+        <div className="grid min-w-0 content-start gap-4 self-start sm:gap-5">
           <JobAssistant
             aiConfigured={aiConfigured}
             applicationId={application.id}
