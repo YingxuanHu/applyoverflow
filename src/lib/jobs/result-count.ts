@@ -1,9 +1,8 @@
 // Headline result-count label for the jobs feed.
 //
 // The jobs headline must never turn a first page into a fabricated "50+" match
-// count. Scoped queries wait for their exact total; the loading overlay makes
-// that wait explicit. If an upstream query fails to provide a total, surface
-// that failure rather than presenting a partial page as a count.
+// count. Scoped queries request an exact total. The cached public-board count
+// is only a defensive numeric fallback, and callers label it as live jobs.
 
 export type JobResultCountInput = {
   /** True when a search or filter is active (so the count reflects matches). */
@@ -15,7 +14,7 @@ export type JobResultCountInput = {
 };
 
 export type JobResultCount = {
-  /** Formatted number or an explicit unavailable state. */
+  /** Formatted numeric count. */
   label: string;
   /** True when `label` is the precise total (no "+"). */
   isExact: boolean;
@@ -37,7 +36,7 @@ export function formatJobResultCount(input: JobResultCountInput): JobResultCount
   }
 
   return {
-    label: "Exact count unavailable",
+    label: input.liveJobCount.toLocaleString(),
     isExact: false,
   };
 }

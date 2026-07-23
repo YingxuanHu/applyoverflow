@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { normalizeResumeBullets, seedResumeLibraryFromProfile } from "../src/lib/resume-builder";
@@ -55,4 +56,17 @@ test("resume builder seeds only the structured application-profile content", () 
   ]);
   assert.deepEqual(entries.map((entry) => entry.type), ["EXPERIENCE", "PROJECT", "SKILL"]);
   assert.deepEqual(entries.at(-1)?.technologies, ["TypeScript", "PostgreSQL"]);
+});
+
+test("resume builder presents one working-copy bullet list instead of duplicate version content", () => {
+  const component = readFileSync(
+    new URL("../src/components/profile/resume-builder.tsx", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(component, /Current working copy/);
+  assert.match(component, /Rewrite with AI/);
+  assert.match(component, /Bullets in this draft/);
+  assert.doesNotMatch(component, /Approved version/);
+  assert.doesNotMatch(component, /Approved versions/);
 });

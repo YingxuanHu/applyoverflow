@@ -3221,30 +3221,11 @@ export async function getJobs(
     const skip = (page - 1) * PAGE_SIZE;
     const hasAnySearch = hasSearchFilters(filters);
     const summaryPromise = getJobFeedSummary(userTimeZone);
-    const wantsExactTotal = Boolean(
-      hasAnySearch ||
-      filters.location ||
-      filters.source ||
-      filters.region ||
-      filters.workMode ||
-      filters.employmentType ||
-      filters.industry ||
-      filters.roleCategory ||
-      filters.roleFamily ||
-      filters.salaryMin ||
-      filters.salaryMax ||
-      (filters.includeUnknownSalary && (filters.salaryMin || filters.salaryMax)) ||
-      filters.careerStage ||
-      filters.experienceLevel ||
-      filters.expiry ||
-      filters.posted ||
-      filters.submissionCategory ||
-      filters.status ||
-      filters.hideApplied
-    );
     const useFeedIndexForRequest = shouldUseJobFeedIndex(filters, viewerProfileId);
-    // Scoped feeds wait for the real count instead of rendering a 50+ estimate.
-    const includeExactTotal = wantsExactTotal;
+    // The feed headline always shows a concrete count. The default view reads
+    // its public-pool count from JobFeedSummaryCache; scoped views wait for the
+    // exact board-filtered total instead of rendering a page-size estimate.
+    const includeExactTotal = true;
     const isExplicitSort = Boolean(filters.sortBy && filters.sortBy !== "relevance");
     const defaultScoringWindowPages = Math.floor(DEFAULT_SCORING_WINDOW_SIZE / PAGE_SIZE);
     const useSqlDemoVisibilityFilter =
