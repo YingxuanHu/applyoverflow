@@ -152,11 +152,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const activeFilterCount = countActiveFilters(filters);
   const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
-  const headlineCountLabel = formatJobResultCount({
+  const headlineCount = formatJobResultCount({
     hasScopedResults,
     total: jobsResult.total,
     liveJobCount: jobsResult.summary.liveJobCount,
-  }).label;
+  });
   const activeFilterGroups = buildActiveFilterGroups(filters, resolvedSearchParams);
   const currentSortLabel = getSortLabel(filters.sortBy);
   const currentPage = jobsResult.page;
@@ -221,7 +221,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       <section className="surface-panel p-3.5 sm:p-6">
           <div>
             <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
-              {headlineCountLabel} {hasScopedResults ? "matching jobs" : "live jobs"}
+              {headlineCount.label}{" "}
+              {hasScopedResults && headlineCount.isExact ? "matching jobs" : "live jobs"}
             </p>
             {ingestionStatus.lastUpdatedAt ? (
               <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">

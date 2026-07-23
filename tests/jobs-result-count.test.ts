@@ -27,8 +27,8 @@ test("a known small total never renders the fabricated '50+'", () => {
   assert.doesNotMatch(result.label, /\+/);
 });
 
-test("an unknown total never falls back to a partial-page count", () => {
+test("an unknown scoped total falls back to the public live-pool count, never copy", () => {
   const result = formatJobResultCount({ ...base, total: null });
-  assert.equal(result.label, "Exact count unavailable");
+  assert.equal(result.label, "404,689");
   assert.equal(result.isExact, false);
 });

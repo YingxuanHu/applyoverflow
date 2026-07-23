@@ -64,7 +64,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(querySource, /salaryCurrency:\s*\{\s*notIn/);
   assert.match(querySource, /loadSalaryComparisonCurrency/);
   assert.match(querySource, /shouldUseJobFeedIndex\(filters: JobFilterParams, viewerProfileId: string \| null\)/);
-  assert.match(querySource, /const includeExactTotal = wantsExactTotal/);
+  assert.match(querySource, /const includeExactTotal = true/);
   assert.match(querySource, /getSelectiveScopedSearchIds/);
   assert.match(querySource, /structured filters, we still use[\s\S]*selective id list as a prefilter/);
   assert.match(querySource, /useDirectPrefilterSlice = canSlicePrefilterIds/);
@@ -88,7 +88,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
 
   assert.match(pageSource, /buildActiveFilterGroups\(filters, resolvedSearchParams\)/);
   assert.match(pageSource, /formatJobResultCount/);
-  assert.match(resultCountSource, /Exact count unavailable/);
+  assert.match(resultCountSource, /cached public-board count/);
   assert.match(pageSource, /buildLocationSearchRemoveHref/);
   assert.match(pageSource, /currentHadValues/);
   assert.match(pageSource, /return "\/jobs\?reset=1"/);
@@ -118,7 +118,8 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(naturalLanguageSearchSource, /showJobsLoadingPopup\(href\)/);
   assert.match(loadingPopupSource, /fixed inset-0 z-50/);
   assert.match(loadingPopupSource, /animate-pulse bg-primary/);
-  assert.match(loadingPopupSource, /jobs-loading-sweep/);
+  assert.doesNotMatch(loadingPopupSource, /jobs-loading-sweep/);
+  assert.doesNotMatch(loadingPopupSource, /LoadingSpinner/);
   assert.doesNotMatch(loadingPopupSource, /bg-popover/);
   assert.doesNotMatch(loadingPopupSource, /shadow-\[/);
   assert.match(pendingBoundarySource, /onClickCapture/);

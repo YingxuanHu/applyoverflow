@@ -49,6 +49,16 @@ const revisionSchema = z.object({
   instruction: z.string().trim().min(12).max(1_200),
 });
 
+const entryUpdateSchema = z.object({
+  entryId: z.string().min(1).max(80),
+  title: z.string().trim().min(1).max(160),
+  organization: z.string().trim().max(160),
+  dateRange: z.string().trim().max(120),
+  location: z.string().trim().max(160),
+  summary: z.string().trim().max(4_000),
+  technologies: z.string().trim().max(1_000),
+});
+
 async function currentProfile() {
   try {
     return await requireCurrentUserProfile();
@@ -241,70 +251,78 @@ export async function addResumeLibraryEntry(
   return { error: null, success: "Content entry added to your resume library." };
 }
 
-export async function addResumeEntryVariation(
+export async function updateResumeLibraryEntry(
   _previous: ResumeBuilderActionState,
   formData: FormData
 ): Promise<ResumeBuilderActionState> {
   const user = await currentProfile();
-  if (!user) return { error: "You must sign in before adding a variation.", success: null };
+  if (!user) return { error: "You must sign in before editing resume content.", success: null };
 
-  const entryId = text(formData, "entryId", 80);
-  const name = text(formData, "name", 100);
-  if (!entryId || !name) {
-    return { error: "Name this variation before saving it.", success: null };
+  const parsed = entryUpdateSchema.safeParse({
+    entryId: text(formData, "entryId", 80),
+    title: text(formData, "title", 160),
+    organization: text(formData, "organization", 160),
+    dateRange: text(formData, "dateRange", 120),
+    location: text(formData, "location", 160),
+    summary: text(formData, "summary", 4_000),
+    technologies: text(formData, "technologies", 1_000),
+  });
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Enter a title before saving this entry.",
+      success: null,
+    };
   }
 
-  const entry = await prisma.resumeLibraryEntry.findFirst({
-    where: { id: entryId, userId: user.id, archivedAt: null },
-    select: { id: true, summary: true, technologies: true },
-  });
-  if (!entry) return { error: "Resume content entry not found.", success: null };
-
-  const summary = text(formData, "summary", 4_000) || entry.summary;
   const bullets = parseBullets(formData, "bullets");
-  await prisma.resumeLibraryEntryVariation.create({
-    data: {
-      entryId: entry.id,
-      name,
-      targetRoleTags: parseTags(text(formData, "targetRoleTags", 1_000)),
-      summary: summary || null,
-      bulletsJson: (bullets.length > 0 ? bullets : normalizeResumeBullets(summary)) as Prisma.InputJsonValue,
-      technologies: entry.technologies,
-      source: "USER",
-      approvalStatus: "APPROVED",
-    },
-  });
+  const values = parsed.data;
+  const technologies = parseTags(values.technologies);
+  const workingBullets =
+    bullets.length > 0 ? bullets : normalizeResumeBullets(values.summary);
 
-  revalidateProfileViews();
-  return { error: null, success: `Saved the ${name} variation.` };
-}
+  const updated = await prisma.$transaction(async (tx) => {
+    const entry = await tx.resumeLibraryEntry.findFirst({
+      where: { id: values.entryId, userId: user.id, archivedAt: null },
+      select: { id: true },
+    });
+    if (!entry) return false;
 
-export async function setDefaultResumeEntryVariation(
-  _previous: ResumeBuilderActionState,
-  formData: FormData
-): Promise<ResumeBuilderActionState> {
-  const user = await currentProfile();
-  if (!user) return { error: "You must sign in before changing a variation.", success: null };
-
-  const variationId = text(formData, "variationId", 80);
-  const variation = await prisma.resumeLibraryEntryVariation.findFirst({
-    where: { id: variationId, entry: { userId: user.id, archivedAt: null } },
-    select: { id: true, entryId: true },
-  });
-  if (!variation) return { error: "Resume variation not found.", success: null };
-
-  await prisma.$transaction([
-    prisma.resumeLibraryEntryVariation.updateMany({
-      where: { entryId: variation.entryId },
+    await tx.resumeLibraryEntry.update({
+      where: { id: entry.id },
+      data: {
+        title: values.title,
+        organization: values.organization || null,
+        dateRange: values.dateRange || null,
+        location: values.location || null,
+        summary: values.summary || null,
+        technologies,
+      },
+    });
+    await tx.resumeLibraryEntryVariation.updateMany({
+      where: { entryId: entry.id },
       data: { isDefault: false },
-    }),
-    prisma.resumeLibraryEntryVariation.update({
-      where: { id: variation.id },
-      data: { isDefault: true },
-    }),
-  ]);
+    });
+    await tx.resumeLibraryEntryVariation.create({
+      data: {
+        entryId: entry.id,
+        name: "Working copy",
+        summary: values.summary || null,
+        bulletsJson: workingBullets as Prisma.InputJsonValue,
+        technologies,
+        source: "USER",
+        approvalStatus: "APPROVED",
+        isDefault: true,
+      },
+    });
+    return true;
+  });
+  if (!updated) return { error: "Resume content entry not found.", success: null };
+
   revalidateProfileViews();
-  return { error: null, success: "Default variation updated." };
+  return {
+    error: null,
+    success: "Resume working copy updated. Your application profile is unchanged.",
+  };
 }
 
 export async function generateResumeEntryVariation(
@@ -358,7 +376,7 @@ export async function generateResumeEntryVariation(
     }
     const baseVariation = entry.variations[0];
     if (!baseVariation) {
-      return { error: "Choose an approved base version before revising it.", success: null };
+      return { error: "Choose a working copy before revising it.", success: null };
     }
     if (!profileContext) {
       return { error: "Your application profile could not be found.", success: null };
@@ -400,15 +418,51 @@ export async function generateResumeEntryVariation(
   }
 
   revalidateProfileViews();
-  return { error: null, success: "Revision ready to compare. Approve it before using it in a build." };
+  return { error: null, success: "AI rewrite ready to compare. Choose Use rewrite to add it to this resume." };
 }
 
-export async function approveResumeEntryVariation(
+export async function applyResumeEntryRewrite(
   _previous: ResumeBuilderActionState,
   formData: FormData
 ): Promise<ResumeBuilderActionState> {
   const user = await currentProfile();
-  if (!user) return { error: "You must sign in before approving a revision.", success: null };
+  if (!user) return { error: "You must sign in before applying an AI rewrite.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const proposal = await prisma.resumeLibraryEntryVariation.findFirst({
+    where: {
+      id: variationId,
+      source: "AI_GENERATED",
+      approvalStatus: "PENDING",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    select: { id: true, entryId: true },
+  });
+  if (!proposal) {
+    return { error: "That AI rewrite is no longer available.", success: null };
+  }
+
+  await prisma.$transaction([
+    prisma.resumeLibraryEntryVariation.updateMany({
+      where: { entryId: proposal.entryId },
+      data: { isDefault: false },
+    }),
+    prisma.resumeLibraryEntryVariation.update({
+      where: { id: proposal.id },
+      data: { approvalStatus: "APPROVED", isDefault: true },
+    }),
+  ]);
+
+  revalidateProfileViews();
+  return { error: null, success: "AI rewrite is now the working copy for this resume entry." };
+}
+
+export async function dismissResumeEntryRewrite(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before dismissing an AI rewrite.", success: null };
 
   const variationId = text(formData, "variationId", 80);
   const result = await prisma.resumeLibraryEntryVariation.updateMany({
@@ -418,14 +472,14 @@ export async function approveResumeEntryVariation(
       approvalStatus: "PENDING",
       entry: { userId: user.id, archivedAt: null },
     },
-    data: { approvalStatus: "APPROVED" },
+    data: { approvalStatus: "REJECTED" },
   });
   if (result.count === 0) {
-    return { error: "That revision is no longer available for approval.", success: null };
+    return { error: "That AI rewrite is no longer available.", success: null };
   }
 
   revalidateProfileViews();
-  return { error: null, success: "Revision approved and ready to use in a resume." };
+  return { error: null, success: "AI rewrite dismissed." };
 }
 
 export async function createResumeBuild(
@@ -494,7 +548,7 @@ export async function createResumeBuild(
     }
     const variation = entry.variations.find((candidate) => candidate.id === selected.variationId);
     if (!variation) {
-      return { error: "Choose an approved variation for each entry.", success: null };
+      return { error: "Choose a working copy for each entry.", success: null };
     }
     const bullets = normalizeResumeBullets(variation.bulletsJson);
     const includedBulletIds = selected.includedBulletIds.filter((id) => Number(id) < bullets.length);
