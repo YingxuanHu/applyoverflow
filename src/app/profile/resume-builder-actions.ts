@@ -46,15 +46,13 @@ const selectionSchema = z
 const revisionSchema = z.object({
   entryId: z.string().min(1).max(80),
   variationId: z.string().min(1).max(80),
-  instruction: z.string().trim().min(12).max(1_200),
+  selectedBulletIds: z.array(z.string().regex(/^\d+$/)).min(1, "Select at least one bullet to rewrite."),
+  instruction: z.string().trim().min(3, "Add a short instruction for the rewrite.").max(1_200),
 });
 
 const entryUpdateSchema = z.object({
   entryId: z.string().min(1).max(80),
-  title: z.string().trim().min(1).max(160),
-  organization: z.string().trim().max(160),
-  dateRange: z.string().trim().max(120),
-  location: z.string().trim().max(160),
+  versionName: z.string().trim().min(1, "Name this version before saving.").max(100),
   summary: z.string().trim().max(4_000),
   technologies: z.string().trim().max(1_000),
 });
@@ -86,7 +84,7 @@ function parseTags(value: string) {
     .slice(0, 12);
 }
 
-export async function syncResumeLibraryFromProfile(
+export async function importResumeLibraryFromProfile(
   previous: ResumeBuilderActionState,
   formData: FormData
 ): Promise<ResumeBuilderActionState> {
@@ -137,26 +135,22 @@ export async function syncResumeLibraryFromProfile(
     };
   }
 
-  await prisma.$transaction(async (tx) => {
+  const importedCount = await prisma.$transaction(async (tx) => {
+    let count = 0;
     for (const entry of entries) {
-      const libraryEntry = await tx.resumeLibraryEntry.upsert({
+      const existing = await tx.resumeLibraryEntry.findUnique({
         where: {
           userId_sourceProfileKey: {
             userId: user.id,
             sourceProfileKey: entry.sourceProfileKey,
           },
         },
-        update: {
-          type: entry.type,
-          title: entry.title,
-          organization: entry.organization,
-          dateRange: entry.dateRange,
-          location: entry.location,
-          summary: entry.summary,
-          technologies: entry.technologies,
-          archivedAt: null,
-        },
-        create: {
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      await tx.resumeLibraryEntry.create({
+        data: {
           userId: user.id,
           type: entry.type,
           title: entry.title,
@@ -166,45 +160,32 @@ export async function syncResumeLibraryFromProfile(
           summary: entry.summary,
           technologies: entry.technologies,
           sourceProfileKey: entry.sourceProfileKey,
-        },
-      });
-
-      const importedVariation = await tx.resumeLibraryEntryVariation.findFirst({
-        where: {
-          entryId: libraryEntry.id,
-          source: "IMPORTED",
-          name: "General",
-        },
-        select: { id: true },
-      });
-      const variationData = {
-        summary: entry.summary,
-        bulletsJson: normalizeResumeBullets(entry.summary) as Prisma.InputJsonValue,
-        technologies: entry.technologies,
-      };
-
-      if (importedVariation) {
-        await tx.resumeLibraryEntryVariation.update({
-          where: { id: importedVariation.id },
-          data: variationData,
-        });
-      } else {
-        await tx.resumeLibraryEntryVariation.create({
-          data: {
-            entryId: libraryEntry.id,
-            name: "General",
-            ...variationData,
-            source: "IMPORTED",
-            approvalStatus: "APPROVED",
-            isDefault: true,
+          variations: {
+            create: {
+              name: "General",
+              summary: entry.summary,
+              bulletsJson: normalizeResumeBullets(entry.summary) as Prisma.InputJsonValue,
+              technologies: entry.technologies,
+              source: "IMPORTED",
+              approvalStatus: "APPROVED",
+              isDefault: true,
+            },
           },
-        });
-      }
+        },
+      });
+      count += 1;
     }
+    return count;
   });
 
   revalidateProfileViews();
-  return { error: null, success: `Added or refreshed ${entries.length} master content entries.` };
+  return {
+    error: null,
+    success:
+      importedCount > 0
+        ? `Imported ${importedCount} new profile entr${importedCount === 1 ? "y" : "ies"}. Existing resume entries were not changed.`
+        : "No new profile entries to import. Existing resume entries and versions were left unchanged.",
+  };
 }
 
 export async function addResumeLibraryEntry(
@@ -260,16 +241,13 @@ export async function updateResumeLibraryEntry(
 
   const parsed = entryUpdateSchema.safeParse({
     entryId: text(formData, "entryId", 80),
-    title: text(formData, "title", 160),
-    organization: text(formData, "organization", 160),
-    dateRange: text(formData, "dateRange", 120),
-    location: text(formData, "location", 160),
+    versionName: text(formData, "versionName", 100),
     summary: text(formData, "summary", 4_000),
     technologies: text(formData, "technologies", 1_000),
   });
   if (!parsed.success) {
     return {
-      error: parsed.error.issues[0]?.message ?? "Enter a title before saving this entry.",
+      error: parsed.error.issues[0]?.message ?? "Name this version before saving.",
       success: null,
     };
   }
@@ -287,31 +265,16 @@ export async function updateResumeLibraryEntry(
     });
     if (!entry) return false;
 
-    await tx.resumeLibraryEntry.update({
-      where: { id: entry.id },
-      data: {
-        title: values.title,
-        organization: values.organization || null,
-        dateRange: values.dateRange || null,
-        location: values.location || null,
-        summary: values.summary || null,
-        technologies,
-      },
-    });
-    await tx.resumeLibraryEntryVariation.updateMany({
-      where: { entryId: entry.id },
-      data: { isDefault: false },
-    });
     await tx.resumeLibraryEntryVariation.create({
       data: {
         entryId: entry.id,
-        name: "Working copy",
+        name: values.versionName,
         summary: values.summary || null,
         bulletsJson: workingBullets as Prisma.InputJsonValue,
         technologies,
         source: "USER",
         approvalStatus: "APPROVED",
-        isDefault: true,
+        isDefault: false,
       },
     });
     return true;
@@ -321,7 +284,7 @@ export async function updateResumeLibraryEntry(
   revalidateProfileViews();
   return {
     error: null,
-    success: "Resume working copy updated. Your application profile is unchanged.",
+    success: "New resume-only version saved. Your application profile is unchanged.",
   };
 }
 
@@ -337,6 +300,7 @@ export async function generateResumeEntryVariation(
   const parsed = revisionSchema.safeParse({
     entryId: text(formData, "entryId", 80),
     variationId: text(formData, "variationId", 80),
+    selectedBulletIds: formData.getAll("selectedBulletId").map((value) => String(value)),
     instruction: text(formData, "instruction", 1_200),
   });
   if (!parsed.success) {
@@ -376,7 +340,7 @@ export async function generateResumeEntryVariation(
     }
     const baseVariation = entry.variations[0];
     if (!baseVariation) {
-      return { error: "Choose a working copy before revising it.", success: null };
+      return { error: "Choose a version before revising it.", success: null };
     }
     if (!profileContext) {
       return { error: "Your application profile could not be found.", success: null };
@@ -391,6 +355,7 @@ export async function generateResumeEntryVariation(
       entryType: editableType.data,
       organization: entry.organization,
       currentBullets: normalizeResumeBullets(baseVariation.bulletsJson),
+      selectedBulletIndexes: parsed.data.selectedBulletIds.map(Number),
       instruction: parsed.data.instruction,
       profileContext: buildAiProfileText(profileContext),
     });
@@ -418,7 +383,7 @@ export async function generateResumeEntryVariation(
   }
 
   revalidateProfileViews();
-  return { error: null, success: "AI rewrite ready to compare. Choose Use rewrite to add it to this resume." };
+  return { error: null, success: "AI version ready to compare. Review it before adding it to your version list." };
 }
 
 export async function applyResumeEntryRewrite(
@@ -442,19 +407,13 @@ export async function applyResumeEntryRewrite(
     return { error: "That AI rewrite is no longer available.", success: null };
   }
 
-  await prisma.$transaction([
-    prisma.resumeLibraryEntryVariation.updateMany({
-      where: { entryId: proposal.entryId },
-      data: { isDefault: false },
-    }),
-    prisma.resumeLibraryEntryVariation.update({
-      where: { id: proposal.id },
-      data: { approvalStatus: "APPROVED", isDefault: true },
-    }),
-  ]);
+  await prisma.resumeLibraryEntryVariation.update({
+    where: { id: proposal.id },
+    data: { approvalStatus: "APPROVED", isDefault: false },
+  });
 
   revalidateProfileViews();
-  return { error: null, success: "AI rewrite is now the working copy for this resume entry." };
+  return { error: null, success: "AI rewrite saved as a new entry version. Your prior versions remain unchanged." };
 }
 
 export async function dismissResumeEntryRewrite(
@@ -480,6 +439,215 @@ export async function dismissResumeEntryRewrite(
 
   revalidateProfileViews();
   return { error: null, success: "AI rewrite dismissed." };
+}
+
+export async function duplicateResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before duplicating a version.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const variation = await prisma.resumeLibraryEntryVariation.findFirst({
+    where: {
+      id: variationId,
+      approvalStatus: "APPROVED",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    select: {
+      entryId: true,
+      name: true,
+      summary: true,
+      bulletsJson: true,
+      technologies: true,
+      targetRoleTags: true,
+      targetIndustryTags: true,
+    },
+  });
+  if (!variation) return { error: "That resume version is no longer available.", success: null };
+
+  await prisma.resumeLibraryEntryVariation.create({
+    data: {
+      entryId: variation.entryId,
+      name: `Copy of ${variation.name}`.slice(0, 100),
+      summary: variation.summary,
+      bulletsJson: variation.bulletsJson as Prisma.InputJsonValue,
+      technologies: variation.technologies,
+      targetRoleTags: variation.targetRoleTags,
+      targetIndustryTags: variation.targetIndustryTags,
+      source: "USER",
+      approvalStatus: "APPROVED",
+      isDefault: false,
+    },
+  });
+
+  revalidateProfileViews();
+  return { error: null, success: "Version duplicated. Rename or edit it when you are ready." };
+}
+
+export async function renameResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before renaming a version.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const name = text(formData, "name", 100);
+  if (!name) return { error: "Enter a version name.", success: null };
+
+  const result = await prisma.resumeLibraryEntryVariation.updateMany({
+    where: {
+      id: variationId,
+      approvalStatus: "APPROVED",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    data: { name },
+  });
+  if (result.count === 0) return { error: "That resume version is no longer available.", success: null };
+
+  revalidateProfileViews();
+  return { error: null, success: "Version renamed." };
+}
+
+export async function setDefaultResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before choosing a default version.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const variation = await prisma.resumeLibraryEntryVariation.findFirst({
+    where: {
+      id: variationId,
+      approvalStatus: "APPROVED",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    select: { id: true, entryId: true },
+  });
+  if (!variation) return { error: "That resume version is no longer available.", success: null };
+
+  await prisma.$transaction([
+    prisma.resumeLibraryEntryVariation.updateMany({
+      where: { entryId: variation.entryId },
+      data: { isDefault: false },
+    }),
+    prisma.resumeLibraryEntryVariation.update({
+      where: { id: variation.id },
+      data: { isDefault: true },
+    }),
+  ]);
+
+  revalidateProfileViews();
+  return { error: null, success: "Default version updated for future resume selections." };
+}
+
+export async function deleteResumeEntryVariation(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before deleting a version.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const result = await prisma.$transaction(async (tx) => {
+    const variation = await tx.resumeLibraryEntryVariation.findFirst({
+      where: {
+        id: variationId,
+        approvalStatus: "APPROVED",
+        entry: { userId: user.id, archivedAt: null },
+      },
+      select: { id: true, entryId: true, isDefault: true },
+    });
+    if (!variation) return "missing" as const;
+
+    const approvedCount = await tx.resumeLibraryEntryVariation.count({
+      where: { entryId: variation.entryId, approvalStatus: "APPROVED" },
+    });
+    if (approvedCount <= 1) return "last-version" as const;
+
+    await tx.resumeLibraryEntryVariation.delete({ where: { id: variation.id } });
+    if (variation.isDefault) {
+      const fallback = await tx.resumeLibraryEntryVariation.findFirst({
+        where: { entryId: variation.entryId, approvalStatus: "APPROVED" },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        select: { id: true },
+      });
+      if (fallback) {
+        await tx.resumeLibraryEntryVariation.update({
+          where: { id: fallback.id },
+          data: { isDefault: true },
+        });
+      }
+    }
+    return "deleted" as const;
+  });
+
+  if (result === "missing") return { error: "That resume version is no longer available.", success: null };
+  if (result === "last-version") {
+    return { error: "Keep at least one version for this entry. Add or duplicate a version first.", success: null };
+  }
+
+  revalidateProfileViews();
+  return { error: null, success: "Version deleted. Existing saved resume drafts keep their frozen snapshot." };
+}
+
+export async function deleteResumeEntryBullet(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before removing a bullet.", success: null };
+
+  const variationId = text(formData, "variationId", 80);
+  const bulletIndex = Number(text(formData, "bulletIndex", 12));
+  if (!Number.isInteger(bulletIndex) || bulletIndex < 0) {
+    return { error: "Choose a valid bullet to remove.", success: null };
+  }
+
+  const variation = await prisma.resumeLibraryEntryVariation.findFirst({
+    where: {
+      id: variationId,
+      approvalStatus: "APPROVED",
+      entry: { userId: user.id, archivedAt: null },
+    },
+    select: {
+      entryId: true,
+      name: true,
+      summary: true,
+      bulletsJson: true,
+      technologies: true,
+      targetRoleTags: true,
+      targetIndustryTags: true,
+    },
+  });
+  if (!variation) return { error: "That resume version is no longer available.", success: null };
+
+  const bullets = normalizeResumeBullets(variation.bulletsJson);
+  if (bulletIndex >= bullets.length) return { error: "That bullet is no longer available.", success: null };
+  if (bullets.length <= 1) {
+    return { error: "Keep at least one bullet in this version, or create an entry without bullets instead.", success: null };
+  }
+
+  await prisma.resumeLibraryEntryVariation.create({
+    data: {
+      entryId: variation.entryId,
+      name: `${variation.name} without bullet ${bulletIndex + 1}`.slice(0, 100),
+      summary: variation.summary,
+      bulletsJson: bullets.filter((_, index) => index !== bulletIndex) as Prisma.InputJsonValue,
+      technologies: variation.technologies,
+      targetRoleTags: variation.targetRoleTags,
+      targetIndustryTags: variation.targetIndustryTags,
+      source: "USER",
+      approvalStatus: "APPROVED",
+      isDefault: false,
+    },
+  });
+
+  revalidateProfileViews();
+  return { error: null, success: "Bullet removed in a new version. The original version remains unchanged." };
 }
 
 export async function createResumeBuild(
@@ -548,7 +716,7 @@ export async function createResumeBuild(
     }
     const variation = entry.variations.find((candidate) => candidate.id === selected.variationId);
     if (!variation) {
-      return { error: "Choose a working copy for each entry.", success: null };
+      return { error: "Choose a version for each entry.", success: null };
     }
     const bullets = normalizeResumeBullets(variation.bulletsJson);
     const includedBulletIds = selected.includedBulletIds.filter((id) => Number(id) < bullets.length);
