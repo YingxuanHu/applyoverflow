@@ -155,10 +155,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const headlineCountLabel = formatJobResultCount({
     hasScopedResults,
     total: jobsResult.total,
-    dataLength: jobsResult.data.length,
-    page: jobsResult.page,
-    pageSize: jobsResult.pageSize,
-    hasNextPage: jobsResult.hasNextPage,
     liveJobCount: jobsResult.summary.liveJobCount,
   }).label;
   const activeFilterGroups = buildActiveFilterGroups(filters, resolvedSearchParams);

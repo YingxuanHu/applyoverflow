@@ -64,7 +64,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.doesNotMatch(querySource, /salaryCurrency:\s*\{\s*notIn/);
   assert.match(querySource, /loadSalaryComparisonCurrency/);
   assert.match(querySource, /shouldUseJobFeedIndex\(filters: JobFilterParams, viewerProfileId: string \| null\)/);
-  assert.match(querySource, /JOB_FEED_INDEX_COUNT_TIMEOUT_MS/);
+  assert.match(querySource, /const includeExactTotal = wantsExactTotal/);
   assert.match(querySource, /getSelectiveScopedSearchIds/);
   assert.match(querySource, /structured filters, we still use[\s\S]*selective id list as a prefilter/);
   assert.match(querySource, /useDirectPrefilterSlice = canSlicePrefilterIds/);
@@ -88,8 +88,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
 
   assert.match(pageSource, /buildActiveFilterGroups\(filters, resolvedSearchParams\)/);
   assert.match(pageSource, /formatJobResultCount/);
-  assert.match(resultCountSource, /const floor = Math\.max/);
-  assert.match(resultCountSource, /input\.hasNextPage/);
+  assert.match(resultCountSource, /Exact count unavailable/);
   assert.match(pageSource, /buildLocationSearchRemoveHref/);
   assert.match(pageSource, /currentHadValues/);
   assert.match(pageSource, /return "\/jobs\?reset=1"/);
@@ -111,12 +110,17 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pendingBoundarySource, /Loading jobs/);
   assert.match(pendingBoundarySource, /autoapplication:jobs-loading-start/);
   assert.match(pendingBoundarySource, /showJobsLoadingPopup/);
+  assert.match(pendingBoundarySource, /originHref/);
+  assert.match(pendingBoundarySource, /currentUrl !== pendingNavigation\.originHref/);
   assert.match(appShellSource, /<JobsNavigationPendingBoundary>/);
   assert.match(jobsLoadingSource, /<JobsLoadingPopup \/>/);
   assert.match(naturalLanguageSearchSource, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params\)/);
   assert.match(naturalLanguageSearchSource, /showJobsLoadingPopup\(href\)/);
   assert.match(loadingPopupSource, /fixed inset-0 z-50/);
-  assert.doesNotMatch(loadingPopupSource, /backdrop-blur-\[1px\]/);
+  assert.match(loadingPopupSource, /animate-pulse bg-primary/);
+  assert.match(loadingPopupSource, /jobs-loading-sweep/);
+  assert.doesNotMatch(loadingPopupSource, /bg-popover/);
+  assert.doesNotMatch(loadingPopupSource, /shadow-\[/);
   assert.match(pendingBoundarySource, /onClickCapture/);
   assert.match(pendingBoundarySource, /onSubmitCapture/);
   assert.match(pendingBoundarySource, /buildGetFormHref/);
