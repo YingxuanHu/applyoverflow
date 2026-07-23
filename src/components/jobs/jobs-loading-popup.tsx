@@ -1,3 +1,5 @@
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+
 type JobsLoadingPopupProps = {
   description?: string;
   label?: string;
@@ -11,11 +13,18 @@ export function JobsLoadingPopup({
     <div
       aria-live="polite"
       aria-busy="true"
-      className="pointer-events-none fixed inset-0 z-50 overflow-hidden"
+      className="pointer-events-none fixed inset-x-0 top-5 z-50 flex justify-center px-4 sm:top-6"
       role="status"
     >
-      <div className="absolute inset-0 animate-pulse bg-primary/[0.035] dark:bg-primary/[0.07]" />
-      <span className="sr-only">{label}. {description}</span>
+      <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+        <LoadingSpinner className="h-4 w-4 shrink-0 text-primary" />
+        <span className="shrink-0">{label}</span>
+        <span aria-hidden="true" className="text-muted-foreground">
+          ·
+        </span>
+        <span className="hidden truncate text-muted-foreground sm:inline">{description}</span>
+        <span className="sr-only">{description}</span>
+      </div>
     </div>
   );
 }
