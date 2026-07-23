@@ -14,10 +14,13 @@ test("resume builder actions keep profile imports one-way, versions immutable, a
   assert.match(actions, /export async function updateResumeLibraryEntry/);
   assert.match(actions, /export async function generateResumeEntryVariation/);
   assert.match(actions, /selectedBulletIds/);
+  assert.match(actions, /sourceVariationId: baseVariation\.id/);
+  assert.match(actions, /rewrittenBulletIndexes: selectedBulletIndexes/);
   assert.match(actions, /approvalStatus: "PENDING"/);
   assert.match(actions, /buildProfileContext\(\)/);
   assert.match(actions, /buildAiProfileText\(profileContext\)/);
   assert.match(actions, /export async function applyResumeEntryRewrite/);
+  assert.match(actions, /Only the AI-selected bullets can be edited in this review/);
   assert.match(actions, /export async function dismissResumeEntryRewrite/);
   assert.match(actions, /export async function duplicateResumeEntryVariation/);
   assert.match(actions, /export async function renameResumeEntryVariation/);

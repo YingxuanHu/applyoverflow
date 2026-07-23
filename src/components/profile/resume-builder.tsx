@@ -12,6 +12,7 @@ import {
   ListPlus,
   MoreHorizontal,
   Pencil,
+  Plus,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -23,7 +24,6 @@ import {
   applyResumeEntryRewrite,
   archiveResumeBuild,
   createResumeBuild,
-  deleteResumeEntryBullet,
   deleteResumeEntryVariation,
   dismissResumeEntryRewrite,
   duplicateResumeEntryVariation,
@@ -44,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useActionToast } from "@/components/ui/use-action-toast";
 import {
   RESUME_BUILD_SECTION_ORDER,
@@ -54,6 +55,8 @@ import {
 type ResumeVariation = {
   id: string;
   name: string;
+  sourceVariationId: string | null;
+  rewrittenBulletIndexes: number[];
   summary: string | null;
   bullets: string[];
   targetRoleTags: string[];
@@ -308,15 +311,25 @@ function ManualEntryEditor({
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(updateResumeLibraryEntry, emptyState());
+  const [bullets, setBullets] = useState(() => baseVariation?.bullets ?? []);
   useActionToast(state, { successTitle: "Resume entry updated", errorTitle: "Could not update resume entry" });
   useEffect(() => {
     if (state.success) onClose();
   }, [onClose, state.success]);
 
+  function updateBullet(index: number, value: string) {
+    setBullets((current) => current.map((bullet, currentIndex) => currentIndex === index ? value : bullet));
+  }
+
+  function removeBullet(index: number) {
+    setBullets((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
   return (
     <form action={action} className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
       <ActionRefresh success={state.success} />
       <input name="entryId" type="hidden" value={entry.id} />
+      <input name="bulletEditor" type="hidden" value="true" />
       <label className="grid gap-1 text-xs font-medium text-muted-foreground sm:col-span-2">
         New version name
         <Input defaultValue={`Manual edit ${baseVariation ? `of ${baseVariation.name}` : ""}`.trim()} name="versionName" required />
@@ -331,14 +344,47 @@ function ManualEntryEditor({
         />
       </label>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground sm:col-span-2">
-        Bullets
-        <textarea
-          className="min-h-32 rounded-[8px] border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
-          defaultValue={baseVariation?.bullets.join("\n") ?? ""}
-          name="bullets"
-          placeholder="One bullet per line"
-        />
+        Bullets for this version
+        <span className="text-xs font-normal leading-5 text-muted-foreground">Edit or remove individual bullets here. Saving always creates a separate resume-only version.</span>
       </label>
+      <div className="grid gap-3 sm:col-span-2">
+        {bullets.map((bullet, index) => (
+          <div className="grid gap-2 rounded-[8px] border border-border/70 bg-card/40 p-3 sm:grid-cols-[minmax(0,1fr)_auto]" key={`${index}-${bullet}`}>
+            <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+              Bullet {index + 1}
+              <Textarea
+                aria-label={`Bullet ${index + 1}`}
+                className="min-h-20 resize-y text-sm"
+                name="bullet"
+                onChange={(event) => updateBullet(index, event.target.value)}
+                value={bullet}
+              />
+            </label>
+            <Button
+              className="self-end text-muted-foreground hover:text-destructive"
+              onClick={() => removeBullet(index)}
+              size="icon-xs"
+              title={`Delete bullet ${index + 1}`}
+              type="button"
+              variant="ghost"
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button
+            disabled={bullets.length >= 20}
+            onClick={() => setBullets((current) => [...current, ""])}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            <Plus />
+            Add bullet
+          </Button>
+        </div>
+      </div>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground sm:col-span-2">
         Technologies
         <Input defaultValue={entry.technologies.join(", ")} name="technologies" placeholder="TypeScript, PostgreSQL" />
@@ -357,18 +403,72 @@ function ManualEntryEditor({
   );
 }
 
-function RewriteAction({ variationId }: { variationId: string }) {
+function RewriteReviewForm({
+  proposal,
+  sourceVariation,
+}: {
+  proposal: ResumeVariation;
+  sourceVariation: ResumeVariation | null;
+}) {
   const [state, action, pending] = useActionState(applyResumeEntryRewrite, emptyState());
   useActionToast(state, { successTitle: "AI version added", errorTitle: "Could not add AI version" });
+  const editableIndexes = new Set(
+    proposal.rewrittenBulletIndexes.length > 0
+      ? proposal.rewrittenBulletIndexes
+      : proposal.bullets.map((_, index) => index)
+  );
 
   return (
-    <form action={action}>
+    <form action={action} className="grid gap-4">
       <ActionRefresh success={state.success} />
-      <input name="variationId" type="hidden" value={variationId} />
-      <Button disabled={pending} size="xs" type="submit">
-        <Check />
-        {pending ? "Adding..." : "Add version"}
-      </Button>
+      <input name="variationId" type="hidden" value={proposal.id} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <label className="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground sm:max-w-md sm:flex-1">
+          New version name
+          <Input defaultValue={proposal.name} name="versionName" required />
+        </label>
+        <div className="flex items-center gap-1">
+          <DismissRewriteAction variationId={proposal.id} />
+          <Button disabled={pending} size="xs" type="submit">
+            <Check />
+            {pending ? "Saving..." : "Save new version"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        Edit the proposed wording before saving. Only the bullets selected for this AI request are editable; the rest are preserved exactly in the new version.
+      </p>
+      <div className="grid gap-3">
+        {proposal.bullets.map((bullet, index) => {
+          const editable = editableIndexes.has(index);
+          const sourceBullet = sourceVariation?.bullets[index] ?? "Source version unavailable.";
+          return (
+            <div className="grid gap-3 rounded-[8px] border border-border/70 bg-card/30 p-3 md:grid-cols-2" key={`${proposal.id}-${index}`}>
+              <div className="border-l-2 border-border pl-3">
+                <p className="text-xs font-medium text-muted-foreground">Original bullet {index + 1}</p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{sourceBullet}</p>
+              </div>
+              <div className="border-l-2 border-primary pl-3">
+                <p className="text-xs font-medium text-primary">
+                  {editable ? `Proposed bullet ${index + 1}` : `Unchanged bullet ${index + 1}`}
+                </p>
+                {editable ? (
+                  <Textarea
+                    className="mt-2 min-h-20 resize-y text-sm"
+                    defaultValue={bullet}
+                    name="bullet"
+                  />
+                ) : (
+                  <>
+                    <input name="bullet" type="hidden" value={bullet} />
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">{bullet}</p>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </form>
   );
 }
@@ -458,29 +558,6 @@ function RenameVersionForm({ variation }: { variation: ResumeVariation }) {
   );
 }
 
-function DeleteBulletAction({ variationId, bulletIndex }: { variationId: string; bulletIndex: number }) {
-  const [state, action, pending] = useActionState(deleteResumeEntryBullet, emptyState());
-  useActionToast(state, { successTitle: "Bullet removed in a new version", errorTitle: "Could not remove bullet" });
-
-  return (
-    <form action={action}>
-      <ActionRefresh success={state.success} />
-      <input name="variationId" type="hidden" value={variationId} />
-      <input name="bulletIndex" type="hidden" value={bulletIndex} />
-      <Button
-        className="text-muted-foreground hover:text-destructive"
-        disabled={pending}
-        size="icon-xs"
-        title="Remove this bullet in a new version"
-        type="submit"
-        variant="ghost"
-      >
-        <Trash2 />
-      </Button>
-    </form>
-  );
-}
-
 function EntryDetails({
   entry,
   selected,
@@ -501,6 +578,25 @@ function EntryDetails({
   );
   const [composer, setComposer] = useState<"manual" | "ai" | null>(null);
   const [manageVersions, setManageVersions] = useState(false);
+  const [rewriteSelection, setRewriteSelection] = useState<{ variationId: string | null; bulletIds: string[] }>({
+    variationId: null,
+    bulletIds: [],
+  });
+  const rewriteBulletIds = rewriteSelection.variationId === baseVariation?.id
+    ? rewriteSelection.bulletIds
+    : [];
+
+  function toggleRewriteBullet(bulletId: string) {
+    setRewriteSelection((current) => {
+      const currentIds = current.variationId === baseVariation?.id ? current.bulletIds : [];
+      return {
+        variationId: baseVariation?.id ?? null,
+        bulletIds: currentIds.includes(bulletId)
+          ? currentIds.filter((id) => id !== bulletId)
+          : [...currentIds, bulletId],
+      };
+    });
+  }
 
   return (
     <div className="mt-4 grid gap-5 border-t border-border/70 bg-muted/10 px-4 py-5 sm:px-5">
@@ -534,7 +630,7 @@ function EntryDetails({
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem className="cursor-pointer" onClick={() => setComposer("manual")}>
               <Pencil />
-              Create manual version
+              Edit as new version
             </DropdownMenuItem>
             {hasEditableCopy(entry) && baseVariation ? (
               <DropdownMenuItem className="cursor-pointer" onClick={() => setComposer("ai")}>
@@ -568,22 +664,36 @@ function EntryDetails({
       {baseVariation?.bullets.length ? (
         <div className="grid gap-2">
           <p className="text-xs font-medium text-muted-foreground">
-            Choose bullets for this resume or a targeted AI rewrite
+            Include bullets in this resume
+          </p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Use the separate Rewrite checkbox to target specific bullets for AI. Your resume selection never changes the AI rewrite scope.
           </p>
           {baseVariation.bullets.map((bullet, index) => {
             const id = String(index);
             return (
-              <div className="flex items-start gap-2" key={id}>
+              <div className="grid gap-2 rounded-[8px] border border-border/60 bg-card/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto]" key={id}>
                 <label className="flex min-w-0 flex-1 items-start gap-2 text-xs leading-5 text-muted-foreground">
-                <input
-                  checked={selected?.includedBulletIds.includes(id) ?? false}
-                  className="mt-1 h-3.5 w-3.5 rounded border-border accent-primary"
-                  onChange={() => onToggleBullet(id)}
-                  type="checkbox"
-                />
-                {bullet}
-              </label>
-                <DeleteBulletAction bulletIndex={index} variationId={baseVariation.id} />
+                  <input
+                    checked={selected?.includedBulletIds.includes(id) ?? false}
+                    className="mt-1 h-3.5 w-3.5 rounded border-border accent-primary"
+                    onChange={() => onToggleBullet(id)}
+                    type="checkbox"
+                  />
+                  <span>{bullet}</span>
+                </label>
+                {hasEditableCopy(entry) ? (
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <input
+                      aria-label={`Rewrite bullet ${index + 1}`}
+                      checked={rewriteBulletIds.includes(id)}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary"
+                      onChange={() => toggleRewriteBullet(id)}
+                      type="checkbox"
+                    />
+                    Rewrite
+                  </label>
+                ) : null}
               </div>
             );
           })}
@@ -594,6 +704,7 @@ function EntryDetails({
         <ManualEntryEditor
           baseVariation={baseVariation}
           entry={entry}
+          key={baseVariation?.id ?? "empty"}
           onClose={() => setComposer(null)}
         />
       ) : null}
@@ -601,37 +712,24 @@ function EntryDetails({
         <RevisionRequest
           baseVariation={baseVariation}
           entry={entry}
-          selectedBulletIds={selected?.includedBulletIds ?? []}
+          key={baseVariation.id}
+          selectedBulletIds={rewriteBulletIds}
           onClose={() => setComposer(null)}
         />
       ) : null}
 
       {pendingRewrites.map((proposal) => (
-        <div className="border-t border-border/60 pt-4" key={proposal.id}>
+        <div className="grid gap-4 border-t border-border/60 pt-5" key={proposal.id}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm font-medium text-foreground">AI version ready</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Review the wording, then add it without replacing the current version.</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <DismissRewriteAction variationId={proposal.id} />
-              <RewriteAction variationId={proposal.id} />
+              <p className="mt-0.5 text-xs text-muted-foreground">Compare every bullet, correct the AI wording where needed, then save a separate version.</p>
             </div>
           </div>
-          <div className="mt-3 grid gap-4 md:grid-cols-2">
-            <div className="border-l-2 border-border pl-3">
-              <p className="text-xs font-medium text-muted-foreground">Selected version</p>
-              <ul className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-                {(baseVariation?.bullets ?? []).map((bullet, index) => <li key={index}>- {bullet}</li>)}
-              </ul>
-            </div>
-            <div className="border-l-2 border-primary pl-3">
-              <p className="text-xs font-medium text-primary">New AI version</p>
-              <ul className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
-                {proposal.bullets.map((bullet, index) => <li key={index}>- {bullet}</li>)}
-              </ul>
-            </div>
-          </div>
+          <RewriteReviewForm
+            proposal={proposal}
+            sourceVariation={entry.variations.find((variation) => variation.id === proposal.sourceVariationId) ?? null}
+          />
         </div>
       ))}
     </div>

@@ -508,9 +508,11 @@ model ResumeLibraryEntry {
 }
 
 model ResumeLibraryEntryVariation {
-  id                 String                             @id @default(cuid())
-  entryId            String
-  name               String
+  id                    String                             @id @default(cuid())
+  entryId               String
+  sourceVariationId     String?
+  rewrittenBulletIndexes Int[]                             @default([])
+  name                  String
   targetRoleTags     String[]                           @default([])
   targetIndustryTags String[]                           @default([])
   summary            String?
@@ -526,6 +528,7 @@ model ResumeLibraryEntryVariation {
   buildItems ResumeBuildItem[]
 
   @@index([entryId, isDefault])
+  @@index([sourceVariationId])
 }
 
 model ResumeBuild {

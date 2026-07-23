@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { applyResumeBulletRewrites } from "../src/lib/ai/resume-entry-variation";
+import {
+  applyResumeBulletRewrites,
+  unchangedResumeBulletIndexes,
+} from "../src/lib/ai/resume-entry-variation";
 import { normalizeResumeBullets, seedResumeLibraryFromProfile } from "../src/lib/resume-builder";
 
 test("resume builder normalizes manual bullet input without retaining formatting markers", () => {
@@ -72,7 +75,11 @@ test("resume builder presents explicit resume-only versions without working-copy
   assert.match(component, /Imported from profile/);
   assert.match(component, /The role details stay stable/);
   assert.match(component, /Delete this version\?/);
-  assert.match(component, /Choose bullets for this resume or a targeted AI rewrite/);
+  assert.match(component, /Your resume selection never changes the AI rewrite scope/);
+  assert.match(component, /Edit as new version/);
+  assert.match(component, /Only the bullets selected for this AI request are editable/);
+  assert.match(component, /sourceVariationId/);
+  assert.match(component, /rewrittenBulletIndexes/);
   assert.doesNotMatch(component, /Current working copy/);
   assert.doesNotMatch(component, /Approved version/);
   assert.doesNotMatch(component, /Approved versions/);
@@ -125,4 +132,22 @@ test("selected-bullet rewrites keep ordering and reject incomplete AI output", (
     () => applyResumeBulletRewrites(original, [0, 2], [{ index: 1, bullet: "Engineered a reliable API." }]),
     /did not return every selected bullet/
   );
+});
+
+test("AI rewrite checks reject a no-op response for any selected bullet", () => {
+  const original = [
+    "Built a reliable API.",
+    "Monitored production systems.",
+    "Reduced latency by 20%.",
+  ];
+  const next = applyResumeBulletRewrites(
+    original,
+    [0, 2],
+    [
+      { index: 1, bullet: "Built a reliable API." },
+      { index: 3, bullet: "Reduced service latency by 20%." },
+    ]
+  );
+
+  assert.deepEqual(unchangedResumeBulletIndexes(original, next, [0, 2]), [0]);
 });

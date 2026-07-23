@@ -57,6 +57,11 @@ const entryUpdateSchema = z.object({
   technologies: z.string().trim().max(1_000),
 });
 
+const rewriteApplySchema = z.object({
+  variationId: z.string().min(1).max(80),
+  versionName: z.string().trim().min(1, "Name this version before saving.").max(100),
+});
+
 async function currentProfile() {
   try {
     return await requireCurrentUserProfile();
@@ -74,6 +79,12 @@ function text(formData: FormData, key: string, maxLength: number) {
 
 function parseBullets(formData: FormData, key: string) {
   return normalizeResumeBullets(text(formData, key, 20_000));
+}
+
+function parseBulletFields(formData: FormData, key: string) {
+  return normalizeResumeBullets(
+    formData.getAll(key).map((value) => (typeof value === "string" ? value.slice(0, 1_000) : ""))
+  );
 }
 
 function parseTags(value: string) {
@@ -202,7 +213,9 @@ export async function addResumeLibraryEntry(
     return { error: "Choose a section and enter a title.", success: null };
   }
 
-  const bullets = parseBullets(formData, "bullets");
+  const bullets = formData.getAll("bullet").length > 0
+    ? parseBulletFields(formData, "bullet")
+    : parseBullets(formData, "bullets");
   await prisma.resumeLibraryEntry.create({
     data: {
       userId: user.id,
@@ -252,11 +265,17 @@ export async function updateResumeLibraryEntry(
     };
   }
 
-  const bullets = parseBullets(formData, "bullets");
+  const isBulletEditorSubmission = text(formData, "bulletEditor", 10) === "true";
+  const bullets = isBulletEditorSubmission
+    ? parseBulletFields(formData, "bullet")
+    : parseBullets(formData, "bullets");
   const values = parsed.data;
   const technologies = parseTags(values.technologies);
-  const workingBullets =
-    bullets.length > 0 ? bullets : normalizeResumeBullets(values.summary);
+  const workingBullets = isBulletEditorSubmission
+    ? bullets
+    : bullets.length > 0
+      ? bullets
+      : normalizeResumeBullets(values.summary);
 
   const updated = await prisma.$transaction(async (tx) => {
     const entry = await tx.resumeLibraryEntry.findFirst({
@@ -350,12 +369,13 @@ export async function generateResumeEntryVariation(
       return { error: readiness.blockingMessage, success: null };
     }
 
+    const selectedBulletIndexes = [...new Set(parsed.data.selectedBulletIds.map(Number))].sort((left, right) => left - right);
     const generated = await generateAiResumeEntryVariation({
       entryTitle: entry.title,
       entryType: editableType.data,
       organization: entry.organization,
       currentBullets: normalizeResumeBullets(baseVariation.bulletsJson),
-      selectedBulletIndexes: parsed.data.selectedBulletIds.map(Number),
+      selectedBulletIndexes,
       instruction: parsed.data.instruction,
       profileContext: buildAiProfileText(profileContext),
     });
@@ -364,6 +384,8 @@ export async function generateResumeEntryVariation(
       data: {
         entryId: entry.id,
         name: `AI: ${generated.name}`.slice(0, 100),
+        sourceVariationId: baseVariation.id,
+        rewrittenBulletIndexes: selectedBulletIndexes,
         summary: null,
         bulletsJson: generated.bullets as Prisma.InputJsonValue,
         technologies: baseVariation.technologies,
@@ -393,23 +415,54 @@ export async function applyResumeEntryRewrite(
   const user = await currentProfile();
   if (!user) return { error: "You must sign in before applying an AI rewrite.", success: null };
 
-  const variationId = text(formData, "variationId", 80);
+  const parsed = rewriteApplySchema.safeParse({
+    variationId: text(formData, "variationId", 80),
+    versionName: text(formData, "versionName", 100),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Name this version before saving.", success: null };
+  }
+  const proposedBullets = parseBulletFields(formData, "bullet");
   const proposal = await prisma.resumeLibraryEntryVariation.findFirst({
     where: {
-      id: variationId,
+      id: parsed.data.variationId,
       source: "AI_GENERATED",
       approvalStatus: "PENDING",
       entry: { userId: user.id, archivedAt: null },
     },
-    select: { id: true, entryId: true },
+    select: {
+      id: true,
+      entryId: true,
+      bulletsJson: true,
+      rewrittenBulletIndexes: true,
+    },
   });
   if (!proposal) {
     return { error: "That AI rewrite is no longer available.", success: null };
   }
 
+  const originalBullets = normalizeResumeBullets(proposal.bulletsJson);
+  if (proposedBullets.length !== originalBullets.length) {
+    return { error: "Keep the same number of bullets when reviewing an AI rewrite. Use Edit as new version to add or remove bullets.", success: null };
+  }
+  const editableIndexes = proposal.rewrittenBulletIndexes.length > 0
+    ? new Set(proposal.rewrittenBulletIndexes)
+    : new Set(originalBullets.map((_, index) => index));
+  const changedUnselectedBullet = proposedBullets.some(
+    (bullet, index) => !editableIndexes.has(index) && bullet !== originalBullets[index]
+  );
+  if (changedUnselectedBullet) {
+    return { error: "Only the AI-selected bullets can be edited in this review. Use Edit as new version for the remaining bullets.", success: null };
+  }
+
   await prisma.resumeLibraryEntryVariation.update({
     where: { id: proposal.id },
-    data: { approvalStatus: "APPROVED", isDefault: false },
+    data: {
+      name: parsed.data.versionName,
+      bulletsJson: proposedBullets as Prisma.InputJsonValue,
+      approvalStatus: "APPROVED",
+      isDefault: false,
+    },
   });
 
   revalidateProfileViews();
