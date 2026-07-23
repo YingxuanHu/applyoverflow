@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Pencil,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,11 +23,16 @@ import {
   applyResumeEntryRewrite,
   archiveResumeBuild,
   createResumeBuild,
+  deleteResumeEntryBullet,
+  deleteResumeEntryVariation,
   dismissResumeEntryRewrite,
+  duplicateResumeEntryVariation,
   duplicateResumeBuild,
   generateResumeBuildPdf,
   generateResumeEntryVariation,
-  syncResumeLibraryFromProfile,
+  importResumeLibraryFromProfile,
+  renameResumeEntryVariation,
+  setDefaultResumeEntryVariation,
   updateResumeLibraryEntry,
 } from "@/app/profile/resume-builder-actions";
 import { Badge } from "@/components/ui/badge";
@@ -126,6 +132,18 @@ function defaultVariation(entry: ResumeEntry) {
   );
 }
 
+function approvedVariation(entry: ResumeEntry, variationId: string | undefined) {
+  return (
+    entry.variations.find(
+      (variation) => variation.id === variationId && variation.approvalStatus === "APPROVED"
+    ) ?? null
+  );
+}
+
+function activeVariation(entry: ResumeEntry, selected: SelectionState[string] | undefined) {
+  return approvedVariation(entry, selected?.variationId) ?? defaultVariation(entry);
+}
+
 function bulletIds(variation: ResumeVariation | null) {
   return variation?.bullets.map((_, index) => String(index)) ?? [];
 }
@@ -142,53 +160,42 @@ function ActionRefresh({ success }: { success: string | null }) {
   return null;
 }
 
-function SyncFromProfileButton({ hasEntries }: { hasEntries: boolean }) {
-  const [state, action, pending] = useActionState(syncResumeLibraryFromProfile, emptyState());
+function ImportFromProfileButton({ hasEntries }: { hasEntries: boolean }) {
+  const [state, action, pending] = useActionState(importResumeLibraryFromProfile, emptyState());
   useActionToast(state, {
-    successTitle: "Resume content refreshed",
-    errorTitle: "Could not refresh resume content",
+    successTitle: "Profile content imported",
+    errorTitle: "Could not import profile content",
   });
 
   return (
     <form action={action}>
       <ActionRefresh success={state.success} />
       <Button disabled={pending} size="sm" type="submit" variant="outline">
-        {pending ? "Refreshing..." : hasEntries ? "Refresh from profile" : "Load profile content"}
+        {pending ? "Importing..." : hasEntries ? "Import new profile entries" : "Import profile content"}
       </Button>
     </form>
   );
 }
 
-function AddEntryForm() {
+function AddEntryForm({ type }: { type: ResumeLibraryEntryTypeValue }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(addResumeLibraryEntry, emptyState());
   useActionToast(state, { successTitle: "Content added", errorTitle: "Could not add content" });
+  const sectionName = displayResumeEntryType(type).replace(/s$/, "");
 
   if (!open) {
     return (
       <Button onClick={() => setOpen(true)} size="sm" type="button" variant="outline">
         <ListPlus />
-        Add standalone entry
+        Add {sectionName.toLowerCase()}
       </Button>
     );
   }
 
   return (
-    <form action={action} className="grid gap-3 border-y border-border/70 py-4 sm:grid-cols-2">
+    <form action={action} className="mt-4 grid gap-3 border-t border-dashed border-border/70 pt-4 sm:grid-cols-2">
       <ActionRefresh success={state.success} />
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Section
-        <select
-          className="h-9 rounded-[8px] border border-input bg-card px-2.5 text-sm text-foreground"
-          defaultValue="EXPERIENCE"
-          name="type"
-        >
-          <option value="EDUCATION">Education</option>
-          <option value="EXPERIENCE">Experience</option>
-          <option value="PROJECT">Project</option>
-          <option value="SKILL">Skills</option>
-        </select>
-      </label>
+      <input name="type" type="hidden" value={type} />
       <label className="grid gap-1 text-xs font-medium text-muted-foreground">
         Title
         <Input name="title" required />
@@ -224,25 +231,50 @@ function AddEntryForm() {
 function RevisionRequest({
   entry,
   baseVariation,
+  selectedBulletIds,
   onClose,
 }: {
   entry: ResumeEntry;
   baseVariation: ResumeVariation;
+  selectedBulletIds: string[];
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(generateResumeEntryVariation, emptyState());
+  const [scope, setScope] = useState<"selected" | "entire">("selected");
   useActionToast(state, { successTitle: "AI rewrite ready", errorTitle: "Could not generate rewrite" });
   useEffect(() => {
     if (state.success) onClose();
   }, [onClose, state.success]);
 
   return (
-    <form action={action} className="grid gap-3 border-t border-border/60 pt-4">
+    <form action={action} className="grid gap-4 border-t border-border/60 pt-4">
       <ActionRefresh success={state.success} />
       <input name="entryId" type="hidden" value={entry.id} />
       <input name="variationId" type="hidden" value={baseVariation.id} />
+      {(scope === "entire" ? bulletIds(baseVariation) : selectedBulletIds).map((bulletId) => (
+        <input key={bulletId} name="selectedBulletId" type="hidden" value={bulletId} />
+      ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Rewrite scope</span>
+        <Button
+          onClick={() => setScope("selected")}
+          size="xs"
+          type="button"
+          variant={scope === "selected" ? "secondary" : "ghost"}
+        >
+          Selected bullets ({selectedBulletIds.length})
+        </Button>
+        <Button
+          onClick={() => setScope("entire")}
+          size="xs"
+          type="button"
+          variant={scope === "entire" ? "secondary" : "ghost"}
+        >
+          Entire entry
+        </Button>
+      </div>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        What should this entry emphasize?
+        What should this version emphasize?
         <textarea
           className="min-h-24 rounded-[8px] border border-input bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
           name="instruction"
@@ -251,15 +283,15 @@ function RevisionRequest({
         />
       </label>
       <p className="text-xs leading-5 text-muted-foreground">
-        AI uses this entry together with your Application profile as evidence. It preserves the facts, metrics, bullet count, and comparable length, and never changes your profile.
+        AI uses this entry and your Application profile as evidence. It only changes the selected bullets, preserves the verified facts, and creates a separate version without changing your profile.
       </p>
       <div className="flex justify-end gap-2">
         <Button onClick={onClose} size="xs" type="button" variant="ghost">
           Cancel
         </Button>
-        <Button disabled={pending} size="xs" type="submit">
+        <Button disabled={pending || (scope === "selected" && selectedBulletIds.length === 0)} size="xs" type="submit">
           <Sparkles />
-          {pending ? "Writing..." : "Create rewrite"}
+          {pending ? "Writing..." : "Create AI version"}
         </Button>
       </div>
     </form>
@@ -285,21 +317,9 @@ function ManualEntryEditor({
     <form action={action} className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
       <ActionRefresh success={state.success} />
       <input name="entryId" type="hidden" value={entry.id} />
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Title
-        <Input defaultValue={entry.title} name="title" required />
-      </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Organization or role
-        <Input defaultValue={entry.organization ?? ""} name="organization" />
-      </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Dates
-        <Input defaultValue={entry.dateRange ?? ""} name="dateRange" />
-      </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        Location
-        <Input defaultValue={entry.location ?? ""} name="location" />
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground sm:col-span-2">
+        New version name
+        <Input defaultValue={`Manual edit ${baseVariation ? `of ${baseVariation.name}` : ""}`.trim()} name="versionName" required />
       </label>
       <label className="grid gap-1 text-xs font-medium text-muted-foreground sm:col-span-2">
         Context
@@ -324,13 +344,13 @@ function ManualEntryEditor({
         <Input defaultValue={entry.technologies.join(", ")} name="technologies" placeholder="TypeScript, PostgreSQL" />
       </label>
       <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">
-        This saves a resume-only working copy. Your Application profile remains unchanged.
+        The role details stay stable. This saves separate resume-only wording and technologies, so your Application profile and other versions remain unchanged.
       </p>
       <div className="flex justify-end gap-2 sm:col-span-2">
         <Button onClick={onClose} size="xs" type="button" variant="ghost">Cancel</Button>
         <Button disabled={pending} size="xs" type="submit">
           <Pencil />
-          {pending ? "Saving..." : "Save entry"}
+          {pending ? "Saving..." : "Save new version"}
         </Button>
       </div>
     </form>
@@ -339,7 +359,7 @@ function ManualEntryEditor({
 
 function RewriteAction({ variationId }: { variationId: string }) {
   const [state, action, pending] = useActionState(applyResumeEntryRewrite, emptyState());
-  useActionToast(state, { successTitle: "AI rewrite applied", errorTitle: "Could not apply rewrite" });
+  useActionToast(state, { successTitle: "AI version added", errorTitle: "Could not add AI version" });
 
   return (
     <form action={action}>
@@ -347,7 +367,7 @@ function RewriteAction({ variationId }: { variationId: string }) {
       <input name="variationId" type="hidden" value={variationId} />
       <Button disabled={pending} size="xs" type="submit">
         <Check />
-        {pending ? "Applying..." : "Use rewrite"}
+        {pending ? "Adding..." : "Add version"}
       </Button>
     </form>
   );
@@ -368,28 +388,142 @@ function DismissRewriteAction({ variationId }: { variationId: string }) {
   );
 }
 
+function VersionAction({
+  variationId,
+  type,
+}: {
+  variationId: string;
+  type: "duplicate" | "default" | "delete";
+}) {
+  const actionFn =
+    type === "duplicate"
+      ? duplicateResumeEntryVariation
+      : type === "default"
+        ? setDefaultResumeEntryVariation
+        : deleteResumeEntryVariation;
+  const [state, action, pending] = useActionState(actionFn, emptyState());
+  const labels = {
+    duplicate: "Version duplicated",
+    default: "Default version updated",
+    delete: "Version deleted",
+  } as const;
+  useActionToast(state, { successTitle: labels[type], errorTitle: `Could not ${type} version` });
+
+  return (
+    <form action={action}>
+      <ActionRefresh success={state.success} />
+      <input name="variationId" type="hidden" value={variationId} />
+      <Button
+        className={type === "delete" ? "text-destructive hover:text-destructive" : undefined}
+        disabled={pending}
+        onClick={(event) => {
+          if (type === "delete" && !window.confirm("Delete this version? Existing resume drafts keep their frozen snapshot.")) {
+            event.preventDefault();
+          }
+        }}
+        size="xs"
+        title={type === "duplicate" ? "Duplicate version" : type === "default" ? "Set default version" : "Delete version"}
+        type="submit"
+        variant="ghost"
+      >
+        {type === "duplicate" ? <Copy /> : type === "delete" ? <Trash2 /> : <Check />}
+        {pending
+          ? "Saving..."
+          : type === "duplicate"
+            ? "Duplicate"
+            : type === "default"
+              ? "Set default"
+              : "Delete"}
+      </Button>
+    </form>
+  );
+}
+
+function RenameVersionForm({ variation }: { variation: ResumeVariation }) {
+  const [state, action, pending] = useActionState(renameResumeEntryVariation, emptyState());
+  useActionToast(state, { successTitle: "Version renamed", errorTitle: "Could not rename version" });
+
+  return (
+    <form action={action} className="flex min-w-0 flex-1 items-end gap-2">
+      <ActionRefresh success={state.success} />
+      <input name="variationId" type="hidden" value={variation.id} />
+      <label className="grid min-w-0 flex-1 gap-1 text-xs font-medium text-muted-foreground">
+        Version name
+        <Input defaultValue={variation.name} name="name" required />
+      </label>
+      <Button disabled={pending} size="xs" type="submit" variant="outline">
+        {pending ? "Saving..." : "Rename"}
+      </Button>
+    </form>
+  );
+}
+
+function DeleteBulletAction({ variationId, bulletIndex }: { variationId: string; bulletIndex: number }) {
+  const [state, action, pending] = useActionState(deleteResumeEntryBullet, emptyState());
+  useActionToast(state, { successTitle: "Bullet removed in a new version", errorTitle: "Could not remove bullet" });
+
+  return (
+    <form action={action}>
+      <ActionRefresh success={state.success} />
+      <input name="variationId" type="hidden" value={variationId} />
+      <input name="bulletIndex" type="hidden" value={bulletIndex} />
+      <Button
+        className="text-muted-foreground hover:text-destructive"
+        disabled={pending}
+        size="icon-xs"
+        title="Remove this bullet in a new version"
+        type="submit"
+        variant="ghost"
+      >
+        <Trash2 />
+      </Button>
+    </form>
+  );
+}
+
 function EntryDetails({
   entry,
   selected,
   onToggleBullet,
+  onSelectVariation,
 }: {
   entry: ResumeEntry;
   selected: SelectionState[string] | undefined;
   onToggleBullet: (bulletId: string) => void;
+  onSelectVariation: (variationId: string) => void;
 }) {
-  const baseVariation = defaultVariation(entry);
+  const baseVariation = activeVariation(entry, selected);
+  const approvedVariations = entry.variations.filter(
+    (variation) => variation.approvalStatus === "APPROVED"
+  );
   const pendingRewrites = entry.variations.filter(
     (variation) => variation.approvalStatus === "PENDING" && variation.source === "AI_GENERATED"
   );
   const [composer, setComposer] = useState<"manual" | "ai" | null>(null);
+  const [manageVersions, setManageVersions] = useState(false);
 
   return (
-    <div className="mt-3 grid gap-4 border-t border-border/60 pt-4">
-      {entry.technologies.length > 0 ? (
-        <p className="text-xs text-muted-foreground">{entry.technologies.join(" · ")}</p>
-      ) : null}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium text-muted-foreground">Current working copy</p>
+    <div className="mt-4 grid gap-5 border-t border-border/70 bg-muted/10 px-4 py-5 sm:px-5">
+      <div className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="grid gap-1">
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Version for this resume
+            <select
+              className="h-9 min-w-52 rounded-[8px] border border-input bg-card px-2.5 text-sm text-foreground"
+              onChange={(event) => onSelectVariation(event.target.value)}
+              value={baseVariation?.id ?? ""}
+            >
+              {approvedVariations.map((variation) => (
+                <option key={variation.id} value={variation.id}>
+                  {variation.name}{variation.isDefault ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Each resume can use a different version of this entry.
+          </p>
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label={`Actions for ${entry.title}`}
@@ -400,37 +534,57 @@ function EntryDetails({
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem className="cursor-pointer" onClick={() => setComposer("manual")}>
               <Pencil />
-              Edit entry
+              Create manual version
             </DropdownMenuItem>
             {hasEditableCopy(entry) && baseVariation ? (
               <DropdownMenuItem className="cursor-pointer" onClick={() => setComposer("ai")}>
                 <Sparkles />
-                Rewrite with AI
+                Create AI version
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuItem className="cursor-pointer" onClick={() => setManageVersions((current) => !current)}>
+              <Copy />
+              Manage versions
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
+      {manageVersions && baseVariation ? (
+        <div className="flex flex-col gap-3 border-b border-border/60 pb-5 sm:flex-row sm:items-end">
+          <RenameVersionForm variation={baseVariation} />
+          <div className="flex flex-wrap gap-1">
+            <VersionAction type="duplicate" variationId={baseVariation.id} />
+            {!baseVariation.isDefault ? <VersionAction type="default" variationId={baseVariation.id} /> : null}
+            <VersionAction type="delete" variationId={baseVariation.id} />
+          </div>
+        </div>
+      ) : null}
+
+      {entry.technologies.length > 0 ? (
+        <p className="text-xs text-muted-foreground">{entry.technologies.join(" · ")}</p>
+      ) : null}
+
       {baseVariation?.bullets.length ? (
-        <div className="grid gap-1.5">
+        <div className="grid gap-2">
           <p className="text-xs font-medium text-muted-foreground">
-            {selected ? "Bullets in this draft" : "Bullets"}
+            Choose bullets for this resume or a targeted AI rewrite
           </p>
           {baseVariation.bullets.map((bullet, index) => {
             const id = String(index);
-            return selected ? (
-              <label className="flex items-start gap-2 text-xs leading-5 text-muted-foreground" key={id}>
+            return (
+              <div className="flex items-start gap-2" key={id}>
+                <label className="flex min-w-0 flex-1 items-start gap-2 text-xs leading-5 text-muted-foreground">
                 <input
-                  checked={selected.includedBulletIds.includes(id)}
+                  checked={selected?.includedBulletIds.includes(id) ?? false}
                   className="mt-1 h-3.5 w-3.5 rounded border-border accent-primary"
                   onChange={() => onToggleBullet(id)}
                   type="checkbox"
                 />
                 {bullet}
               </label>
-            ) : (
-              <p className="text-xs leading-5 text-muted-foreground" key={id}>- {bullet}</p>
+                <DeleteBulletAction bulletIndex={index} variationId={baseVariation.id} />
+              </div>
             );
           })}
         </div>
@@ -447,6 +601,7 @@ function EntryDetails({
         <RevisionRequest
           baseVariation={baseVariation}
           entry={entry}
+          selectedBulletIds={selected?.includedBulletIds ?? []}
           onClose={() => setComposer(null)}
         />
       ) : null}
@@ -455,8 +610,8 @@ function EntryDetails({
         <div className="border-t border-border/60 pt-4" key={proposal.id}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-sm font-medium text-foreground">AI rewrite ready</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Review the wording, then use it or dismiss it.</p>
+              <p className="text-sm font-medium text-foreground">AI version ready</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Review the wording, then add it without replacing the current version.</p>
             </div>
             <div className="flex items-center gap-1">
               <DismissRewriteAction variationId={proposal.id} />
@@ -465,13 +620,13 @@ function EntryDetails({
           </div>
           <div className="mt-3 grid gap-4 md:grid-cols-2">
             <div className="border-l-2 border-border pl-3">
-              <p className="text-xs font-medium text-muted-foreground">Current wording</p>
+              <p className="text-xs font-medium text-muted-foreground">Selected version</p>
               <ul className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
                 {(baseVariation?.bullets ?? []).map((bullet, index) => <li key={index}>- {bullet}</li>)}
               </ul>
             </div>
             <div className="border-l-2 border-primary pl-3">
-              <p className="text-xs font-medium text-primary">AI rewrite</p>
+              <p className="text-xs font-medium text-primary">New AI version</p>
               <ul className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground">
                 {proposal.bullets.map((bullet, index) => <li key={index}>- {bullet}</li>)}
               </ul>
@@ -530,20 +685,24 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
   const [state, buildAction, pending] = useActionState(createResumeBuild, emptyState());
   useActionToast(state, { successTitle: "Resume draft saved", errorTitle: "Could not save resume draft" });
 
-  // A rewrite can arrive through a server refresh while this client component
-  // keeps its selection state. Resolve selected entries against the current
-  // working copy at render time so saving a draft cannot retain the old text.
+  // A version can be added or deleted through a server refresh while this client
+  // component keeps its selection state. Preserve an explicitly selected version
+  // whenever it remains available, so drafts can use different versions per entry.
   const effectiveSelection = useMemo<SelectionState>(() => {
     const next: SelectionState = {};
     for (const entry of entries) {
       const selected = selection[entry.id];
       if (!selected) continue;
-      const variation = defaultVariation(entry);
+      const variation = approvedVariation(entry, selected.variationId) ?? defaultVariation(entry);
       if (!variation) continue;
-      next[entry.id] =
-        selected.variationId === variation.id
-          ? selected
-          : { variationId: variation.id, includedBulletIds: bulletIds(variation) };
+      const validBulletIds = selected.includedBulletIds.filter(
+        (bulletId) => Number(bulletId) >= 0 && Number(bulletId) < variation.bullets.length
+      );
+      next[entry.id] = {
+        variationId: variation.id,
+        includedBulletIds:
+          selected.variationId === variation.id ? validBulletIds : bulletIds(variation),
+      };
     }
     return next;
   }, [entries, selection]);
@@ -597,9 +756,14 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
   function toggleBullet(entry: ResumeEntry, bulletId: string) {
     setSelection((current) => {
       const currentSelection = current[entry.id];
-      if (!currentSelection) return current;
-      const variation = defaultVariation(entry);
+      const variation = activeVariation(entry, currentSelection);
       if (!variation) return current;
+      if (!currentSelection) {
+        return {
+          ...current,
+          [entry.id]: { variationId: variation.id, includedBulletIds: [bulletId] },
+        };
+      }
       const selected =
         currentSelection.variationId === variation.id
           ? currentSelection
@@ -608,6 +772,24 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
         ? selected.includedBulletIds.filter((id) => id !== bulletId)
         : [...selected.includedBulletIds, bulletId];
       return { ...current, [entry.id]: { ...selected, includedBulletIds } };
+    });
+  }
+
+  function selectVariation(entry: ResumeEntry, variationId: string) {
+    const variation = approvedVariation(entry, variationId);
+    if (!variation) return;
+    setSelection((current) => {
+      const currentSelection = current[entry.id];
+      return {
+        ...current,
+        [entry.id]: {
+          variationId: variation.id,
+          includedBulletIds:
+            currentSelection?.variationId === variation.id
+              ? currentSelection.includedBulletIds.filter((id) => Number(id) < variation.bullets.length)
+              : bulletIds(variation),
+        },
+      };
     });
   }
 
@@ -622,14 +804,14 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
             </div>
             <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">Resume builder</h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Build focused, one-page-ready resumes from your application profile. Your profile remains the source of truth; each draft is a frozen selection using the unified Apply Overflow LaTeX layout.
+              Build focused resumes from stable profile context. Importing copies new background information here; every edit and version stays in this workspace, and every draft records its own frozen selection.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button render={<Link href="/profile" />} size="sm" variant="outline">
               Edit application profile
             </Button>
-            <SyncFromProfileButton hasEntries={entries.length > 0} />
+            <ImportFromProfileButton hasEntries={entries.length > 0} />
           </div>
         </div>
       </header>
@@ -643,94 +825,91 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
           <span className="text-sm text-muted-foreground">{selectedEntries.length} selected</span>
         </div>
 
-        {entries.length === 0 ? (
-          <div className="border-b border-dashed border-border/80 py-10 text-center">
-            <p className="text-sm font-medium text-foreground">Start with Application profile</p>
-            <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">Profile resume uploads automatically extract and merge education, experience, projects, and skills. Then refresh this workspace to select them.</p>
-            <div className="mt-4 flex justify-center gap-2">
-              <Button render={<Link href="/profile" />} size="sm">Open application profile</Button>
-              <SyncFromProfileButton hasEntries={false} />
-            </div>
-          </div>
-        ) : (
-          <div className="divide-y divide-border/70">
-            {sectionConfig.map((section) => {
-              const sectionEntries = entriesBySection.get(section.type) ?? [];
-              return (
-                <section className="py-6" key={section.type}>
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h3 className="text-base font-semibold text-foreground">{section.title}</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{sectionEntries.length} available</span>
+        <div className="mt-5 grid gap-8">
+          {sectionConfig.map((section) => {
+            const sectionEntries = entriesBySection.get(section.type) ?? [];
+            return (
+              <section className="border-y border-border/70 py-6" key={section.type}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">{section.title}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>
                   </div>
-                  {sectionEntries.length === 0 ? (
-                    <p className="mt-4 text-sm text-muted-foreground">No {section.title.toLowerCase()} content yet. Refresh from profile or add an entry below.</p>
-                  ) : (
-                    <div className="mt-4 divide-y divide-border/60 border-y border-border/60">
-                      {sectionEntries.map((entry) => {
-                        const selected = effectiveSelection[entry.id];
-                        const variation =
-                          entry.variations.find(
-                            (candidate) =>
-                              candidate.id === selected?.variationId &&
-                              candidate.approvalStatus === "APPROVED"
-                          ) ?? defaultVariation(entry);
-                        const expanded = openEntryId === entry.id;
-                        return (
-                          <article className="py-3" key={entry.id}>
-                            <div className="flex items-start gap-3">
-                              <input
-                                aria-label={`Include ${entry.title}`}
-                                checked={Boolean(selected)}
-                                className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
-                                onChange={() => toggleEntry(entry)}
-                                type="checkbox"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h4 className="text-sm font-medium text-foreground">{entry.title}</h4>
-                                  {entry.sourceProfileKey ? <Badge variant="secondary">Profile linked</Badge> : null}
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">{[entry.organization, entry.dateRange, entry.location].filter(Boolean).join(" · ") || displayResumeEntryType(entry.type)}</p>
-                                {!expanded && variation?.bullets[0] ? <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">{variation.bullets[0]}</p> : null}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{sectionEntries.length} available</span>
+                    <AddEntryForm type={section.type} />
+                  </div>
+                </div>
+                {sectionEntries.length === 0 ? (
+                  <p className="mt-5 text-sm text-muted-foreground">
+                    No {section.title.toLowerCase()} entries yet. Import from your profile or add a resume-only entry here.
+                  </p>
+                ) : (
+                  <div className="mt-5 grid gap-3">
+                    {sectionEntries.map((entry) => {
+                      const selected = effectiveSelection[entry.id];
+                      const variation = activeVariation(entry, selected);
+                      const expanded = openEntryId === entry.id;
+                      return (
+                        <article
+                          className="rounded-[8px] border border-border/70 bg-card/30 px-4 py-4 transition-colors hover:border-border sm:px-5"
+                          key={entry.id}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              aria-label={`Include ${entry.title}`}
+                              checked={Boolean(selected)}
+                              className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                              onChange={() => toggleEntry(entry)}
+                              type="checkbox"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-sm font-medium text-foreground">{entry.title}</h4>
+                                {entry.sourceProfileKey ? <Badge variant="secondary">Imported from profile</Badge> : null}
+                                {variation ? <Badge variant="outline">{variation.name}</Badge> : null}
                               </div>
-                              <Button
-                                onClick={() => setOpenEntryId(expanded ? null : entry.id)}
-                                size="icon-xs"
-                                title={expanded ? "Collapse entry" : "Review entry"}
-                                type="button"
-                                variant="ghost"
-                              >
-                                {expanded ? <ChevronUp /> : <ChevronDown />}
-                              </Button>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {[entry.organization, entry.dateRange, entry.location].filter(Boolean).join(" · ") || displayResumeEntryType(entry.type)}
+                              </p>
+                              {!expanded && variation?.bullets[0] ? (
+                                <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">{variation.bullets[0]}</p>
+                              ) : null}
                             </div>
-                            {expanded ? (
-                              <EntryDetails
-                                entry={entry}
-                                onToggleBullet={(bulletId) => toggleBullet(entry, bulletId)}
-                                selected={selected}
-                              />
-                            ) : null}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        )}
+                            <Button
+                              onClick={() => setOpenEntryId(expanded ? null : entry.id)}
+                              size="icon-xs"
+                              title={expanded ? "Collapse entry" : "Review entry"}
+                              type="button"
+                              variant="ghost"
+                            >
+                              {expanded ? <ChevronUp /> : <ChevronDown />}
+                            </Button>
+                          </div>
+                          {expanded ? (
+                            <EntryDetails
+                              entry={entry}
+                              onSelectVariation={(variationId) => selectVariation(entry, variationId)}
+                              onToggleBullet={(bulletId) => toggleBullet(entry, bulletId)}
+                              selected={selected}
+                            />
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
       </section>
 
       <section className="border-y border-border/70 py-6" id="resume-draft">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div>
             <h2 className="text-base font-semibold text-foreground">Save a resume draft</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">The build records exactly which working copies and bullets you selected. Generating a PDF uses the unified moderncv structure without modifying the profile.</p>
-            <AddEntryForm />
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">The build records the exact entry versions and bullets you selected. Generating a PDF uses the unified moderncv structure without modifying the profile.</p>
           </div>
           <form action={buildAction} className="border-t border-border/70 pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
             <ActionRefresh success={state.success} />

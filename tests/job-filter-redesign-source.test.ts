@@ -116,10 +116,11 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(jobsLoadingSource, /<JobsLoadingPopup \/>/);
   assert.match(naturalLanguageSearchSource, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params\)/);
   assert.match(naturalLanguageSearchSource, /showJobsLoadingPopup\(href\)/);
-  assert.match(loadingPopupSource, /fixed inset-0 z-50/);
-  assert.match(loadingPopupSource, /animate-pulse bg-primary/);
+  assert.match(loadingPopupSource, /fixed inset-x-0 top-5 z-50/);
+  assert.match(loadingPopupSource, /LoadingSpinner/);
+  assert.match(loadingPopupSource, /Loading jobs/);
   assert.doesNotMatch(loadingPopupSource, /jobs-loading-sweep/);
-  assert.doesNotMatch(loadingPopupSource, /LoadingSpinner/);
+  assert.doesNotMatch(loadingPopupSource, /animate-pulse/);
   assert.doesNotMatch(loadingPopupSource, /bg-popover/);
   assert.doesNotMatch(loadingPopupSource, /shadow-\[/);
   assert.match(pendingBoundarySource, /onClickCapture/);

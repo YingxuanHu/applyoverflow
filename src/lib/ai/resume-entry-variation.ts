@@ -5,7 +5,15 @@ import { normalizeResumeBullets } from "@/lib/resume-builder";
 
 const generatedVariationSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  bullets: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+  rewrites: z
+    .array(
+      z.object({
+        index: z.number().int().min(1).max(20),
+        bullet: z.string().trim().min(1).max(1_000),
+      })
+    )
+    .min(1)
+    .max(20),
 });
 
 export type ResumeEntryRevisionRequest = {
@@ -13,17 +21,18 @@ export type ResumeEntryRevisionRequest = {
   entryType: "EXPERIENCE" | "PROJECT";
   organization: string | null;
   currentBullets: string[];
+  selectedBulletIndexes?: number[];
   instruction: string;
   profileContext: string;
 };
 
 const SYSTEM_PROMPT = `You revise one verified resume entry for a specific audience. Return ONLY valid JSON with exactly this shape:
-{"name":"short focus label","bullets":["rewritten bullet", "..."]}
+{"name":"short focus label","rewrites":[{"index":1,"bullet":"rewritten bullet"}]}
 
 Rules:
 - Use only evidence in the supplied entry and profile. Never invent employers, technologies, ownership, scope, metrics, credentials, outcomes, or dates.
-- Preserve the exact number of bullets and preserve the factual meaning of every bullet.
-- Make the requested emphasis clearer through wording and ordering, rather than adding unrelated claims.
+- Return exactly one rewrite for every requested bullet index, and do not include any other indexes.
+- Preserve the factual meaning of every rewritten bullet. Make the requested emphasis clearer through wording and organization, rather than adding unrelated claims.
 - Keep each rewritten bullet within roughly 20% of the original bullet's word count. Keep metrics and concrete details when supplied.
 - This is not a chat response. No explanation, markdown, code fences, or extra fields.`;
 
@@ -64,6 +73,41 @@ function capToComparableLength(rewrite: string, original: string) {
   return words.slice(0, maxWords).join(" ").slice(0, 1_000);
 }
 
+function selectedIndexes(input: number[] | undefined, bulletCount: number) {
+  const indexes = input?.length ? input : Array.from({ length: bulletCount }, (_, index) => index);
+  const uniqueIndexes = [...new Set(indexes)].sort((left, right) => left - right);
+  if (uniqueIndexes.length === 0 || uniqueIndexes.some((index) => index < 0 || index >= bulletCount)) {
+    throw new Error("Select one or more bullets to rewrite.");
+  }
+  return uniqueIndexes;
+}
+
+export function applyResumeBulletRewrites(
+  currentBullets: string[],
+  requestedIndexes: number[],
+  rewrites: Array<{ index: number; bullet: string }>
+) {
+  const requested = new Set(requestedIndexes);
+  const rewrittenByIndex = new Map<number, string>();
+
+  for (const rewrite of rewrites) {
+    const zeroBasedIndex = rewrite.index - 1;
+    if (!requested.has(zeroBasedIndex) || rewrittenByIndex.has(zeroBasedIndex)) {
+      throw new Error("The rewrite could not be matched to the selected bullets. Please try again.");
+    }
+    rewrittenByIndex.set(zeroBasedIndex, rewrite.bullet);
+  }
+
+  if (rewrittenByIndex.size !== requested.size) {
+    throw new Error("The rewrite did not return every selected bullet. Please try again.");
+  }
+
+  return currentBullets.map((bullet, index) => {
+    const rewrite = rewrittenByIndex.get(index);
+    return rewrite ? capToComparableLength(rewrite, bullet) : bullet;
+  });
+}
+
 export async function generateResumeEntryVariation(
   request: ResumeEntryRevisionRequest
 ) {
@@ -71,13 +115,14 @@ export async function generateResumeEntryVariation(
   if (currentBullets.length === 0) {
     throw new Error("Add verified bullets before requesting a focused revision.");
   }
+  const rewriteIndexes = selectedIndexes(request.selectedBulletIndexes, currentBullets.length);
 
   const raw = await aiComplete({
     system: SYSTEM_PROMPT,
     messages: [
       {
         role: "user",
-        content: `ENTRY TYPE: ${request.entryType}\nTITLE: ${request.entryTitle}\nORGANIZATION: ${request.organization ?? ""}\n\nREQUESTED EMPHASIS:\n${request.instruction}\n\nCURRENT VERIFIED BULLETS:\n${currentBullets.map((bullet, index) => `${index + 1}. ${bullet}`).join("\n")}\n\nPROFILE EVIDENCE:\n${request.profileContext.slice(0, 8_000)}`,
+        content: `ENTRY TYPE: ${request.entryType}\nTITLE: ${request.entryTitle}\nORGANIZATION: ${request.organization ?? ""}\n\nREQUESTED EMPHASIS:\n${request.instruction}\n\nREWRITE ONLY THESE BULLET INDEXES:\n${rewriteIndexes.map((index) => index + 1).join(", ")}\n\nCURRENT VERIFIED BULLETS:\n${currentBullets.map((bullet, index) => `${index + 1}. ${bullet}`).join("\n")}\n\nPROFILE EVIDENCE:\n${request.profileContext.slice(0, 8_000)}`,
       },
     ],
     modelFlavor: "standard",
@@ -86,14 +131,9 @@ export async function generateResumeEntryVariation(
   });
 
   const result = parseResponse(raw);
-  if (result.bullets.length !== currentBullets.length) {
-    throw new Error("The revision changed the number of bullets. Please try again.");
-  }
 
   return {
     name: result.name,
-    bullets: result.bullets.map((bullet, index) =>
-      capToComparableLength(bullet, currentBullets[index] ?? bullet)
-    ),
+    bullets: applyResumeBulletRewrites(currentBullets, rewriteIndexes, result.rewrites),
   };
 }
