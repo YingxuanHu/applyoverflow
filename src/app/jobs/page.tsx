@@ -945,6 +945,9 @@ function countActiveFilters(filters: JobFilterParams) {
       return false;
     }
     const value = filters[key];
+    if (key === "hideApplied") {
+      return value === true;
+    }
     return value !== undefined && value !== "";
   }).length + (filters.salaryMin || filters.salaryMax ? 1 : 0);
 }

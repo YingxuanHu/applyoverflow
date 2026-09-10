@@ -160,6 +160,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pageSource, /name="includeUnknownSalary"/);
   assert.match(pageSource, /label="Hide applied jobs"/);
   assert.match(pageSource, /hideApplied: normalizeBooleanParam/);
+  assert.match(pageSource, /key === "hideApplied"\) \{\s*return value === true;/);
   assert.match(pageSource, /SALARY_COMPARISON_CURRENCIES\.map/);
   assert.match(pageSource, /\{ label: "Recommended", value: undefined \}/);
   assert.match(pageSource, /\{ label: "Expiring soon", value: "deadline" \}/);
