@@ -31,6 +31,9 @@ MIN_FREE_GB="${POSTGRES_TABLESPACE_MIN_FREE_GB:-18}"
 MAX_USED_PERCENT="${POSTGRES_TABLESPACE_MAX_USED_PERCENT:-70}"
 LOCK_TIMEOUT="${POSTGRES_TABLESPACE_LOCK_TIMEOUT:-5s}"
 STATEMENT_TIMEOUT="${POSTGRES_TABLESPACE_STATEMENT_TIMEOUT:-90min}"
+# A nonzero cap is useful for an operator-triggered catch-up pass when root
+# headroom is tight. The scheduled policy remains uncapped by default.
+MAX_MOVES="${POSTGRES_TABLESPACE_MAX_MOVES:-0}"
 
 cd "$APP_DIR"
 
@@ -51,6 +54,11 @@ db_sql() {
     -X -qAt -v ON_ERROR_STOP=1 \
     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"
 }
+
+if ! [[ "$MAX_MOVES" =~ ^[0-9]+$ ]]; then
+  echo "POSTGRES_TABLESPACE_MAX_MOVES must be a non-negative integer" >&2
+  exit 2
+fi
 
 if ! mountpoint -q "$VOLUME_MOUNT"; then
   echo "tablespace volume mount is unavailable: $VOLUME_MOUNT" >&2
@@ -110,7 +118,46 @@ MANAGED_INDEXES=(
   'JobFeedIndex_live_relevance_order_idx'
 )
 
+# These tables are the largest root-backed application index groups. Keeping
+# their indexes on the attached volume reduces root-disk pressure without
+# moving table data, which would require an explicit maintenance window.
+MANAGED_INDEX_TABLES=(
+  'JobFeedIndex'
+  'JobCanonical'
+  'JobSourceMapping'
+  'NormalizedJobRecord'
+  'IngestionRun'
+  'JobRaw'
+  'PipelineTask'
+  'SourceCandidate'
+  'JobEligibility'
+)
+
+managed_table_names=""
+for table_name in "${MANAGED_INDEX_TABLES[@]}"; do
+  table_name_sql="$(sql_literal "$table_name")"
+  if [[ -n "$managed_table_names" ]]; then
+    managed_table_names+=","
+  fi
+  managed_table_names+="'$table_name_sql'"
+done
+
+while IFS= read -r index_name; do
+  [[ -n "$index_name" ]] && MANAGED_INDEXES+=("$index_name")
+done < <(db_sql "
+  SELECT idx.relname
+  FROM pg_class idx
+  JOIN pg_index i ON i.indexrelid = idx.oid
+  JOIN pg_class tbl ON tbl.oid = i.indrelid
+  WHERE idx.relkind = 'i'
+    AND idx.relnamespace = 'public'::regnamespace
+    AND tbl.relnamespace = 'public'::regnamespace
+    AND tbl.relname IN ($managed_table_names)
+  ORDER BY pg_relation_size(idx.oid) DESC, idx.relname
+")
+
 needs_attention=0
+moves_completed=0
 for index_name in "${MANAGED_INDEXES[@]}"; do
   index_name_sql="$(sql_literal "$index_name")"
   index_info="$(db_sql "
@@ -144,6 +191,11 @@ for index_name in "${MANAGED_INDEXES[@]}"; do
     continue
   fi
 
+  if (( MAX_MOVES > 0 && moves_completed >= MAX_MOVES )); then
+    echo "[tablespace-policy] capped after $moves_completed move(s); remaining indexes will retry later"
+    break
+  fi
+
   if (( tablespace_bytes + index_bytes > active_budget_bytes )); then
     echo "[tablespace-policy] skipped $index_name: active tablespace budget would be exceeded" >&2
     continue
@@ -167,6 +219,7 @@ for index_name in "${MANAGED_INDEXES[@]}"; do
 
   tablespace_bytes="$((tablespace_bytes + index_bytes))"
   volume_available_bytes="$((volume_available_bytes - index_bytes))"
+  moves_completed="$((moves_completed + 1))"
 done
 
 if [[ "$MODE" == "apply" ]]; then
