@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { RefreshCw, Sparkles, X } from "lucide-react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { JobSummaryCard } from "@/components/jobs/job-summary-card";
@@ -41,6 +47,94 @@ type TopPicksListProps = {
 
 const TOP_PICKS_AUTO_REFRESH_RETRY_MS = 15 * 60_000;
 
+type TopPicksRefreshContextValue = {
+  isInitialLoad: boolean;
+};
+
+const TopPicksRefreshContext = createContext<TopPicksRefreshContextValue>({
+  isInitialLoad: false,
+});
+
+function useTopPicksRefreshState() {
+  return useContext(TopPicksRefreshContext);
+}
+
+export function TopPicksRefreshCoordinator({
+  children,
+  initialLoad,
+  refreshEnabled,
+  storageKey,
+}: {
+  children: ReactNode;
+  initialLoad: boolean;
+  refreshEnabled: boolean;
+  storageKey: string;
+}) {
+  const router = useRouter();
+  const [isInitialLoad, setIsInitialLoad] = useState(initialLoad);
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    setIsInitialLoad(initialLoad);
+    if (!refreshEnabled) return;
+
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const key = `applyoverflow.top-picks.refresh:${storageKey}`;
+    const previousAttempt = window.sessionStorage.getItem(key);
+    const previousMs = previousAttempt
+      ? Date.parse(previousAttempt)
+      : Number.NaN;
+    const shouldStartRefresh =
+      !Number.isFinite(previousMs) ||
+      Date.now() - previousMs >= TOP_PICKS_AUTO_REFRESH_RETRY_MS;
+
+    async function refresh() {
+      try {
+        if (shouldStartRefresh) {
+          window.sessionStorage.setItem(key, new Date().toISOString());
+          const response = await fetch("/api/jobs/top-picks/refresh", {
+            method: "POST",
+          });
+          if (!response.ok) throw new Error("top picks refresh failed");
+        } else if (!initialLoad) {
+          return;
+        }
+
+        const status = await waitForRefreshToSettle();
+        if (cancelled) return;
+
+        if (status) {
+          router.refresh();
+          if (initialLoad) setIsInitialLoad(false);
+          return;
+        }
+
+        if (initialLoad) {
+          retryTimer = window.setTimeout(() => {
+            setRetryCount((current) => current + 1);
+          }, 5_000);
+        }
+      } catch (error) {
+        console.error("Top picks background refresh failed", error);
+        if (!cancelled && initialLoad) setIsInitialLoad(false);
+      }
+    }
+
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [initialLoad, refreshEnabled, retryCount, router, storageKey]);
+
+  return (
+    <TopPicksRefreshContext.Provider value={{ isInitialLoad }}>
+      {children}
+    </TopPicksRefreshContext.Provider>
+  );
+}
+
 export function TopPicksList({
   emptyState,
   initialPicks,
@@ -48,12 +142,15 @@ export function TopPicksList({
   compact = false,
 }: TopPicksListProps) {
   const { notify } = useNotifications();
+  const { isInitialLoad } = useTopPicksRefreshState();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = searchParams.toString();
   const sourceHref = search ? `${pathname}?${search}` : pathname;
   const [picks, setPicks] = useState(initialPicks);
-  const [pendingFeedbackJobId, setPendingFeedbackJobId] = useState<string | null>(null);
+  const [pendingFeedbackJobId, setPendingFeedbackJobId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     setPicks(initialPicks);
@@ -62,8 +159,10 @@ export function TopPicksList({
   function handleSavedChange(jobId: string, saved: boolean) {
     setPicks((current) =>
       current.map((pick) =>
-        pick.job.id === jobId ? { ...pick, job: { ...pick.job, isSaved: saved } } : pick
-      )
+        pick.job.id === jobId
+          ? { ...pick, job: { ...pick.job, isSaved: saved } }
+          : pick,
+      ),
     );
   }
 
@@ -97,6 +196,24 @@ export function TopPicksList({
   }
 
   if (picks.length === 0) {
+    if (isInitialLoad) {
+      return (
+        <div
+          aria-live="polite"
+          className="empty-state flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center"
+          role="status"
+        >
+          <LoaderCircle className="h-5 w-5 animate-spin text-primary" />
+          <p className="mt-3 text-sm font-medium text-foreground">
+            Finding your top matches
+          </p>
+          <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
+            Ranking live jobs against your profile and preferences.
+          </p>
+        </div>
+      );
+    }
+
     const state = emptyState ?? {
       title: "No top picks ready yet",
       message:
@@ -141,6 +258,78 @@ export function TopPicksList({
   );
 }
 
+export function TopPicksStatusSummary({
+  canRefresh,
+  inlineProfileHelp,
+  rankedPickLabel,
+  refreshedLabel,
+  refreshHelp,
+  showInlineProfileHelp,
+}: {
+  canRefresh?: boolean;
+  inlineProfileHelp: string;
+  rankedPickLabel: string;
+  refreshedLabel: string;
+  refreshHelp: string;
+  showInlineProfileHelp: boolean;
+}) {
+  const { isInitialLoad } = useTopPicksRefreshState();
+
+  if (isInitialLoad) {
+    return (
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
+            Loading your picks
+          </p>
+          <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground sm:text-[15px]">
+            <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+            Matching roles to your profile
+          </p>
+          <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
+            Your ranked recommendations will appear automatically.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
+          {rankedPickLabel}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
+          {refreshedLabel}
+          {inlineProfileHelp ? (
+            <span className="text-muted-foreground/90">
+              {" "}
+              ({inlineProfileHelp})
+            </span>
+          ) : null}
+        </p>
+        {!showInlineProfileHelp ? (
+          <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
+            {refreshHelp}
+          </p>
+        ) : null}
+      </div>
+      {canRefresh === false ? (
+        <Button
+          className="inline-flex items-center justify-center"
+          render={<Link href="/profile" />}
+          variant="outline"
+        >
+          Complete profile
+        </Button>
+      ) : (
+        <TopPicksRefreshButton />
+      )}
+    </div>
+  );
+}
+
 function TopPickCard({
   compact,
   onNotInterested,
@@ -161,7 +350,12 @@ function TopPickCard({
   const matchLabel = getTopPickMatchLabel(pick.score);
 
   return (
-    <div className={cn("space-y-3", compact && "rounded-md border border-border/60 p-3")}>
+    <div
+      className={cn(
+        "space-y-3",
+        compact && "rounded-md border border-border/60 p-3",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -169,7 +363,9 @@ function TopPickCard({
               <Sparkles className="h-3 w-3" />
               {matchLabel}
             </span>
-            <span className="text-xs text-muted-foreground">Pick #{pick.rank}</span>
+            <span className="text-xs text-muted-foreground">
+              Pick #{pick.rank}
+            </span>
           </div>
           {pick.matchReasons.length > 0 ? (
             <ul className="mt-2 flex flex-wrap gap-1.5">
@@ -246,7 +442,9 @@ export function TopPicksRefreshButton({
 
     setRefreshing(true);
     try {
-      const response = await fetch("/api/jobs/top-picks/refresh", { method: "POST" });
+      const response = await fetch("/api/jobs/top-picks/refresh", {
+        method: "POST",
+      });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error ?? "refresh failed");
@@ -266,7 +464,10 @@ export function TopPicksRefreshButton({
       }
 
       notify({
-        title: body?.status === "running" ? "Refresh already running" : "Generating top picks",
+        title:
+          body?.status === "running"
+            ? "Refresh already running"
+            : "Generating top picks",
         message: "This runs in the background, so you can keep browsing.",
         tone: "info",
       });
@@ -286,7 +487,8 @@ export function TopPicksRefreshButton({
       } else {
         notify({
           title: "Still generating",
-          message: "The refresh is taking longer than usual. The page will use cached picks until it finishes.",
+          message:
+            "The refresh is taking longer than usual. The page will use cached picks until it finishes.",
           tone: "info",
         });
       }
@@ -306,7 +508,7 @@ export function TopPicksRefreshButton({
     <Button
       className={cn(
         "inline-flex items-center justify-center gap-2",
-        compact ? "h-8 rounded-full px-3 text-xs" : undefined
+        compact ? "h-8 rounded-full px-3 text-xs" : undefined,
       )}
       disabled={disabled || refreshing}
       onClick={refresh}
@@ -318,46 +520,6 @@ export function TopPicksRefreshButton({
       {refreshing ? "Refreshing" : "Refresh picks"}
     </Button>
   );
-}
-
-export function TopPicksAutoRefresh({
-  enabled,
-  storageKey,
-}: {
-  enabled: boolean;
-  storageKey: string;
-}) {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!enabled) return;
-    const key = `applyoverflow.top-picks.refresh:${storageKey}`;
-    const previousAttempt = window.sessionStorage.getItem(key);
-    if (previousAttempt) {
-      const previousMs = Date.parse(previousAttempt);
-      if (
-        Number.isFinite(previousMs) &&
-        Date.now() - previousMs < TOP_PICKS_AUTO_REFRESH_RETRY_MS
-      ) {
-        return;
-      }
-    }
-
-    window.sessionStorage.setItem(key, new Date().toISOString());
-    fetch("/api/jobs/top-picks/refresh", { method: "POST" })
-      .then((response) => {
-        if (!response.ok) return null;
-        return waitForRefreshToSettle();
-      })
-      .then((status) => {
-        if (status) router.refresh();
-      })
-      .catch((error) => {
-        console.error("Top picks background refresh failed", error);
-      });
-  }, [enabled, router, storageKey]);
-
-  return null;
 }
 
 async function waitForRefreshToSettle() {

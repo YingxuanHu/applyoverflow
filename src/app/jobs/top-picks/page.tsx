@@ -1,19 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  ChevronDown,
-  SlidersHorizontal,
-  Sparkles,
-} from "lucide-react";
+import { ChevronDown, SlidersHorizontal, Sparkles } from "lucide-react";
 
 import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chips";
 import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import {
-  TopPicksAutoRefresh,
   TopPicksList,
-  TopPicksRefreshButton,
+  TopPicksRefreshCoordinator,
+  TopPicksStatusSummary,
 } from "@/components/jobs/top-picks";
 import { PaginationControls } from "@/components/navigation/pagination-controls";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
@@ -59,7 +55,7 @@ type ActiveFilterGroup = {
 
 function getSearchParam(
   params: Record<string, string | string[] | undefined>,
-  key: string
+  key: string,
 ) {
   const value = params[key];
   return Array.isArray(value) ? value[0] : value;
@@ -73,12 +69,14 @@ function parsePositiveInt(value?: string, fallback = 1) {
 
 function buildTopPicksHref(
   currentParams: Record<string, string | string[] | undefined>,
-  overrides: Record<string, string | undefined>
+  overrides: Record<string, string | undefined>,
 ) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(currentParams)) {
     if (key === "reset" || key === "minScore") continue;
-    const normalized = Array.isArray(value) ? value.filter(Boolean).join(",") : value;
+    const normalized = Array.isArray(value)
+      ? value.filter(Boolean).join(",")
+      : value;
     if (normalized) params.set(key, normalized);
   }
   for (const [key, value] of Object.entries(overrides)) {
@@ -93,26 +91,31 @@ function buildTopPicksHref(
 }
 
 function parseTopPicksFilters(
-  searchParams: Record<string, string | string[] | undefined>
+  searchParams: Record<string, string | string[] | undefined>,
 ): TopPicksFilters {
   const aliasField = getSearchParam(searchParams, "field");
   const aliasQuery = normalizeTextParam(getSearchParam(searchParams, "q"));
   const selectedSearchScope = normalizeSearchScopeParam(
-    getSearchParam(searchParams, "searchScope") ?? aliasField
+    getSearchParam(searchParams, "searchScope") ?? aliasField,
   );
-  const rawSearch = normalizeTextParam(getSearchParam(searchParams, "search")) ?? aliasQuery;
-  let titleSearch = normalizeTextParam(getSearchParam(searchParams, "titleSearch"));
-  let companySearch = normalizeTextParam(getSearchParam(searchParams, "companySearch"));
+  const rawSearch =
+    normalizeTextParam(getSearchParam(searchParams, "search")) ?? aliasQuery;
+  let titleSearch = normalizeTextParam(
+    getSearchParam(searchParams, "titleSearch"),
+  );
+  let companySearch = normalizeTextParam(
+    getSearchParam(searchParams, "companySearch"),
+  );
   let locationSearch = normalizeTextListParam(
     getMultiSearchParam(searchParams, "locationSearch") ??
-      getMultiSearchParam(searchParams, "location")
+      getMultiSearchParam(searchParams, "location"),
   );
 
   if (rawSearch && selectedSearchScope === "company") {
     companySearch = companySearch ?? rawSearch;
   } else if (rawSearch && selectedSearchScope === "location") {
     locationSearch = normalizeTextListParam(
-      [locationSearch, rawSearch].filter(Boolean).join(",")
+      [locationSearch, rawSearch].filter(Boolean).join(","),
     );
   } else if (rawSearch) {
     titleSearch = titleSearch ?? rawSearch;
@@ -128,17 +131,19 @@ function parseTopPicksFilters(
     titleSearch,
     companySearch,
     locationSearch,
-    workMode: normalizeFilterValueList(getMultiSearchParam(searchParams, "workMode")),
+    workMode: normalizeFilterValueList(
+      getMultiSearchParam(searchParams, "workMode"),
+    ),
     experienceLevel: normalizeFilterValueList(
       getMultiSearchParam(searchParams, "experienceLevel") ??
-        getMultiSearchParam(searchParams, "careerStage")
+        getMultiSearchParam(searchParams, "careerStage"),
     ),
   };
 }
 
 function getMultiSearchParam(
   searchParams: Record<string, string | string[] | undefined>,
-  key: string
+  key: string,
 ) {
   const value = searchParams[key];
   if (Array.isArray(value)) return value.filter(Boolean).join(",");
@@ -158,7 +163,12 @@ function normalizeFilterValueList(value?: string | null) {
 }
 
 function normalizeSearchScopeParam(value?: string): JobSearchScope {
-  if (value === "all" || value === "title" || value === "company" || value === "location") {
+  if (
+    value === "all" ||
+    value === "title" ||
+    value === "company" ||
+    value === "location"
+  ) {
     return value;
   }
   return "title";
@@ -175,7 +185,8 @@ function inferEffectiveSearchScope({
   selectedSearchScope: JobSearchScope;
   titleSearch?: string;
 }) {
-  if (selectedSearchScope && selectedSearchScope !== "all") return selectedSearchScope;
+  if (selectedSearchScope && selectedSearchScope !== "all")
+    return selectedSearchScope;
   if (companySearch) return "company";
   if (locationSearch) return "location";
   if (titleSearch) return "title";
@@ -183,19 +194,23 @@ function inferEffectiveSearchScope({
 }
 
 function hasActiveSearch(filters: TopPicksFilters) {
-  return Boolean(filters.titleSearch || filters.companySearch || filters.locationSearch);
+  return Boolean(
+    filters.titleSearch || filters.companySearch || filters.locationSearch,
+  );
 }
 
 function hasSearchParams(params: URLSearchParams) {
   return Boolean(
     normalizeTextParam(params.get("search") ?? undefined) ||
-      normalizeTextParam(params.get("titleSearch") ?? undefined) ||
-      normalizeTextParam(params.get("companySearch") ?? undefined) ||
-      normalizeTextParam(params.get("locationSearch") ?? undefined)
+    normalizeTextParam(params.get("titleSearch") ?? undefined) ||
+    normalizeTextParam(params.get("companySearch") ?? undefined) ||
+    normalizeTextParam(params.get("locationSearch") ?? undefined),
   );
 }
 
-function buildSearchFormInitialValues(filters: TopPicksFilters): Record<JobSearchScope, string> {
+function buildSearchFormInitialValues(
+  filters: TopPicksFilters,
+): Record<JobSearchScope, string> {
   return {
     all: "",
     title: filters.titleSearch ?? "",
@@ -204,10 +219,10 @@ function buildSearchFormInitialValues(filters: TopPicksFilters): Record<JobSearc
   };
 }
 
-function buildHiddenFields(entries: Array<readonly [name: string, value: string | undefined]>): HiddenField[] {
-  return entries.flatMap(([name, value]) =>
-    value ? [{ name, value }] : []
-  );
+function buildHiddenFields(
+  entries: Array<readonly [name: string, value: string | undefined]>,
+): HiddenField[] {
+  return entries.flatMap(([name, value]) => (value ? [{ name, value }] : []));
 }
 
 function buildSearchFormHiddenFields(filters: TopPicksFilters) {
@@ -241,7 +256,8 @@ function getRefreshedLabel(status: {
 
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  if (refreshedAt.toDateString() === yesterday.toDateString()) return "Updated yesterday";
+  if (refreshedAt.toDateString() === yesterday.toDateString())
+    return "Updated yesterday";
 
   return `Updated ${formatPostedAge(status.lastComputedAt)}`;
 }
@@ -263,8 +279,10 @@ function getRefreshHelpText(status: {
   validCount: number;
 }) {
   if (status.profileReady === false || status.canRefresh === false) {
-    return status.profileReadinessMessage ??
-      "Add target roles, recent experience, skills, or saved jobs in your profile before generating Top Picks.";
+    return (
+      status.profileReadinessMessage ??
+      "Add target roles, recent experience, skills, or saved jobs in your profile before generating Top Picks."
+    );
   }
   if (status.refreshing) {
     return "A background refresh is running. Cached picks stay visible while newer matches are prepared.";
@@ -281,13 +299,16 @@ function getRefreshHelpText(status: {
   return "No cached recommendations matched the current filters.";
 }
 
-function getTopPicksEmptyState(status: {
-  canRefresh?: boolean;
-  missingProfileSignals?: string[];
-  profileReady?: boolean;
-  profileReadinessMessage?: string;
-  refreshing?: boolean;
-}, hasScopedResults: boolean) {
+function getTopPicksEmptyState(
+  status: {
+    canRefresh?: boolean;
+    missingProfileSignals?: string[];
+    profileReady?: boolean;
+    profileReadinessMessage?: string;
+    refreshing?: boolean;
+  },
+  hasScopedResults: boolean,
+) {
   if (status.profileReady === false || status.canRefresh === false) {
     const missing = status.missingProfileSignals?.length
       ? ` Missing: ${status.missingProfileSignals.join(", ")}.`
@@ -307,7 +328,8 @@ function getTopPicksEmptyState(status: {
   if (hasScopedResults) {
     return {
       title: "No picks match these filters",
-      message: "Try clearing a filter, lowering the minimum score, or browsing all jobs.",
+      message:
+        "Try clearing a filter, lowering the minimum score, or browsing all jobs.",
     };
   }
 
@@ -321,13 +343,13 @@ function getTopPicksEmptyState(status: {
 
 function buildActiveFilterGroups(
   filters: TopPicksFilters,
-  currentParams: Record<string, string | string[] | undefined>
+  currentParams: Record<string, string | string[] | undefined>,
 ) {
   const groups: ActiveFilterGroup[] = [];
   const addGroup = (
     key: string,
     label: string,
-    items: ActiveFilterGroup["items"]
+    items: ActiveFilterGroup["items"],
   ) => {
     if (items.length > 0) groups.push({ key, label, items });
   };
@@ -371,8 +393,12 @@ function buildActiveFilterGroups(
       splitFilterValues(filters.locationSearch).map((location) => ({
         key: `locationSearch:${location.toLowerCase()}`,
         label: location,
-        href: buildRemoveFilterValueHref(currentParams, "locationSearch", location),
-      }))
+        href: buildRemoveFilterValueHref(
+          currentParams,
+          "locationSearch",
+          location,
+        ),
+      })),
     );
   }
 
@@ -382,7 +408,7 @@ function buildActiveFilterGroups(
     "workMode",
     filters.workMode,
     WORK_MODE_OPTIONS,
-    "Work mode"
+    "Work mode",
   );
   addSelectedOptionGroup(
     groups,
@@ -390,7 +416,7 @@ function buildActiveFilterGroups(
     "experienceLevel",
     filters.experienceLevel,
     EXPERIENCE_LEVEL_GROUP_OPTIONS,
-    "Experience"
+    "Experience",
   );
 
   return groups;
@@ -402,14 +428,17 @@ function addSelectedOptionGroup(
   param: string,
   current: string | undefined,
   options: Array<{ label: string; value: string }>,
-  label: string
+  label: string,
 ) {
   const remaining = new Set(splitFilterValues(current));
   const items: ActiveFilterGroup["items"] = [];
 
   for (const option of options) {
     const optionValues = splitFilterValues(option.value);
-    if (optionValues.length === 0 || !optionValues.every((value) => remaining.has(value))) {
+    if (
+      optionValues.length === 0 ||
+      !optionValues.every((value) => remaining.has(value))
+    ) {
       continue;
     }
     items.push({
@@ -434,9 +463,11 @@ function addSelectedOptionGroup(
 function buildRemoveFilterValueHref(
   currentParams: Record<string, string | string[] | undefined>,
   param: string,
-  value: string
+  value: string,
 ) {
-  const removeValues = new Set(splitFilterValues(value).map((entry) => entry.toLowerCase()));
+  const removeValues = new Set(
+    splitFilterValues(value).map((entry) => entry.toLowerCase()),
+  );
   const rawValue = getMultiSearchParam(currentParams, param);
   const nextValue = splitFilterValues(rawValue)
     .filter((entry) => !removeValues.has(entry.toLowerCase()))
@@ -448,8 +479,12 @@ function buildRemoveFilterValueHref(
 
   if (param === "locationSearch") {
     overrides.location = undefined;
-    const searchScope = normalizeSearchScopeParam(getSearchParam(currentParams, "searchScope"));
-    const aliasScope = normalizeSearchScopeParam(getSearchParam(currentParams, "field"));
+    const searchScope = normalizeSearchScopeParam(
+      getSearchParam(currentParams, "searchScope"),
+    );
+    const aliasScope = normalizeSearchScopeParam(
+      getSearchParam(currentParams, "field"),
+    );
     if (searchScope === "location" || aliasScope === "location") {
       overrides.field = undefined;
       overrides.q = undefined;
@@ -485,23 +520,35 @@ export default async function JobsTopPicksPage({
     redirect(
       buildTopPicksHref(resolvedSearchParams, {
         page: totalPages > 1 ? String(totalPages) : undefined,
-      })
+      }),
     );
   }
-  const activeFilterGroups = buildActiveFilterGroups(filters, resolvedSearchParams);
+  const activeFilterGroups = buildActiveFilterGroups(
+    filters,
+    resolvedSearchParams,
+  );
   const activeFilterCount = activeFilterGroups.reduce(
     (count, group) => count + group.items.length,
-    0
+    0,
   );
   const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
+  const shouldLoadInitialPicks =
+    result.total === 0 &&
+    result.status.validCount === 0 &&
+    result.status.canRefresh !== false &&
+    result.status.profileReady !== false;
+  const shouldRefreshTopPicks =
+    result.status.canRefresh !== false &&
+    result.status.profileReady !== false &&
+    (result.status.stale || result.status.validCount === 0);
   const rankedPickLabel =
     result.total === 0 && result.status.profileReady === false
       ? "Complete your profile"
       : result.total === 0
-      ? "No ranked picks"
-      : result.total === 1
-        ? "1 ranked pick"
-        : `${result.total.toLocaleString()} ranked picks`;
+        ? "No ranked picks"
+        : result.total === 1
+          ? "1 ranked pick"
+          : `${result.total.toLocaleString()} ranked picks`;
   const refreshedLabel = getRefreshedLabel(result.status);
   const refreshHelp = getRefreshHelpText(result.status);
   const showInlineProfileHelp =
@@ -519,66 +566,44 @@ export default async function JobsTopPicksPage({
   const filterPanelHiddenFields = buildFilterPanelHiddenFields(filters);
 
   return (
-    <div className="app-page space-y-5">
-      <ScrollPositionMemory
-        defaultScrollTop="top"
-        restoreSavedPosition={false}
-        storageKeyPrefix="autoapplication.top-picks.scroll"
-      />
-      <TopPicksAutoRefresh
-        enabled={
-          result.status.canRefresh !== false &&
-          result.status.profileReady !== false &&
-          (result.status.stale || result.status.validCount === 0)
-        }
-        storageKey={`page:${result.status.profileVersion ?? "new"}:${result.status.lastComputedAt ?? "none"}`}
-      />
-      <header className="page-header">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            <h1 className="page-title">Top picks for you</h1>
-          </div>
-          <p className="page-description">
-            Ranked from your profile, preferences, skills, location, salary target,
-            and recent job activity.
-          </p>
-        </div>
-      </header>
-
-      <JobsSectionTabs active="top-picks" />
-
-      <section className="surface-panel p-3.5 sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
-                {rankedPickLabel}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
-                {refreshedLabel}
-                {inlineProfileHelp ? (
-                  <span className="text-muted-foreground/90"> ({inlineProfileHelp})</span>
-                ) : null}
-              </p>
-              {!showInlineProfileHelp ? (
-                <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
-                  {refreshHelp}
-                </p>
-              ) : null}
+    <TopPicksRefreshCoordinator
+      initialLoad={shouldLoadInitialPicks}
+      refreshEnabled={shouldRefreshTopPicks}
+      storageKey={`page:${result.status.profileVersion ?? "new"}:${result.status.lastComputedAt ?? "none"}`}
+    >
+      <div className="app-page space-y-5">
+        <ScrollPositionMemory
+          defaultScrollTop="top"
+          restoreSavedPosition={false}
+          storageKeyPrefix="autoapplication.top-picks.scroll"
+        />
+        <header className="page-header">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h1 className="page-title">Top picks for you</h1>
             </div>
-            {result.status.canRefresh === false ||
-            result.status.profileReady === false ? (
-              <Button
-                className="inline-flex items-center justify-center"
-                render={<Link href="/profile" />}
-                variant="outline"
-              >
-                Complete profile
-              </Button>
-            ) : (
-              <TopPicksRefreshButton />
-            )}
+            <p className="page-description">
+              Ranked from your profile, preferences, skills, location, salary
+              target, and recent job activity.
+            </p>
           </div>
+        </header>
+
+        <JobsSectionTabs active="top-picks" />
+
+        <section className="surface-panel p-3.5 sm:p-6">
+          <TopPicksStatusSummary
+            canRefresh={
+              result.status.canRefresh !== false &&
+              result.status.profileReady !== false
+            }
+            inlineProfileHelp={inlineProfileHelp}
+            rankedPickLabel={rankedPickLabel}
+            refreshedLabel={refreshedLabel}
+            refreshHelp={refreshHelp}
+            showInlineProfileHelp={showInlineProfileHelp}
+          />
 
           <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
             <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
@@ -590,7 +615,10 @@ export default async function JobsTopPicksPage({
               />
 
               <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
-                <details className="group static sm:relative" name="top-picks-toolbar-dropdown">
+                <details
+                  className="group static sm:relative"
+                  name="top-picks-toolbar-dropdown"
+                >
                   <summary className="inline-flex h-10 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
                     <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
                     Filters
@@ -603,7 +631,10 @@ export default async function JobsTopPicksPage({
                   </summary>
 
                   <div className="fixed inset-x-2 bottom-3 z-40 flex max-h-[calc(100dvh-1.5rem)] origin-bottom overflow-hidden rounded-[20px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+0.6rem)] sm:max-h-[min(76dvh,26rem)] sm:w-[min(32rem,calc(100vw-2rem))] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
-                    <form className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,26rem)]" method="get">
+                    <form
+                      className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,26rem)]"
+                      method="get"
+                    >
                       {filterPanelHiddenFields.map((field) => (
                         <input
                           key={`${field.name}:${field.value}`}
@@ -616,9 +647,12 @@ export default async function JobsTopPicksPage({
                       <div className="shrink-0 border-b border-border/60 px-3.5 py-3 sm:px-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium text-foreground">Refine picks</p>
+                            <p className="text-sm font-medium text-foreground">
+                              Refine picks
+                            </p>
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              Filters narrow the cached recommendations on this page.
+                              Filters narrow the cached recommendations on this
+                              page.
                             </p>
                           </div>
                           {activeFilterCount > 0 ? (
@@ -649,7 +683,11 @@ export default async function JobsTopPicksPage({
                       </div>
 
                       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-muted/45 px-3.5 py-3 sm:px-4">
-                        <Button className="h-9 px-4 text-sm" size="sm" type="submit">
+                        <Button
+                          className="h-9 px-4 text-sm"
+                          size="sm"
+                          type="submit"
+                        >
                           Apply filters
                         </Button>
                         <Button
@@ -684,9 +722,9 @@ export default async function JobsTopPicksPage({
               />
             ) : null}
           </div>
-      </section>
+        </section>
 
-      <section>
+        <section>
           {showPagination ? (
             <PaginationControls
               ariaLabel="Top picks top pagination"
@@ -725,7 +763,8 @@ export default async function JobsTopPicksPage({
               totalPages={totalPages}
             />
           ) : null}
-      </section>
-    </div>
+        </section>
+      </div>
+    </TopPicksRefreshCoordinator>
   );
 }

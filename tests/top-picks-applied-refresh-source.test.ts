@@ -11,8 +11,12 @@ test("top picks refreshes often and keeps applied jobs visible", () => {
   const querySource = readRepoFile("src/lib/queries/top-picks.ts");
   const serviceSource = readRepoFile("src/lib/top-picks/service.ts");
   const trackerSource = readRepoFile("src/lib/queries/tracker.ts");
-  const markAppliedSource = readRepoFile("src/app/api/jobs/[id]/mark-applied/route.ts");
-  const topPicksComponentSource = readRepoFile("src/components/jobs/top-picks.tsx");
+  const markAppliedSource = readRepoFile(
+    "src/app/api/jobs/[id]/mark-applied/route.ts",
+  );
+  const topPicksComponentSource = readRepoFile(
+    "src/components/jobs/top-picks.tsx",
+  );
   const topPicksPageSource = readRepoFile("src/app/jobs/top-picks/page.tsx");
 
   assert.match(configSource, /TOP_PICKS_REFRESH_MAX_AGE_MINUTES[\s\S]*\?\? 60/);
@@ -24,9 +28,18 @@ test("top picks refreshes often and keeps applied jobs visible", () => {
   assert.match(trackerSource, /reason: "application_status_changed"/);
   assert.match(trackerSource, /enqueueDurableTopPicksRefresh/);
   assert.match(markAppliedSource, /"\/jobs\/top-picks"/);
-  assert.match(topPicksComponentSource, /TOP_PICKS_AUTO_REFRESH_RETRY_MS = 15 \* 60_000/);
+  assert.match(
+    topPicksComponentSource,
+    /TOP_PICKS_AUTO_REFRESH_RETRY_MS = 15 \* 60_000/,
+  );
+  assert.match(topPicksComponentSource, /TopPicksRefreshCoordinator/);
+  assert.match(topPicksComponentSource, /Loading your picks/);
+  assert.match(topPicksComponentSource, /Finding your top matches/);
   assert.match(topPicksComponentSource, /getTopPickMatchLabel/);
   assert.doesNotMatch(topPicksComponentSource, /% match/);
+  assert.match(topPicksPageSource, /shouldLoadInitialPicks/);
+  assert.match(topPicksPageSource, /TopPicksStatusSummary/);
+  assert.doesNotMatch(topPicksPageSource, /TopPicksAutoRefresh/);
   assert.match(topPicksPageSource, /<JobsSearchForm/);
   assert.match(topPicksPageSource, /<JobsActiveFilterChips/);
 });
