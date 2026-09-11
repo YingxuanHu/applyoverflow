@@ -46,8 +46,9 @@ test("job detail links preserve safe jobs and top-picks return state", () => {
   );
 });
 
-test("jobs and top picks lists pass source href through shared job cards", () => {
+test("jobs and top picks lists use the master-detail feed with preserved full-page navigation", () => {
   const cardSource = readRepoFile("src/components/jobs/job-summary-card.tsx");
+  const masterDetailSource = readRepoFile("src/components/jobs/job-feed-master-detail.tsx");
   const jobsFeedSource = readRepoFile("src/components/jobs/jobs-feed-list.tsx");
   const topPicksSource = readRepoFile("src/components/jobs/top-picks.tsx");
   const detailPageSource = readRepoFile("src/app/jobs/[id]/page.tsx");
@@ -65,17 +66,21 @@ test("jobs and top picks lists pass source href through shared job cards", () =>
   assert.match(cardSource, /buildJobDetailHref\(job\.id, sourceHref, job\.id\)/);
   assert.match(jobsFeedSource, /usePathname/);
   assert.match(jobsFeedSource, /sourceHref=\{sourceHref\}/);
-  assert.match(jobsFeedSource, /scrollMemoryKeyPrefix="autoapplication\.jobs\.scroll"/);
+  assert.match(jobsFeedSource, /JobFeedMasterDetail/);
   assert.match(topPicksSource, /usePathname/);
   assert.match(topPicksSource, /sourceHref=\{sourceHref\}/);
-  assert.match(topPicksSource, /scrollMemoryKeyPrefix="autoapplication\.top-picks\.scroll"/);
+  assert.match(topPicksSource, /JobFeedMasterDetail/);
+  assert.match(masterDetailSource, /entries\[0\]\?\.id/);
+  assert.match(masterDetailSource, /Job description/);
+  assert.match(masterDetailSource, /Posting/);
+  assert.match(masterDetailSource, /iconOnly/);
+  assert.match(masterDetailSource, /buildJobDetailHref\(job\.id, sourceHref, job\.id\)/);
   assert.match(detailPageSource, /getSafeJobsReturnHref\(fromParam\) \?\? "\/jobs"/);
   assert.match(detailPageSource, /scroll=\{false\}/);
   assert.match(detailPageSource, /<JobDetailScrollReset jobId=\{job\.id\}/);
   assert.match(detailScrollResetSource, /\.app-scroll-root/);
   assert.match(detailScrollResetSource, /scrollTo\(\{ top: 0/);
   assert.match(topPicksPageSource, /ScrollPositionMemory/);
-  assert.match(jobsFeedSource, /scrollMemoryKeyPrefix="autoapplication\.jobs\.scroll"/);
   assert.match(readRepoFile("src/app/jobs/page.tsx"), /restoreSavedPosition=\{false\}/);
   assert.match(readRepoFile("src/app/jobs/page.tsx"), /defaultScrollTop="top"/);
   assert.match(readRepoFile("src/app/jobs/top-picks/page.tsx"), /restoreSavedPosition=\{false\}/);

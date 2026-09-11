@@ -11,10 +11,14 @@ import {
 } from "react";
 import { LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
 
-import { JobCardActions } from "@/components/jobs/job-card-actions";
-import { JobSummaryCard } from "@/components/jobs/job-summary-card";
+import { JobFeedMasterDetail } from "@/components/jobs/job-feed-master-detail";
 import { Button } from "@/components/ui/button";
 import { useNotifications } from "@/components/ui/notification-provider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { TopPickCardData } from "@/lib/queries/top-picks";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +45,6 @@ type TopPicksEmptyState = {
 type TopPicksListProps = {
   initialPicks: TopPickCardData[];
   referenceNow: string;
-  compact?: boolean;
   emptyState?: TopPicksEmptyState;
 };
 
@@ -139,7 +142,6 @@ export function TopPicksList({
   emptyState,
   initialPicks,
   referenceNow,
-  compact = false,
 }: TopPicksListProps) {
   const { notify } = useNotifications();
   const { isInitialLoad } = useTopPicksRefreshState();
@@ -240,21 +242,53 @@ export function TopPicksList({
   }
 
   return (
-    <ul className={compact ? "grid gap-2 lg:grid-cols-2" : "object-list"}>
-      {picks.map((pick) => (
-        <li className={compact ? "" : "object-row"} key={pick.id}>
-          <TopPickCard
-            compact={compact}
-            onNotInterested={() => markNotInterested(pick.job.id)}
-            onSavedChange={(saved) => handleSavedChange(pick.job.id, saved)}
-            pendingFeedback={pendingFeedbackJobId === pick.job.id}
-            pick={pick}
-            referenceNow={referenceNow}
-            sourceHref={sourceHref}
+    <JobFeedMasterDetail
+      entries={picks.map((pick) => ({
+        id: pick.id,
+        job: pick.job,
+        listMeta: (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+            <Sparkles className="h-3.5 w-3.5" />
+            {getTopPickMatchLabel(pick.score)}
+          </span>
+        ),
+        detailMeta: (
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/[0.08] px-2.5 py-1 text-xs font-medium text-primary">
+                <Sparkles className="h-3.5 w-3.5" />
+                {getTopPickMatchLabel(pick.score)}
+              </span>
+              <span className="text-xs text-muted-foreground">Pick #{pick.rank}</span>
+            </div>
+            {pick.matchReasons.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {pick.matchReasons.slice(0, 3).map((reason) => (
+                  <span
+                    className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
+                    key={reason}
+                  >
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {pick.concerns.length > 0 ? (
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{pick.concerns[0]}</p>
+            ) : null}
+          </div>
+        ),
+        detailActions: (
+          <TopPickDismissButton
+            disabled={pendingFeedbackJobId === pick.job.id}
+            onDismiss={() => markNotInterested(pick.job.id)}
           />
-        </li>
-      ))}
-    </ul>
+        ),
+      }))}
+      onSavedChange={handleSavedChange}
+      referenceNow={referenceNow}
+      sourceHref={sourceHref}
+    />
   );
 }
 
@@ -330,92 +364,32 @@ export function TopPicksStatusSummary({
   );
 }
 
-function TopPickCard({
-  compact,
-  onNotInterested,
-  onSavedChange,
-  pendingFeedback,
-  pick,
-  referenceNow,
-  sourceHref,
+function TopPickDismissButton({
+  disabled,
+  onDismiss,
 }: {
-  compact?: boolean;
-  onNotInterested: () => void;
-  onSavedChange: (saved: boolean) => void;
-  pendingFeedback: boolean;
-  pick: TopPickCardData;
-  referenceNow: string;
-  sourceHref?: string;
+  disabled: boolean;
+  onDismiss: () => void;
 }) {
-  const matchLabel = getTopPickMatchLabel(pick.score);
-
   return (
-    <div
-      className={cn(
-        "space-y-3",
-        compact && "rounded-md border border-border/60 p-3",
-      )}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/[0.08] px-2 py-0.5 text-xs font-medium text-primary">
-              <Sparkles className="h-3 w-3" />
-              {matchLabel}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Pick #{pick.rank}
-            </span>
-          </div>
-          {pick.matchReasons.length > 0 ? (
-            <ul className="mt-2 flex flex-wrap gap-1.5">
-              {pick.matchReasons.slice(0, compact ? 2 : 3).map((reason) => (
-                <li
-                  className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground"
-                  key={reason}
-                >
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-        {pick.concerns.length > 0 && !compact ? (
-          <p className="max-w-sm text-xs leading-5 text-muted-foreground">
-            {pick.concerns[0]}
-          </p>
-        ) : null}
-      </div>
-
-      <JobSummaryCard
-        footerActions={
-          <div className="grid gap-1.5">
-            <JobCardActions
-              align="end"
-              compact
-              initialSaved={pick.job.isSaved}
-              jobId={pick.job.id}
-              onSavedChange={onSavedChange}
-            />
-            <Button
-              className="h-8 rounded-full px-3 text-[13px] font-medium"
-              disabled={pendingFeedback}
-              onClick={onNotInterested}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <X className="h-3.5 w-3.5" />
-              Not interested
-            </Button>
-          </div>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label="Not interested"
+            className="size-10 rounded-[12px]"
+            disabled={disabled}
+            onClick={onDismiss}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         }
-        job={pick.job}
-        referenceNow={referenceNow}
-        scrollMemoryKeyPrefix="autoapplication.top-picks.scroll"
-        sourceHref={sourceHref}
       />
-    </div>
+      <TooltipContent>Not interested</TooltipContent>
+    </Tooltip>
   );
 }
 

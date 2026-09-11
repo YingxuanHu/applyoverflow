@@ -4,8 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import { JobCardActions } from "@/components/jobs/job-card-actions";
-import { JobSummaryCard } from "@/components/jobs/job-summary-card";
+import { JobFeedMasterDetail } from "@/components/jobs/job-feed-master-detail";
 import type { JobCardData } from "@/types";
 
 export function JobsFeedList({
@@ -46,26 +45,11 @@ export function JobsFeedList({
   }
 
   return (
-    <ul className="object-list">
-      {jobs.map((job) => (
-        <li className="object-row" key={job.id}>
-          <JobSummaryCard
-            footerActions={
-              <JobCardActions
-                align="end"
-                compact
-                initialSaved={job.isSaved}
-                jobId={job.id}
-                onSavedChange={(saved) => handleSavedChange(job.id, saved)}
-              />
-            }
-            job={job}
-            referenceNow={referenceNow}
-            scrollMemoryKeyPrefix="autoapplication.jobs.scroll"
-            sourceHref={sourceHref}
-          />
-        </li>
-      ))}
-    </ul>
+    <JobFeedMasterDetail
+      entries={jobs.map((job) => ({ id: job.id, job }))}
+      onSavedChange={handleSavedChange}
+      referenceNow={referenceNow}
+      sourceHref={sourceHref}
+    />
   );
 }

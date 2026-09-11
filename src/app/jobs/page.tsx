@@ -18,7 +18,6 @@ import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { JobsSavedFiltersControl } from "@/components/jobs/jobs-saved-filters-control";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
-import { NaturalLanguageJobSearch } from "@/components/jobs/natural-language-job-search";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
 import { PaginationControls } from "@/components/navigation/pagination-controls";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
@@ -256,8 +255,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </div>
 
           <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
-            <NaturalLanguageJobSearch />
-
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">

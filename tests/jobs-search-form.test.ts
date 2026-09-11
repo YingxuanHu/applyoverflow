@@ -114,7 +114,18 @@ test("job search keeps the visible draft when switching search scopes", () => {
 
   assert.match(source, /const \[draftValue, setDraftValue\]/);
   assert.match(source, /function handleScopeChange/);
-  assert.match(source, /currentDraft\.trim\(\) \? currentDraft : committedValues\[nextScope\]/);
-  assert.match(source, /onChange=\{\(event\) => setDraftValue\(event\.target\.value\)\}/);
+  assert.match(source, /return nextScope === "ai" \? "" : committedValues\[nextScope\]/);
+  assert.match(source, /setDraftValue\(event\.target\.value\)/);
   assert.match(source, /value=\{draftValue\}/);
+});
+
+test("job search exposes AI parsing and trailing voice input in the shared search control", () => {
+  const source = readRepoFile("src/components/jobs/jobs-search-form.tsx");
+
+  assert.match(source, /\{ label: "AI search", value: "ai" \}/);
+  assert.match(source, /\/api\/jobs\/natural-language-search/);
+  assert.match(source, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params,/);
+  assert.match(source, /SpeechRecognition/);
+  assert.match(source, /webkitSpeechRecognition/);
+  assert.match(source, /Use voice input/);
 });

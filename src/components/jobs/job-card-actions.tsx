@@ -6,6 +6,11 @@ import { BookmarkCheck, BookmarkPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { useNotifications } from "@/components/ui/notification-provider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type JobCardActionsProps = {
@@ -14,6 +19,7 @@ type JobCardActionsProps = {
   align?: "start" | "end";
   onSavedChange?: (saved: boolean) => void;
   compact?: boolean;
+  iconOnly?: boolean;
 };
 
 export function JobCardActions({
@@ -22,6 +28,7 @@ export function JobCardActions({
   align = "start",
   onSavedChange,
   compact = false,
+  iconOnly = false,
 }: JobCardActionsProps) {
   const { notify } = useNotifications();
   const [isSaved, setIsSaved] = useState(initialSaved);
@@ -103,31 +110,58 @@ export function JobCardActions({
             : "items-start"
         )}
       >
-        <Button
-          aria-label={isSaved ? "Remove from wishlist" : "Add to wishlist"}
-          className={cn(
-            "gap-1.5",
-            compact &&
-              !isSaved &&
-              "h-10 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-8",
-            compact && isSaved && "h-10 rounded-full px-3 text-[13px] font-medium sm:h-8"
-          )}
-          disabled={isSaving}
-          onClick={handleSaveClick}
-          size="sm"
-          title={isSaved ? "Remove from wishlist" : "Add to wishlist"}
-          type="button"
-          // When the job is already saved, the next click REMOVES it —
-          // surface that destructive intent in red.
-          variant={isSaved ? "destructive" : compact ? "ghost" : "ghost"}
-        >
-          {isSaved ? (
-            <BookmarkCheck className="h-3.5 w-3.5" />
-          ) : (
-            <BookmarkPlus className="h-3.5 w-3.5" />
-          )}
-          <span>{isSaved ? "Remove from wishlist" : "Add to wishlist"}</span>
-        </Button>
+        {iconOnly ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={isSaved ? "Remove from wishlist" : "Add to wishlist"}
+                  className="size-10 rounded-[12px]"
+                  disabled={isSaving}
+                  onClick={handleSaveClick}
+                  size="icon"
+                  type="button"
+                  variant={isSaved ? "destructive" : "outline"}
+                >
+                  {isSaved ? (
+                    <BookmarkCheck className="h-4 w-4" />
+                  ) : (
+                    <BookmarkPlus className="h-4 w-4" />
+                  )}
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {isSaved ? "Remove from wishlist" : "Add to wishlist"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Button
+            aria-label={isSaved ? "Remove from wishlist" : "Add to wishlist"}
+            className={cn(
+              "gap-1.5",
+              compact &&
+                !isSaved &&
+                "h-10 rounded-full border border-border/60 bg-background/75 px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground sm:h-8",
+              compact && isSaved && "h-10 rounded-full px-3 text-[13px] font-medium sm:h-8"
+            )}
+            disabled={isSaving}
+            onClick={handleSaveClick}
+            size="sm"
+            title={isSaved ? "Remove from wishlist" : "Add to wishlist"}
+            type="button"
+            // When the job is already saved, the next click REMOVES it —
+            // surface that destructive intent in red.
+            variant={isSaved ? "destructive" : compact ? "ghost" : "ghost"}
+          >
+            {isSaved ? (
+              <BookmarkCheck className="h-3.5 w-3.5" />
+            ) : (
+              <BookmarkPlus className="h-3.5 w-3.5" />
+            )}
+            <span>{isSaved ? "Remove from wishlist" : "Add to wishlist"}</span>
+          </Button>
+        )}
         {error ? (
           <p aria-live="polite" className="text-xs text-destructive">
             {error}

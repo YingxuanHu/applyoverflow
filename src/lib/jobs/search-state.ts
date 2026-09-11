@@ -195,7 +195,8 @@ export function normalizeJobsStateQuery(
 
 export function mergeNaturalLanguageJobsSearch(
   currentSearch: string | URLSearchParams,
-  interpretedParams: Record<string, string | undefined>
+  interpretedParams: Record<string, string | undefined>,
+  options: { basePath?: "/jobs" | "/jobs/top-picks" } = {}
 ) {
   const current = toURLSearchParams(currentSearch);
   const interpreted = cleanInterpretedParams(interpretedParams);
@@ -225,7 +226,8 @@ export function mergeNaturalLanguageJobsSearch(
 
   current.delete("page");
   const normalized = normalizeJobsStateQuery(current, { includePage: false });
-  return normalized ? `/jobs?${normalized}` : "/jobs";
+  const basePath = options.basePath ?? "/jobs";
+  return normalized ? `${basePath}?${normalized}` : basePath;
 }
 
 function cleanInterpretedParams(input: Record<string, string | undefined>) {

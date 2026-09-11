@@ -19,7 +19,6 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   const loadingPopupSource = readRepoFile("src/components/jobs/jobs-loading-popup.tsx");
   const appShellSource = readRepoFile("src/components/layout/app-shell.tsx");
   const jobsLoadingSource = readRepoFile("src/app/jobs/loading.tsx");
-  const naturalLanguageSearchSource = readRepoFile("src/components/jobs/natural-language-job-search.tsx");
   const searchParamMemorySource = readRepoFile("src/components/navigation/search-param-memory.tsx");
   const savedFiltersControlSource = readRepoFile("src/components/jobs/jobs-saved-filters-control.tsx");
   const paginationSource = readRepoFile("src/components/navigation/pagination-controls.tsx");
@@ -118,8 +117,9 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(pendingBoundarySource, /pendingNavigation\?\.originHref === currentUrl/);
   assert.match(appShellSource, /<JobsNavigationPendingBoundary>/);
   assert.match(jobsLoadingSource, /<JobsLoadingPopup \/>/);
-  assert.match(naturalLanguageSearchSource, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params\)/);
-  assert.match(naturalLanguageSearchSource, /showJobsLoadingPopup\(href\)/);
+  assert.match(searchFormSource, /mergeNaturalLanguageJobsSearch\(searchParams, searchResult\.params,/);
+  assert.match(searchFormSource, /showJobsLoadingPopup\(href\)/);
+  assert.match(searchFormSource, /AI search/);
   assert.match(loadingPopupSource, /fixed left-1\/2 top-5 z-50/);
   assert.match(loadingPopupSource, /-translate-x-1\/2/);
   assert.match(loadingPopupSource, /LoadingSpinner/);
@@ -183,7 +183,7 @@ test("jobs filters support scoped search, removable chips, compact filters, and 
   assert.match(searchFormSource, /name: "searchScope"/);
   assert.match(searchFormSource, /filterFormId\?: string/);
   assert.match(searchFormSource, /form=\{filterFormId\}/);
-  assert.match(searchFormSource, /action="\/jobs"/);
+  assert.match(searchFormSource, /action=\{basePath\}/);
   assert.match(pageSource, /const JOBS_FILTER_FORM_ID = "jobs-filter-form"/);
   assert.match(pageSource, /filterFormId=\{JOBS_FILTER_FORM_ID\}/);
   assert.match(pageSource, /id=\{JOBS_FILTER_FORM_ID\}/);

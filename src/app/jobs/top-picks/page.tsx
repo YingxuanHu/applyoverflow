@@ -608,6 +608,7 @@ export default async function JobsTopPicksPage({
           <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
             <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
               <JobsSearchForm
+                basePath="/jobs/top-picks"
                 hiddenFields={searchFormHiddenFields}
                 initialScope={filters.searchScope}
                 initialValues={searchFormInitialValues}

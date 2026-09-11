@@ -77,6 +77,17 @@ test("guided job search preserves unrelated saved filters", () => {
   );
 });
 
+test("guided job search can retain the Top Picks route", () => {
+  assert.equal(
+    mergeNaturalLanguageJobsSearch(
+      "locationSearch=Toronto&sortBy=newest",
+      { jobFunction: "Software Engineering" },
+      { basePath: "/jobs/top-picks" }
+    ),
+    "/jobs/top-picks?searchScope=location&locationSearch=Toronto&jobFunction=Software+Engineering&sortBy=newest"
+  );
+});
+
 test("guided job search keeps both salary bounds when it replaces a salary filter", () => {
   assert.equal(
     mergeNaturalLanguageJobsSearch(

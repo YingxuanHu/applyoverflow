@@ -7,12 +7,15 @@ function readRepoFile(path: string) {
 }
 
 describe("natural language job search integration", () => {
-  it("keeps natural language search as an interpreted handoff to normal jobs filters", () => {
+  it("keeps AI search as an interpreted handoff inside the standard jobs search bar", () => {
     const pageSource = readRepoFile("src/app/jobs/page.tsx");
-    const componentSource = readRepoFile("src/components/jobs/natural-language-job-search.tsx");
+    const topPicksPageSource = readRepoFile("src/app/jobs/top-picks/page.tsx");
+    const componentSource = readRepoFile("src/components/jobs/jobs-search-form.tsx");
     const routeSource = readRepoFile("src/app/api/jobs/natural-language-search/route.ts");
 
-    assert.match(pageSource, /NaturalLanguageJobSearch/);
+    assert.match(pageSource, /<JobsSearchForm/);
+    assert.doesNotMatch(pageSource, /NaturalLanguageJobSearch/);
+    assert.match(topPicksPageSource, /basePath="\/jobs\/top-picks"/);
     assert.match(componentSource, /\/api\/jobs\/natural-language-search/);
     assert.match(componentSource, /router\.push\(href\)/);
     assert.match(componentSource, /searchResult\.params/);
@@ -20,13 +23,11 @@ describe("natural language job search integration", () => {
     assert.match(componentSource, /webkitSpeechRecognition/);
     assert.match(componentSource, /interimResults = true/);
     assert.match(componentSource, /Describe a role, location, level, or work style/);
-    assert.match(componentSource, /Find jobs/);
+    assert.match(componentSource, /AI search/);
     assert.match(componentSource, /mergeNaturalLanguageJobsSearch/);
     assert.match(componentSource, /Use voice input/);
-    assert.doesNotMatch(componentSource, /Use this search/);
-    assert.doesNotMatch(componentSource, /Interpret/);
-    assert.doesNotMatch(componentSource, /confidence/);
-    assert.doesNotMatch(componentSource, /Listening and transcribing as you speak/);
+    assert.match(componentSource, /basePath/);
+    assert.match(componentSource, /showJobsLoadingPopup\(href\)/);
     assert.match(routeSource, /parseNaturalLanguageJobSearch/);
     assert.match(routeSource, /API_RATE_LIMITS\.naturalLanguageJobSearch/);
     assert.match(routeSource, /MAX_NATURAL_LANGUAGE_SEARCH_LENGTH = 600/);
