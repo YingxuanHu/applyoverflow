@@ -77,6 +77,39 @@ test("auth config keeps Google separate from email/password accounts", () => {
   assert.match(currentUserSource, /ReauthenticationRequiredError/);
 });
 
+test("local development credentials are loopback-only and never production-enabled", () => {
+  const localAuth = readRepoFile("src/lib/local-development-auth.ts");
+  const localBootstrap = readRepoFile("scripts/ensure-local-development-admin.ts");
+  const signInPage = readRepoFile("src/app/sign-in/page.tsx");
+  const signInForm = readRepoFile("src/components/auth/sign-in-form.tsx");
+
+  assert.match(localAuth, /admin@applyoverflow\.local/);
+  assert.match(localAuth, /environment\.NODE_ENV === "production"/);
+  assert.match(localAuth, /LOOPBACK_HOSTS/);
+  assert.match(localAuth, /url\.port === "5432"/);
+  assert.match(localBootstrap, /LOCAL_DEVELOPMENT_AUTH_SEED !== "1"/);
+  assert.match(localBootstrap, /emailVerified: true/);
+  assert.match(localBootstrap, /providerId: "credential"/);
+  assert.match(localBootstrap, /hashPassword/);
+  assert.match(signInPage, /localDevelopmentAccount/);
+  assert.match(signInForm, /identifier === LOCAL_DEVELOPMENT_ADMIN\.username/);
+  assert.match(signInForm, /admin \/ password/);
+});
+
+test("local job fixtures seed full public-feed records only behind local safeguards", () => {
+  const fixtureScript = readRepoFile("scripts/seed-local-job-fixtures.ts");
+  const packageJson = readRepoFile("package.json");
+
+  assert.match(fixtureScript, /LOCAL_DEVELOPMENT_FIXTURE_SEED !== "1"/);
+  assert.match(fixtureScript, /isLocalDevelopmentDatabaseUrl/);
+  assert.match(fixtureScript, /jobSourceMapping\.create/);
+  assert.match(fixtureScript, /upsertJobFeedIndex/);
+  assert.match(fixtureScript, /jobFeedSummaryCache\.upsert/);
+  assert.match(fixtureScript, /OfficialCompany:LocalFixture/);
+  assert.match(packageJson, /jobs:seed:local/);
+  assert.match(packageJson, /DOTENV_CONFIG_PATH=.env\.local/);
+});
+
 test("app password reset flow stores hashed reset tokens and revokes sessions", () => {
   const resetSource = readRepoFile("src/lib/auth-password-reset.ts");
   const forgotForm = readRepoFile("src/components/auth/forgot-password-form.tsx");

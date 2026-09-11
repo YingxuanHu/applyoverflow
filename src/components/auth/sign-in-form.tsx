@@ -10,6 +10,7 @@ import { GoogleAuthButton } from "@/components/auth/google-auth-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { LOCAL_DEVELOPMENT_ADMIN } from "@/lib/local-development-auth";
 
 type SignInFormProps = {
   callbackUrl?: string;
@@ -19,6 +20,7 @@ type SignInFormProps = {
   justVerified?: boolean;
   passwordReset?: boolean;
   googleEnabled?: boolean;
+  localDevelopmentAccount?: boolean;
 };
 
 function getGoogleErrorMessage(error: string | undefined) {
@@ -46,6 +48,7 @@ export function SignInForm({
   justVerified,
   passwordReset,
   googleEnabled = false,
+  localDevelopmentAccount = false,
 }: SignInFormProps) {
   const router = useRouter();
   const safeCallbackUrl = toSafeInternalPath(callbackUrl);
@@ -60,7 +63,11 @@ export function SignInForm({
     setVerificationEmail(null);
 
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const identifier = String(formData.get("email") ?? "").trim().toLowerCase();
+    const email =
+      localDevelopmentAccount && identifier === LOCAL_DEVELOPMENT_ADMIN.username
+        ? LOCAL_DEVELOPMENT_ADMIN.email
+        : identifier;
     const password = String(formData.get("password") ?? "");
 
     const result = await authClient.signIn.email({
@@ -113,18 +120,23 @@ export function SignInForm({
         <form className="space-y-4" method="post" onSubmit={onSubmit}>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="email">
-              Email
+              {localDevelopmentAccount ? "Email or username" : "Email"}
             </label>
             <Input
-              autoComplete="email"
+              autoComplete={localDevelopmentAccount ? "username" : "email"}
               className="h-12 rounded-[14px]"
               defaultValue={defaultEmail}
               id="email"
               name="email"
               required
-              type="email"
+              type={localDevelopmentAccount ? "text" : "email"}
             />
           </div>
+          {localDevelopmentAccount ? (
+            <p className="text-sm text-muted-foreground">
+              Local development sign-in: <span className="font-medium text-foreground">admin / password</span>
+            </p>
+          ) : null}
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="password">
               Password
