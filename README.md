@@ -158,6 +158,21 @@ npm run dev -- --no-daemon
 Open `http://localhost:3000` unless a different `PORT` is configured. To run the
 local ingestion daemon with the web app, use `npm run dev` instead.
 
+For local development, the dev commands use `.env.local` to create a verified
+account with `admin` as the username and `password` as the password. This
+bootstrap is limited to a localhost app and local PostgreSQL on port `5432`;
+it is skipped for production, non-loopback URLs, and SSH database tunnels.
+
+To populate the local job feed for UI testing without contacting job sources:
+
+```bash
+npm run jobs:seed:local
+```
+
+This adds twelve clearly fictional jobs across roles, locations, work modes,
+and industries. The command is idempotent and uses the same localhost-only
+database safeguards as the local sign-in bootstrap.
+
 The app stack checks that it is not accidentally pointed at a suspicious empty
 authentication database. Set `ALLOW_EMPTY_AUTH_DB=1` only when that database
 target is intentional.

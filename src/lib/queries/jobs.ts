@@ -208,6 +208,7 @@ const JOB_FEED_CARD_SELECT = (
     salaryMax: true,
     salaryCurrency: true,
     shortSummary: true,
+    description: true,
     applyUrl: true,
     postedAt: true,
     deadline: true,
@@ -304,18 +305,8 @@ function withSanitizedJobPresentation<T extends SanitizedJobPresentationInput>(
   };
 }
 
-function withSanitizedJobFeedPresentation<
-  T extends Omit<SanitizedJobPresentationInput, "description"> & {
-    description?: string;
-  },
->(job: T): T & { description: string } {
-  return withSanitizedJobPresentation(
-    {
-      ...job,
-      description: "",
-    },
-    { sanitizeDescription: false }
-  );
+function withSanitizedJobFeedPresentation<T extends SanitizedJobPresentationInput>(job: T): T {
+  return withSanitizedJobPresentation(job);
 }
 
 function buildGlobalVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
