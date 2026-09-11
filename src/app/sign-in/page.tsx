@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { SignInScreen } from "@/components/auth/sign-in-screen";
 import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { isLocalDevelopmentAuthEnabled, LOCAL_DEVELOPMENT_ADMIN } from "@/lib/local-development-auth";
 
 type SignInPageProps = {
   searchParams: Promise<{
@@ -23,17 +24,19 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   }
 
   const params = await searchParams;
+  const localDevelopmentAccount = isLocalDevelopmentAuthEnabled();
   const emailVerificationError =
     params.verified === "true" && params.error ? params.error : undefined;
 
   return (
     <SignInScreen
       callbackUrl={params.callbackUrl || "/jobs"}
-      defaultEmail={params.email ?? ""}
+      defaultEmail={params.email ?? (localDevelopmentAccount ? LOCAL_DEVELOPMENT_ADMIN.username : "")}
       emailVerificationError={emailVerificationError}
       googleError={params.google === "error" ? params.error ?? "google_error" : undefined}
       googleEnabled={isGoogleAuthEnabled()}
       justVerified={params.verified === "true" && !emailVerificationError}
+      localDevelopmentAccount={localDevelopmentAccount}
       passwordReset={params.passwordReset === "true"}
     />
   );
