@@ -55,17 +55,10 @@ export function JobFeedMasterDetail({
   if (!selectedEntry) return null;
 
   return (
-<<<<<<< HEAD
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
-      <section
-        aria-label="Jobs on this page"
-        className="overflow-hidden rounded-[16px] border border-border/60 bg-card"
-=======
     <div className="grid min-w-0 gap-4 lg:h-[min(46rem,calc(100dvh-10rem))] lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
       <section
         aria-label="Jobs on this page"
         className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:flex-col"
->>>>>>> 2647879 (feat: add local development fixtures and industry updates)
       >
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
           <p className="text-sm font-medium text-foreground">
@@ -73,11 +66,7 @@ export function JobFeedMasterDetail({
           </p>
           <p className="text-xs text-muted-foreground">Select a job to review</p>
         </div>
-<<<<<<< HEAD
-        <div className="max-h-[34rem] divide-y divide-border/55 overflow-y-auto lg:h-[min(46rem,calc(100dvh-10rem))] lg:max-h-none">
-=======
         <div className="max-h-[34rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
->>>>>>> 2647879 (feat: add local development fixtures and industry updates)
           {entries.map((entry) => (
             <JobFeedListRow
               active={entry.id === selectedEntry.id}
@@ -128,29 +117,12 @@ function JobFeedListRow({
       onClick={onSelect}
       type="button"
     >
-<<<<<<< HEAD
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          {entry.listMeta ? <div className="mb-2">{entry.listMeta}</div> : null}
-          <p className="truncate text-sm font-semibold text-foreground sm:text-[15px]">
-            {job.title}
-          </p>
-          <p className="mt-1 truncate text-sm text-foreground/80">{job.company}</p>
-        </div>
-        <span
-          className={cn(
-            "mt-1 size-2 shrink-0 rounded-full",
-            active ? "bg-primary" : "bg-border",
-          )}
-        />
-=======
       <div className="min-w-0">
         {entry.listMeta ? <div className="mb-2">{entry.listMeta}</div> : null}
         <p className="truncate text-sm font-semibold text-foreground sm:text-[15px]">
           {job.title}
         </p>
         <p className="mt-1 truncate text-sm text-foreground/80">{job.company}</p>
->>>>>>> 2647879 (feat: add local development fixtures and industry updates)
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
@@ -202,11 +174,7 @@ function JobFeedDetailPanel({
   return (
     <aside
       aria-label={`Details for ${job.title}`}
-<<<<<<< HEAD
-      className="surface-panel flex min-h-[35rem] min-w-0 flex-col overflow-hidden lg:h-[min(46rem,calc(100dvh-10rem))]"
-=======
       className="surface-panel flex min-h-[35rem] min-w-0 flex-col overflow-hidden lg:h-full"
->>>>>>> 2647879 (feat: add local development fixtures and industry updates)
     >
       <div className="shrink-0 border-b border-border/60 px-4 py-4 sm:px-5 sm:py-5">
         {entry.detailMeta ? <div className="mb-3">{entry.detailMeta}</div> : null}
