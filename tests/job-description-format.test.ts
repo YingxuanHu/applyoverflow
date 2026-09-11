@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  fetchFormattedJobDescriptionFromUrl,
   formatJobDescriptionText,
   getCleanJobDescriptionDisplayBlocks,
   getJobDescriptionSummaryBlocks,
   isJobDescriptionSummaryUsable,
   isLowQualityJobDescription,
+  parseJobDescriptionBlocks,
   selectDescriptionSource,
 } from "../src/lib/job-description-format";
+import { fetchFormattedJobDescriptionFromUrl } from "../src/lib/job-description-fetch";
 import type { FetchGuardDeps } from "../src/lib/ingestion/net/ssrf-guard";
 
 test("cleans source chrome and preserves useful job sections", () => {
@@ -77,6 +78,39 @@ test("deduplicates repeated bullets and caps noisy lists", () => {
     ).length,
     1
   );
+});
+
+test("recovers collapsed section headings and readable paragraphs for feed descriptions", () => {
+  const raw = `Our colleagues create a welcoming experience for every customer and help their communities live well. Why is this role important Our Store Colleagues make shopping easy by keeping products available and assisting customers throughout the day. What you'll do Provide friendly service, stock shelves, and keep the department organized. You will also help resolve customer questions with care. What you bring A customer-first mindset, attention to detail, and flexibility to work a variety of shifts. Good news! No previous experience is required.`;
+
+  const blocks = parseJobDescriptionBlocks(raw);
+  const rendered = JSON.stringify(blocks);
+  const paragraphs = blocks.filter((block) => block.kind === "paragraph");
+
+  assert.match(rendered, /Why is this role important/);
+  assert.match(rendered, /What you'll do/);
+  assert.match(rendered, /What you bring/);
+  assert.equal(paragraphs.length >= 3, true);
+});
+
+test("splits a long unstructured description into readable paragraphs without dropping content", () => {
+  const raw = [
+    "We are hiring a Product Operations Manager to improve planning and execution across the organization.",
+    "You will partner with product, engineering, and customer teams to make priorities clear and keep launches on track.",
+    "The role includes designing operational rhythms, documenting decisions, and using data to identify workflow bottlenecks.",
+    "You will also improve reporting so leaders can make informed tradeoffs quickly and consistently.",
+    "Strong candidates communicate clearly, manage ambiguity well, and enjoy turning complex work into practical systems.",
+    "Experience supporting cross-functional programs and a customer-focused mindset are both important for success.",
+  ].join(" ");
+
+  const blocks = parseJobDescriptionBlocks(raw);
+  const paragraphs = blocks.filter(
+    (block): block is Extract<(typeof blocks)[number], { kind: "paragraph" }> =>
+      block.kind === "paragraph"
+  );
+
+  assert.equal(paragraphs.length >= 2, true);
+  assert.match(paragraphs.map((block) => block.text).join(" "), /customer-focused mindset/);
 });
 
 test("prioritizes detailed responsibilities and qualifications over early company copy", () => {

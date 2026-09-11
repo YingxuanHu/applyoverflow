@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 type SearchParamsRecord = Record<string, string | string[] | undefined>;
@@ -43,52 +43,50 @@ export function PaginationControls({
       className={containerClassName}
     >
       <div className="flex min-w-max items-center gap-2 text-sm text-muted-foreground">
-        <span>
-          Page <span className="font-medium text-foreground">{currentPage.toLocaleString()}</span>
-          {totalPages !== null ? (
-            <> / <span className="font-medium text-foreground">{totalPages.toLocaleString()}</span></>
-          ) : null}
-        </span>
+        <span>Page</span>
         <form
           action={basePath}
-          className="flex items-center gap-1.5"
+          className="flex"
           method="get"
         >
           {buildHiddenSearchInputs(searchParams)}
           <label className="sr-only" htmlFor={pageInputId}>
-            Go to page
+            Jump to page
           </label>
-          <span aria-hidden="true" className="text-muted-foreground">
-            Go to
-          </span>
-          <input
-            aria-describedby={pageError ? `${pageInputId}-error` : undefined}
-            aria-invalid={pageError ? true : undefined}
-            className="h-8 w-14 rounded-[10px] border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 aria-invalid:border-destructive/60 aria-invalid:ring-2 aria-invalid:ring-destructive/15"
-            defaultValue={currentPage}
-            id={pageInputId}
-            inputMode="numeric"
-            key={currentPage}
-            max={totalPages ?? undefined}
-            min={1}
-            name="page"
-            type="number"
-          />
-          <button
-            className="inline-flex h-8 items-center rounded-[10px] border border-input/80 bg-background px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            type="submit"
-          >
-            Go
-          </button>
-          {pageError ? (
-            <span
-              className="ml-1 text-xs text-destructive"
-              id={`${pageInputId}-error`}
+          <div className="inline-flex h-8 overflow-hidden rounded-[10px] border border-input/80 bg-background">
+            <input
+              aria-describedby={pageError ? `${pageInputId}-error` : undefined}
+              aria-invalid={pageError ? true : undefined}
+              className="w-12 border-0 border-r border-input/80 bg-transparent px-1 text-center text-sm tabular-nums text-foreground outline-none transition-colors focus-visible:bg-muted/40 aria-invalid:border-destructive/60 aria-invalid:ring-2 aria-invalid:ring-destructive/15"
+              defaultValue={currentPage}
+              id={pageInputId}
+              inputMode="numeric"
+              key={currentPage}
+              max={totalPages ?? undefined}
+              min={1}
+              name="page"
+              type="number"
+            />
+            <button
+              aria-label="Go to page"
+              className="inline-flex w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+              title="Go to page"
+              type="submit"
             >
-              {pageError}
-            </span>
-          ) : null}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
         </form>
+        {totalPages !== null ? (
+          <span className="tabular-nums">
+            of <span className="font-medium text-foreground">{totalPages.toLocaleString()}</span>
+          </span>
+        ) : null}
+        {pageError ? (
+          <span className="text-xs text-destructive" id={`${pageInputId}-error`}>
+            {pageError}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex min-w-max items-center gap-2">

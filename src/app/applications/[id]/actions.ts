@@ -13,12 +13,12 @@ import {
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import {
-  fetchFormattedJobDescriptionFromUrl,
   formatJobDescriptionText,
   isJobDescriptionSummaryUsable,
   isLowQualityJobDescription,
   parseJobDescriptionBlocks,
 } from "@/lib/job-description-format";
+import { fetchFormattedJobDescriptionFromUrl } from "@/lib/job-description-fetch";
 import { inferProfileDocumentMimeType } from "@/lib/profile-resume-service";
 import {
   addTrackedApplicationEvent,

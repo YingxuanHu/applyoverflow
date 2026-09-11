@@ -3,10 +3,6 @@ import {
   extractDescriptionFromHtml,
   hasDescriptionPollution,
 } from "@/lib/ingestion/html-description";
-import {
-  fetchGuarded,
-  type FetchGuardDeps,
-} from "@/lib/ingestion/net/ssrf-guard";
 
 export type DescriptionBlock =
   | { kind: "header"; text: string }
@@ -36,9 +32,16 @@ const SECTION_HEADINGS = [
   "what you'll do",
   "what youll do",
   "what you will do",
+  "why this role matters",
+  "why is this role important",
+  "what you will be doing",
+  "what you need",
+  "what makes you successful",
+  "your impact",
   "what you'll bring",
   "what youll bring",
   "what you will bring",
+  "what you bring",
   "what we're looking for",
   "what were looking for",
   "required qualifications",
@@ -64,6 +67,8 @@ const SECTION_HEADINGS = [
   "line of business",
   "pay details",
   "who we are",
+  "who you are",
+  "what we offer",
   "our total rewards package",
   "additional information",
   "colleague development",
@@ -72,6 +77,42 @@ const SECTION_HEADINGS = [
   "accommodation",
   "language requirement",
   "work authorization",
+];
+
+// These labels commonly arrive in a single unbroken line from ATS feeds. Keep
+// this set intentionally narrower than SECTION_HEADINGS: broad phrases such as
+// "who we are" also occur in ordinary prose and must not manufacture sections.
+const COLLAPSED_SECTION_HEADINGS = [
+  "about the job",
+  "about the role",
+  "about this role",
+  "role overview",
+  "position overview",
+  "job description",
+  "job summary",
+  "responsibilities",
+  "key responsibilities",
+  "why this role matters",
+  "why is this role important",
+  "what you'll do",
+  "what youll do",
+  "what you will do",
+  "what you will be doing",
+  "what you need",
+  "what you'll bring",
+  "what youll bring",
+  "what you will bring",
+  "what you bring",
+  "what we're looking for",
+  "what were looking for",
+  "required qualifications",
+  "minimum qualifications",
+  "preferred qualifications",
+  "qualifications",
+  "requirements",
+  "nice to have",
+  "benefits",
+  "compensation",
 ];
 
 const LIST_LIKE_HEADINGS = new Set([
@@ -379,7 +420,7 @@ function extractStructuredJobPostingDescription(raw: string) {
   return null;
 }
 
-function extractEmbeddedDescription(raw: string) {
+export function extractEmbeddedDescription(raw: string) {
   const structured = extractStructuredJobPostingDescription(raw);
   if (structured) {
     return structured;
@@ -583,6 +624,10 @@ function looksLikeWrongPageDescription(text: string, html?: string | null) {
   );
 }
 
+export function isLikelyWrongPageJobDescription(text: string, html?: string | null) {
+  return looksLikeWrongPageDescription(text, html);
+}
+
 function extractPrimaryDescription(raw: string) {
   const embedded = extractEmbeddedDescription(raw);
   const source = embedded ?? raw;
@@ -677,9 +722,42 @@ function splitInlineHeadingValues(raw: string) {
   );
 }
 
+function hasCollapsedSectionHeadings(raw: string) {
+  const headings = [...COLLAPSED_SECTION_HEADINGS].sort(
+    (left, right) => right.length - left.length
+  );
+  const pattern = headings.map(escapeRegex).join("|");
+  const headingPattern = new RegExp(
+    `(^|[.!?])\\s*(?:${pattern})(?=\\s+[A-Z])`,
+    "im"
+  );
+
+  return headingPattern.test(raw);
+}
+
+function splitCollapsedSectionHeadings(raw: string) {
+  const headings = [...COLLAPSED_SECTION_HEADINGS].sort(
+    (left, right) => right.length - left.length
+  );
+  const pattern = headings.map(escapeRegex).join("|");
+  const headingPattern = new RegExp(
+    `(^|[.!?])\\s*(${pattern})(?=\\s+[A-Z])`,
+    "gim"
+  );
+
+  return raw.replace(headingPattern, (_match, boundary: string, heading: string) => {
+    return `${boundary}\n\n${heading}\n`;
+  });
+}
+
 function cleanupJobDescription(raw: string) {
   const embeddedDescription = extractEmbeddedDescription(raw);
-  let cleaned = (embeddedDescription ?? (looksLikeStructuredDescription(raw) ? raw : extractPrimaryDescription(raw)))
+  const source =
+    embeddedDescription ??
+    (looksLikeStructuredDescription(raw) || hasCollapsedSectionHeadings(raw)
+      ? raw
+      : extractPrimaryDescription(raw));
+  let cleaned = source
     .replace(/\r/g, "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|section|article|li|ul|ol|h1|h2|h3|h4|h5|h6)>/gi, "\n")
@@ -698,6 +776,7 @@ function cleanupJobDescription(raw: string) {
   cleaned = stripLeadingTitleBullets(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
+  cleaned = splitCollapsedSectionHeadings(cleaned);
 
   for (const heading of SECTION_HEADINGS) {
     const regex = new RegExp(`\\s*(${escapeRegex(heading)})\\s*:`, "gi");
@@ -720,6 +799,33 @@ function cleanupJobDescription(raw: string) {
 
 export function formatJobDescriptionText(raw: string) {
   return cleanupJobDescription(raw);
+}
+
+function splitReadableParagraph(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 440) {
+    return [normalized];
+  }
+
+  const sentences = normalized.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [normalized];
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const sentence of sentences) {
+    const next = `${current}${current ? " " : ""}${sentence.trim()}`.trim();
+    if (current && next.length > 440) {
+      chunks.push(current);
+      current = sentence.trim();
+      continue;
+    }
+    current = next;
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
 }
 
 export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
@@ -823,7 +929,9 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
 
     flushBullets();
     listMode = false;
-    blocks.push({ kind: "paragraph", text: line });
+    for (const paragraph of splitReadableParagraph(line)) {
+      blocks.push({ kind: "paragraph", text: paragraph });
+    }
   }
 
   flushBullets();
@@ -1461,7 +1569,6 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
   const blocks = parseJobDescriptionBlocks(cleaned);
   const hasHeader = blocks.some((block) => block.kind === "header");
   const hasList = blocks.some((block) => block.kind === "list");
-  const paragraphCount = blocks.filter((block) => block.kind === "paragraph").length;
 
   // A trailing ellipsis is a truncation tell. A genuinely complete posting still
   // has structure (headings/bullets) when it ends with "…"; an unstructured blob
@@ -1478,13 +1585,11 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
     return true;
   }
 
-  // A complete posting delivered as one flowing prose paragraph (no bullets, no
-  // recognized section headings) parses to a single paragraph block. Accept it
-  // only when it is clearly substantial AND reads like a job posting — length
-  // and sentence count alone would also admit long marketing/About prose. This
-  // preserves the "exact original posting, just reorganized" case the user wants
-  // while rejecting non-job single-paragraph blobs.
-  if (paragraphCount <= 1) {
+  // A complete posting delivered as flowing prose without real headings or
+  // bullets still needs job-specific language. Rendering may split that prose
+  // into readable paragraphs, but that must not make marketing/About copy pass
+  // the quality gate.
+  if (!hasHeader && !hasList) {
     const sentenceCount = (cleaned.match(/[.!?](?=\s|$)/g) ?? []).length;
     return !(
       cleaned.length >= 600 &&
@@ -1494,82 +1599,6 @@ export function isLowQualityJobDescription(raw: string | null | undefined) {
   }
 
   return false;
-}
-
-const JOB_FETCH_TIMEOUT_MS = 15_000;
-const JOB_FETCH_MAX_BYTES = 5_000_000;
-
-// Realistic desktop browser User-Agents. The old "ApplicationTracker/1.0" UA is
-// a bot-tell that WAFs (Cloudflare/Akamai on Workday/iCIMS/Greenhouse) block. We
-// try Chrome first, then Firefox — a different UA frequently flips a 403 or a
-// JS-shell response into a real 200.
-const JOB_FETCH_USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-];
-
-// Response content types we cannot parse as an HTML/JSON job posting. (Plain
-// application/json is intentionally allowed — some ATS endpoints return the
-// posting as JSON and extractEmbeddedDescription can still read it.)
-const NON_HTML_CONTENT_TYPE =
-  /^(?:image|audio|video)\/|application\/(?:pdf|zip|octet-stream)/i;
-
-// Human-readable copy a genuinely empty JS shell shows when scripting is off. We
-// only treat a page as a dead shell when it says one of these AND we extracted
-// almost nothing — ambient framework markers (__NEXT_DATA__, application/json,
-// noscript) are deliberately NOT used, because they coexist with a complete
-// JSON-LD posting on pages we can extract from.
-const JS_SHELL_SIGNALS = [
-  "you need to enable javascript",
-  "please enable javascript",
-  "requires javascript",
-  "enable javascript to run",
-];
-
-function buildJobFetchHeaders(userAgent: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "User-Agent": userAgent,
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Upgrade-Insecure-Requests": "1",
-  };
-  if (userAgent.includes("Chrome")) {
-    headers["sec-ch-ua"] =
-      '"Chromium";v="125", "Not.A/Brand";v="24", "Google Chrome";v="125"';
-    headers["sec-ch-ua-mobile"] = "?0";
-    headers["sec-ch-ua-platform"] = '"Windows"';
-  }
-  return headers;
-}
-
-// Stream the body with a hard byte cap so a huge SPA bundle cannot exhaust
-// memory; JSON-LD/description content lives in the first tens of KB.
-async function readResponseTextCapped(
-  response: Response,
-  maxBytes: number
-): Promise<string> {
-  const body = response.body;
-  if (!body) return "";
-  const reader = body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  let received = 0;
-  let text = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        received += value.byteLength;
-        text += decoder.decode(value, { stream: true });
-      }
-      if (received >= maxBytes) break;
-    }
-    text += decoder.decode();
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-  return text;
 }
 
 /**
@@ -1606,85 +1635,4 @@ export function selectDescriptionSource(html: string): string {
     }
   }
   return html;
-}
-
-export async function fetchFormattedJobDescriptionFromUrl(
-  url: string,
-  deps: FetchGuardDeps = {}
-): Promise<string | null> {
-  for (const userAgent of JOB_FETCH_USER_AGENTS) {
-    let html: string;
-    try {
-      const response = await fetchGuarded(
-        url,
-        {
-          headers: buildJobFetchHeaders(userAgent),
-          signal: AbortSignal.timeout(JOB_FETCH_TIMEOUT_MS),
-          cache: "no-store",
-        },
-        deps
-      );
-
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => undefined);
-        // A bot wall (403/429/503) often flips with a different UA — retry.
-        continue;
-      }
-
-      const contentType = response.headers.get("content-type") ?? "";
-      if (NON_HTML_CONTENT_TYPE.test(contentType)) {
-        await response.body?.cancel().catch(() => undefined);
-        return null; // binary target; a different UA will not help.
-      }
-
-      html = await readResponseTextCapped(response, JOB_FETCH_MAX_BYTES);
-    } catch {
-      // Network error / timeout / SSRF block — try the next UA, then give up.
-      continue;
-    }
-
-    if (!html) continue;
-
-    const embedded = extractEmbeddedDescription(html);
-    const pageText = formatJobDescriptionText(selectDescriptionSource(html));
-
-    // Only treat the page as an empty JS shell when it literally asks the human
-    // to enable JavaScript AND we could not extract a structured description.
-    const looksLikeDeadJsShell =
-      !embedded &&
-      pageText.length < 300 &&
-      JS_SHELL_SIGNALS.some((signal) => html.toLowerCase().includes(signal));
-
-    if (
-      looksLikeDeadJsShell ||
-      looksLikeWrongPageDescription(pageText, html) ||
-      isLowQualityJobDescription(pageText)
-    ) {
-      continue; // try the fallback UA before giving up
-    }
-
-    return pageText;
-  }
-
-  return null;
-}
-
-export async function fetchBestFormattedJobDescriptionFromUrls(
-  urls: string[],
-  maxFetches = 3
-) {
-  const candidateUrls = Array.from(new Set(urls.filter(isCandidateDescriptionUrl))).slice(
-    0,
-    Math.max(1, maxFetches)
-  );
-
-  if (candidateUrls.length === 0) {
-    return null;
-  }
-
-  const fetchedDescriptions = await Promise.all(
-    candidateUrls.map((url) => fetchFormattedJobDescriptionFromUrl(url))
-  );
-
-  return pickBestFormattedJobDescription(fetchedDescriptions);
 }

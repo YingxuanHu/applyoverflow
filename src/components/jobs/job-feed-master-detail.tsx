@@ -21,6 +21,7 @@ import {
   formatSalary,
   getDeadlineUrgencyAt,
 } from "@/lib/job-display";
+import { getCleanJobDescriptionDisplayBlocks } from "@/lib/job-description-format";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
@@ -55,7 +56,7 @@ export function JobFeedMasterDetail({
   if (!selectedEntry) return null;
 
   return (
-    <div className="grid min-w-0 gap-4 lg:h-[min(46rem,calc(100dvh-10rem))] lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
+    <div className="grid min-w-0 gap-4 lg:h-[min(52rem,calc(100dvh-8rem))] lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
       <section
         aria-label="Jobs on this page"
         className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:flex-col"
@@ -66,7 +67,7 @@ export function JobFeedMasterDetail({
           </p>
           <p className="text-xs text-muted-foreground">Select a job to review</p>
         </div>
-        <div className="max-h-[34rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
+        <div className="max-h-[40rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
           {entries.map((entry) => (
             <JobFeedListRow
               active={entry.id === selectedEntry.id}
@@ -169,12 +170,12 @@ function JobFeedDetailPanel({
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
-  const description = job.description.trim();
+  const descriptionBlocks = getCleanJobDescriptionDisplayBlocks(job.description, 10);
 
   return (
     <aside
       aria-label={`Details for ${job.title}`}
-      className="surface-panel flex min-h-[35rem] min-w-0 flex-col overflow-hidden lg:h-full"
+      className="surface-panel flex min-h-[40rem] min-w-0 flex-col overflow-hidden lg:h-full"
     >
       <div className="shrink-0 border-b border-border/60 px-4 py-4 sm:px-5 sm:py-5">
         {entry.detailMeta ? <div className="mb-3">{entry.detailMeta}</div> : null}
@@ -257,9 +258,37 @@ function JobFeedDetailPanel({
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </div>
-        {description ? (
-          <div className="mt-4 whitespace-pre-wrap text-sm leading-6 text-foreground/82">
-            {description}
+        {descriptionBlocks.length > 0 ? (
+          <div className="mt-4 max-w-[82ch] space-y-5 pb-2 text-[15px] leading-7 text-foreground/85">
+            {descriptionBlocks.map((block, index) => {
+              if (block.kind === "header") {
+                return (
+                  <h3
+                    key={`${block.text}-${index}`}
+                    className="pt-1 text-sm font-semibold text-foreground first:pt-0"
+                  >
+                    {block.text}
+                  </h3>
+                );
+              }
+
+              if (block.kind === "list") {
+                return (
+                  <ul
+                    key={`list-${index}`}
+                    className="space-y-2 pl-5 marker:text-primary/70"
+                  >
+                    {block.items.map((item, itemIndex) => (
+                      <li key={itemIndex} className="pl-0.5">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                );
+              }
+
+              return <p key={`paragraph-${index}`}>{block.text}</p>;
+            })}
           </div>
         ) : (
           <p className="mt-4 text-sm text-muted-foreground">

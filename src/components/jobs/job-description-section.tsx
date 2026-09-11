@@ -1,5 +1,4 @@
 import {
-  fetchBestFormattedJobDescriptionFromUrls,
   getCleanJobDescriptionDisplayBlocks,
   getJobDescriptionCandidateUrls,
   isJobDescriptionSummaryUsable,
@@ -7,6 +6,7 @@ import {
   isRenderableJobDescription,
   pickBestFormattedJobDescription,
 } from "@/lib/job-description-format";
+import { fetchBestFormattedJobDescriptionFromUrls } from "@/lib/job-description-fetch";
 import { ExternalLink } from "lucide-react";
 
 type JobDescriptionSectionProps = {
@@ -58,13 +58,13 @@ export async function JobDescriptionSection({
       </div>
 
       {shouldShowDescription ? (
-        <div className="mt-3 space-y-2.5 text-[13px] leading-5 text-foreground/82">
+        <div className="mt-4 max-w-[82ch] space-y-4 text-sm leading-6 text-foreground/82">
           {descriptionBlocks.map((block, index) => {
             if (block.kind === "header") {
               return (
                 <p
                   key={index}
-                  className="pt-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-foreground/60 first:pt-0"
+                  className="pt-1 text-sm font-semibold text-foreground first:pt-0"
                 >
                   {block.text}
                 </p>
@@ -75,10 +75,10 @@ export async function JobDescriptionSection({
               return (
                 <ul
                   key={index}
-                  className="ml-5 list-disc space-y-1.5 marker:text-muted-foreground/60"
+                  className="ml-5 list-disc space-y-2 marker:text-primary/70"
                 >
                   {block.items.map((item, itemIndex) => (
-                    <li key={itemIndex} className="leading-5">
+                    <li key={itemIndex}>
                       {item}
                     </li>
                   ))}
@@ -87,7 +87,7 @@ export async function JobDescriptionSection({
             }
 
             return (
-              <p key={index} className="leading-5 text-foreground/80">
+              <p key={index} className="text-foreground/80">
                 {block.text}
               </p>
             );
