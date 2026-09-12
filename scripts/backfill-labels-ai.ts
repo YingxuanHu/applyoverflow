@@ -494,7 +494,7 @@ async function main() {
   }
 
   const model = getFastModel();
-  const client = getOpenAIClient();
+  const client = getOpenAIClient("system:label-backfill");
 
   console.log(
     `[backfill-labels-ai] mode=${args.apply ? "apply" : "dry-run"} limit=${args.limit} ` +

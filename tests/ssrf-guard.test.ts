@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assertFetchTargetAllowed,
+  createPinnedLookup,
   fetchGuarded,
   isDisallowedFetchHost,
   isDisallowedIpAddress,
@@ -12,6 +13,26 @@ import {
 
 const resolveTo = (address: string, family = address.includes(":") ? 6 : 4) =>
   async (): Promise<ResolvedAddress[]> => [{ address, family }];
+
+test("connection lookup pins the checked address despite a changed DNS answer", async () => {
+  const answers = [{ address: "93.184.216.34", family: 4 }];
+  const approved = await assertFetchTargetAllowed("https://jobs.example.com", { resolve: async () => answers });
+  const pinned = createPinnedLookup(approved);
+  answers[0].address = "127.0.0.1";
+  await new Promise<void>((resolve, reject) => {
+    pinned("jobs.example.com", {}, (error, address) => {
+      if (error) { reject(error); return; }
+      assert.equal(address, "93.184.216.34");
+      resolve();
+    });
+  });
+});
+
+test("outbound credentials and nonstandard ports are rejected", async () => {
+  for (const url of ["https://user:secret@example.com", "https://example.com:9200"]) {
+    await assert.rejects(assertFetchTargetAllowed(url, { resolve: resolveTo("8.8.8.8") }), SsrfBlockedError);
+  }
+});
 
 test("isDisallowedIpAddress blocks IPv4 loopback/private/link-local/CGNAT/unspecified", () => {
   for (const ip of [

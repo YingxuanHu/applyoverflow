@@ -78,6 +78,7 @@ export function UserMenu({ user }: { user: SessionSnapshot }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
+          aria-label={`Account menu for ${user.name || user.email}`}
           className={cn(
             "group inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 py-1 pr-2 pl-1 text-sm font-medium text-foreground outline-none transition-colors",
             "hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring/40"

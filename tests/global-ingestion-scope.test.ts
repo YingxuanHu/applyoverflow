@@ -8,7 +8,7 @@ function buildJob(overrides: Partial<SourceConnectorJob>): SourceConnectorJob {
   return {
     sourceId: "source:1",
     sourceUrl: "https://example.com/jobs/1",
-    title: "Retail Store Manager",
+    title: "Operations Manager",
     company: "Example Retail",
     location: "Warsaw, Poland",
     description:
@@ -55,6 +55,58 @@ test("normalization keeps ambiguous region-less locations eligible", async () =>
   });
 
   assert.equal(result.kind, "accepted");
+});
+
+test("normalization rejects excluded frontline and manual roles even when remote", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  const excludedTitles = [
+    "Forklift Operator II",
+    "Grocery Clerk Part Time Day",
+    "Salad Bar Clerk",
+    "310T Apprentice Mechanic",
+    "Retail Store Manager",
+  ];
+
+  for (const [index, title] of excludedTitles.entries()) {
+    const result = normalizeSourceJob({
+      job: buildJob({
+        sourceId: `excluded:${index}`,
+        title,
+        location: "Remote - Canada",
+        workMode: "REMOTE",
+      }),
+      fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
+    });
+
+    assert.deepEqual(result, {
+      kind: "rejected",
+      reason: "out_of_scope_role",
+    });
+  }
+});
+
+test("normalization preserves white-collar GENERAL roles", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  const result = normalizeSourceJob({
+    job: buildJob({
+      sourceId: "general:1",
+      title: "People Operations Manager",
+      location: "Toronto, ON, CA",
+    }),
+    fetchedAt: new Date("2026-05-28T12:00:00.000Z"),
+  });
+
+  assert.equal(result.kind, "accepted");
+});
+
+test("occupation scope distinguishes professional roles from their industry", async () => {
+  const { isExcludedJobTitle } = await import("../src/lib/ingestion/normalize");
+  for (const title of ["SQL Server DBA", "Server Engineer", "Pharmacy Data Analyst", "Dental Office Manager", "Education Administrator", "Healthcare Administration Director", "Clinical Research Associate", "Hospitality Revenue Analyst"]) {
+    assert.equal(isExcludedJobTitle(title), false, title);
+  }
+  for (const title of ["Registered Nurse", "Nurse Manager", "Restaurant Server", "Retail Store Manager", "Forklift Operator"]) {
+    assert.equal(isExcludedJobTitle(title), true, title);
+  }
 });
 
 test("normalization keeps global jobs applyable while still rejecting junk URLs", async () => {

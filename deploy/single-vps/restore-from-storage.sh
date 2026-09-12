@@ -14,10 +14,16 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+source "$SCRIPT_DIR/backup-path.sh"
+mapfile -t POSTGRES_IDENTITY < <(
+  "${COMPOSE[@]}" exec -T postgres sh -lc 'printf "%s\\n%s\\n" "$POSTGRES_DB" "$POSTGRES_USER"'
+)
+POSTGRES_DB="${POSTGRES_IDENTITY[0]:-}"
+POSTGRES_USER="${POSTGRES_IDENTITY[1]:-}"
+if [[ -z "$POSTGRES_DB" || -z "$POSTGRES_USER" ]]; then
+  echo "Could not read Postgres database identity from the running service." >&2
+  exit 1
+fi
 
 if [[ "${CONFIRM_RESTORE:-}" != "$POSTGRES_DB" ]]; then
   cat >&2 <<EOF
@@ -33,7 +39,8 @@ fi
 
 RESTORE_KEY="${1:-latest}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP_DIR="$SCRIPT_DIR/backups"
+resolve_backup_directory
+DB_BACKUP_KEEP_LOCAL="$(compose_env_value DB_BACKUP_KEEP_LOCAL)"
 RESTORE_FILE="$BACKUP_DIR/restore-${POSTGRES_DB}-${STAMP}.dump"
 
 mkdir -p "$BACKUP_DIR"
@@ -41,14 +48,14 @@ cd "$REPO_ROOT"
 
 if [[ "$RESTORE_KEY" == "latest" ]]; then
   echo "Downloading latest backup to $RESTORE_FILE"
-  "${COMPOSE[@]}" run --rm backup-runner \
+  "${COMPOSE[@]}" run --rm --no-deps backup-runner \
     npm run db:restore:storage -- \
     --latest \
     --download-only \
     --output-file="/backups/$(basename "$RESTORE_FILE")"
 else
   echo "Downloading $RESTORE_KEY to $RESTORE_FILE"
-  "${COMPOSE[@]}" run --rm backup-runner \
+  "${COMPOSE[@]}" run --rm --no-deps backup-runner \
     npm run db:restore:storage -- \
     --key="$RESTORE_KEY" \
     --download-only \
@@ -61,15 +68,19 @@ if [[ "${SKIP_PRE_RESTORE_BACKUP:-0}" != "1" ]]; then
 fi
 
 echo "Restoring $POSTGRES_DB from $RESTORE_FILE"
-cat "$RESTORE_FILE" | "${COMPOSE[@]}" exec -T postgres pg_restore \
+"${COMPOSE[@]}" exec -T postgres pg_restore \
   --clean \
   --if-exists \
   --no-owner \
   --no-privileges \
   -U "$POSTGRES_USER" \
-  -d "$POSTGRES_DB"
+  -d "$POSTGRES_DB" < "$RESTORE_FILE"
 
 echo "Applying Prisma migrations after restore"
-"${COMPOSE[@]}" run -T --rm backup-runner npx prisma migrate deploy </dev/null
+"${COMPOSE[@]}" run -T --rm --no-deps backup-runner npx prisma migrate deploy </dev/null
+
+if [[ "$DB_BACKUP_KEEP_LOCAL" != "1" ]]; then
+  rm -f -- "$RESTORE_FILE"
+fi
 
 echo "Restore complete."

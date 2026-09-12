@@ -52,7 +52,8 @@ test("scheduled maintenance runs only explicit guarded retention targets", () =>
 });
 
 test("backup runner never evaluates the compose dotenv file as shell code", () => {
-  const source = readRepoFile("deploy/single-vps/backup-to-storage.sh");
+  const source = readRepoFile("deploy/single-vps/backup-to-storage.sh") +
+    readRepoFile("deploy/single-vps/backup-path.sh");
 
   assert.doesNotMatch(source, /source "\$ENV_FILE"/);
   assert.match(source, /POSTGRES_IDENTITY/);

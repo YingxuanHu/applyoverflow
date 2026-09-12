@@ -62,7 +62,7 @@ export default async function ResumeBuilderPage() {
   ]);
 
   return (
-    <main className="app-page">
+    <section className="app-page">
       <ResumeBuilder
         builds={builds.map((build) => ({
           id: build.id,
@@ -108,6 +108,6 @@ export default async function ResumeBuilderPage() {
           label: `${savedJob.canonicalJob.title} at ${savedJob.canonicalJob.company}`,
         }))}
       />
-    </main>
+    </section>
   );
 }

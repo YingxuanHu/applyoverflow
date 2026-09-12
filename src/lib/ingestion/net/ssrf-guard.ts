@@ -17,6 +17,8 @@
  * redirect-to-internal paths without real network access.
  */
 import { lookup } from "node:dns/promises";
+import { isIP, type LookupFunction } from "node:net";
+import { Agent } from "undici";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const MAX_REDIRECT_HOPS = 5;
@@ -86,6 +88,8 @@ function isDisallowedIpv4(octets: number[]): boolean {
   if (a === 192 && b === 168) return true; // private 192.168/16
   if (a === 169 && b === 254) return true; // link-local 169.254/16
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  if (a >= 224) return true; // multicast and reserved
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
   return false;
 }
 
@@ -143,6 +147,7 @@ function isDisallowedIpv6(groups: number[]): boolean {
   if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return true; // loopback ::1
   if (((groups[0] >> 8) & 0xfe) === 0xfc) return true; // unique-local fc00::/7
   if ((groups[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
+  if ((groups[0] & 0xff00) === 0xff00) return true; // multicast
 
   // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d): validate the
   // embedded IPv4 against the IPv4 rules so mapped internal addresses are caught.
@@ -180,6 +185,18 @@ function looksLikeIpLiteral(host: string): boolean {
 
 const defaultResolve: DnsResolver = (hostname) => lookup(hostname, { all: true });
 
+export function createPinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
+  const approved = addresses.map((address) => ({ ...address }));
+  if (!approved.length || approved.some(({ address }) => !isIP(address) || isDisallowedIpAddress(address))) {
+    throw new SsrfBlockedError("No approved outbound address");
+  }
+  return (_hostname, options, callback) => {
+    const address = approved[0];
+    if (options.all) callback(null, approved);
+    else callback(null, address.address, address.family);
+  };
+}
+
 /**
  * Reject before fetching if the URL is not http(s), targets a disallowed host,
  * is a disallowed IP literal, or resolves (via DNS) to any disallowed address.
@@ -187,7 +204,7 @@ const defaultResolve: DnsResolver = (hostname) => lookup(hostname, { all: true }
 export async function assertFetchTargetAllowed(
   url: string | URL,
   deps: FetchGuardDeps = {}
-): Promise<void> {
+): Promise<ResolvedAddress[]> {
   let parsed: URL;
   try {
     parsed = typeof url === "string" ? new URL(url) : url;
@@ -201,6 +218,10 @@ export async function assertFetchTargetAllowed(
     );
   }
 
+  if (parsed.username || parsed.password || (parsed.port && !["80", "443"].includes(parsed.port))) {
+    throw new SsrfBlockedError("Refusing URL credentials or an unexpected outbound port");
+  }
+
   const hostname = parsed.hostname.replace(/^\[/, "").replace(/\]$/, "");
   if (isDisallowedFetchHost(hostname)) {
     throw new SsrfBlockedError(`Refusing to fetch disallowed host: ${hostname}`);
@@ -210,7 +231,7 @@ export async function assertFetchTargetAllowed(
     if (isDisallowedIpAddress(hostname)) {
       throw new SsrfBlockedError(`Refusing to fetch disallowed IP: ${hostname}`);
     }
-    return;
+    return [{ address: hostname, family: isIP(hostname) }];
   }
 
   const resolve = deps.resolve ?? defaultResolve;
@@ -230,12 +251,13 @@ export async function assertFetchTargetAllowed(
   }
 
   for (const { address } of addresses) {
-    if (isDisallowedIpAddress(address)) {
+    if (!isIP(address) || isDisallowedIpAddress(address)) {
       throw new SsrfBlockedError(
         `Refusing to fetch host resolving to disallowed IP: ${hostname} -> ${address}`
       );
     }
   }
+  return addresses;
 }
 
 function isRedirectStatus(status: number): boolean {
@@ -259,26 +281,43 @@ export async function fetchGuarded(
   init: RequestInit = {},
   deps: FetchGuardDeps = {}
 ): Promise<Response> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
-
-  let signal = init.signal ?? undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  if (!signal) {
-    const controller = new AbortController();
-    timeout = setTimeout(() => controller.abort(), DEFAULT_FETCH_TIMEOUT_MS);
-    signal = controller.signal;
-  }
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+    ...(init.signal ? [init.signal] : []),
+  ]);
+  const requestHeaders = new Headers(init.headers);
+  requestHeaders.delete("host");
 
   try {
     let currentUrl = url;
     for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
-      await assertFetchTargetAllowed(currentUrl, deps);
-
-      const response = await fetchImpl(currentUrl, {
-        ...init,
-        signal,
-        redirect: "manual",
+      signal.throwIfAborted();
+      const addresses = await assertFetchTargetAllowed(currentUrl, deps);
+      signal.throwIfAborted();
+      const dispatcher = new Agent({
+        connect: {
+          lookup: createPinnedLookup(addresses),
+        },
+        headersTimeout: DEFAULT_FETCH_TIMEOUT_MS,
+        bodyTimeout: DEFAULT_FETCH_TIMEOUT_MS,
       });
+      let response: Response;
+      try {
+        // The URL retains its hostname for Host and TLS verification; only the
+        // socket's DNS lookup is replaced with the already-approved addresses.
+        const fetchImpl = deps.fetchImpl ?? fetch;
+        response = await fetchImpl(currentUrl, {
+          ...init,
+          headers: requestHeaders,
+          signal,
+          redirect: "manual",
+          dispatcher,
+        } as RequestInit & { dispatcher: Agent }) as Response;
+      } finally {
+        // Graceful close waits for the response body; do not await it before
+        // returning that body to the caller.
+        void dispatcher.close().catch(() => dispatcher.destroy());
+      }
 
       if (!isRedirectStatus(response.status)) {
         return response;
@@ -295,7 +334,13 @@ export async function fetchGuarded(
         );
       }
 
-      currentUrl = new URL(location, currentUrl).toString();
+      await response.body?.cancel();
+      const nextUrl = new URL(location, currentUrl);
+      if (nextUrl.origin !== new URL(currentUrl).origin) {
+        requestHeaders.delete("authorization");
+        requestHeaders.delete("cookie");
+      }
+      currentUrl = nextUrl.toString();
     }
 
     // Unreachable: the loop either returns a response or throws.
@@ -303,6 +348,6 @@ export async function fetchGuarded(
       `Refusing to follow more than ${MAX_REDIRECT_HOPS} redirects for ${url}`
     );
   } finally {
-    if (timeout) clearTimeout(timeout);
+    // AbortSignal.timeout also bounds body consumption after headers return.
   }
 }

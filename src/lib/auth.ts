@@ -97,7 +97,7 @@ export const auth = betterAuth({
           });
 
           if (profile) {
-            await Promise.allSettled(profile.documents.map((doc) => deleteFile(doc.storageKey)));
+            await Promise.all(profile.documents.map((doc) => deleteFile(doc.storageKey)));
           }
 
           return true;
@@ -173,7 +173,7 @@ export const auth = betterAuth({
         });
 
         if (!sent) {
-          console.log(`[auth] Email change confirmation link for ${user.email}: ${url}`);
+          console.warn("[auth] Email change confirmation delivery failed.");
         }
       },
     },

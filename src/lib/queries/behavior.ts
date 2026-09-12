@@ -26,12 +26,13 @@ export async function recordAction(
     return recentDuplicate;
   }
 
-  return prisma.userBehaviorSignal.create({
+  const [signal] = await prisma.$transaction([prisma.userBehaviorSignal.create({
     data: {
       userId,
       canonicalJobId,
       action,
       metadata: metadata ?? undefined,
     },
-  });
+  }), prisma.userProfile.update({ where: { id: userId }, data: { feedStateVersion: { increment: 1 } } })]);
+  return signal;
 }

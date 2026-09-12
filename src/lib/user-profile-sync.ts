@@ -14,12 +14,17 @@ export async function syncProfileForAuthUser(user: SyncableUser) {
         { email: user.email },
       ],
     },
-    select: {
-      id: true,
-    },
   });
 
   if (existingProfile) {
+    if (
+      existingProfile.authUserId === user.id &&
+      existingProfile.email === user.email &&
+      existingProfile.name === user.name
+    ) {
+      return existingProfile;
+    }
+
     return prisma.userProfile.update({
       where: { id: existingProfile.id },
       data: {

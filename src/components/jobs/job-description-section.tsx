@@ -1,21 +1,20 @@
 import {
-  getCleanJobDescriptionDisplayBlocks,
   getJobDescriptionCandidateUrls,
-  isJobDescriptionSummaryUsable,
-  isLowQualityJobDescription,
-  isRenderableJobDescription,
-  pickBestFormattedJobDescription,
 } from "@/lib/job-description-format";
-import { fetchBestFormattedJobDescriptionFromUrls } from "@/lib/job-description-fetch";
 import { ExternalLink } from "lucide-react";
+import { after } from "next/server";
+import { enqueueDescriptionRepair } from "@/lib/jobs/description-repair";
+import { JobDescriptionContent } from "./job-description-content";
 
 type JobDescriptionSectionProps = {
   title?: string;
   showSourceLink?: boolean;
   job: {
+    id: string;
     description: string;
     applyUrl: string;
     sourceMappings: Array<{
+      sourceName?: string;
       sourceUrl: string | null;
       isPrimary: boolean;
     }>;
@@ -24,11 +23,12 @@ type JobDescriptionSectionProps = {
   };
 };
 
-export async function JobDescriptionSection({
+export function JobDescriptionSection({
   showSourceLink = true,
   title = "Description",
   job,
 }: JobDescriptionSectionProps) {
+  after(() => enqueueDescriptionRepair(job).catch(() => console.warn("Description repair could not be queued")));
   const candidateUrls = getJobDescriptionCandidateUrls({
     applyUrl: job.applyUrl,
     primaryExternalLink: job.primaryExternalLink,
@@ -36,20 +36,7 @@ export async function JobDescriptionSection({
     sourceMappings: job.sourceMappings,
   });
   const preferredSourceUrl = candidateUrls[0] ?? null;
-  const storedDescriptionNeedsRepair =
-    isLowQualityJobDescription(job.description) ||
-    !isJobDescriptionSummaryUsable(job.description);
-  const fetchedDescription = storedDescriptionNeedsRepair
-    ? await fetchBestFormattedJobDescriptionFromUrls(candidateUrls, 3)
-    : null;
-  const displayDescription =
-    pickBestFormattedJobDescription([fetchedDescription, job.description]) ?? job.description;
-  const descriptionBlocks = getCleanJobDescriptionDisplayBlocks(displayDescription, 8);
-  const descriptionUsable =
-    !isLowQualityJobDescription(displayDescription) &&
-    isRenderableJobDescription(displayDescription) &&
-    isJobDescriptionSummaryUsable(displayDescription);
-  const shouldShowDescription = descriptionUsable && descriptionBlocks.length > 0;
+  const shouldShowDescription = Boolean(job.description.trim());
 
   return (
     <section className="surface-panel p-5 sm:p-6">
@@ -58,42 +45,10 @@ export async function JobDescriptionSection({
       </div>
 
       {shouldShowDescription ? (
-        <div className="mt-4 max-w-[82ch] space-y-4 text-sm leading-6 text-foreground/82">
-          {descriptionBlocks.map((block, index) => {
-            if (block.kind === "header") {
-              return (
-                <p
-                  key={index}
-                  className="pt-1 text-sm font-semibold text-foreground first:pt-0"
-                >
-                  {block.text}
-                </p>
-              );
-            }
-
-            if (block.kind === "list") {
-              return (
-                <ul
-                  key={index}
-                  className="ml-5 list-disc space-y-2 marker:text-primary/70"
-                >
-                  {block.items.map((item, itemIndex) => (
-                    <li key={itemIndex}>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              );
-            }
-
-            return (
-              <p key={index} className="text-foreground/80">
-                {block.text}
-              </p>
-            );
-          })}
+        <div className="mt-4">
+          <JobDescriptionContent description={job.description} />
         </div>
-      ) : null}
+      ) : <p className="mt-4 text-sm text-muted-foreground">The source description is not available yet. Check the original posting for the full requirements.</p>}
 
       {showSourceLink && preferredSourceUrl ? (
         <div className={shouldShowDescription ? "mt-5" : "mt-3"}>

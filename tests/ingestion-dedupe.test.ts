@@ -6,6 +6,7 @@ process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/post
 import type { CanonicalMatchCandidate } from "../src/lib/ingestion/dedupe";
 import type { SourceIdentitySnapshot } from "../src/lib/ingestion/source-quality";
 import type { NormalizedJobInput } from "../src/lib/ingestion/types";
+import type { Prisma } from "../src/generated/prisma/client";
 
 let dedupeModulePromise:
   | Promise<typeof import("../src/lib/ingestion/dedupe")>
@@ -375,3 +376,51 @@ test("dedupe preserves seniority-stripped match when a level is unresolved", () 
     }
   );
 });
+
+for (const path of ["duplicateCluster", "similarity"] as const) {
+  test(`cross-source ${path} rejects resolved seniority conflicts`, async (t) => {
+    const { findCrossSourceCanonicalMatch, buildCanonicalDedupeFields } = await loadDedupeModule();
+    const { prisma } = await import("../src/lib/db");
+    const title = path === "duplicateCluster" ? "Platform Reliability Engineer" : "Software Engineer";
+    const incoming = buildNormalizedJob({ title, experienceLevel: "MID" }, buildCanonicalDedupeFields);
+    const candidate = buildCandidate(buildNormalizedJob({
+      title: `Senior ${title}`, experienceLevel: "SENIOR", applyUrl: "https://example.com/jobs/other",
+    }, buildCanonicalDedupeFields));
+    const identity: SourceIdentitySnapshot = {
+      sourceFamily: "Adzuna", sourceQualityKind: "AGGREGATOR_REDIRECT", sourceQualityRank: 500,
+      sourceTrustTier: "MEDIUM", canonicalOriginPreference: "SECONDARY",
+      applyUrlKey: null, sourceUrlKey: null, postingIdKey: null,
+    };
+    const originals = {
+      mapping: prisma.jobSourceMapping.findFirst,
+      cluster: prisma.jobCanonical.findFirst,
+      candidates: prisma.jobCanonical.findMany,
+    };
+    t.after(() => {
+      prisma.jobSourceMapping.findFirst = originals.mapping;
+      prisma.jobCanonical.findFirst = originals.cluster;
+      prisma.jobCanonical.findMany = originals.candidates;
+    });
+    let exactMatch = false;
+    prisma.jobSourceMapping.findFirst = (async () => exactMatch ? { canonicalJob: candidate } : null) as unknown as typeof originals.mapping;
+    const clusterQuery = t.mock.fn(async (args: Prisma.JobCanonicalFindFirstArgs) => { assert.ok(args.where); return candidate; });
+    const similarityQuery = t.mock.fn(async (args: Prisma.JobCanonicalFindManyArgs) => { assert.ok(args.where); return [candidate]; });
+    prisma.jobCanonical.findFirst = clusterQuery as unknown as typeof originals.cluster;
+    prisma.jobCanonical.findMany = similarityQuery as unknown as typeof originals.candidates;
+    assert.equal(await findCrossSourceCanonicalMatch(incoming, identity), null);
+    if (path === "duplicateCluster") {
+      assert.deepEqual(clusterQuery.mock.calls[0].arguments[0].where?.experienceLevel, { in: ["MID", "UNKNOWN"] });
+    }
+    assert.deepEqual(similarityQuery.mock.calls[0].arguments[0].where?.experienceLevel, { in: ["MID", "UNKNOWN"] });
+
+    candidate.experienceLevel = "MID";
+    const match = await findCrossSourceCanonicalMatch(incoming, identity);
+    assert.equal(match?.matchedBy, path);
+
+    candidate.experienceLevel = "SENIOR";
+    exactMatch = true;
+    assert.equal((await findCrossSourceCanonicalMatch(incoming, {
+      ...identity, applyUrlKey: incoming.applyUrlKey,
+    }))?.matchedBy, "applyUrlKey", "exact posting identity remains strongest");
+  });
+}

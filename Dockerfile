@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
@@ -22,6 +22,23 @@ ENV BETTER_AUTH_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 RUN npm run build
 
+FROM base AS web
+ARG BUILD_SHA=unknown
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 BUILD_SHA=$BUILD_SHA
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "server.js"]
+
+FROM builder AS worker-files
+# Dependencies already have a cached runner layer. The standalone web copy
+# and compilation cache are not used by workers or staging's next start.
+RUN rm -rf /app/node_modules /app/.next/standalone /app/.next/cache
+
 FROM base AS runner
 
 ENV NODE_ENV=production
@@ -35,7 +52,7 @@ COPY --from=builder /app/node_modules ./node_modules
 RUN npx playwright install --with-deps chromium \
   && npm cache clean --force
 
-COPY --from=builder /app ./
+COPY --from=worker-files /app ./
 
 EXPOSE 3000
 

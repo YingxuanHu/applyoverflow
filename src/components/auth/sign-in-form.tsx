@@ -10,6 +10,7 @@ import { GoogleAuthButton } from "@/components/auth/google-auth-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { getSignInErrorFeedback } from "@/lib/auth-sign-in-error";
 import { LOCAL_DEVELOPMENT_ADMIN } from "@/lib/local-development-auth";
 
 type SignInFormProps = {
@@ -70,33 +71,34 @@ export function SignInForm({
         : identifier;
     const password = String(formData.get("password") ?? "");
 
-    const result = await authClient.signIn.email({
-      email,
-      password,
-      callbackURL: "/sign-in?verified=true",
-    });
+    try {
+      const result = await authClient.signIn.email({
+        email,
+        password,
+        callbackURL: "/sign-in?verified=true",
+      });
 
-    if (result.error) {
-      const message = result.error.message ?? "Unable to sign in.";
-      if (message.toLowerCase().includes("verify")) {
-        setError("Email not verified. Check your inbox for the verification link.");
-        setVerificationEmail(email);
-      } else {
-        setError("Invalid email or password.");
+      if (result.error) {
+        const feedback = getSignInErrorFeedback(result.error);
+        setError(feedback.message);
+        if (feedback.needsVerification) setVerificationEmail(email);
+        setPending(false);
+        return;
       }
-      setPending(false);
-      return;
-    }
 
-    router.push(safeCallbackUrl);
-    router.refresh();
+      router.push(safeCallbackUrl);
+      router.refresh();
+    } catch {
+      setError(getSignInErrorFeedback({ status: 0 }).message);
+      setPending(false);
+    }
   };
 
   return (
     <Card className="w-full rounded-[24px] border-border/60 bg-card/95 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:rounded-[28px] sm:py-5 dark:shadow-none">
       <CardHeader className="gap-2 px-4 sm:px-6">
         <p className="section-label">Welcome back</p>
-        <CardTitle className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Sign in</CardTitle>
+        <CardTitle role="heading" aria-level={1} className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Sign in</CardTitle>
         <CardDescription className="max-w-sm leading-6">
           Continue to your job workspace.
         </CardDescription>

@@ -441,9 +441,9 @@ function ApplicationHeaderEditor({
   //   Row 3: posting link
   return (
     <div className="space-y-2">
-      <h2 className="text-ellipsis-2 text-xl font-semibold leading-snug text-foreground sm:text-2xl">
+      <h1 className="text-ellipsis-2 text-xl font-semibold leading-snug text-foreground sm:text-2xl">
         {application.roleTitle}
-      </h2>
+      </h1>
       <p className="text-ellipsis-1 text-base font-semibold text-foreground">{application.company}</p>
       {application.roleUrl ? (
         <a
@@ -677,6 +677,7 @@ function StatusSelector({
       <input name="applicationId" type="hidden" value={applicationId} />
       <div className="relative w-full min-w-0 sm:w-auto">
         <select
+          aria-label="Application status"
           className="h-10 w-full min-w-0 appearance-none rounded-[12px] border border-input bg-card py-0 pl-3.5 pr-12 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 sm:min-w-[156px]"
           defaultValue={currentStatus}
           key={currentStatus}

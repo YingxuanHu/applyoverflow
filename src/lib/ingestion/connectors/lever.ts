@@ -12,6 +12,7 @@ import {
   buildTimeoutSignal,
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
+import { buildLeverDescription, type LeverDescription } from "./lever-description";
 
 type LeverConnectorOptions = {
   siteToken: string;
@@ -33,7 +34,7 @@ type LeverSalaryRange = {
   interval?: string | null;
 };
 
-type LeverPosting = {
+type LeverPosting = LeverDescription & {
   id: string;
   text: string;
   descriptionPlain?: string | null;
@@ -102,7 +103,7 @@ export function createLeverConnector({
           title: job.text,
           company: resolvedCompanyName,
           location: buildLocation(job),
-          description: buildDescription(job),
+          description: buildLeverDescription(job),
           applyUrl: job.applyUrl ?? job.hostedUrl ?? "",
           postedAt: parseTimestamp(job.createdAt),
           deadline: null,
@@ -136,19 +137,6 @@ function buildLocation(job: LeverPosting) {
 
   const country = readText(job.country);
   return country || "Unknown";
-}
-
-function buildDescription(job: LeverPosting) {
-  const sections = [
-    job.descriptionPlain,
-    job.openingPlain,
-    job.additionalPlain,
-    job.salaryDescriptionPlain,
-  ]
-    .map((value) => readText(value))
-    .filter(Boolean);
-
-  return sections.join("\n\n");
 }
 
 function parseTimestamp(value: number | null | undefined) {

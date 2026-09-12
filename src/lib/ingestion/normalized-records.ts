@@ -15,7 +15,7 @@ import { extractNormalizedJobFacts } from "@/lib/ingestion/extraction/quality-ga
 import { mapNormalizedEmploymentTypeToLegacy } from "@/lib/ingestion/extraction/job-metadata-extractor";
 import { classifyJobMetadata } from "@/lib/job-metadata";
 import { sanitizeCompanyName, sanitizeJobDescriptionText, sanitizeJobTitle } from "@/lib/job-cleanup";
-import type { SourceConnectorJob } from "@/lib/ingestion/types";
+import type { NormalizationResult, SourceConnectorJob } from "@/lib/ingestion/types";
 import { Prisma } from "@/generated/prisma/client";
 
 const INCREMENTAL_SOURCE_PREFIXES = new Set([
@@ -286,13 +286,15 @@ export async function upsertNormalizedJobRecordFromSourceJob(input: {
   rawSourceId: string;
   rawPayload: Prisma.JsonValue;
   fetchedAt: Date;
+  /** A result computed from this same persisted raw payload, when already available. */
+  normalizationResult?: NormalizationResult;
 }) {
   const sourceJob = parseSourceConnectorJobFromRawPayload({
     sourceName: input.rawSourceName,
     sourceId: input.rawSourceId,
     rawPayload: input.rawPayload,
   });
-  const normalizationResult = normalizeSourceJob({
+  const normalizationResult = input.normalizationResult ?? normalizeSourceJob({
     job: sourceJob,
     fetchedAt: input.fetchedAt,
     sourceName: input.rawSourceName,

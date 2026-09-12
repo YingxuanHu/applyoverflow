@@ -87,7 +87,7 @@ export function VerifyEmailCard({ defaultEmail = "" }: VerifyEmailCardProps) {
     <Card className="w-full max-w-md rounded-[28px] border-border/60 bg-card/95 py-5 shadow-[0_18px_60px_rgba(0,0,0,0.08)] dark:shadow-none">
       <CardHeader className="gap-2 px-6">
         <p className="section-label">One more step</p>
-        <CardTitle className="text-3xl font-semibold tracking-tight">Verify email</CardTitle>
+        <CardTitle role="heading" aria-level={1} className="text-3xl font-semibold tracking-tight">Verify email</CardTitle>
         <CardDescription className="max-w-sm leading-6">
           Confirm the address that protects your profile, tracker, and documents.
         </CardDescription>

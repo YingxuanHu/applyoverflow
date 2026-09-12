@@ -37,20 +37,21 @@ export function AuthShell({
   ];
 
   return (
-    <main className="min-h-dvh overflow-x-hidden bg-background">
+    <div className="min-h-dvh overflow-x-hidden bg-background">
       {mobileMode === "landing" ? (
         <MobileAuthLanding
           contextDescription={contextDescription}
           contextTitle={contextTitle}
           previewItems={previewItems}
         />
-      ) : (
-        <MobileAuthFormFrame>{children}</MobileAuthFormFrame>
-      )}
+      ) : null}
 
-      <div className="hidden min-h-dvh items-center px-6 py-10 md:flex lg:px-8">
-        <div className="mx-auto grid w-full max-w-6xl min-w-0 items-center gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:gap-8">
-          <section className="order-2 min-w-0 lg:order-1">
+      <div className={`${mobileMode === "landing" ? "hidden md:flex" : "flex"} min-h-dvh flex-col px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] md:justify-center md:px-6 md:py-10 lg:px-8`}>
+        <Link aria-label="Go to home" className="mb-5 inline-flex w-fit rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/30 md:hidden" href="/">
+          <BrandLogo iconClassName="size-9" priority textClassName="text-[1.35rem]" />
+        </Link>
+        <div className="mx-auto grid w-full max-w-md min-w-0 flex-1 items-center gap-6 md:max-w-6xl md:flex-none lg:grid-cols-[minmax(0,1fr)_minmax(360px,430px)] lg:gap-8">
+          <section className="order-2 hidden min-w-0 md:block lg:order-1">
             <Link
               aria-label="Go to sign in"
               className="inline-flex items-center gap-2 rounded-full text-sm font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
@@ -61,9 +62,9 @@ export function AuthShell({
 
             <div className="mt-7 max-w-2xl sm:mt-10">
               <p className="section-label">Smarter job search workspace</p>
-              <h1 className="mt-3 max-w-xl text-[2.35rem] font-semibold leading-[1.06] tracking-tight text-foreground sm:mt-4 sm:text-5xl">
+              <p className="mt-3 max-w-xl text-[2.35rem] font-semibold leading-[1.06] tracking-tight text-foreground sm:mt-4 sm:text-5xl">
                 {contextTitle}
-              </h1>
+              </p>
               <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground sm:mt-5 sm:text-lg sm:leading-7">
                 {contextDescription}
               </p>
@@ -104,7 +105,7 @@ export function AuthShell({
           </section>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -201,33 +202,6 @@ function MobileAuthLanding({
         <p className="mx-auto w-fit rounded-full border border-border/70 bg-card/70 px-5 py-2 text-sm font-semibold text-muted-foreground">
           applyoverflow.com
         </p>
-      </div>
-    </section>
-  );
-}
-
-function MobileAuthFormFrame({ children }: { children: ReactNode }) {
-  return (
-    <section
-      className="flex min-h-dvh flex-col overflow-x-hidden px-4 md:hidden"
-      style={{
-        paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
-        paddingTop: "max(1.25rem, env(safe-area-inset-top))",
-      }}
-    >
-      <Link
-        aria-label="Go to home"
-        className="mb-5 inline-flex w-fit items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-        href="/"
-      >
-        <BrandLogo
-          iconClassName="size-9"
-          priority
-          textClassName="text-[1.35rem]"
-        />
-      </Link>
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-3">
-        {children}
       </div>
     </section>
   );

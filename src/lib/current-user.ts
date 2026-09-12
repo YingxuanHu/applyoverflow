@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { cache } from "react";
 
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -63,7 +64,7 @@ async function getPolicySession(requestHeaders: Headers) {
   );
 }
 
-async function getSessionUser(): Promise<SessionUser | null> {
+const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   try {
     const requestHeaders = await headers();
     const policySession = await getPolicySession(requestHeaders);
@@ -98,7 +99,7 @@ async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
+});
 
 export async function requireFreshSensitiveSession() {
   const requestHeaders = await headers();

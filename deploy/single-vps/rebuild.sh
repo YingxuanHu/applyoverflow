@@ -13,8 +13,13 @@ REMOTE_APP_DIR="${SINGLE_VPS_APP_DIR:-/opt/autoapplication}"
 ENV_FILE="${SINGLE_VPS_ENV_FILE:-deploy/single-vps/.env.production}"
 COMPOSE_FILE="${SINGLE_VPS_COMPOSE_FILE:-deploy/single-vps/docker-compose.yml}"
 BUILD_SERVICES="${SINGLE_VPS_BUILD_SERVICES:-app worker-ingestion worker-source-workers worker-maintenance}"
-SERVICES="${SINGLE_VPS_SERVICES:-$BUILD_SERVICES caddy}"
+SERVICES="${SINGLE_VPS_SERVICES:-$BUILD_SERVICES}"
 LEGACY_SERVICES="${SINGLE_VPS_LEGACY_SERVICES:-worker}"
+BUILD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]]; then
+  echo "Commit the release checkout before deploying so its build revision is reproducible." >&2
+  exit 1
+fi
 
 # Remove unused Docker build cache after each successful rebuild so the single
 # VPS does not slowly fill up. Set DOCKER_BUILD_CACHE_MAX_AGE=24h if you want to
@@ -32,6 +37,8 @@ RSYNC_EXCLUDES=(
   --exclude='.env.*'
   --exclude='.runtime'
   --exclude='logs'
+  --exclude='output'
+  --exclude='.playwright-cli'
   --exclude='deploy/single-vps/.env.production'
   --exclude='deploy/single-vps/backups'
 )
@@ -43,6 +50,7 @@ remote_script=$(cat <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 cd "$REMOTE_APP_DIR"
+export BUILD_SHA
 
 echo "Disk before rebuild:"
 df -h /
@@ -58,10 +66,10 @@ echo "Building: $BUILD_SERVICES"
 "${COMPOSE[@]}" build $BUILD_SERVICES
 
 echo "Applying database migrations"
-"${COMPOSE[@]}" run -T --rm app npx prisma migrate deploy </dev/null
+"${COMPOSE[@]}" run -T --rm worker-maintenance npx prisma migrate deploy </dev/null
 
 echo "Restarting: $SERVICES"
-"${COMPOSE[@]}" up -d --force-recreate $SERVICES
+"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout 120 $SERVICES
 
 if [[ -n "$LEGACY_SERVICES" ]]; then
   echo
@@ -104,7 +112,8 @@ printf -v quoted_services "%q" "$SERVICES"
 printf -v quoted_legacy_services "%q" "$LEGACY_SERVICES"
 printf -v quoted_cache_max_age "%q" "$DOCKER_BUILD_CACHE_MAX_AGE"
 printf -v quoted_prune_images "%q" "$PRUNE_UNUSED_IMAGES"
+printf -v quoted_build_sha "%q" "$BUILD_SHA"
 
 ssh "$REMOTE_HOST" \
-  "REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services LEGACY_SERVICES=$quoted_legacy_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
+  "BUILD_SHA=$quoted_build_sha REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services LEGACY_SERVICES=$quoted_legacy_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
   <<< "$remote_script"

@@ -215,7 +215,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           <div>
             <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.5rem]">
               {headlineCount.label}{" "}
-              {hasScopedResults && headlineCount.isExact ? "matching jobs" : "live jobs"}
+              {hasScopedResults && headlineCount.isExact ? "matching" : "live"}{" "}
+              {(hasScopedResults && headlineCount.isExact ? jobsResult.total : jobsResult.summary.liveJobCount) === 1 ? "job" : "jobs"}
             </p>
             {ingestionStatus.lastUpdatedAt ? (
               <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
@@ -1087,6 +1088,7 @@ function SalaryRangeField({
           type="number"
         />
         <select
+          aria-label="Salary currency"
           className="h-9 rounded-[10px] border border-input bg-card px-2.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/25"
           defaultValue={salaryCurrency}
           name="salaryCurrency"

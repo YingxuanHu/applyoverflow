@@ -9,6 +9,8 @@
  * - scripts/cleanup-polluted-descriptions.ts — retroactive cleanup
  */
 
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
+
 // Named HTML entity map — covers what actually appears in scraped job pages.
 // (Exhaustive HTML5 tables are overkill; this list hits the common cases.)
 /** Regex to strip all HTML tags. Shared by description extractors and connectors. */
@@ -351,22 +353,7 @@ function stripClassNoise(html: string): string {
 
 // Convert block-level tag boundaries to newlines, drop remaining inline tags.
 function htmlFragmentToText(fragment: string): string {
-  const withLists = fragment
-    .replace(/<li\b[^>]*>/gi, "\n• ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(
-      /<\/(p|div|section|article|li|ul|ol|h[1-6]|blockquote|tr|td)[^>]*>/gi,
-      "\n"
-    );
-  const stripped = withLists.replace(STRIP_TAGS_RE, " ");
-  return decodeHtmlEntitiesFull(stripped)
-    .replace(/\u00a0/g, " ")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return descriptionHtmlToText(fragment);
 }
 
 /**
@@ -417,7 +404,6 @@ const POLLUTION_END_MARKERS = [
   "manage preferences",
   "cookie preferences",
   "accept all cookies",
-  "privacy notice",
 ];
 
 /**
@@ -509,9 +495,8 @@ export function trimDescriptionPollution(text: string): string {
   }
 
   // Cut at the earliest END_MARKER past meaningful body text (>200 chars).
-  const lower = trimmed.toLowerCase();
   for (const marker of POLLUTION_END_MARKERS) {
-    const idx = lower.indexOf(marker);
+    const idx = trimmed.search(new RegExp(`^(?:#{1,6}\\s+)?${marker}\\s*$`, "im"));
     if (idx > 200 && idx < cutIndex) {
       cutIndex = idx;
     }
@@ -572,16 +557,12 @@ export function extractDescriptionFromHtml(html: string): string {
   return capDescriptionText(trimDescriptionPollution(best.text), best.label);
 }
 
-// Bound the returned description without truncating a real posting mid-section.
-// A genuine container/main match is allowed a generous cap (long enterprise and
-// bilingual postings routinely exceed the old flat 18k slice); the pollution-
-// prone body-fallback keeps a tighter bound. When over the cap, cut at the last
-// paragraph boundary so we never slice mid-sentence.
+// Keep long enterprise/bilingual postings whole. Implausibly large extracts
+// fail closed instead of presenting a truncated prefix as a complete posting.
 function capDescriptionText(text: string, label: string): string {
-  const cap = label === "body-fallback" ? 24_000 : 60_000;
-  if (text.length <= cap) return text;
-  const boundary = text.lastIndexOf("\n\n", cap);
-  return text.slice(0, boundary > cap * 0.6 ? boundary : cap);
+  const cap = label === "body-fallback" ? 100_000 : 250_000;
+  // Reject an implausibly large page extract rather than silently losing its tail.
+  return text.length <= cap ? text : "";
 }
 
 function scoreCandidate(text: string): number {

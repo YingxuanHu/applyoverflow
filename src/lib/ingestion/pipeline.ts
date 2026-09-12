@@ -17,10 +17,13 @@ import {
 } from "@/lib/ingestion/dedupe";
 import { getLifecycleProfile } from "@/lib/ingestion/lifecycle-config";
 import { detectDeadSignal, normalizeSourceJob } from "@/lib/ingestion/normalize";
-import { upsertNormalizedJobRecordFromSourceJob } from "@/lib/ingestion/normalized-records";
+import {
+  parseSourceConnectorJobFromRawPayload,
+  upsertNormalizedJobRecordFromSourceJob,
+} from "@/lib/ingestion/normalized-records";
 import { computeNormalizedQualityScore } from "@/lib/ingestion/quality";
 import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
-import { readCompanySiteCompletenessSignal } from "@/lib/ingestion/source-fetch-quality";
+import { readCompanySiteCompletenessSignal, readConnectorFetchError } from "@/lib/ingestion/source-fetch-quality";
 import {
   deriveSourceIdentitySnapshot,
   deriveSourceLifecycleSnapshot,
@@ -756,6 +759,13 @@ async function performConnectorIngestion(
 ) {
   const seenSourceIds = new Set<string>();
   const freshnessCandidateIds = new Set<string>();
+  const refreshedStatuses = new Map<string, CanonicalStatusRefreshResult>();
+  const refreshAndPublish = async (canonicalId: string) => {
+    const result = await refreshCanonicalStatus(canonicalId, now);
+    await upsertJobFeedIndex(canonicalId);
+    refreshedStatuses.set(canonicalId, result);
+    freshnessCandidateIds.delete(canonicalId);
+  };
 
   throwIfAborted(signal);
 
@@ -798,11 +808,8 @@ async function performConnectorIngestion(
   // empty job list that is NOT authoritative: treating it as a full snapshot
   // would mark every one of the source's mappings removed and drive the whole
   // company's canonical jobs to REMOVED on a single transient blip.
-  const fetchHadUpstreamError =
-    typeof fetchResult.metadata === "object" &&
-    fetchResult.metadata !== null &&
-    "error" in fetchResult.metadata &&
-    Boolean((fetchResult.metadata as { error?: unknown }).error);
+  const upstreamError = readConnectorFetchError(fetchResult.metadata);
+  const fetchHadUpstreamError = upstreamError !== null;
   // A known partial company-site extraction is not an authoritative snapshot.
   // Keep prior mappings alive while the source recovery loop finds the board's
   // structured route or a replacement ATS.
@@ -855,6 +862,7 @@ async function performConnectorIngestion(
         }
 
         freshnessCandidateIds.add(refreshResult.canonicalId);
+        await refreshAndPublish(refreshResult.canonicalId);
         processedCount += 1;
         if (processedCount % 25 === 0) {
           await onHeartbeat?.({
@@ -870,18 +878,23 @@ async function performConnectorIngestion(
       }
     }
 
+    const persistedSourceJob = parseSourceConnectorJobFromRawPayload({
+      sourceName: connector.sourceName,
+      sourceId: sourceJob.sourceId,
+      rawPayload: rawJobResult.rawJob.rawPayload,
+    });
+    const normalizationResult = normalizeSourceJob({
+      job: persistedSourceJob,
+      fetchedAt: now,
+      sourceName: connector.sourceName,
+    });
     await upsertNormalizedJobRecordFromSourceJob({
       rawJobId: rawJobResult.rawJob.id,
       rawSourceName: connector.sourceName,
       rawSourceId: sourceJob.sourceId,
       rawPayload: rawJobResult.rawJob.rawPayload,
       fetchedAt: now,
-    });
-
-    const normalizationResult = normalizeSourceJob({
-      job: sourceJob,
-      fetchedAt: now,
-      sourceName: connector.sourceName,
+      normalizationResult,
     });
 
     if (normalizationResult.kind === "rejected") {
@@ -902,6 +915,7 @@ async function performConnectorIngestion(
         });
         if (deadResult.canonicalId) {
           freshnessCandidateIds.add(deadResult.canonicalId);
+          await refreshAndPublish(deadResult.canonicalId);
         }
       }
       processedCount += 1;
@@ -1016,7 +1030,9 @@ async function performConnectorIngestion(
         qualityScore: computeNormalizedQualityScore(normalizationResult.job),
       },
     });
-    await upsertJobFeedIndex(canonicalResult.id);
+    // Commit each usable row to the feed after lifecycle reconciliation so a
+    // later row failure cannot discard this source's already-persisted progress.
+    await refreshAndPublish(canonicalResult.id);
     processedCount += 1;
     if (processedCount % 25 === 0) {
       await onHeartbeat?.({
@@ -1087,12 +1103,17 @@ async function performConnectorIngestion(
     }
   }
 
-  const statusTally = await refreshCanonicalStatuses([...freshnessCandidateIds], now);
+  // Reconcile canonical jobs affected only by removed/reassigned mappings.
+  for (const canonicalId of freshnessCandidateIds) await refreshAndPublish(canonicalId);
+  const statusTally = tallyCanonicalStatuses(refreshedStatuses.values());
   summary.liveCount = statusTally.liveCount;
   summary.visibleLiveCount = statusTally.liveCount;
   summary.staleCount = statusTally.staleCount;
   summary.expiredCount = statusTally.expiredCount;
   summary.removedCount = statusTally.removedCount;
+  // Keep useful partial results, but never advance source success/backoff clocks
+  // after a connector reported an upstream failure.
+  if (upstreamError) throw upstreamError;
   await onHeartbeat?.({
     acceptedCount: summary.acceptedCount,
     fetchedCount: summary.fetchedCount,
@@ -1113,6 +1134,9 @@ async function performConnectorPreview(
     log: createConnectorLogger(connector, null),
   });
   summary.fetchMetadata = fetchResult.metadata ?? null;
+
+  const upstreamError = readConnectorFetchError(fetchResult.metadata);
+  if (upstreamError) throw upstreamError;
 
   for (const sourceJob of fetchResult.jobs) {
     summary.fetchedCount += 1;
@@ -1369,7 +1393,10 @@ async function loadResumeCheckpoint(connectorKey: string) {
 }
 
 function buildRunResultMetrics(summary: IngestionSummary) {
+  const fetchError = readConnectorFetchError(summary.fetchMetadata);
   return {
+    fetchFailed: fetchError !== null,
+    partialFetch: fetchError?.partial ?? false,
     minimallyAcceptedCount: summary.minimallyAcceptedCount,
     acceptedCanadaCount: summary.acceptedCanadaCount,
     acceptedCanadaRemoteCount: summary.acceptedCanadaRemoteCount,
@@ -1504,7 +1531,7 @@ async function refreshUnchangedMappedRawJob({
   };
 }
 
-function rawPayloadsEquivalent(
+export function rawPayloadsEquivalent(
   currentPayload: Prisma.JsonValue,
   nextPayload: Prisma.InputJsonValue
 ) {
@@ -2565,6 +2592,14 @@ async function markMappedJobAsDead({
 
 async function refreshCanonicalStatuses(canonicalIds: string[], now: Date) {
   const uniqueCanonicalIds = [...new Set(canonicalIds)];
+  const results: CanonicalStatusRefreshResult[] = [];
+  for (const canonicalId of uniqueCanonicalIds) {
+    results.push(await refreshCanonicalStatus(canonicalId, now));
+  }
+  return tallyCanonicalStatuses(results);
+}
+
+function tallyCanonicalStatuses(results: Iterable<CanonicalStatusRefreshResult>) {
   const tally: CanonicalStatusTally = {
     liveCount: 0,
     agingCount: 0,
@@ -2574,8 +2609,7 @@ async function refreshCanonicalStatuses(canonicalIds: string[], now: Date) {
     updatedCount: 0,
   };
 
-  for (const canonicalId of uniqueCanonicalIds) {
-    const result = await refreshCanonicalStatus(canonicalId, now);
+  for (const result of results) {
     if (result.status === "LIVE" || result.status === "AGING") tally.liveCount += 1;
     if (result.status === "AGING") tally.agingCount += 1;
     if (result.status === "STALE") tally.staleCount += 1;
@@ -3258,7 +3292,7 @@ function sanitizeJsonForPostgres(value: Prisma.InputJsonValue): Prisma.InputJson
   ) as Prisma.InputJsonObject;
 }
 
-function buildRawPayload(
+export function buildRawPayload(
   connector: Pick<SourceConnector, "sourceName" | "freshnessMode">,
   sourceJob: SourceConnectorJob,
   fetchedAt: Date
@@ -3281,6 +3315,8 @@ function buildRawPayload(
     sourceUrl: stripUnsafeChars(sourceJob.sourceUrl) ?? null,
     postedAt: sourceJob.postedAt?.toISOString() ?? null,
     deadline: sourceJob.deadline?.toISOString() ?? null,
+    employmentType: sourceJob.employmentType,
+    workMode: sourceJob.workMode,
     salaryMin: sourceJob.salaryMin,
     salaryMax: sourceJob.salaryMax,
     salaryCurrency: stripUnsafeChars(sourceJob.salaryCurrency) ?? null,

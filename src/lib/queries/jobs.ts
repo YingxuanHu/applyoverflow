@@ -21,6 +21,7 @@ import {
   getOptionalCurrentProfileId,
 } from "@/lib/current-user";
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
+import { getViewerFeedVersion, overlayViewerJobState } from "@/lib/jobs/viewer-state";
 import { inferGeoScope } from "@/lib/geo-scope";
 import {
   JOB_BOARD_MIN_AVAILABILITY_SCORE,
@@ -208,7 +209,6 @@ const JOB_FEED_CARD_SELECT = (
     salaryMax: true,
     salaryCurrency: true,
     shortSummary: true,
-    description: true,
     applyUrl: true,
     postedAt: true,
     deadline: true,
@@ -305,8 +305,8 @@ function withSanitizedJobPresentation<T extends SanitizedJobPresentationInput>(
   };
 }
 
-function withSanitizedJobFeedPresentation<T extends SanitizedJobPresentationInput>(job: T): T {
-  return withSanitizedJobPresentation(job);
+function withSanitizedJobFeedPresentation<T extends Omit<SanitizedJobPresentationInput, "description">>(job: T) {
+  return withSanitizedJobPresentation({ ...job, description: "" });
 }
 
 function buildGlobalVisibilityWhere(): PrismaTypes.JobCanonicalWhereInput {
@@ -2900,7 +2900,8 @@ function buildJobsCacheKey(
   viewerProfileId: string | null,
   filters: JobFilterParams,
   cacheEpoch: string | null = null,
-  summaryTimeZone: string = normalizeUserTimeZone()
+  summaryTimeZone: string = normalizeUserTimeZone(),
+  viewerStateEpoch: number = 0
 ) {
   return `jobs:${viewerProfileId ?? "anon"}:${JSON.stringify({
     search: filters.search ?? null,
@@ -2931,6 +2932,7 @@ function buildJobsCacheKey(
     debugFilters: filters.debugFilters ? 1 : null,
     summaryTimeZone,
     cacheEpoch,
+    viewerStateEpoch,
   })}`;
 }
 
@@ -3309,12 +3311,21 @@ export async function getJobs(
     viewerProfileId,
     filters,
     useHotFeedSnapshot ? (heartbeat?.lastUpdatedAt ?? "none") : null,
-    userTimeZone
+    userTimeZone,
+    await getViewerFeedVersion(viewerProfileId)
   );
-  const cached = readTimedCache<JobsResult>(cacheKey);
-  if (cached) return cached;
-  const inflight = inflightJobsQueryStore.get(cacheKey);
-  if (inflight) return inflight;
+  const hydrateResponse = async (result: JobsResult) => {
+    const data = await overlayViewerJobState(result.data, viewerProfileId, authUserId);
+    if (data[0]) {
+      const first = await prisma.jobCanonical.findUnique({ where: { id: data[0].id }, select: { description: true } });
+      data[0] = { ...data[0], description: first?.description ?? "" };
+    }
+    return { ...result, data };
+  };
+  const cached = filters.hideApplied ? null : readTimedCache<JobsResult>(cacheKey);
+  if (cached) return hydrateResponse(cached);
+  const inflight = filters.hideApplied ? null : inflightJobsQueryStore.get(cacheKey);
+  if (inflight) return hydrateResponse(await inflight);
 
   const request = (async () => {
     const page = filters.page ?? 1;
@@ -3674,7 +3685,7 @@ export async function getJobs(
   inflightJobsQueryStore.set(cacheKey, request);
 
   try {
-    return await request;
+    return hydrateResponse(await request);
   } finally {
     if (inflightJobsQueryStore.get(cacheKey) === request) {
       inflightJobsQueryStore.delete(cacheKey);

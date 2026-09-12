@@ -1,0 +1,39 @@
+name: Verify
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: applyoverflow_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/applyoverflow_test
+      BETTER_AUTH_SECRET: test-only-ci-secret-not-for-deployment
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run test:unit
+      - run: node --import tsx tests/integration/resource-budget.ts
+      - run: node --import tsx tests/integration/storage-deletion.ts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build

@@ -52,7 +52,7 @@ test("marks short aggregator snippets as unusable instead of rendering them as d
   assert.equal(isJobDescriptionSummaryUsable(raw), false);
 });
 
-test("deduplicates repeated bullets and caps noisy lists", () => {
+test("deduplicates repeated bullets without dropping distinct requirements", () => {
   const raw = `
     Responsibilities:
     - Build reliable application services used by internal operations teams.
@@ -70,14 +70,28 @@ test("deduplicates repeated bullets and caps noisy lists", () => {
   );
 
   assert.ok(listBlock);
-  assert.equal(listBlock.items.length <= 6, true);
-  assert.equal(listBlock.items.length >= 3, true);
+  assert.equal(listBlock.items.length, 7);
   assert.equal(
     listBlock.items.filter((item) =>
       item.includes("Build reliable application services")
     ).length,
     1
   );
+});
+
+test("keeps every distinct requirement in the full display blocks", () => {
+  const requirements = Array.from(
+    { length: 10 },
+    (_, index) => `Requirement ${index + 1}: demonstrate a distinct mandatory capability for this role.`
+  );
+  const blocks = getCleanJobDescriptionDisplayBlocks(
+    `Required qualifications:\n${requirements.map((item) => `- ${item}`).join("\n")}`
+  );
+  const rendered = JSON.stringify(blocks);
+
+  for (const requirement of requirements) {
+    assert.match(rendered, new RegExp(requirement));
+  }
 });
 
 test("recovers collapsed section headings and readable paragraphs for feed descriptions", () => {
@@ -150,12 +164,21 @@ test("prioritizes detailed responsibilities and qualifications over early compan
   assert.doesNotMatch(summary, /Acme builds workplace software/);
 });
 
-test("rejects metadata-only descriptions", () => {
+test("does not treat metadata as a usable summary but preserves it in full content", () => {
   const raw = "Team: Security Department: Technical Infrastructure";
 
   assert.equal(isLowQualityJobDescription(raw), true);
   assert.equal(isJobDescriptionSummaryUsable(raw), false);
-  assert.deepEqual(getCleanJobDescriptionDisplayBlocks(raw), []);
+  assert.match(JSON.stringify(getCleanJobDescriptionDisplayBlocks(raw)), /Technical Infrastructure/);
+});
+
+test("full descriptions retain short skills, research and distinct long requirements", () => {
+  const prefix = "Experience with ".repeat(15);
+  const content = getCleanJobDescriptionDisplayBlocks(`Requirements:\n- C\n- C++\n- Research skills\n- ${prefix}payments\n- ${prefix}reporting`);
+  const text = JSON.stringify(content);
+  for (const required of ["C++", "Research skills", `${prefix}payments`, `${prefix}reporting`]) {
+    assert.ok(text.includes(required), required);
+  }
 });
 
 test("rejects short location or authorization notes as full descriptions", () => {
@@ -302,9 +325,7 @@ test("fetch retries with a fallback User-Agent when the first attempt is blocked
   const deps: FetchGuardDeps = {
     resolve: PUBLIC_RESOLVE,
     fetchImpl: (async (_url: string | URL, init?: RequestInit) => {
-      const ua = String(
-        (init?.headers as Record<string, string> | undefined)?.["User-Agent"] ?? ""
-      );
+      const ua = new Headers(init?.headers).get("user-agent") ?? "";
       seenUserAgents.push(ua);
       if (ua.includes("Chrome")) {
         return new Response("blocked", { status: 403 });

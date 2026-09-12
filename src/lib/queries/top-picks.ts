@@ -54,7 +54,7 @@ function serializePick(input: {
   matchReasons: Prisma.JsonValue;
   concerns: Prisma.JsonValue;
   computedAt: Date;
-  job: TopPickJobRecord;
+  job: Omit<TopPickJobRecord, "description">;
 }): TopPickCardData {
   const { savedJobs, trackedApplications, ...job } = input.job;
   return {
@@ -73,7 +73,7 @@ function serializePick(input: {
             reasonDescription: job.eligibility.reasonDescription,
           }
         : null,
-      description: job.description,
+      description: "",
       isSaved: savedJobs.length > 0,
       hasApplied: trackedApplications.length > 0,
     }),
@@ -163,7 +163,7 @@ export async function getTopPicksForUser(
         concerns: true,
         computedAt: true,
         job: {
-          select: TOP_PICK_JOB_SELECT(userId, authUserId),
+          select: { ...TOP_PICK_JOB_SELECT(userId, authUserId), description: false },
         },
       },
     }),
@@ -171,6 +171,10 @@ export async function getTopPicksForUser(
     getTopPicksRefreshStatus(userId),
   ]);
   const data = rows.slice(0, pageSize).map(serializePick);
+  if (data[0]) {
+    const first = await prisma.jobCanonical.findUnique({ where: { id: data[0].job.id }, select: { description: true } });
+    data[0].job.description = first?.description ?? "";
+  }
 
   return {
     data,

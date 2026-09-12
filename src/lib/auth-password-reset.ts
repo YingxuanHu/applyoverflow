@@ -66,7 +66,7 @@ async function sendPasswordResetEmail(input: {
   });
 
   if (!sent) {
-    console.log(`[auth] Password reset link for ${input.email}: ${input.url}`);
+    console.warn("[auth] Password reset email delivery failed.");
   }
 }
 

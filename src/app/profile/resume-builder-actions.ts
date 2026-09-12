@@ -23,6 +23,7 @@ import { compileResumePdf, generateUnifiedResumeTeX, type UnifiedResume } from "
 import { revalidateProfileViews } from "@/lib/revalidation";
 import { buildDocumentStorageKey, deleteFile, saveFile } from "@/lib/storage";
 import { getOpenAIReadiness } from "@/lib/openai";
+import { API_RATE_LIMITS, consumeUserRateLimit } from "@/lib/api-rate-limit";
 
 export type ResumeBuilderActionState = {
   error: string | null;
@@ -333,7 +334,18 @@ export async function generateResumeEntryVariation(
   }
 
   try {
-    await requireAiFeatureAccess();
+    const aiUser = await requireAiFeatureAccess();
+    const rateLimit = consumeUserRateLimit(
+      aiUser.id,
+      "ai:resume-entry-variation",
+      API_RATE_LIMITS.aiResumeEntryVariation
+    );
+    if (!rateLimit.allowed) {
+      return {
+        error: `Too many AI revisions. Try again in ${rateLimit.retryAfterSeconds} seconds.`,
+        success: null,
+      };
+    }
     const [entry, profileContext] = await Promise.all([
       prisma.resumeLibraryEntry.findFirst({
         where: { id: parsed.data.entryId, userId: user.id, archivedAt: null },
@@ -595,6 +607,23 @@ export async function setDefaultResumeEntryVariation(
 
   revalidateProfileViews();
   return { error: null, success: "Default version updated for future resume selections." };
+}
+
+export async function archiveResumeLibraryEntry(
+  _previous: ResumeBuilderActionState,
+  formData: FormData
+): Promise<ResumeBuilderActionState> {
+  const user = await currentProfile();
+  if (!user) return { error: "You must sign in before archiving an entry.", success: null };
+
+  const result = await prisma.resumeLibraryEntry.updateMany({
+    where: { id: text(formData, "entryId", 80), userId: user.id, archivedAt: null },
+    data: { archivedAt: new Date() },
+  });
+  if (result.count === 0) return { error: "That resume entry is no longer available.", success: null };
+
+  revalidateProfileViews();
+  return { error: null, success: "Entry archived. Your profile and saved resume drafts are unchanged." };
 }
 
 export async function deleteResumeEntryVariation(

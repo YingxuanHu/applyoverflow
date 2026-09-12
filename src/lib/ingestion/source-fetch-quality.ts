@@ -9,6 +9,22 @@ export type CompanySiteCompletenessAssessment = {
   shouldRediscover: boolean;
 };
 
+export class ConnectorFetchError extends Error {
+  constructor(message: string, readonly partial: boolean) {
+    super(message);
+    this.name = "ConnectorFetchError";
+  }
+}
+
+export function readConnectorFetchError(fetchMetadata: unknown): ConnectorFetchError | null {
+  const metadata = asRecord(fetchMetadata);
+  if (!metadata?.error) return null;
+  const message = typeof metadata.error === "string"
+    ? metadata.error
+    : "Connector reported an upstream fetch failure";
+  return new ConnectorFetchError(message, metadata.partial === true);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

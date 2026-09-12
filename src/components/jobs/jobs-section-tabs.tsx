@@ -41,12 +41,7 @@ export function JobsSectionTabs({ active }: { active: JobsSectionTabKey }) {
             key={tab.key}
           >
             <span className="block text-[15px] font-semibold leading-5">{tab.label}</span>
-            <span
-              className={cn(
-                "mt-0.5 block text-xs leading-4",
-                isActive ? "text-muted-foreground" : "text-muted-foreground/85"
-              )}
-            >
+            <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
               {tab.description}
             </span>
           </Link>

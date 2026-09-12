@@ -8,6 +8,9 @@ import type {
   SourceConnectorFetchResult,
 } from "@/lib/ingestion/types";
 import { throwIfAborted } from "@/lib/ingestion/runtime-control";
+import { isClearlyNonNorthAmericanLocation } from "@/lib/geo-scope";
+import { isExcludedJobTitle } from "@/lib/jobs/scope-policy";
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
 
 const SMARTRECRUITERS_PAGE_SIZE = 100;
 const DETAIL_BATCH_SIZE = 8;
@@ -85,30 +88,51 @@ export function createSmartRecruitersConnector({
     async fetchJobs(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
-      const listings = await fetchAllListings({
+      const snapshot = await fetchAllListings({
         companyIdentifier,
         limit: options.limit,
         signal: options.signal,
       });
 
-      const jobs = await mapInBatches(
-        listings,
-        DETAIL_BATCH_SIZE,
-        async (listing) => buildSourceJob({
+      const jobs: SourceConnectorFetchResult["jobs"] = [];
+      let error = snapshot.error;
+      let failedDetailCount = 0;
+      for (let index = 0; index < snapshot.listings.length; index += DETAIL_BATCH_SIZE) {
+        throwIfAborted(options.signal);
+        const batch = snapshot.listings.slice(index, index + DETAIL_BATCH_SIZE);
+        const results = await Promise.allSettled(batch.map((listing) => buildSourceJob({
           companyIdentifier,
           fallbackCompanyName: resolvedCompanyName,
           listing,
           signal: options.signal,
-        })
-      );
+        })));
+        throwIfAborted(options.signal);
+        let stopDetails = false;
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            jobs.push(result.value);
+          } else {
+            failedDetailCount += 1;
+            error ??= errorMessage(result.reason);
+            // Finish the in-flight batch, but do not keep hitting a blocked API.
+            if (!(result.reason instanceof PostingHttpError) ||
+                ![404, 410].includes(result.reason.status)) stopDetails = true;
+          }
+        }
+        if (stopDetails) break;
+      }
 
       return {
         jobs,
+        exhausted: snapshot.exhausted && error === null,
         metadata: {
           companyIdentifier,
           companyName: resolvedCompanyName,
           fetchedAt: options.now.toISOString(),
           pageSize: SMARTRECRUITERS_PAGE_SIZE,
+          listedCount: snapshot.listings.length,
+          failedDetailCount,
+          ...(error ? { error, partial: snapshot.listings.length > 0 } : {}),
         },
       };
     },
@@ -125,40 +149,70 @@ async function fetchAllListings({
   signal?: AbortSignal;
 }) {
   const listings: SmartRecruitersListing[] = [];
+  const seenIds = new Set<string>();
   let offset = 0;
+  let exhausted = false;
+  let error: string | null = null;
 
-  while (true) {
-    throwIfAborted(signal);
-    const response = await fetch(
-      `https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings?limit=${SMARTRECRUITERS_PAGE_SIZE}&offset=${offset}`,
-      {
-        signal,
-        headers: {
-          Accept: "application/json",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `SmartRecruiters fetch failed for ${companyIdentifier}: ${response.status} ${response.statusText}`
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const response = await fetch(
+        `https://api.smartrecruiters.com/v1/companies/${companyIdentifier}/postings?limit=${SMARTRECRUITERS_PAGE_SIZE}&offset=${offset}`,
+        {
+          signal,
+          headers: { Accept: "application/json" },
+        }
       );
+
+      if (!response.ok) {
+        throw new Error(
+          `SmartRecruiters fetch failed for ${companyIdentifier}: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const payload = (await response.json()) as SmartRecruitersListingResponse;
+      if (!Array.isArray(payload?.content) || !Number.isFinite(payload.totalFound)) {
+        throw new Error("SmartRecruiters returned an invalid listing response");
+      }
+      if (payload.content.length === 0) {
+        if (offset < payload.totalFound) throw new Error("SmartRecruiters snapshot ended before totalFound");
+        exhausted = true;
+        break;
+      }
+
+      const previousCount = listings.length;
+      for (const listing of payload.content) {
+        if (!listing || typeof listing.id !== "string" || typeof listing.name !== "string") {
+          throw new Error("SmartRecruiters returned an invalid posting");
+        }
+        if (seenIds.has(listing.id)) continue;
+        seenIds.add(listing.id);
+        listings.push(listing);
+      }
+      if (previousCount === listings.length) throw new Error("SmartRecruiters pagination made no progress");
+      offset += payload.content.length;
+
+      if (typeof limit === "number" && listings.length >= limit) {
+        return {
+          listings: listings.slice(0, limit),
+          exhausted: offset >= payload.totalFound && listings.length <= limit,
+          error,
+        };
+      }
+
+      if (offset >= payload.totalFound) {
+        exhausted = true;
+        break;
+      }
     }
-
-    const payload = (await response.json()) as SmartRecruitersListingResponse;
-    if (payload.content.length === 0) break;
-
-    listings.push(...payload.content);
-    offset += payload.content.length;
-
-    if (typeof limit === "number" && listings.length >= limit) {
-      return listings.slice(0, limit);
-    }
-
-    if (offset >= payload.totalFound) break;
+  } catch (cause) {
+    throwIfAborted(signal);
+    if (listings.length === 0) throw cause;
+    error = errorMessage(cause);
   }
 
-  return listings;
+  return { listings, exhausted, error };
 }
 
 async function buildSourceJob({
@@ -223,27 +277,25 @@ async function fetchPostingDetail(
   );
 
   if (!response.ok) {
-    throw new Error(
-      `SmartRecruiters detail fetch failed for ${companyIdentifier}/${postingId}: ${response.status} ${response.statusText}`
+    throw new PostingHttpError(
+      `SmartRecruiters detail fetch failed for ${companyIdentifier}/${postingId}: ${response.status} ${response.statusText}`,
+      response.status
     );
   }
 
-  return (await response.json()) as SmartRecruitersDetail;
+  const detail = (await response.json()) as SmartRecruitersDetail;
+  if (detail.id !== postingId || typeof detail.name !== "string") {
+    throw new Error("SmartRecruiters detail identity does not match the requested posting");
+  }
+  return detail;
 }
 
 function mayNeedDetailFetch(listing: SmartRecruitersListing) {
-  const title = readLowerText(listing.name) ?? "";
-  const location = buildLocation(listing.location).toLowerCase();
-
-  const isNorthAmerica =
-    /\b(united states|usa|canada|remote)\b/.test(location) ||
-    /\b(us|ca)\b/.test(listing.location?.country ?? "");
-  const isLikelySupportedRole =
-    /\b(engineer|developer|frontend|backend|full stack|data|analyst|finance|risk|compliance|security|product|qa|operations)\b/.test(
-      title
-    );
-
-  return isNorthAmerica && isLikelySupportedRole;
+  const country = readLowerText(listing.location?.country);
+  const explicitlyForeignCountry = country &&
+    !["us", "usa", "ca", "canada", "united states", "united states of america"].includes(country);
+  return !isExcludedJobTitle(listing.name) && !explicitlyForeignCountry &&
+    !isClearlyNonNorthAmericanLocation(buildLocation(listing.location));
 }
 
 function buildLocation(location: SmartRecruitersLocation | null | undefined) {
@@ -272,7 +324,7 @@ function buildListingDescription(listing: SmartRecruitersListing) {
 function buildDetailDescription(detail: SmartRecruitersDetail) {
   const sections = Object.values(detail.jobAd?.sections ?? {})
     .map((section) => {
-      const body = stripHtml(section.text ?? "");
+      const body = descriptionHtmlToText(section.text ?? "");
       if (!body) return "";
       const title = readText(section.title);
       return title ? `${title}\n${body}` : body;
@@ -284,19 +336,6 @@ function buildDetailDescription(detail: SmartRecruitersDetail) {
   }
 
   return buildListingDescription(detail);
-}
-
-function stripHtml(value: string) {
-  return value
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
 }
 
 function parseDateValue(value: string | null | undefined) {
@@ -347,18 +386,12 @@ function readLowerText(value: unknown): string | null {
   return text ? text.toLowerCase() : null;
 }
 
-async function mapInBatches<TInput, TOutput>(
-  items: TInput[],
-  batchSize: number,
-  mapper: (item: TInput) => Promise<TOutput>
-) {
-  const results: TOutput[] = [];
-
-  for (let index = 0; index < items.length; index += batchSize) {
-    const batch = items.slice(index, index + batchSize);
-    const batchResults = await Promise.all(batch.map((item) => mapper(item)));
-    results.push(...batchResults);
+class PostingHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
   }
+}
 
-  return results;
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }

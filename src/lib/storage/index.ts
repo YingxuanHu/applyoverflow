@@ -127,7 +127,6 @@ function isMissingStorageObjectError(error: unknown) {
   return (
     code === "NoSuchKey" ||
     code === "NotFound" ||
-    code === "NoSuchBucket" ||
     (typeof error === "object" &&
       error !== null &&
       "message" in error &&
@@ -169,8 +168,8 @@ async function deleteLocalStoredFile(storageKey: string): Promise<void> {
   try {
     const { unlink } = await loadFsPromises();
     await unlink(resolvePath(storageKey));
-  } catch {
-    // ignore missing local files during migration cleanup
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 
@@ -247,8 +246,33 @@ export async function readStoredFile(storageKey: string): Promise<Buffer | null>
  * Deletes from Spaces and also cleans up any legacy local copy if present.
  */
 export async function deleteFile(storageKey: string): Promise<void> {
+  return runDurableStorageDeletion(storageKey, () => deleteFileContents(storageKey));
+}
+
+export async function runDurableStorageDeletion(storageKey: string, removeContents: () => Promise<void>): Promise<void> {
+  const { prisma } = await import("@/lib/db");
+  // Persist intent before touching storage. Account/document deletion cannot
+  // orphan a failed removal, and retries remain safe after partial success.
+  await prisma.storageDeletionTask.upsert({ where: { storageKey }, create: { storageKey }, update: {} });
+  try {
+    await removeContents();
+    await prisma.storageDeletionTask.deleteMany({ where: { storageKey } });
+  } catch (error) {
+    await prisma.storageDeletionTask.update({
+      where: { storageKey },
+      data: { attempts: { increment: 1 }, nextAttemptAt: new Date(Date.now() + 15 * 60_000) },
+    });
+    throw error;
+  }
+}
+
+async function deleteFileContents(storageKey: string): Promise<void> {
   const deletions: Array<Promise<unknown>> = [deleteLocalStoredFile(storageKey)];
   const readiness = getStorageReadiness();
+
+  if (!readiness.configured && process.env.NODE_ENV === "production") {
+    throw new Error("Storage deletion requires configured storage in production");
+  }
 
   if (readiness.configured) {
     const { client, bucket } = getStorageClient();
@@ -268,7 +292,11 @@ export async function deleteFile(storageKey: string): Promise<void> {
     );
   }
 
-  await Promise.allSettled(deletions);
+  const results = await Promise.allSettled(deletions);
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length > 0) {
+    throw new AggregateError(failures.map((result) => result.reason), "Stored file deletion failed");
+  }
 }
 
 /** Check if a file exists and return its size, or null. */

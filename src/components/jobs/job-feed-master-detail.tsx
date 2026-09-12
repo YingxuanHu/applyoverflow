@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
+  ArrowLeft,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -13,7 +14,7 @@ import {
 } from "lucide-react";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
-import { JobMetaRow } from "@/components/jobs/job-meta-row";
+import { JobDescriptionContent } from "@/components/jobs/job-description-content";
 import { Button } from "@/components/ui/button";
 import {
   formatDisplayLabel,
@@ -21,7 +22,7 @@ import {
   formatSalary,
   getDeadlineUrgencyAt,
 } from "@/lib/job-display";
-import { getCleanJobDescriptionDisplayBlocks } from "@/lib/job-description-format";
+import { needsDescriptionRepair } from "@/lib/jobs/description-quality";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
@@ -50,14 +51,42 @@ export function JobFeedMasterDetail({
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(
     entries[0]?.id ?? null,
   );
+  const detailPanelRef = useRef<HTMLElement>(null);
+  const listPanelRef = useRef<HTMLElement>(null);
+  const [descriptions] = useState(() => new Map<string, string>());
+  const returnToList = () => {
+    const selected = listPanelRef.current?.querySelector<HTMLElement>('[aria-current="true"]');
+    selected?.scrollIntoView({ block: "center" });
+    selected?.focus({ preventScroll: true });
+  };
 
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? entries[0] ?? null;
 
   if (!selectedEntry) return null;
 
+  const selectEntry = (entryId: string) => {
+    setSelectedEntryId(entryId);
+
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+
+    window.requestAnimationFrame(() => {
+      const detailPanel = detailPanelRef.current;
+      if (!detailPanel) return;
+
+      detailPanel.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
+      detailPanel.focus({ preventScroll: true });
+    });
+  };
+
   return (
     <div className="grid min-w-0 gap-4 lg:h-[min(52rem,calc(100dvh-8rem))] lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
       <section
+        ref={listPanelRef}
         aria-label="Jobs on this page"
         className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:flex-col"
       >
@@ -73,7 +102,7 @@ export function JobFeedMasterDetail({
               active={entry.id === selectedEntry.id}
               entry={entry}
               key={entry.id}
-              onSelect={() => setSelectedEntryId(entry.id)}
+              onSelect={() => selectEntry(entry.id)}
               referenceNow={referenceNow}
             />
           ))}
@@ -83,6 +112,9 @@ export function JobFeedMasterDetail({
       <JobFeedDetailPanel
         entry={selectedEntry}
         key={selectedEntry.id}
+        panelRef={detailPanelRef}
+        descriptions={descriptions}
+        onBack={returnToList}
         onSavedChange={onSavedChange}
         referenceNow={referenceNow}
         sourceHref={sourceHref}
@@ -158,26 +190,59 @@ function JobFeedListRow({
 function JobFeedDetailPanel({
   entry,
   onSavedChange,
+  panelRef,
+  descriptions,
+  onBack,
   referenceNow,
   sourceHref,
 }: {
   entry: JobFeedEntry;
   onSavedChange?: (jobId: string, saved: boolean) => void;
+  panelRef: RefObject<HTMLElement | null>;
+  descriptions: Map<string, string>;
+  onBack: () => void;
   referenceNow: string;
   sourceHref?: string;
 }) {
   const { job } = entry;
+  const [description, setDescription] = useState<string | null>(job.description || (descriptions.get(job.id) ?? null));
+  const [initialDescription] = useState(job.description);
+  const [descriptionError, setDescriptionError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if ((job.description && !needsDescriptionRepair(job)) || descriptions.has(job.id)) {
+      return;
+    }
+    const controller = new AbortController();
+    void fetch(`/api/jobs/${encodeURIComponent(job.id)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Description unavailable");
+        const payload = await response.json() as { description?: string };
+        if (controller.signal.aborted) return;
+        const text = payload.description ?? "";
+        if (descriptions.size >= 10) descriptions.delete(descriptions.keys().next().value!);
+        descriptions.set(job.id, text);
+        setDescription(text);
+      })
+      .catch(() => { if (!controller.signal.aborted) setDescriptionError(true); });
+    return () => controller.abort();
+  }, [job, descriptions, retry]);
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
-  const descriptionBlocks = getCleanJobDescriptionDisplayBlocks(job.description, 10);
+  const descriptionText = job.description !== initialDescription ? job.description : description ?? job.description;
 
   return (
     <aside
       aria-label={`Details for ${job.title}`}
-      className="surface-panel flex min-h-[40rem] min-w-0 flex-col overflow-hidden lg:h-full"
+      className="surface-panel flex min-h-[40rem] min-w-0 scroll-mt-20 flex-col overflow-hidden lg:h-full"
+      ref={panelRef}
+      tabIndex={-1}
     >
       <div className="shrink-0 border-b border-border/60 px-4 py-4 sm:px-5 sm:py-5">
+        <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground lg:hidden">
+          <ArrowLeft className="h-4 w-4" /> Back to jobs
+        </button>
         {entry.detailMeta ? <div className="mb-3">{entry.detailMeta}</div> : null}
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -185,18 +250,7 @@ function JobFeedDetailPanel({
               {job.title}
             </h2>
             <p className="mt-1.5 text-sm font-medium text-foreground/80">{job.company}</p>
-            <JobMetaRow
-              className="mt-3"
-              company={job.company}
-              geoScope={job.geoScope}
-              location={job.location}
-              primaryExternalLink={null}
-              salaryCurrency={job.salaryCurrency}
-              salaryMax={job.salaryMax}
-              salaryMin={job.salaryMin}
-              variant="detail"
-              workMode={job.workMode}
-            />
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" />{job.location}</p>
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:justify-end">
@@ -247,7 +301,7 @@ function JobFeedDetailPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+      <div data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-foreground">Job description</p>
           <Link
@@ -258,43 +312,20 @@ function JobFeedDetailPanel({
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </div>
-        {descriptionBlocks.length > 0 ? (
-          <div className="mt-4 max-w-[82ch] space-y-5 pb-2 text-[15px] leading-7 text-foreground/85">
-            {descriptionBlocks.map((block, index) => {
-              if (block.kind === "header") {
-                return (
-                  <h3
-                    key={`${block.text}-${index}`}
-                    className="pt-1 text-sm font-semibold text-foreground first:pt-0"
-                  >
-                    {block.text}
-                  </h3>
-                );
-              }
-
-              if (block.kind === "list") {
-                return (
-                  <ul
-                    key={`list-${index}`}
-                    className="space-y-2 pl-5 marker:text-primary/70"
-                  >
-                    {block.items.map((item, itemIndex) => (
-                      <li key={itemIndex} className="pl-0.5">
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                );
-              }
-
-              return <p key={`paragraph-${index}`}>{block.text}</p>;
-            })}
+        {descriptionError ? (
+          <p role="alert" className="mt-4 text-sm">Could not load the description. <button type="button" className="text-primary underline" onClick={() => { setDescriptionError(false); setRetry((value) => value + 1); }}>Try again</button></p>
+        ) : null}
+        {description === null && !descriptionError ? (
+          <p role="status" className="mt-4 animate-pulse text-sm text-muted-foreground">Loading description...</p>
+        ) : descriptionText.trim() ? (
+          <div className="mt-4 pb-2">
+            <JobDescriptionContent description={descriptionText} />
           </div>
-        ) : (
+        ) : !descriptionError ? (
           <p className="mt-4 text-sm text-muted-foreground">
             A full description is not available for this posting.
           </p>
-        )}
+        ) : null}
       </div>
     </aside>
   );
@@ -326,7 +357,7 @@ function DetailField({
         {icon}
         {label}
       </p>
-      <p className={cn("mt-1 truncate text-sm text-foreground", valueClassName)}>{value}</p>
+      <p className={cn("mt-1 break-words text-sm leading-5 text-foreground", valueClassName)}>{value}</p>
     </div>
   );
 }

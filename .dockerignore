@@ -5,6 +5,8 @@
 .next
 .runtime
 logs
+output
+.playwright-cli
 tmp-sync
 node_modules
 npm-debug.log*

@@ -4,7 +4,19 @@ import test from "node:test";
 import {
   assessCompanySiteCompleteness,
   readCompanySiteCompletenessSignal,
+  readConnectorFetchError,
+  ConnectorFetchError,
 } from "../src/lib/ingestion/source-fetch-quality";
+
+test("upstream errors cannot masquerade as successful empty snapshots", () => {
+  assert.equal(readConnectorFetchError({ error: null }), null);
+  assert.equal(readConnectorFetchError({ jobs: [] }), null);
+  const failure = readConnectorFetchError({ error: "429 Too Many Requests" });
+  assert.ok(failure instanceof ConnectorFetchError);
+  assert.equal(failure.message, "429 Too Many Requests");
+  assert.equal(failure.partial, false);
+  assert.equal(readConnectorFetchError({ error: "Detail HTTP 404", partial: true })?.partial, true);
+});
 
 test("recognizes a connector-reported company-site extraction shortfall", () => {
   assert.deepEqual(

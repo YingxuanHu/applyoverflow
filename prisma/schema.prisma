@@ -251,6 +251,7 @@ enum NormalizedJobRecordStatus {
 }
 
 enum PipelineQueueName {
+  DESCRIPTION_REPAIR
   SOURCE_DISCOVERY
   SOURCE_VALIDATION
   CONNECTOR_POLL
@@ -380,6 +381,7 @@ model User {
 }
 
 model UserProfile {
+  feedStateVersion  Int              @default(0)
   id                String           @id @default(cuid())
   authUserId        String?          @unique
   email             String           @unique
@@ -1704,6 +1706,28 @@ model AuthSecurityToken {
 /// take 14-60+ seconds when ingestion workers are competing for I/O).
 ///
 /// Singleton row — id is always "singleton".
+model ResourceBudget {
+  key String @id
+  used Int @default(0)
+  resetAt DateTime
+  @@index([resetAt])
+}
+
+model ResourceLease {
+  id String @id
+  resource String
+  expiresAt DateTime
+  @@index([resource, expiresAt])
+}
+
+model StorageDeletionTask {
+  storageKey String @id
+  attempts Int @default(0)
+  createdAt DateTime @default(now())
+  nextAttemptAt DateTime @default(now())
+  @@index([nextAttemptAt])
+}
+
 model JobFeedSummaryCache {
   id                String   @id
   liveJobCount      Int

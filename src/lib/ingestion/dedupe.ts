@@ -356,15 +356,17 @@ export async function findCrossSourceCanonicalMatch(
     const exactClusterMatch = await prisma.jobCanonical.findFirst({
       where: {
         duplicateClusterId: normalizedJob.duplicateClusterId,
+        ...compatibleSeniorityWhere(normalizedJob.experienceLevel),
         ...(excludeCanonicalIds.length > 0
           ? { id: { notIn: excludeCanonicalIds } }
           : {}),
         status: { not: "REMOVED" },
       },
       select: canonicalMatchSelect,
+      orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }],
     });
 
-    if (exactClusterMatch) {
+    if (exactClusterMatch && isCanonicalMatchCompatible(normalizedJob, exactClusterMatch)) {
       return {
         matchedBy: "duplicateCluster",
         canonical: exactClusterMatch,
@@ -387,6 +389,7 @@ export async function findCrossSourceCanonicalMatch(
         ? { id: { notIn: excludeCanonicalIds } }
         : {}),
       companyKey: normalizedJob.companyKey,
+      ...compatibleSeniorityWhere(normalizedJob.experienceLevel),
       AND: [
         {
           OR: [
@@ -409,6 +412,7 @@ export async function findCrossSourceCanonicalMatch(
       ],
     },
     select: canonicalMatchSelect,
+    orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }],
     take: 50,
   });
 
@@ -489,10 +493,20 @@ const canonicalMatchSelect = {
 
 const UNKNOWN_COMPANY_KEY = normalizeEntityKey("Unknown");
 
+function compatibleSeniorityWhere(level: ExperienceLevel): Prisma.JobCanonicalWhereInput {
+  return RESOLVED_EXPERIENCE_LEVELS.has(level)
+    ? { experienceLevel: { in: [level, "UNKNOWN"] } }
+    : {};
+}
+
 function scoreCanonicalMatch(
   normalizedJob: NormalizedJobInput,
   candidate: CanonicalMatchCandidate
 ) {
+  if (seniorityLevelsConflict(normalizedJob.experienceLevel, candidate.experienceLevel)) {
+    return { score: 0, evidence: {} };
+  }
+
   const titleCoreExact = candidate.titleCoreKey === normalizedJob.titleCoreKey;
   const titleExact = candidate.titleKey === normalizedJob.titleKey;
   const descriptionFingerprintExact =

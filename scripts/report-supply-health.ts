@@ -363,6 +363,7 @@ function formatPercent(part: number, whole: number): string {
 
 async function main() {
   const asJson = process.argv.includes("--json");
+  const publicSummary = await prisma.jobFeedSummaryCache.findUnique({ where: { id: "singleton" } });
 
   const [
     canonical,
@@ -446,13 +447,13 @@ async function main() {
   }
   const lastNet = recentFlow[recentFlow.length - 1]?.net ?? 0;
   if (lastNet < 0) {
-    warnings.push(`Net supply is negative this week (${lastNet}).`);
+    warnings.push(`Non-public lifecycle net is negative this week (${lastNet}); this is not the public-board count delta.`);
   }
 
-  // Growth-target trajectory: average net over the last completed weeks
-  // projects whether the pool is converging on the target at all.
-  const visibleLive = toNumber(feed.LIVE ?? 0);
-  const targetGap = SUPPLY_TARGET_LIVE_JOBS - visibleLive;
+  // Use exactly the /jobs headline metric. Raw lifecycle transitions are not
+  // public-board additions/removals, so they cannot project a public target ETA.
+  const visibleLive = publicSummary?.liveJobCount ?? null;
+  const targetGap = visibleLive === null ? null : SUPPLY_TARGET_LIVE_JOBS - visibleLive;
   const completedWeeks = recentFlow.slice(0, -1);
   const avgNetPerWeek =
     completedWeeks.length > 0
@@ -461,14 +462,10 @@ async function main() {
             completedWeeks.length
         )
       : 0;
-  const weeksToTarget =
-    targetGap > 0 && avgNetPerWeek > 0
-      ? Math.ceil(targetGap / avgNetPerWeek)
-      : null;
-  if (targetGap > 0 && avgNetPerWeek <= 0) {
-    warnings.push(
-      `Pool is ${targetGap} jobs below the ${SUPPLY_TARGET_LIVE_JOBS} target and NOT converging (avg net ${avgNetPerWeek}/wk).`
-    );
+  if (!publicSummary) {
+    warnings.push("Public job count unavailable: JobFeedSummaryCache singleton is missing.");
+  } else if (Date.now() - publicSummary.computedAt.getTime() > 15 * 60_000) {
+    warnings.push("Public job count cache is over 15 minutes old; check the summary refresh worker.");
   }
 
   // Filterability: unlabeled jobs are invisible to filtered searches.
@@ -489,6 +486,12 @@ async function main() {
 
   const report: Report = {
     generatedAt: new Date().toISOString(),
+    publicBoard: {
+      liveJobCount: visibleLive,
+      computedAt: publicSummary?.computedAt.toISOString() ?? null,
+      metric: "JobFeedSummaryCache.liveJobCount",
+    },
+    diagnosticScope: "Canonical, feed-index, lifecycle-flow and label counts below are non-public diagnostics, not the filtered /jobs pool.",
     canonicalByStatus: canonical,
     feedByStatus: feed,
     weeklyFlow: recentFlow,
@@ -549,8 +552,9 @@ async function main() {
       target: SUPPLY_TARGET_LIVE_JOBS,
       visibleLive,
       gap: targetGap,
-      avgNetPerWeek,
-      weeksToTarget,
+      nonPublicLifecycleAvgNetPerWeek: avgNetPerWeek,
+      weeksToTarget: null,
+      projectionUnavailableReason: "Requires historical public-board summary snapshots, not raw lifecycle transitions.",
     },
     labelCoverage: {
       visible: visibleForLabels,
@@ -568,7 +572,9 @@ async function main() {
   }
 
   console.log(`Supply health @ ${report.generatedAt}`);
+  console.log(`Public jobs (/jobs): ${visibleLive ?? "unavailable"} | computed ${publicSummary?.computedAt.toISOString() ?? "unavailable"}`);
   console.log("");
+  console.log("Non-public diagnostic counts below (not the filtered public board):");
   console.log("Canonical by status:", canonical);
   console.log("Feed index by status:", feed);
   console.log("");
@@ -602,13 +608,7 @@ async function main() {
   );
   console.log("");
   console.log(
-    `Growth target: ${visibleLive} / ${SUPPLY_TARGET_LIVE_JOBS} visible (gap ${targetGap}) | avg net ${avgNetPerWeek}/wk | ${
-      weeksToTarget !== null
-        ? `~${weeksToTarget} weeks to target at current pace`
-        : targetGap <= 0
-          ? "target reached"
-          : "not converging at current pace"
-    }`
+    `Public growth target: ${visibleLive ?? "unavailable"} / ${SUPPLY_TARGET_LIVE_JOBS} (gap ${targetGap ?? "unavailable"}) | ETA unavailable without public-count history`
   );
   console.log(
     `Label coverage (visible feed): role ${formatPercent(roleLabeled, visibleForLabels)} | industry ${formatPercent(industryLabeled, visibleForLabels)} | career stage ${formatPercent(careerStageLabeled, visibleForLabels)} | work mode ${formatPercent(toNumber(labels?.work_mode_known), visibleForLabels)}`

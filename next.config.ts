@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const projectRoot = __dirname;
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  outputFileTracingExcludes: { "/*": ["./.env", "./.env.*", "./data/uploads/**/*", "./data/automation-screenshots/**/*"] },
   onDemandEntries: {
     maxInactiveAge: 15 * 1000,
     pagesBufferLength: 1,
@@ -35,6 +37,19 @@ const nextConfig: NextConfig = {
     "pdfjs-dist",
     "word-extractor",
   ],
+  webpack(config, { dev }) {
+    if (dev) {
+      const ignored = config.watchOptions?.ignored;
+      const artifacts = /(?:^|[/\\])(?:output[/\\]playwright|\.playwright-cli)(?:[/\\]|$)/;
+      config.watchOptions = {
+        ...config.watchOptions,
+        ignored: ignored instanceof RegExp
+          ? new RegExp(`${ignored.source}|${artifacts.source}`, ignored.flags)
+          : [...(Array.isArray(ignored) ? ignored : ignored ? [ignored] : []), "**/output/playwright/**", "**/.playwright-cli/**"],
+      };
+    }
+    return config;
+  },
   turbopack: {
     root: projectRoot,
   },

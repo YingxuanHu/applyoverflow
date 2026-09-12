@@ -964,6 +964,26 @@ const generalAdzunaApps =
 
 module.exports = {
   apps: selectWorkerApps([
+    withWorkerGroups({
+      name: "maintenance-description-repair",
+      script: "node_modules/.bin/tsx",
+      args: "-r dotenv/config scripts/repair-job-descriptions.ts",
+      cwd: __dirname,
+      cron_restart: "*/15 * * * *",
+      autorestart: false,
+      max_memory_restart: "384M",
+      env: { ...process.env, DATABASE_PROCESS_ROLE: "maintenance" },
+    }, ["maintenance"]),
+    withWorkerGroups({
+      name: "maintenance-storage-deletions",
+      script: "node_modules/.bin/tsx",
+      args: "-r dotenv/config scripts/retry-storage-deletions.ts",
+      cwd: __dirname,
+      cron_restart: "*/15 * * * *",
+      autorestart: false,
+      max_memory_restart: "256M",
+      env: { ...process.env, DATABASE_PROCESS_ROLE: "maintenance" },
+    }, ["maintenance"]),
     ...steadyWorkerApps,
     ...autoDiscoveryApps,
     ...focusedAdzunaApps,
@@ -971,5 +991,9 @@ module.exports = {
     ...maintenanceApps,
     ...topPicksApps,
     ...overnightAccelerationApps,
-  ]),
+  ]).map((app) => process.env.APPLYOVERFLOW_CONTAINER_LOGS === "1"
+    // pm2-runtime still forwards its event bus to stdout/stderr. Avoid keeping
+    // a second, unbounded copy alongside Docker's rotated log stream.
+    ? { ...app, output: "/dev/null", error: "/dev/null", log: "/dev/null" }
+    : app),
 };

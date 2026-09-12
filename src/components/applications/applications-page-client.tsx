@@ -216,7 +216,7 @@ export function ApplicationsPageClient({
           />
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label hidden sm:block">Status</span>
+            <span className="control-label sr-only sm:not-sr-only sm:block">Status</span>
             <div className="relative min-w-0">
               <select
                 name="status"
@@ -239,7 +239,7 @@ export function ApplicationsPageClient({
           </label>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label hidden sm:block">Sort</span>
+            <span className="control-label sr-only sm:not-sr-only sm:block">Sort</span>
             <div className="relative min-w-0">
               <select
                 name="sort"

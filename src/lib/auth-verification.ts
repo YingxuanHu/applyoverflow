@@ -73,7 +73,7 @@ export async function deliverVerificationEmail(input: {
 }): Promise<VerificationEmailResult> {
   if (!isEmailDeliveryConfigured()) {
     console.error("[auth] Verification email was not sent because SMTP is not configured.");
-    console.log(`[auth] Verification email link for ${input.user.email}: ${input.url}`);
+    console.warn("[auth] Verification email delivery failed.");
     return { ok: false, reason: "not_configured" };
   }
 

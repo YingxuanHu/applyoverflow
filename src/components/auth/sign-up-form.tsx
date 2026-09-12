@@ -213,7 +213,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
     <Card className="w-full max-w-md rounded-[24px] border-border/60 bg-card/95 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:rounded-[28px] sm:py-5 dark:shadow-none">
       <CardHeader className="gap-2 px-4 sm:px-6">
         <p className="section-label">Welcome</p>
-        <CardTitle className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Create account</CardTitle>
+        <CardTitle role="heading" aria-level={1} className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Create account</CardTitle>
         <CardDescription className="max-w-sm leading-6">
           Start tracking better applications.
         </CardDescription>

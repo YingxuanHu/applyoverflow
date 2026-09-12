@@ -94,9 +94,9 @@ export default async function DocumentsPage() {
             <div className="flex items-start gap-3">
               <Sparkles className="mt-1 h-5 w-5 shrink-0 text-primary" />
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Resume builder</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Resume builder</p>
                 <h2 className="mt-1 text-xl font-semibold text-foreground">Build a tailored resume</h2>
-                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                <p className="mt-1 max-w-3xl text-sm text-foreground/75">
                   Select profile-backed content, tailor the wording for a role, and generate a ready-to-send PDF.
                 </p>
               </div>
@@ -105,7 +105,7 @@ export default async function DocumentsPage() {
               Open resume builder
             </Button>
           </header>
-          <p className="mt-4 text-sm font-medium text-muted-foreground">
+          <p className="mt-4 text-sm font-medium text-foreground/75">
             {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
           </p>
         </div>

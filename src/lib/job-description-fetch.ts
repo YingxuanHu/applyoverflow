@@ -10,6 +10,7 @@ import {
   pickBestFormattedJobDescription,
   selectDescriptionSource,
 } from "@/lib/job-description-format";
+import { selectMatchingSourceDescription, type DescriptionIdentity } from "@/lib/jobs/description-source";
 
 const JOB_FETCH_TIMEOUT_MS = 15_000;
 const JOB_FETCH_MAX_BYTES = 5_000_000;
@@ -60,9 +61,9 @@ async function readResponseTextCapped(response: Response, maxBytes: number): Pro
       if (done) break;
       if (value) {
         received += value.byteLength;
+        if (received > maxBytes) throw new Error("Source response exceeds description limit");
         text += decoder.decode(value, { stream: true });
       }
-      if (received >= maxBytes) break;
     }
     text += decoder.decode();
   } finally {
@@ -82,7 +83,8 @@ function isCandidateDescriptionUrl(value: string): boolean {
 
 export async function fetchFormattedJobDescriptionFromUrl(
   url: string,
-  deps: FetchGuardDeps = {}
+  deps: FetchGuardDeps = {},
+  expected?: DescriptionIdentity
 ): Promise<string | null> {
   for (const userAgent of JOB_FETCH_USER_AGENTS) {
     let html: string;
@@ -115,8 +117,10 @@ export async function fetchFormattedJobDescriptionFromUrl(
 
     if (!html) continue;
 
+    const source = expected ? selectMatchingSourceDescription(html, url, expected) : selectDescriptionSource(html);
+    if (!source) return null;
     const embedded = extractEmbeddedDescription(html);
-    const pageText = formatJobDescriptionText(selectDescriptionSource(html));
+    const pageText = formatJobDescriptionText(source);
     const looksLikeDeadJsShell =
       !embedded &&
       pageText.length < 300 &&
@@ -138,7 +142,8 @@ export async function fetchFormattedJobDescriptionFromUrl(
 
 export async function fetchBestFormattedJobDescriptionFromUrls(
   urls: string[],
-  maxFetches = 3
+  maxFetches = 3,
+  expected?: DescriptionIdentity
 ) {
   const candidateUrls = Array.from(new Set(urls.filter(isCandidateDescriptionUrl))).slice(
     0,
@@ -150,7 +155,7 @@ export async function fetchBestFormattedJobDescriptionFromUrls(
   }
 
   const fetchedDescriptions = await Promise.all(
-    candidateUrls.map((url) => fetchFormattedJobDescriptionFromUrl(url))
+    candidateUrls.map((url) => fetchFormattedJobDescriptionFromUrl(url, {}, expected))
   );
 
   return pickBestFormattedJobDescription(fetchedDescriptions);

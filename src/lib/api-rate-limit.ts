@@ -33,6 +33,7 @@ export const API_RATE_LIMITS = {
   aiCoverLetter: { limit: 10, windowMs: 60 * 60_000, scope: "user-or-ip" },
   aiAssistant: { limit: 60, windowMs: 60 * 60_000, scope: "user-or-ip" },
   aiTailoredResume: { limit: 6, windowMs: 60 * 60_000, scope: "user-or-ip" },
+  aiResumeEntryVariation: { limit: 6, windowMs: 60 * 60_000, scope: "user-or-ip" },
   naturalLanguageJobSearch: { limit: 60, windowMs: 60_000, scope: "user-or-ip" },
   documentUpload: { limit: 20, windowMs: 60 * 60_000, scope: "user-or-ip" },
   documentSync: { limit: 30, windowMs: 60 * 60_000, scope: "user-or-ip" },
@@ -65,15 +66,35 @@ async function consumeApiRateLimit(
   action: string,
   rule: ApiRateLimitRule
 ): Promise<RateLimitResult> {
-  const now = Date.now();
-  cleanupExpiredBuckets(now);
-
   const scope = rule.scope ?? "user-or-ip";
   const userId =
     scope === "user-or-ip"
       ? await getOptionalCurrentAuthUserId().catch(() => null)
       : null;
   const identity = userId ? `user:${userId}` : `ip:${getClientIp(request)}`;
+  return consumeRateLimit(identity, action, rule);
+}
+
+/**
+ * Applies the same local burst policy to trusted server actions that do not
+ * receive a Request object. Distributed enforcement remains an infrastructure
+ * concern, but server actions must not bypass the process-level guard.
+ */
+export function consumeUserRateLimit(
+  userId: string,
+  action: string,
+  rule: ApiRateLimitRule
+): RateLimitResult {
+  return consumeRateLimit(`user:${userId}`, action, rule);
+}
+
+function consumeRateLimit(
+  identity: string,
+  action: string,
+  rule: ApiRateLimitRule
+): RateLimitResult {
+  const now = Date.now();
+  cleanupExpiredBuckets(now);
   const key = `${action}:${identity}`;
   const existing = buckets.get(key);
   const bucket =

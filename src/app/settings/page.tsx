@@ -87,8 +87,8 @@ export default async function SettingsPage() {
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
                   user.emailVerified
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-400"
                 )}
               >
                 <ShieldCheck className="h-3 w-3" />
@@ -115,7 +115,7 @@ export default async function SettingsPage() {
           </Link>
           {!user.emailVerified ? (
             <Link
-              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-medium text-amber-500 transition-colors hover:bg-amber-500/20 sm:h-9"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-500/20 sm:h-9 dark:text-amber-400"
               href="/verify-email-required"
             >
               <Mail className="h-3.5 w-3.5" />

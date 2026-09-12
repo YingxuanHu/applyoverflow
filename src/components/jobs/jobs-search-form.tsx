@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import { normalizeFilterValueList } from "@/lib/filter-values";
 import { mergeNaturalLanguageJobsSearch } from "@/lib/jobs/search-state";
+import { getUnsupportedSearchConstraints } from "@/lib/jobs/search-constraints";
 import type { NaturalLanguageJobSearchResult } from "@/lib/jobs/natural-language-search";
 import type { JobSearchScope } from "@/lib/queries/jobs";
 
@@ -445,8 +446,8 @@ export function JobsSearchForm({
         </Tooltip>
       </form>
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {voiceMessage ? <p className="text-xs text-destructive">{voiceMessage}</p> : null}
+      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+      {voiceMessage ? <p role="alert" className="text-xs text-destructive">{voiceMessage}</p> : null}
     </div>
   );
 }
@@ -499,6 +500,11 @@ function AiSearchSubmitHandler({
       }
 
       const searchResult = payload as NaturalLanguageJobSearchResult;
+      const unsupported = getUnsupportedSearchConstraints(searchResult, basePath);
+      if (unsupported) {
+        onError(unsupported);
+        return;
+      }
       const href = mergeNaturalLanguageJobsSearch(searchParams, searchResult.params, {
         basePath,
       });

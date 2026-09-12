@@ -6,7 +6,7 @@ export async function saveJob(
   status: "ACTIVE" | "APPLIED" | "EXPIRED" | "DISMISSED" = "ACTIVE"
 ) {
   const userId = await requireCurrentProfileId();
-  return prisma.savedJob.upsert({
+  const [saved] = await prisma.$transaction([prisma.savedJob.upsert({
     where: {
       userId_canonicalJobId: {
         userId,
@@ -21,15 +21,17 @@ export async function saveJob(
     update: {
       status,
     },
-  });
+  }), prisma.userProfile.update({ where: { id: userId }, data: { feedStateVersion: { increment: 1 } } })]);
+  return saved;
 }
 
 export async function unsaveJob(canonicalJobId: string) {
   const userId = await requireCurrentProfileId();
-  return prisma.savedJob.deleteMany({
+  const [deleted] = await prisma.$transaction([prisma.savedJob.deleteMany({
     where: {
       userId,
       canonicalJobId,
     },
-  });
+  }), prisma.userProfile.update({ where: { id: userId }, data: { feedStateVersion: { increment: 1 } } })]);
+  return deleted;
 }

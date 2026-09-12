@@ -3,6 +3,7 @@ import {
   extractDescriptionFromHtml,
   hasDescriptionPollution,
 } from "@/lib/ingestion/html-description";
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
 
 export type DescriptionBlock =
   | { kind: "header"; text: string }
@@ -136,40 +137,6 @@ const LIST_LIKE_HEADINGS = new Set([
   "soft skills",
   "nice to have",
 ]);
-
-const COUNTRY_PICKER_VALUES = new Set([
-  "united kingdom",
-  "australia",
-  "österreich",
-  "belgië",
-  "brasil",
-  "canada",
-  "france",
-  "deutschland",
-  "india",
-  "italia",
-  "méxico",
-  "nederland",
-  "new zealand",
-  "polska",
-  "singapore",
-  "south africa",
-  "españa",
-  "schweiz",
-  "united states",
-  "usa",
-]);
-
-const START_MARKERS = [
-  "job description",
-  "job summary",
-  "about the job",
-  "about the role",
-  "what does a successful",
-  "what you'll do",
-  "what we're looking for",
-  "what you will do",
-];
 
 const END_MARKERS = [
   "similar jobs",
@@ -442,18 +409,6 @@ export function extractEmbeddedDescription(raw: string) {
     }
   }
 
-  const fallbackMatches = [
-    ...raw.matchAll(/"description"\s*:\s*"((?:\\.|[\s\S])*?)"/g),
-  ];
-  const bestFallback = fallbackMatches
-    .map((match) => decodeEmbeddedJsonString(match[1] ?? "").trim())
-    .filter((value) => value.length >= 120)
-    .sort((left, right) => right.length - left.length)[0];
-
-  if (bestFallback) {
-    return bestFallback;
-  }
-
   return null;
 }
 
@@ -498,16 +453,9 @@ function stripNoiseLines(raw: string) {
     }
 
     const lower = line.toLowerCase();
-    const punctuationHeavy =
-      (line.match(/[{}[\];]/g)?.length ?? 0) >= 3 ||
-      /^(var |window\.|window\[|function\(|new date\(|https:\/\/www\.googletagmanager)/i.test(line);
-    const looksLikeJson =
-      /^["[{]/.test(line) ||
-      /"@type"|itemlistelement|ga4_event_options|query_info|currency_iso|privacy notice/i.test(
-        lower
-      );
+    const punctuationHeavy = /^(var |window\.|window\[|function\(|new date\(|https:\/\/www\.googletagmanager)/i.test(line);
+    const looksLikeJson = /^\s*\{\s*"(?:@context|@type|themeOptions)"\s*:/.test(line);
     const isChromeCopy =
-      COUNTRY_PICKER_VALUES.has(lower) ||
       [
         "continue",
         "what?",
@@ -632,36 +580,15 @@ function extractPrimaryDescription(raw: string) {
   const embedded = extractEmbeddedDescription(raw);
   const source = embedded ?? raw;
   const normalized = source.replace(/\r/g, "");
-  const lower = normalized.toLowerCase();
-
-  let startIndex = -1;
-  for (const marker of START_MARKERS) {
-    const index = lower.indexOf(marker);
-    if (index !== -1 && (startIndex === -1 || index < startIndex)) {
-      startIndex = index;
-    }
-  }
-
-  const standaloneDescriptionIndex = normalized.search(/(?:^|\n)\s*description\s*(?:\n|$)/i);
-  if (
-    standaloneDescriptionIndex !== -1 &&
-    (startIndex === -1 || standaloneDescriptionIndex < startIndex)
-  ) {
-    startIndex = standaloneDescriptionIndex;
-  }
-
-  const sliced = startIndex >= 0 ? normalized.slice(startIndex) : normalized;
-  const slicedLower = sliced.toLowerCase();
-
-  let endIndex = sliced.length;
+  let endIndex = normalized.length;
   for (const marker of END_MARKERS) {
-    const index = slicedLower.indexOf(marker);
+    const index = normalized.search(new RegExp(`^\\s*${escapeRegex(marker)}\\s*$`, "im"));
     if (index > 120 && index < endIndex) {
       endIndex = index;
     }
   }
 
-  return stripNoiseLines(sliced.slice(0, endIndex));
+  return stripNoiseLines(normalized.slice(0, endIndex));
 }
 
 function looksLikeStructuredDescription(raw: string) {
@@ -723,16 +650,7 @@ function splitInlineHeadingValues(raw: string) {
 }
 
 function hasCollapsedSectionHeadings(raw: string) {
-  const headings = [...COLLAPSED_SECTION_HEADINGS].sort(
-    (left, right) => right.length - left.length
-  );
-  const pattern = headings.map(escapeRegex).join("|");
-  const headingPattern = new RegExp(
-    `(^|[.!?])\\s*(?:${pattern})(?=\\s+[A-Z])`,
-    "im"
-  );
-
-  return headingPattern.test(raw);
+  return splitCollapsedSectionHeadings(raw) !== raw;
 }
 
 function splitCollapsedSectionHeadings(raw: string) {
@@ -741,11 +659,14 @@ function splitCollapsedSectionHeadings(raw: string) {
   );
   const pattern = headings.map(escapeRegex).join("|");
   const headingPattern = new RegExp(
-    `(^|[.!?])\\s*(${pattern})(?=\\s+[A-Z])`,
+    `(^|[.!?])[ \\t]*(${pattern})(?=[ \\t]+(\\S))`,
     "gim"
   );
 
-  return raw.replace(headingPattern, (_match, boundary: string, heading: string) => {
+  return raw.replace(headingPattern, (match, boundary: string, heading: string, nextCharacter: string) => {
+    // The heading match is case-insensitive; the next sentence must actually
+    // start with a capital, not prose such as "Requirements include ...".
+    if (!/[\p{Lu}\d$]/u.test(nextCharacter)) return match;
     return `${boundary}\n\n${heading}\n`;
   });
 }
@@ -757,13 +678,7 @@ function cleanupJobDescription(raw: string) {
     (looksLikeStructuredDescription(raw) || hasCollapsedSectionHeadings(raw)
       ? raw
       : extractPrimaryDescription(raw));
-  let cleaned = source
-    .replace(/\r/g, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|section|article|li|ul|ol|h1|h2|h3|h4|h5|h6)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "\n• ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\b(click here to apply|apply now!?|submit your application today)\b[.!]*/gi, "")
+  let cleaned = descriptionHtmlToText(source)
     .replace(/^[=\-*_]{3,}\s*$/gm, "")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
@@ -772,25 +687,20 @@ function cleanupJobDescription(raw: string) {
     .replace(/[ \t]{2,}/g, " ");
 
   cleaned = normalizeCommonMojibake(cleaned);
-  cleaned = decodeHtmlEntitiesFull(cleaned);
   cleaned = stripLeadingTitleBullets(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
   cleaned = splitCollapsedSectionHeadings(cleaned);
 
   for (const heading of SECTION_HEADINGS) {
-    const regex = new RegExp(`\\s*(${escapeRegex(heading)})\\s*:`, "gi");
-    cleaned = cleaned.replace(regex, (_match, matchedHeading) => `\n\n${matchedHeading}:\n`);
+    const regex = new RegExp(`(^|\\n)\\s*(${escapeRegex(heading)})\\s*:`, "gi");
+    cleaned = cleaned.replace(regex, (_match, _boundary, matchedHeading) => `\n\n${matchedHeading}:\n`);
   }
 
   cleaned = cleaned
     .replace(/^description\s*\n+/i, "")
     .replace(/\n+\s*:\s*\n+/g, ":\n")
     .replace(/\s+[•·▪◦]\s+/g, "\n• ")
-    .replace(/\s+[-–—]\s+(?=[A-Z0-9])/g, "\n- ")
-    .replace(/\s+(\d{1,2}\.\s+)/g, "\n$1")
-    .replace(/\b(What Youll Do|What Youll Bring|Who We Are|Job Summary|Key Responsibilities|Required Qualifications|Preferred Qualifications|Additional Information|Interview Process|Work Authorization)\b(?!\s*:)/g, "\n\n$1\n")
-    .replace(/^About the job\s+.+$/gim, "About the job")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -807,22 +717,20 @@ function splitReadableParagraph(text: string) {
     return [normalized];
   }
 
-  const sentences = normalized.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [normalized];
+  const sentences = Array.from(new Intl.Segmenter("en", { granularity: "sentence" }).segment(normalized), ({ segment }) => segment);
   const chunks: string[] = [];
   let current = "";
 
   for (const sentence of sentences) {
-    const next = `${current}${current ? " " : ""}${sentence.trim()}`.trim();
-    if (current && next.length > 440) {
-      chunks.push(current);
-      current = sentence.trim();
-      continue;
+    if (current && current.length + sentence.length > 440 && /\s$/.test(current)) {
+      chunks.push(current.trim());
+      current = "";
     }
-    current = next;
+    current += sentence;
   }
 
   if (current) {
-    chunks.push(current);
+    chunks.push(current.trim());
   }
 
   return chunks;
@@ -843,8 +751,7 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
 
   const lines = normalized
     .split(/\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .map((line) => line.trim());
 
   const allCapsHeader = /^[A-Z][A-Z\s&'/():-]{3,}$/;
   const titleHeader = /^[A-Z][^.!?]{0,55}:$/;
@@ -857,6 +764,7 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
   const blocks: DescriptionBlock[] = [];
   let pendingBullets: string[] = [];
   let listMode = false;
+  let paragraphBoundary = false;
 
   const flushBullets = () => {
     if (pendingBullets.length > 0) {
@@ -866,6 +774,10 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
   };
 
   for (const line of lines) {
+    if (!line) {
+      paragraphBoundary = true;
+      continue;
+    }
     if (line === ":") {
       continue;
     }
@@ -875,7 +787,7 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
     const boldMatch = !bulletMatch && !numberedMatch ? line.match(boldHeader) : null;
     const headerSource = boldMatch?.[1] ?? line;
     const normalizedHeading = normalizeHeadingKey(headerSource);
-    const aboutJobHeading = /^about the job\b/i.test(line);
+    const aboutJobHeading = /^about the job\s*:?$/i.test(line);
 
     const isKnownHeading =
       (SECTION_HEADINGS.includes(normalizedHeading) || aboutJobHeading) &&
@@ -892,6 +804,7 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
 
     if (isHeader) {
       flushBullets();
+      paragraphBoundary = false;
       const headerText = aboutJobHeading ? "About the job" : normalizeHeadingText(headerSource);
       const previous = blocks[blocks.length - 1];
       if (
@@ -906,15 +819,23 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
     }
 
     if (bulletMatch) {
+      paragraphBoundary = false;
       pendingBullets.push(bulletMatch[1].trim());
       listMode = true;
       continue;
     }
 
     if (numberedMatch) {
-      pendingBullets.push(numberedMatch[1].trim());
+      paragraphBoundary = false;
+      pendingBullets.push(line);
       listMode = true;
       continue;
+    }
+
+    if (paragraphBoundary) {
+      flushBullets();
+      listMode = false;
+      paragraphBoundary = false;
     }
 
     if (
@@ -969,6 +890,7 @@ function isDescriptionNoiseText(text: string) {
       "share",
       "skip to main content",
       "[open search bar]",
+      "create alert",
     ].includes(lower)
   ) {
     return true;
@@ -985,7 +907,7 @@ function isDescriptionNoiseText(text: string) {
     "accept all",
     "similar jobs",
     "careers",
-  ].some((signal) => lower.includes(signal));
+  ].some((signal) => lower === signal);
 }
 
 type DescriptionSection = {
@@ -1197,21 +1119,21 @@ export function getJobDescriptionSummaryBlocks(raw: string, maxSections = 6) {
   return summary;
 }
 
-export function getCleanJobDescriptionDisplayBlocks(raw: string, maxSections = 8) {
+/**
+ * Return a readable, de-duplicated representation of the full description.
+ * Summaries are intentionally provided by `getJobDescriptionSummaryBlocks`;
+ * the detail experience must not discard requirements merely to stay compact.
+ */
+export function getCleanJobDescriptionDisplayBlocks(raw: string) {
   if (!raw.trim()) {
     return [];
   }
 
-  const summaryBlocks = getJobDescriptionSummaryBlocks(raw, maxSections);
-  const sourceBlocks =
-    summaryBlocks.length > 0 ? summaryBlocks : parseJobDescriptionBlocks(raw);
-
-  return compactDescriptionBlocks(sourceBlocks);
+  return compactDescriptionBlocks(parseJobDescriptionBlocks(raw));
 }
 
 function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
   const compacted: DescriptionBlock[] = [];
-  const seenContent = new Set<string>();
   let pendingHeader: string | null = null;
 
   const pushHeader = () => {
@@ -1232,29 +1154,29 @@ function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
       if (!header || isDescriptionNoiseText(header)) {
         continue;
       }
+      pushHeader();
       pendingHeader = header;
       continue;
     }
 
     if (block.kind === "paragraph") {
       const text = cleanDescriptionContentText(block.text);
-      const key = normalizeDescriptionContentKey(text);
-      if (!text || text.length < 35 || seenContent.has(key)) {
+      if (!text || isDescriptionNoiseText(text)) {
         continue;
       }
 
       pushHeader();
-      seenContent.add(key);
       compacted.push({
         kind: "paragraph",
-        text: trimSummaryText(text, 420),
+        text,
       });
       continue;
     }
 
+    const seenContent = new Set<string>();
     const items = block.items
       .map(cleanDescriptionContentText)
-      .filter((item) => item.length >= 18 && !isDescriptionNoiseText(item))
+      .filter((item) => item.length > 0 && !isDescriptionNoiseText(item))
       .filter((item) => {
         const key = normalizeDescriptionContentKey(item);
         if (seenContent.has(key)) {
@@ -1262,9 +1184,7 @@ function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
         }
         seenContent.add(key);
         return true;
-      })
-      .map((item) => trimSummaryText(item, 260))
-      .slice(0, 6);
+      });
 
     if (items.length === 0) {
       continue;
@@ -1274,6 +1194,7 @@ function compactDescriptionBlocks(blocks: DescriptionBlock[]) {
     compacted.push({ kind: "list", items });
   }
 
+  pushHeader();
   return compacted;
 }
 
@@ -1281,17 +1202,11 @@ function cleanDescriptionContentText(text: string) {
   return text
     .replace(/^[•*–·-]\s+/, "")
     .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
     .trim();
 }
 
 function normalizeDescriptionContentKey(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export function isJobDescriptionSummaryUsable(raw: string | null | undefined) {
@@ -1309,7 +1224,7 @@ export function isJobDescriptionSummaryUsable(raw: string | null | undefined) {
     return false;
   }
 
-  const blocks = getJobDescriptionSummaryBlocks(cleaned, 8);
+  const blocks = getCleanJobDescriptionDisplayBlocks(cleaned);
   if (blocks.length === 0) {
     return false;
   }
@@ -1345,6 +1260,11 @@ export function isJobDescriptionSummaryUsable(raw: string | null | undefined) {
   if (hasContentHeading && (totalParagraphLength >= 160 || totalListItemCount >= 3)) {
     return true;
   }
+
+  // A short structured posting may mix responsibilities bullets with prose
+  // requirements. Its quality must not depend on promoting prose into bullets.
+  const totalListLength = listBlocks.reduce((sum, block) => sum + block.items.join(" ").length, 0);
+  if (hasContentHeading && totalListItemCount >= 2 && totalParagraphLength + totalListLength >= 200) return true;
 
   if (onlyMetadataHeadings && totalParagraphLength < 160 && totalListItemCount < 3) {
     return false;

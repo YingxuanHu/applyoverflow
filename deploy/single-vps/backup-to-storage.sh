@@ -30,18 +30,21 @@ if [[ -z "$POSTGRES_DB" || -z "$POSTGRES_USER" ]]; then
   exit 1
 fi
 
-compose_env_value() {
-  "${COMPOSE[@]}" config --environment | awk -F= -v key="$1" \
-    '$1 == key { value = substr($0, index($0, "=") + 1) } END { if (value != "") print value }'
-}
+source "$SCRIPT_DIR/backup-path.sh"
 
 # Compose reads dotenv safely; never evaluate the production env file in this
 # shell. The host staging directory and the container bind mount resolve from
 # the same setting, so large dumps can live on an attached volume.
 DB_BACKUP_KEEP_LOCAL="$(compose_env_value DB_BACKUP_KEEP_LOCAL)"
 DB_BACKUP_KEEP_LOCAL="${DB_BACKUP_KEEP_LOCAL:-0}"
-DB_BACKUP_HOST_DIR="$(compose_env_value DB_BACKUP_HOST_DIR)"
-BACKUP_DIR="${DB_BACKUP_HOST_DIR:-$SCRIPT_DIR/backups}"
+resolve_backup_directory
+mkdir -p "$BACKUP_DIR"
+# Do not create overlapping multi-GB dumps when cron and a deploy coincide.
+exec 9>"$BACKUP_DIR/.backup.lock"
+if ! flock -n 9; then
+  echo "Another database backup is running; no new dump created." >&2
+  exit 1
+fi
 
 LABEL="${1:-auto}"
 SAFE_LABEL="$(printf '%s' "$LABEL" | tr -cs '[:alnum:]_.-' '-')"
@@ -56,8 +59,6 @@ cleanup_failed_backup() {
   fi
 }
 trap cleanup_failed_backup EXIT
-
-mkdir -p "$BACKUP_DIR"
 
 if ! docker image inspect single-vps-backup-runner:latest >/dev/null 2>&1; then
   echo "Backup runner image missing; building backup-runner"

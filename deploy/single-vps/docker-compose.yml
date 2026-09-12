@@ -1,8 +1,16 @@
 x-prod-env: &prod-env
   - ${APP_ENV_FILE:-.env.production}
 
+x-bounded-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+    compress: "true"
+
 services:
   postgres:
+    logging: *bounded-logging
     image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
     restart: unless-stopped
     shm_size: ${POSTGRES_SHM_SIZE:-1gb}
@@ -30,9 +38,13 @@ services:
       retries: 10
 
   app:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
+      target: web
+      args:
+        BUILD_SHA: ${BUILD_SHA:-unknown}
     restart: unless-stopped
     env_file: *prod-env
     environment:
@@ -46,9 +58,10 @@ services:
         condition: service_healthy
     expose:
       - "3000"
-    command: ["npm", "run", "start:web"]
+    command: ["node", "server.js"]
 
   worker-ingestion:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -59,6 +72,7 @@ services:
       DATABASE_PROCESS_ROLE: daemon
       DISABLE_INGEST_DAEMON: "0"
       APPLYOVERFLOW_WORKER_GROUPS: ingestion
+      APPLYOVERFLOW_CONTAINER_LOGS: "1"
       INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
     depends_on:
       postgres:
@@ -69,6 +83,7 @@ services:
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   worker-source-workers:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -79,6 +94,7 @@ services:
       DATABASE_PROCESS_ROLE: recovery_poll
       DISABLE_INGEST_DAEMON: "0"
       APPLYOVERFLOW_WORKER_GROUPS: source-workers
+      APPLYOVERFLOW_CONTAINER_LOGS: "1"
       INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
     depends_on:
       postgres:
@@ -89,6 +105,7 @@ services:
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   worker-maintenance:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -99,6 +116,7 @@ services:
       DATABASE_PROCESS_ROLE: maintenance
       DISABLE_INGEST_DAEMON: "0"
       APPLYOVERFLOW_WORKER_GROUPS: maintenance
+      APPLYOVERFLOW_CONTAINER_LOGS: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,6 +127,7 @@ services:
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   worker:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -121,6 +140,7 @@ services:
       DATABASE_PROCESS_ROLE: daemon
       DISABLE_INGEST_DAEMON: "0"
       APPLYOVERFLOW_WORKER_GROUPS: all
+      APPLYOVERFLOW_CONTAINER_LOGS: "1"
       INGEST_OVERNIGHT_ACCELERATION: ${INGEST_OVERNIGHT_ACCELERATION:-0}
     depends_on:
       postgres:
@@ -131,6 +151,7 @@ services:
     command: ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]
 
   backup-runner:
+    logging: *bounded-logging
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -147,6 +168,7 @@ services:
     command: ["node", "--version"]
 
   caddy:
+    logging: *bounded-logging
     image: caddy:2-alpine
     restart: unless-stopped
     env_file: *prod-env

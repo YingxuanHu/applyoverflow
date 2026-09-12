@@ -337,10 +337,13 @@ function extractAppData(html: string, sourceUrl: string): AshbyAppData {
 
 // ─── Field builders ───────────────────────────────────────────────────────────
 
-function buildDescription(
+export function buildDescription(
   listing: AshbyJobListing,
   detail: AshbyJobDetail | null
 ): string {
+  if (detail?.descriptionHtml?.trim()) {
+    return detail.descriptionHtml.trim();
+  }
   if (detail?.descriptionPlainText?.trim()) {
     return detail.descriptionPlainText.trim();
   }

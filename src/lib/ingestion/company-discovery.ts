@@ -62,7 +62,7 @@ import {
   FAST_TRACK_VALIDATION_PRIORITY,
   shouldFastTrackProbeHit,
 } from "@/lib/ingestion/discovery/probe-fast-track-policy";
-import { assessCompanySiteCompleteness } from "@/lib/ingestion/source-fetch-quality";
+import { assessCompanySiteCompleteness, ConnectorFetchError } from "@/lib/ingestion/source-fetch-quality";
 import {
   readBooleanEnv,
   readNonNegativeIntegerEnv,
@@ -5586,16 +5586,18 @@ async function handleCompanySourcePollFailure(
   if (!source) return null;
 
   const errorMessage = error instanceof Error ? error.message : String(error);
+  const partialFetchFailure = error instanceof ConnectorFetchError && error.partial;
   // 400 is treated as hard failure alongside 404/410: a Bad Request from a
   // company career page almost always means a misconfigured or defunct source URL.
-  const hardFailure = /\b(400|404|410)\b/.test(errorMessage);
+  // An individual missing detail page does not invalidate a working board.
+  const hardFailure = !partialFetchFailure && /\b(400|404|410)\b/.test(errorMessage);
   const blockedFailure = /\b(401|403|429)\b/.test(errorMessage);
   const timeoutFailure =
     /TIME_BUDGET_EXCEEDED|ABORTED_BY_RUNNER|RuntimeBudgetExceededError|AbortError|runtime budget exceeded/i.test(
       errorMessage
     );
   const infrastructureFailure = isInfrastructureFailureMessage(errorMessage);
-  const transientRuntimeFailure = timeoutFailure || infrastructureFailure;
+  const transientRuntimeFailure = timeoutFailure || infrastructureFailure || partialFetchFailure;
   const latestTimeoutRun = timeoutFailure
     ? await prisma.ingestionRun.findFirst({
         where: {
@@ -5699,6 +5701,8 @@ async function handleCompanySourcePollFailure(
   const nextSourceQualityScore = clampSourceQualityScore(
     protectedHighValueWorkday
       ? Math.max(0.45, currentSourceQualityScore * 0.88)
+      : partialFetchFailure
+        ? Math.min(currentSourceQualityScore, Math.max(0.5, currentSourceQualityScore * 0.98))
       : infrastructureFailure
         ? Math.max(0.5, currentSourceQualityScore * 0.98)
       : timeoutZeroCreateRefresh

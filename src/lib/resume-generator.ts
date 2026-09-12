@@ -588,6 +588,14 @@ export async function compileResumePdf(
   texSource: string,
   fileStem = "tailored-resume"
 ): Promise<CompiledResumePdf> {
+  const { getOptionalCurrentAuthUserId } = await import("@/lib/current-user");
+  const subject = await getOptionalCurrentAuthUserId();
+  if (!subject) throw new Error("Sign in before generating a resume.");
+  const { withResourceBudget } = await import("@/lib/resource-budget");
+  return withResourceBudget("pdf", subject, () => compileResumePdfContents(texSource, fileStem));
+}
+
+async function compileResumePdfContents(texSource: string, fileStem: string): Promise<CompiledResumePdf> {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "apptracker-resume-"));
   const texPath = path.join(tempDir, `${fileStem}.tex`);
 

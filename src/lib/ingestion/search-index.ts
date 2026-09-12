@@ -11,6 +11,7 @@ import {
 } from "@/lib/ingestion/quality";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
+import { isExcludedJobTitle } from "@/lib/jobs/scope-policy";
 
 const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
 const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
@@ -18,7 +19,7 @@ const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
 
 export type JobFeedIndexRepairMode = "missing" | "stale" | "all";
 
-function shouldExcludeFromFeedIndex(input: {
+export function shouldExcludeFromFeedIndex(input: {
   title: string;
   description: string;
   shortSummary: string;
@@ -42,6 +43,7 @@ function shouldExcludeFromFeedIndex(input: {
   if (input.status !== "LIVE") {
     return true;
   }
+  if (isExcludedJobTitle(input.title)) return true;
 
   if (
     input.titleStatus != null &&
@@ -78,7 +80,7 @@ function shouldExcludeFromFeedIndex(input: {
   // NA-only product scope: region-less jobs whose location explicitly names
   // a non-NA geography never belong in the feed. Ambiguous region-less
   // locations ("Remote") keep their existing visibility.
-  if (input.region === null && isClearlyNonNorthAmericanLocation(input.location)) {
+  if (isClearlyNonNorthAmericanLocation(input.location)) {
     return true;
   }
 

@@ -6,6 +6,7 @@ import {
   extractAndScoreJobTitle,
   extractTitleFromUrl,
 } from "@/lib/ingestion/extraction/title-extractor";
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
 
 const TITLE_ROLE_HINT_RE =
   /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|leader|partner|recruiter|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|marketer|operations|lighter|trainer|tutor|student|co-?op|executive|head|counsel|compliance|clerk|inspector|operator|strategist|electrician|bricklayer|welder|welding|fabrication)\b/i;
@@ -331,23 +332,7 @@ export function sanitizeJobDescriptionText(
   context?: { title?: string | null; location?: string | null }
 ) {
   const raw = asText(value);
-  const withoutNoiseElements = raw
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ");
-
-  const decoded = decodeHtmlEntitiesFull(withoutNoiseElements);
-  const withBreaks = decoded
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<li\b[^>]*>/gi, "\n• ")
-    .replace(/<\/?(p|div|section|article|h[1-6]|li|ul|ol|blockquote|tr|td)[^>]*>/gi, "\n");
-  const stripped = withBreaks.replace(/<[^>]+>/g, " ");
-  const joined = stripped
-    .split(/\n/)
-    .map((line) => line.replace(/[ \t]+/g, " ").trim())
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const joined = descriptionHtmlToText(raw);
   const dePolluted = trimDescriptionPollution(joined);
 
   const title = compactWhitespace(context?.title ?? "");
@@ -376,6 +361,7 @@ export function sanitizeJobDescriptionText(
 
     if (
       FOOTER_START_PATTERNS.some((pattern) => pattern.test(line)) &&
+      /^(?:©|body\s*\{)/i.test(line) &&
       kept.join("\n").length >= 300
     ) {
       break;

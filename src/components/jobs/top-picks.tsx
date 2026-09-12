@@ -337,7 +337,7 @@ export function TopPicksStatusSummary({
         <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
           {refreshedLabel}
           {inlineProfileHelp ? (
-            <span className="text-muted-foreground/90">
+            <span className="text-muted-foreground">
               {" "}
               ({inlineProfileHelp})
             </span>

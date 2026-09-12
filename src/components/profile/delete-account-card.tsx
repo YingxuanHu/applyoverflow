@@ -84,6 +84,7 @@ export function DeleteAccountCard({
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="grid gap-4">
+          <input type="hidden" name="username" autoComplete="username" value={email} />
           <div className="grid gap-4 sm:grid-cols-2">
             {hasPassword ? (
               <label className="grid gap-1.5 text-sm">
@@ -91,6 +92,7 @@ export function DeleteAccountCard({
                   Current password
                 </span>
                 <Input
+                  autoComplete="current-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

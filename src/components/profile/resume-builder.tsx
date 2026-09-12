@@ -23,6 +23,7 @@ import {
   addResumeLibraryEntry,
   applyResumeEntryRewrite,
   archiveResumeBuild,
+  archiveResumeLibraryEntry,
   createResumeBuild,
   deleteResumeEntryVariation,
   dismissResumeEntryRewrite,
@@ -44,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useActionToast } from "@/components/ui/use-action-toast";
 import {
@@ -578,6 +580,7 @@ function EntryDetails({
   );
   const [composer, setComposer] = useState<"manual" | "ai" | null>(null);
   const [manageVersions, setManageVersions] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [rewriteSelection, setRewriteSelection] = useState<{ variationId: string | null; bulletIds: string[] }>({
     variationId: null,
     bulletIds: [],
@@ -642,8 +645,13 @@ function EntryDetails({
               <Copy />
               Manage versions
             </DropdownMenuItem>
+            <DropdownMenuItem className="cursor-pointer" onClick={() => setArchiveOpen(true)}>
+              <Archive />
+              Archive entry
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ArchiveEntryDialog entry={entry} open={archiveOpen} onOpenChange={setArchiveOpen} />
       </div>
 
       {manageVersions && baseVariation ? (
@@ -733,6 +741,36 @@ function EntryDetails({
         </div>
       ))}
     </div>
+  );
+}
+
+function ArchiveEntryDialog({ entry, open, onOpenChange }: {
+  entry: ResumeEntry;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [state, action, pending] = useActionState(archiveResumeLibraryEntry, emptyState());
+  useActionToast(state, { successTitle: "Entry archived", errorTitle: "Could not archive entry" });
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next); }}>
+      <DialogContent showCloseButton={!pending}>
+        <DialogHeader>
+          <DialogTitle>Archive {entry.title}?</DialogTitle>
+          <DialogDescription>
+            This entry will be removed from your resume selections. Your profile and saved resume drafts will not change.
+          </DialogDescription>
+        </DialogHeader>
+        <form action={action}>
+          <ActionRefresh success={state.success} />
+          <input type="hidden" name="entryId" value={entry.id} />
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={pending}>{pending ? "Archiving..." : "Archive entry"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

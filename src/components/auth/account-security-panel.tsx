@@ -279,6 +279,7 @@ export function AccountSecurityPanel({
           <div className="border-t border-border/60 px-3.5 py-3">
             {hasPassword ? (
               <form onSubmit={onChangePassword}>
+                <input type="hidden" name="username" autoComplete="username" value={email} />
                 <div className="grid gap-3">
                   <SecurityInput
                     autoComplete="current-password"
@@ -453,6 +454,7 @@ export function AccountSecurityPanel({
             className="rounded-lg border border-border/60 bg-background/60 p-4"
             onSubmit={onChangePassword}
           >
+            <input type="hidden" name="username" autoComplete="username" value={email} />
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-foreground">Change password</p>
