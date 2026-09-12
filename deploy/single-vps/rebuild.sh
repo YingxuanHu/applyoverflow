@@ -76,6 +76,8 @@ echo "Building: $BUILD_SERVICES"
 if [[ " $BUILD_SERVICES " != *" worker-maintenance "* ]]; then
   "${BUILD_COMMAND[@]}" worker-maintenance
 fi
+echo "Verifying guarded HTTP transport in the candidate runtime"
+"${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance node --import tsx --test tests/ssrf-guard.test.ts </dev/null
 echo "Applying database migrations"
 "${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance npx prisma migrate deploy </dev/null
 

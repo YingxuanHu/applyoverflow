@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
+import net from "node:net";
+import { createServer } from "node:http";
+import { once } from "node:events";
 
 import {
   assertFetchTargetAllowed,
@@ -13,6 +16,34 @@ import {
 
 const resolveTo = (address: string, family = address.includes(":") ? 6 : 4) =>
   async (): Promise<ResolvedAddress[]> => [{ address, family }];
+
+test("the real guarded fetch and Agent use a compatible transport protocol", async () => {
+  let requests = 0;
+  const server = createServer((request, response) => {
+    requests += 1;
+    assert.equal(request.headers.host, "jobs.example.com");
+    response.end("fixture description");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as net.AddressInfo;
+  const connect = net.connect;
+  // Redirect only the test socket, keeping the real fetch, Agent and HTTP
+  // handler interface. No public connection or injected fetch mock is used.
+  const socket = mock.method(net, "connect", (options: net.NetConnectOpts) =>
+    connect({ ...options, host: "127.0.0.1", port: address.port, lookup: undefined }));
+  try {
+    const response = await fetchGuarded("http://jobs.example.com/", {}, { resolve: resolveTo("93.184.216.34") });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "fixture description");
+    assert.equal(requests, 1);
+    assert.equal(socket.mock.callCount(), 1);
+  } finally {
+    socket.mock.restore();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 test("connection lookup pins the checked address despite a changed DNS answer", async () => {
   const answers = [{ address: "93.184.216.34", family: 4 }];

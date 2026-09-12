@@ -18,7 +18,7 @@
  */
 import { lookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const MAX_REDIRECT_HOPS = 5;
@@ -31,7 +31,7 @@ export type FetchImpl = typeof fetch;
 export type FetchGuardDeps = {
   /** Injectable DNS resolver (defaults to node:dns/promises lookup all). */
   resolve?: DnsResolver;
-  /** Injectable fetch implementation (defaults to global fetch). */
+  /** Injectable fetch implementation (defaults to the dispatcher's Undici version). */
   fetchImpl?: FetchImpl;
 };
 
@@ -305,14 +305,18 @@ export async function fetchGuarded(
       try {
         // The URL retains its hostname for Host and TLS verification; only the
         // socket's DNS lookup is replaced with the already-approved addresses.
-        const fetchImpl = deps.fetchImpl ?? fetch;
-        response = await fetchImpl(currentUrl, {
+        const request = {
           ...init,
           headers: requestHeaders,
           signal,
-          redirect: "manual",
+          redirect: "manual" as const,
           dispatcher,
-        } as RequestInit & { dispatcher: Agent }) as Response;
+        };
+        // Node bundles its own Undici. Its dispatcher protocol can differ from
+        // our installed Agent, so keep the fetch/Agent implementations paired.
+        response = deps.fetchImpl
+          ? await deps.fetchImpl(currentUrl, request)
+          : await undiciFetch(currentUrl, request as Parameters<typeof undiciFetch>[1]) as unknown as Response;
       } finally {
         // Graceful close waits for the response body; do not await it before
         // returning that body to the caller.

@@ -224,9 +224,25 @@ test("app-only releases build current migrations and never recreate database dep
   });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(result.stdout.indexOf("build worker-maintenance") < result.stdout.indexOf("prisma migrate deploy"));
+  assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance node --import tsx --test tests\/ssrf-guard.test.ts/);
+  assert.ok(result.stdout.indexOf("--test tests/ssrf-guard.test.ts") < result.stdout.indexOf("prisma migrate deploy"));
   assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance npx prisma migrate deploy/);
   assert.match(result.stdout, /up -d --no-deps --force-recreate --wait --wait-timeout 120 app/);
   assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d).*postgres/);
+});
+
+test("failed candidate transport verification blocks migrations and service restarts", () => {
+  const source = read("deploy/single-vps/rebuild.sh");
+  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
+  const result = spawnSync("bash", ["-s"], {
+    cwd: root, encoding: "utf8", timeout: 5000,
+    input: `docker() { printf 'DOCKER %s\\n' "$*"; case "$*" in *ssrf-guard.test.ts*) return 1;; esac; }\ndf() { :; }\n${remote}`,
+    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
+      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+  });
+  assert.equal(result.status, 1, result.stderr);
+  assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d/);
 });
 
 test("deployment can direct builds and pruning to an attached-volume builder", () => {
