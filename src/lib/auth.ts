@@ -10,7 +10,6 @@ import {
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { buildRuntimeTrustedOrigins } from "@/lib/runtime-origin";
-import { deleteFile } from "@/lib/storage";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
 
 const APP_NAME = process.env.APP_NAME?.trim() || "ApplyOverflow";
@@ -84,25 +83,8 @@ export const auth = betterAuth({
           await syncProfileForAuthUser(user);
         },
       },
-      delete: {
-        before: async (user) => {
-          const profile = await prisma.userProfile.findUnique({
-            where: { authUserId: user.id },
-            select: {
-              id: true,
-              documents: {
-                select: { storageKey: true },
-              },
-            },
-          });
-
-          if (profile) {
-            await Promise.all(profile.documents.map((doc) => deleteFile(doc.storageKey)));
-          }
-
-          return true;
-        },
-      },
+      // Cascaded Document deletions enqueue storage removal transactionally.
+      // Never remove files in a before hook: the account delete can still fail.
     },
     session: {
       create: {

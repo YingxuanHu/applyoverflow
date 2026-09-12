@@ -14,7 +14,8 @@ ENV_FILE="${SINGLE_VPS_ENV_FILE:-deploy/single-vps/.env.production}"
 COMPOSE_FILE="${SINGLE_VPS_COMPOSE_FILE:-deploy/single-vps/docker-compose.yml}"
 BUILD_SERVICES="${SINGLE_VPS_BUILD_SERVICES:-app worker-ingestion worker-source-workers worker-maintenance}"
 SERVICES="${SINGLE_VPS_SERVICES:-$BUILD_SERVICES}"
-LEGACY_SERVICES="${SINGLE_VPS_LEGACY_SERVICES:-worker}"
+LEGACY_SERVICES="${SINGLE_VPS_LEGACY_SERVICES-worker}"
+REMOTE_BUILDER="${SINGLE_VPS_BUILDER:-}"
 BUILD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]]; then
   echo "Commit the release checkout before deploying so its build revision is reproducible." >&2
@@ -36,6 +37,8 @@ RSYNC_EXCLUDES=(
   --exclude='.env'
   --exclude='.env.*'
   --exclude='.runtime'
+  --exclude='data/uploads'
+  --exclude='data/automation-screenshots'
   --exclude='logs'
   --exclude='output'
   --exclude='.playwright-cli'
@@ -59,17 +62,25 @@ docker system df || true
 echo
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+BUILD_COMMAND=("${COMPOSE[@]}" build)
+if [[ -n "${REMOTE_BUILDER:-}" ]]; then
+  BUILD_COMMAND+=(--builder "$REMOTE_BUILDER")
+fi
 
 docker network inspect applyoverflow-edge >/dev/null 2>&1 || docker network create applyoverflow-edge >/dev/null
 
 echo "Building: $BUILD_SERVICES"
-"${COMPOSE[@]}" build $BUILD_SERVICES
+"${BUILD_COMMAND[@]}" $BUILD_SERVICES
 
+# Even app-only releases need the migration files from this exact checkout.
+if [[ " $BUILD_SERVICES " != *" worker-maintenance "* ]]; then
+  "${BUILD_COMMAND[@]}" worker-maintenance
+fi
 echo "Applying database migrations"
-"${COMPOSE[@]}" run -T --rm worker-maintenance npx prisma migrate deploy </dev/null
+"${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance npx prisma migrate deploy </dev/null
 
 echo "Restarting: $SERVICES"
-"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout 120 $SERVICES
+"${COMPOSE[@]}" up -d --no-deps --force-recreate --wait --wait-timeout 120 $SERVICES
 
 if [[ -n "$LEGACY_SERVICES" ]]; then
   echo
@@ -80,10 +91,14 @@ fi
 
 echo
 echo "Pruning Docker build cache..."
+CACHE_PRUNE=(docker builder prune)
+if [[ -n "${REMOTE_BUILDER:-}" ]]; then
+  CACHE_PRUNE=(docker buildx --builder "$REMOTE_BUILDER" prune)
+fi
 if [[ "$DOCKER_BUILD_CACHE_MAX_AGE" == "0" || "$DOCKER_BUILD_CACHE_MAX_AGE" == "all" ]]; then
-  docker builder prune -af
+  "${CACHE_PRUNE[@]}" -af
 else
-  docker builder prune -af --filter "until=$DOCKER_BUILD_CACHE_MAX_AGE"
+  "${CACHE_PRUNE[@]}" -af --filter "until=$DOCKER_BUILD_CACHE_MAX_AGE"
 fi
 
 if [[ "$PRUNE_UNUSED_IMAGES" == "1" || "$PRUNE_UNUSED_IMAGES" == "true" ]]; then
@@ -113,7 +128,8 @@ printf -v quoted_legacy_services "%q" "$LEGACY_SERVICES"
 printf -v quoted_cache_max_age "%q" "$DOCKER_BUILD_CACHE_MAX_AGE"
 printf -v quoted_prune_images "%q" "$PRUNE_UNUSED_IMAGES"
 printf -v quoted_build_sha "%q" "$BUILD_SHA"
+printf -v quoted_builder "%q" "$REMOTE_BUILDER"
 
 ssh "$REMOTE_HOST" \
-  "BUILD_SHA=$quoted_build_sha REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services LEGACY_SERVICES=$quoted_legacy_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
+  "BUILD_SHA=$quoted_build_sha REMOTE_BUILDER=$quoted_builder REMOTE_APP_DIR=$quoted_remote_app_dir ENV_FILE=$quoted_env_file COMPOSE_FILE=$quoted_compose_file BUILD_SERVICES=$quoted_build_services SERVICES=$quoted_services LEGACY_SERVICES=$quoted_legacy_services DOCKER_BUILD_CACHE_MAX_AGE=$quoted_cache_max_age PRUNE_UNUSED_IMAGES=$quoted_prune_images bash -s" \
   <<< "$remote_script"

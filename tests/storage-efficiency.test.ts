@@ -44,6 +44,11 @@ test("worker images do not copy dependencies twice or ship browser audit artifac
       assert.ok(read(`deploy/single-vps/${script}`).includes(`--exclude='${artifact}'`));
     }
   }
+  for (const runtimePath of ["data/uploads", "data/automation-screenshots"]) {
+    for (const script of ["rebuild.sh", "rebuild-staging.sh"]) {
+      assert.ok(read(`deploy/single-vps/${script}`).includes(`--exclude='${runtimePath}'`));
+    }
+  }
 });
 
 function workerApps(containerLogs: boolean) {
@@ -205,4 +210,38 @@ test("storage inventory is read-only and bounded, with no job contents or full-t
   assert.doesNotMatch(statements, /\b(?:DELETE|INSERT|UPDATE|TRUNCATE|ALTER|VACUUM|DROP)\b/i);
   assert.doesNotMatch(sql, /count\(\*\)|FROM "JobRaw"|FROM "JobCanonical"/i);
   assert.match(read("deploy/single-vps/report-storage.sh"), /timeout 30s/);
+});
+
+test("app-only releases build current migrations and never recreate database dependencies", () => {
+  const source = read("deploy/single-vps/rebuild.sh");
+  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
+  const result = spawnSync("bash", ["-s"], {
+    cwd: root, encoding: "utf8", timeout: 5000,
+    input: `docker() { printf 'DOCKER %s\\n' "$*"; }\ndf() { :; }\n${remote}`,
+    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
+      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.indexOf("build worker-maintenance") < result.stdout.indexOf("prisma migrate deploy"));
+  assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance npx prisma migrate deploy/);
+  assert.match(result.stdout, /up -d --no-deps --force-recreate --wait --wait-timeout 120 app/);
+  assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d).*postgres/);
+});
+
+test("deployment can direct builds and pruning to an attached-volume builder", () => {
+  const source = read("deploy/single-vps/rebuild.sh");
+  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
+  const result = spawnSync("bash", ["-s"], {
+    cwd: root, encoding: "utf8", timeout: 5000,
+    input: `docker() { printf 'DOCKER %s\\n' "$*"; }\ndf() { :; }\n${remote}`,
+    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
+      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "release-volume" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /build --builder release-volume app/);
+  assert.match(result.stdout, /build --builder release-volume worker-maintenance/);
+  assert.match(result.stdout, /buildx --builder release-volume prune -af/);
+  assert.doesNotMatch(result.stdout, /DOCKER builder prune/);
 });

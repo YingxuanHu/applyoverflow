@@ -99,6 +99,14 @@ test("normalization preserves white-collar GENERAL roles", async () => {
   assert.equal(result.kind, "accepted");
 });
 
+test("intake preserves non-clinical healthcare and public-sector administration", async () => {
+  const normalizeSourceJob = await loadNormalizeSourceJob();
+  for (const title of ["Pharmacy Benefits Analyst", "Dental Billing Specialist", "Police Records Clerk", "Hospital Revenue Cycle Manager"]) {
+    const result = normalizeSourceJob({ job: buildJob({ title, location: "Toronto, ON, CA" }), fetchedAt: new Date() });
+    assert.equal(result.kind, "accepted", title);
+  }
+});
+
 test("occupation scope distinguishes professional roles from their industry", async () => {
   const { isExcludedJobTitle } = await import("../src/lib/ingestion/normalize");
   for (const title of ["SQL Server DBA", "Server Engineer", "Pharmacy Data Analyst", "Dental Office Manager", "Education Administrator", "Healthcare Administration Director", "Clinical Research Associate", "Hospitality Revenue Analyst"]) {

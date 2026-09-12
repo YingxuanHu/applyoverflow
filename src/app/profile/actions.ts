@@ -455,20 +455,14 @@ export async function deleteProfileCoverLetter(
     };
   }
 
-  try {
-    await deleteFile(document.storageKey);
-  } catch {
-    return {
-      error: "Could not delete the file from storage. Please try again.",
-      success: null,
-    };
-  }
-
   await prisma.document.delete({
     where: {
       id: document.id,
     },
   });
+
+  // The committed deletion queues a retry if storage is temporarily unavailable.
+  await deleteFile(document.storageKey).catch(() => {});
 
   revalidateProfileViews();
 
@@ -523,15 +517,6 @@ export async function deleteProfileResume(
     };
   }
 
-  try {
-    await deleteFile(document.storageKey);
-  } catch {
-    return {
-      error: "Could not delete the file from storage. Please try again.",
-      success: null,
-    };
-  }
-
   await prisma.$transaction(async (tx) => {
     // Remove the resume's variant explicitly. The FK is onDelete: SetNull, so a
     // plain document delete would leave an orphaned ResumeVariant that keeps the
@@ -564,6 +549,8 @@ export async function deleteProfileResume(
       }
     }
   });
+
+  await deleteFile(document.storageKey).catch(() => {});
 
   revalidateProfileViews();
 
@@ -801,15 +788,6 @@ export async function deleteTemplate(
     return { error: "Template not found.", success: null };
   }
 
-  try {
-    await deleteFile(document.storageKey);
-  } catch {
-    return {
-      error: "Could not delete the file from storage. Please try again.",
-      success: null,
-    };
-  }
-
   await prisma.$transaction(async (tx) => {
     await tx.document.delete({ where: { id: document.id } });
 
@@ -824,6 +802,8 @@ export async function deleteTemplate(
       }
     }
   });
+
+  await deleteFile(document.storageKey).catch(() => {});
 
   revalidateProfileViews();
   return { error: null, success: "Template deleted." };

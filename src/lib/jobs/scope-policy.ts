@@ -37,6 +37,10 @@ export const EXCLUDED_TITLE_PATTERNS = [
  */
 export function isExcludedJobTitle(title: string) {
   if (/\bnurse(?:\s+manager)?\b/i.test(title) && !/\b(informatics|research|analyst)\b/i.test(title)) return true;
+  // Non-clinical healthcare and public-sector administration are GENERAL work.
+  // Require an office occupation, not just the industry (e.g. dental assistant).
+  if (/\b(pharmacy|dental|medical|hospital|healthcare|police|sheriff)\b/i.test(title) &&
+      /\b(benefits|billing|records|payroll|revenue\s+cycle|insurance|compliance)\s+(?:\w+\s+){0,2}(analyst|specialist|clerk|coordinator|manager|director|administrator|auditor)\b/i.test(title)) return false;
   // Industry names are not occupations: pharmacy data analysts, server
   // engineers and school administrators belong in the knowledge-worker pool.
   if (/\b(software|data|systems?|platform|cloud|security|network|research|policy|financial|business|marketing|sales|legal|people|human resources|communications|product|project)\s+(?:\w+\s+){0,2}(engineer|developer|analyst|scientist|researcher|designer|manager|director|specialist|consultant|administrator)\b/i.test(title) ||

@@ -34,6 +34,7 @@ jobs:
       - run: npm run test:unit
       - run: node --import tsx tests/integration/resource-budget.ts
       - run: node --import tsx tests/integration/storage-deletion.ts
+      - run: node --import tsx tests/integration/ingestion-feed.ts
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build

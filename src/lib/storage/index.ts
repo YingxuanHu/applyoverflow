@@ -251,10 +251,12 @@ export async function deleteFile(storageKey: string): Promise<void> {
 
 export async function runDurableStorageDeletion(storageKey: string, removeContents: () => Promise<void>): Promise<void> {
   const { prisma } = await import("@/lib/db");
-  // Persist intent before touching storage. Account/document deletion cannot
-  // orphan a failed removal, and retries remain safe after partial success.
+  // Document deletion also enqueues this intent in its database transaction.
+  // This upsert covers abandoned uploads that never acquired a document row.
   await prisma.storageDeletionTask.upsert({ where: { storageKey }, create: { storageKey }, update: {} });
   try {
+    const document = await prisma.document.findUnique({ where: { storageKey }, select: { id: true } });
+    if (document) throw new Error("Cannot remove storage for a referenced document");
     await removeContents();
     await prisma.storageDeletionTask.deleteMany({ where: { storageKey } });
   } catch (error) {
@@ -267,12 +269,13 @@ export async function runDurableStorageDeletion(storageKey: string, removeConten
 }
 
 async function deleteFileContents(storageKey: string): Promise<void> {
-  const deletions: Array<Promise<unknown>> = [deleteLocalStoredFile(storageKey)];
   const readiness = getStorageReadiness();
 
   if (!readiness.configured && process.env.NODE_ENV === "production") {
     throw new Error("Storage deletion requires configured storage in production");
   }
+
+  const deletions: Array<Promise<unknown>> = [deleteLocalStoredFile(storageKey)];
 
   if (readiness.configured) {
     const { client, bucket } = getStorageClient();
