@@ -76,9 +76,9 @@ export default async function DocumentsPage() {
   return (
     <div className="app-page space-y-8">
       <header className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="w-full min-w-0 sm:flex-1">
           <h1 className="page-title">Documents</h1>
-          <p className="page-description">
+          <p className="page-description max-sm:whitespace-normal">
             Manage the resume versions, reusable content, and cover letters you use across applications.
           </p>
         </div>

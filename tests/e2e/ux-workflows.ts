@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Page } from "playwright";
 import { hashPassword } from "better-auth/crypto";
 import { isLocalDevelopmentDatabaseUrl } from "../../src/lib/local-development-auth";
+import { verifyApplicationTracker } from "./application-tracker";
 
 const root = process.env.TEST_APP_URL ?? "http://127.0.0.1:3001";
 if (
@@ -38,10 +39,19 @@ async function main() {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     reducedMotion: "reduce",
+    timezoneId: "Pacific/Honolulu",
   });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
+  page.setDefaultNavigationTimeout(90000);
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("requestfailed", (request) => console.error("Browser request failed", {
+    method: request.method(), path: new URL(request.url()).pathname,
+    error: request.failure()?.errorText,
+  }));
+  page.on("console", (message) => {
+    if (message.type() === "error") console.error("Browser console", message.text());
+  });
   page.on("response", (response) => {
     if (response.url().includes("/api/jobs/saved-searches"))
       console.log(
@@ -69,7 +79,8 @@ async function main() {
     );
   }
   async function login(target: Page, email: string) {
-    await target.goto(`${root}/sign-in`, { waitUntil: "networkidle" });
+    // Readiness is the hydrated form, not unrelated network-idle/HMR activity.
+    await target.goto(`${root}/sign-in`, { waitUntil: "domcontentloaded", timeout: 90000 });
     await target.getByLabel(/^Email/).fill(email);
     await target.getByLabel("Password", { exact: true }).fill(password);
     await target.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -77,6 +88,7 @@ async function main() {
     await target
       .getByRole("heading", { name: "Jobs", exact: true, level: 1 })
       .waitFor();
+    await target.getByRole("button", { name: "Search jobs", exact: true }).waitFor();
   }
   try {
     await mkdir("output/playwright", { recursive: true });
@@ -129,6 +141,8 @@ async function main() {
           location: "Toronto, ON, Canada",
           region: "CA",
           workMode: index === 0 ? "REMOTE" : "HYBRID",
+          workModeConfidence: 1,
+          workModeStatus: "confident",
           employmentType: "FULL_TIME",
           employmentTypeGroup: "FULL_TIME",
           roleFamily: "Financial Analysis",
@@ -188,6 +202,12 @@ async function main() {
       });
       await upsertJobFeedIndex(id);
     }
+    if (process.env.TEST_TRACKER_ONLY === "1") {
+      await login(page, emails[1]);
+      await verifyApplicationTracker(page, root, users[1], jobs[0]);
+      assert.deepEqual(errors, []);
+      return;
+    }
     const profile = await buildAndStoreUserMatchProfile(users[0]);
     assert.ok(profile);
     for (const [index, jobId] of jobs.entries())
@@ -219,6 +239,11 @@ async function main() {
     assert.ok(descriptions.get(jobs[0])?.includes("IFRS"));
 
     await login(page, emails[0]);
+    const filteredPicks = await request(page, "/api/jobs/top-picks?titleSearch=Analyst+Senior&companySearch=Fixture+Finance&workMode=REMOTE&workMode=HYBRID&careerStage=SENIOR&locationSearch=Toronto%2C+ON");
+    assert.equal(filteredPicks.status, 200);
+    assert.deepEqual(filteredPicks.body.data.map((pick: { job: { id: string } }) => pick.job.id).sort(), [...jobs].sort(), "Picks API honors repeated filters and all keyword terms");
+    const wrongCityPicks = await request(page, "/api/jobs/top-picks?locationSearch=Ottawa%2C+ON");
+    assert.equal(wrongCityPicks.body.data.length, 0, "qualified location never expands to the entire province");
     await page.goto(`${root}/jobs/top-picks`, { waitUntil: "networkidle" });
     const detail = page.locator('aside[aria-label^="Details for"]');
     const list = page.getByRole("region", { name: "Jobs on this page" });
@@ -444,8 +469,12 @@ async function main() {
       "Finance Canada",
       "saved searches survive a new browser session",
     );
-    await page
-      .getByRole("button", { name: "Discovered since review", exact: true })
+    const savedSearches = page.locator("details").filter({ has: page.locator("summary", { hasText: "Saved searches" }) });
+    if ((await savedSearches.getAttribute("open")) === null) {
+      await savedSearches.locator("summary").click();
+    }
+    await savedSearches
+      .getByText("Discovered since review", { exact: true })
       .click();
     await page.waitForURL((url) => url.searchParams.has("discoveredSince"));
     assert.equal(
@@ -622,10 +651,24 @@ async function main() {
     await page.getByRole("link", { name: /Picks for you/ }).click();
     assert.equal((await refreshRequest).status(), 200);
     await page.getByText("Finding your top matches", { exact: true }).waitFor();
-    const queuedVersion = (await prisma.topPickRefreshTask.findUniqueOrThrow({ where: { id: task.id } })).requestedVersion;
+    assert.equal(automaticRefreshRequests, 1, "Opening the stale tab starts exactly one refresh");
+    // The dev server can finish its inline worker before the next POST. Hold
+    // only this fixture queued, revoking any inline lease, to test pending-work
+    // reuse rather than accidentally requesting a new refresh after success.
+    const queued = await prisma.topPickRefreshTask.update({
+      where: { id: task.id },
+      data: {
+        status: "PENDING",
+        startedAt: null,
+        leaseExpiresAt: null,
+        notBeforeAt: new Date(Date.now() + 5 * 60_000),
+      },
+    });
+    const queuedVersion = queued.requestedVersion;
     for (let index = 0; index < 2; index++) {
-      const duplicate = await page.request.post(`${root}/api/jobs/top-picks/refresh`);
-      assert.equal(duplicate.status(), 200);
+      // Use the browser's secure-cookie behavior on loopback production builds.
+      const duplicate = await request(page, "/api/jobs/top-picks/refresh", "POST");
+      assert.equal(duplicate.status, 200);
     }
     assert.equal((await prisma.topPickRefreshTask.findUniqueOrThrow({ where: { id: task.id } })).requestedVersion, queuedVersion, "Duplicate refresh API calls must reuse the queued work");
     await enqueueDurableTopPicksRefresh({ userId: users[0], priorityScore: 1000000, candidateLimit: 30, storeLimit: 10 });
@@ -635,9 +678,10 @@ async function main() {
     await finishTopPicksRefreshTask(claim, "SUCCESS", { lastResult: loaded });
     await page.getByRole("region", { name: "Jobs on this page" }).waitFor();
     assert.ok(loaded.storedCount > 0);
-    assert.equal(automaticRefreshRequests, 1, "Opening an empty stale tab starts exactly one refresh and follows its result");
+    assert.equal(automaticRefreshRequests, 3, "One automatic refresh plus two deliberate duplicate requests; no polling refresh loop");
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: "output/playwright/ranking-refreshed-picks-desktop.png", fullPage: true });
+    await verifyApplicationTracker(second, root, users[1], jobs[0]);
     assert.deepEqual(errors, []);
     console.log(
       JSON.stringify({

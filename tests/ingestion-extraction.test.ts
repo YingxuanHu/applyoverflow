@@ -38,6 +38,15 @@ function buildJob(overrides: Partial<SourceConnectorJob>): SourceConnectorJob {
   };
 }
 
+test("location extraction rejects role fragments without rejecting unfamiliar places", () => {
+  for (const location of ["The Paralegal", "The senior engineer will join our team", "Our candidate must relocate"]) {
+    assert.equal(extractAndScoreLocation(buildJob({ location, description: "", metadata: {} })), null);
+  }
+  for (const location of ["The Dalles, OR", "The Pas, MB", "King of Prussia, PA"]) {
+    assert.equal(extractAndScoreLocation(buildJob({ location, description: "", metadata: {} }))?.value, location);
+  }
+});
+
 test("geographic locations outrank work arrangements and provider identifiers", () => {
   for (const workplaceType of ["Hybrid", "Remote", "OnSite"]) {
     const job = buildJob({ location: "Sao Paulo", metadata: {
@@ -628,6 +637,18 @@ test("work mode extraction uses candidate confidence and handles conflicts", () 
     fetchedAt,
   });
   assert.ok(["REMOTE", "FLEXIBLE"].includes(result.workMode.value));
+});
+
+test("technical vocabulary and interview benefits do not invent a work mode", () => {
+  for (const description of [
+    "Build distributed systems and virtual machines.",
+    "We offer virtual interviews and flexible working hours.",
+    "Manage remote sensing devices and hybrid cloud infrastructure.",
+  ]) {
+    const job = buildJob({ location: "Toronto, ON", description });
+    const result = extractJobMetadata(job, { company: job.company, title: job.title, location: job.location, description, fetchedAt: new Date() });
+    assert.equal(result.workMode.value, "UNKNOWN", description);
+  }
 });
 
 test("employment type extraction is contextual and grouped for filters", () => {

@@ -4,8 +4,10 @@ import {
   sanitizeJobDescriptionText,
   sanitizeJobTitle,
 } from "@/lib/job-cleanup";
-import { resolveJobSalaryRange } from "@/lib/salary-extraction";
+import { METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD } from "@/lib/job-metadata";
 import { inferGeoScope } from "@/lib/geo-scope";
+import { resolveCompanyLogoDomain } from "@/lib/company-logo";
+import { isJobLocationProse } from "@/lib/jobs/location-label";
 import type {
   JobCardData,
   JobCardEligibility,
@@ -17,8 +19,11 @@ type JobSerializationInput = {
   id: string;
   title: string;
   company: string;
+  companyRecord?: { name?: string; domain: string | null; careersUrl?: string | null } | null;
   location: string;
   workMode: JobCardData["workMode"];
+  workModeConfidence?: number | null;
+  workModeStatus?: string | null;
   industry: JobCardData["industry"];
   status: JobCardData["status"];
   region?: JobDetailData["region"];
@@ -53,6 +58,7 @@ type JobSerializationInput = {
 
 export function serializeJobCardData(job: JobSerializationInput): JobCardData {
   const title = sanitizeJobTitle(job.title);
+  const location = isJobLocationProse(job.location) ? "Location not listed" : job.location;
   const company = sanitizeCompanyName(job.company, {
     urls: [job.applyUrl, ...job.sourceMappings.map((mapping) => mapping.sourceUrl)],
   });
@@ -71,21 +77,15 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     applyUrl: job.applyUrl,
     sourceMappings: job.sourceMappings,
   });
-  const resolvedSalary = resolveJobSalaryRange({
-    salaryMin: job.salaryMin,
-    salaryMax: job.salaryMax,
-    salaryCurrency: job.salaryCurrency,
-    description,
-    regionHint: job.region ?? null,
-  });
 
   return {
     id: job.id,
     title,
     company,
-    location: job.location,
-    geoScope: inferGeoScope(job.location, job.region ?? null),
-    workMode: job.workMode,
+    companyDomain: resolveCompanyLogoDomain({ company, companyRecord: job.companyRecord, sourceUrls: [job.applyUrl, ...job.sourceMappings.map((mapping) => mapping.sourceUrl)] }),
+    location,
+    geoScope: inferGeoScope(location, job.region ?? null),
+    workMode: (job.workModeConfidence !== undefined && (job.workModeConfidence ?? 0) < METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD) || ["missing", "quarantine", "rejected"].includes(job.workModeStatus ?? "") ? "UNKNOWN" : job.workMode,
     industry: job.industry,
     status: job.status,
     roleFamily: job.roleFamily,
@@ -96,9 +96,9 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     normalizedIndustryConfidence: job.normalizedIndustryConfidence ?? null,
     classificationStatus: job.classificationStatus ?? null,
     experienceLevel: job.experienceLevel,
-    salaryMin: resolvedSalary.salaryMin,
-    salaryMax: resolvedSalary.salaryMax,
-    salaryCurrency: resolvedSalary.salaryCurrency,
+    salaryMin: job.salaryMin,
+    salaryMax: job.salaryMax,
+    salaryCurrency: job.salaryCurrency,
     salaryPeriod: job.salaryPeriod ?? null,
     shortSummary,
     description,

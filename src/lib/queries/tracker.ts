@@ -460,7 +460,6 @@ export async function getTrackedDashboardData(input: {
           roleUrl: true,
           status: true,
           deadline: true,
-          notes: true,
           updatedAt: true,
           canonicalJob: {
             select: {
@@ -468,6 +467,9 @@ export async function getTrackedDashboardData(input: {
               status: true,
               location: true,
               workMode: true,
+              companyRecord: { select: { name: true, domain: true, careersUrl: true } },
+              applyUrl: true,
+              company: true,
             },
           },
           tags: {

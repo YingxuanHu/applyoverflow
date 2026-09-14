@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatSalary } from "../src/lib/job-display";
 
+test("missing or invalid currency is not labeled USD and does not crash the feed", () => {
+  assert.match(formatSalary(80000, null, null), /currency not listed/);
+  assert.doesNotMatch(formatSalary(80000, null, null), /USD/);
+  assert.match(formatSalary(80000, null, "invalid"), /currency not listed/);
+});
+
 test("salary display restores the source period and names the currency", () => {
   const clean = (value: string) => value.replace(/\u00a0/g, " ");
   assert.equal(clean(formatSalary(34840, 45656, "CAD", "hour")), "CAD 16.75 - CAD 21.95/hour");

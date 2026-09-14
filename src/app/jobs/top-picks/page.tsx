@@ -1,6 +1,8 @@
+import { buildJobsSearchHref } from "@/lib/jobs/search-navigation";
+import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronDown, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chips";
 import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
@@ -15,9 +17,12 @@ import { PaginationControls } from "@/components/navigation/pagination-controls"
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { Button } from "@/components/ui/button";
 import { getOptionalCurrentProfileId } from "@/lib/current-user";
-import { normalizeTextParam, splitFilterValues } from "@/lib/filter-values";
+import { splitFilterValues } from "@/lib/filter-values";
 import { EXPERIENCE_LEVEL_GROUP_OPTIONS } from "@/lib/job-metadata";
 import { formatPostedAge } from "@/lib/job-display";
+import { normalizeJobsStateQuery } from "@/lib/jobs/search-state";
+import { parseJobFilters, parseTopPicksFilters } from "@/lib/jobs/search-params";
+import { splitLocationSearchValues } from "@/lib/location-search";
 import { getTopPicksForUser } from "@/lib/queries/top-picks";
 import type { JobSearchScope } from "@/lib/queries/jobs";
 
@@ -53,158 +58,13 @@ type ActiveFilterGroup = {
   }>;
 };
 
-function getSearchParam(
-  params: Record<string, string | string[] | undefined>,
-  key: string,
-) {
-  const value = params[key];
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function parsePositiveInt(value?: string, fallback = 1) {
-  if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function buildTopPicksHref(
-  currentParams: Record<string, string | string[] | undefined>,
-  overrides: Record<string, string | undefined>,
-) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (key === "reset" || key === "minScore") continue;
-    const normalized = Array.isArray(value)
-      ? value.filter(Boolean).join(",")
-      : value;
-    if (normalized) params.set(key, normalized);
-  }
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value) params.set(key, value);
-    else params.delete(key);
-  }
-  if (!hasSearchParams(params)) {
-    params.delete("searchScope");
-  }
-  const query = params.toString();
-  return query ? `/jobs/top-picks?${query}` : "/jobs/top-picks";
-}
-
-function parseTopPicksFilters(
-  searchParams: Record<string, string | string[] | undefined>,
-): TopPicksFilters {
-  const aliasField = getSearchParam(searchParams, "field");
-  const aliasQuery = normalizeTextParam(getSearchParam(searchParams, "q"));
-  const selectedSearchScope = normalizeSearchScopeParam(
-    getSearchParam(searchParams, "searchScope") ?? aliasField,
-  );
-  const rawSearch =
-    normalizeTextParam(getSearchParam(searchParams, "search")) ?? aliasQuery;
-  let titleSearch = normalizeTextParam(
-    getSearchParam(searchParams, "titleSearch"),
-  );
-  let companySearch = normalizeTextParam(
-    getSearchParam(searchParams, "companySearch"),
-  );
-  let locationSearch = normalizeTextListParam(
-    getMultiSearchParam(searchParams, "locationSearch") ??
-      getMultiSearchParam(searchParams, "location"),
-  );
-
-  if (rawSearch && selectedSearchScope === "company") {
-    companySearch = companySearch ?? rawSearch;
-  } else if (rawSearch && selectedSearchScope === "location") {
-    locationSearch = normalizeTextListParam(
-      [locationSearch, rawSearch].filter(Boolean).join(","),
-    );
-  } else if (rawSearch) {
-    titleSearch = titleSearch ?? rawSearch;
-  }
-
-  return {
-    searchScope: inferEffectiveSearchScope({
-      companySearch,
-      locationSearch,
-      selectedSearchScope,
-      titleSearch,
-    }),
-    titleSearch,
-    companySearch,
-    locationSearch,
-    workMode: normalizeFilterValueList(
-      getMultiSearchParam(searchParams, "workMode"),
-    ),
-    experienceLevel: normalizeFilterValueList(
-      getMultiSearchParam(searchParams, "experienceLevel") ??
-        getMultiSearchParam(searchParams, "careerStage"),
-    ),
-  };
-}
-
-function getMultiSearchParam(
-  searchParams: Record<string, string | string[] | undefined>,
-  key: string,
-) {
-  const value = searchParams[key];
-  if (Array.isArray(value)) return value.filter(Boolean).join(",");
-  return value;
-}
-
-function normalizeTextListParam(value?: string) {
-  const values = splitFilterValues(value)
-    .map((entry) => entry.slice(0, 80))
-    .filter(Boolean);
-  return values.length > 0 ? values.join(",") : undefined;
-}
-
-function normalizeFilterValueList(value?: string | null) {
-  const values = splitFilterValues(value);
-  return values.length > 0 ? values.join(",") : undefined;
-}
-
-function normalizeSearchScopeParam(value?: string): JobSearchScope {
-  if (
-    value === "all" ||
-    value === "title" ||
-    value === "company" ||
-    value === "location"
-  ) {
-    return value;
-  }
-  return "title";
-}
-
-function inferEffectiveSearchScope({
-  companySearch,
-  locationSearch,
-  selectedSearchScope,
-  titleSearch,
-}: {
-  companySearch?: string;
-  locationSearch?: string;
-  selectedSearchScope: JobSearchScope;
-  titleSearch?: string;
-}) {
-  if (selectedSearchScope && selectedSearchScope !== "all")
-    return selectedSearchScope;
-  if (companySearch) return "company";
-  if (locationSearch) return "location";
-  if (titleSearch) return "title";
-  return "title";
+function buildTopPicksHref(current: Record<string, string | string[] | undefined>, overrides: Record<string, string | undefined>) {
+  return buildJobsSearchHref(current, overrides, "/jobs/top-picks");
 }
 
 function hasActiveSearch(filters: TopPicksFilters) {
   return Boolean(
     filters.titleSearch || filters.companySearch || filters.locationSearch,
-  );
-}
-
-function hasSearchParams(params: URLSearchParams) {
-  return Boolean(
-    normalizeTextParam(params.get("search") ?? undefined) ||
-    normalizeTextParam(params.get("titleSearch") ?? undefined) ||
-    normalizeTextParam(params.get("companySearch") ?? undefined) ||
-    normalizeTextParam(params.get("locationSearch") ?? undefined),
   );
 }
 
@@ -399,7 +259,7 @@ function buildActiveFilterGroups(
     addGroup(
       "locationSearch",
       "Location",
-      splitFilterValues(filters.locationSearch).map((location) => ({
+      splitLocationSearchValues(filters.locationSearch).map((location) => ({
         key: `locationSearch:${location.toLowerCase()}`,
         label: location,
         href: buildRemoveFilterValueHref(
@@ -474,35 +334,12 @@ function buildRemoveFilterValueHref(
   param: string,
   value: string,
 ) {
-  const removeValues = new Set(
-    splitFilterValues(value).map((entry) => entry.toLowerCase()),
-  );
-  const rawValue = getMultiSearchParam(currentParams, param);
-  const nextValue = splitFilterValues(rawValue)
-    .filter((entry) => !removeValues.has(entry.toLowerCase()))
-    .join(",");
-  const overrides: Record<string, string | undefined> = {
-    page: undefined,
-    [param]: nextValue || undefined,
-  };
-
-  if (param === "locationSearch") {
-    overrides.location = undefined;
-    const searchScope = normalizeSearchScopeParam(
-      getSearchParam(currentParams, "searchScope"),
-    );
-    const aliasScope = normalizeSearchScopeParam(
-      getSearchParam(currentParams, "field"),
-    );
-    if (searchScope === "location" || aliasScope === "location") {
-      overrides.field = undefined;
-      overrides.q = undefined;
-      overrides.search = undefined;
-      overrides.searchScope = nextValue ? "location" : undefined;
-    }
-  }
-
-  return buildTopPicksHref(currentParams, overrides);
+  const canonical = new URLSearchParams(normalizeJobsStateQuery(currentParams));
+  const key = param === "experienceLevel" ? "careerStage" : param;
+  const split = key === "locationSearch" ? splitLocationSearchValues : splitFilterValues;
+  const removed = new Set(split(value).map((entry) => entry.toLowerCase()));
+  const next = split(canonical.get(key)).filter((entry) => !removed.has(entry.toLowerCase())).join(key === "locationSearch" ? ";" : ",");
+  return buildTopPicksHref(currentParams, { page: undefined, [key]: next || undefined });
 }
 
 export default async function JobsTopPicksPage({
@@ -512,7 +349,7 @@ export default async function JobsTopPicksPage({
   if (!userId) redirect("/sign-in");
 
   const resolvedSearchParams = await searchParams;
-  const page = parsePositiveInt(getSearchParam(resolvedSearchParams, "page"));
+  const page = parseJobFilters(resolvedSearchParams).page ?? 1;
   const filters = parseTopPicksFilters(resolvedSearchParams);
   const result = await getTopPicksForUser(userId, {
     page,
@@ -627,93 +464,35 @@ export default async function JobsTopPicksPage({
               />
 
               <div className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
-                <details
-                  className="group static sm:relative"
-                  name="top-picks-toolbar-dropdown"
-                >
-                  <summary className="inline-flex h-10 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
-                    <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-                    Filters
-                    {activeFilterCount > 0 ? (
-                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-medium text-primary-foreground">
-                        {activeFilterCount}
-                      </span>
-                    ) : null}
-                    <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
-                  </summary>
-
-                  <div className="fixed inset-x-2 bottom-3 z-40 flex max-h-[calc(100dvh-1.5rem)] origin-bottom overflow-hidden rounded-[20px] border border-border/70 bg-popover shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+0.6rem)] sm:max-h-[min(76dvh,26rem)] sm:w-[min(32rem,calc(100vw-2rem))] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
-                    <form
-                      className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full flex-col sm:max-h-[min(76dvh,26rem)]"
-                      method="get"
-                    >
-                      {filterPanelHiddenFields.map((field) => (
-                        <input
-                          key={`${field.name}:${field.value}`}
-                          name={field.name}
-                          type="hidden"
-                          value={field.value}
-                        />
-                      ))}
-
-                      <div className="shrink-0 border-b border-border/60 px-3.5 py-3 sm:px-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">
-                              Refine picks
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              Filters narrow the cached recommendations on this
-                              page.
-                            </p>
-                          </div>
-                          {activeFilterCount > 0 ? (
-                            <span className="inline-flex h-6 items-center rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] font-medium text-foreground">
-                              {activeFilterCount} active
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto p-3 sm:p-3.5">
-                        <JobsFilterDropdownField
-                          columnsClassName="sm:grid-cols-2"
-                          emptyLabel="Any work mode"
-                          name="workMode"
-                          options={WORK_MODE_OPTIONS}
-                          selected={filters.workMode}
-                          title="Work mode"
-                        />
-                        <JobsFilterDropdownField
-                          columnsClassName="sm:grid-cols-2"
-                          emptyLabel="Any level"
-                          name="experienceLevel"
-                          options={EXPERIENCE_LEVEL_GROUP_OPTIONS}
-                          selected={filters.experienceLevel}
-                          title="Experience"
-                        />
-                      </div>
-
-                      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-muted/45 px-3.5 py-3 sm:px-4">
-                        <Button
-                          className="h-9 px-4 text-sm"
-                          size="sm"
-                          type="submit"
-                        >
-                          Apply filters
-                        </Button>
-                        <Button
-                          className="h-9 px-4 text-sm"
-                          render={<Link href="/jobs/top-picks" />}
-                          size="sm"
-                          variant="ghost"
-                        >
-                          Clear
-                        </Button>
-                      </div>
-                    </form>
+                <JobsFilterPanel activeCount={activeFilterCount} basePath="/jobs/top-picks" formId="picks-filter-form" key={JSON.stringify(filters)}>
+                  {filterPanelHiddenFields.map((field) => (
+                    <input
+                      key={`${field.name}:${field.value}`}
+                      name={field.name}
+                      type="hidden"
+                      value={field.value}
+                    />
+                  ))}
+                  <div className="grid gap-2">
+                    <JobsFilterDropdownField
+                      columnsClassName="sm:grid-cols-2"
+                      emptyLabel="Any work mode"
+                      name="workMode"
+                      options={WORK_MODE_OPTIONS}
+                      selected={filters.workMode}
+                      title="Work mode"
+                    />
+                    <JobsFilterDropdownField
+                      columnsClassName="sm:grid-cols-2"
+                      emptyLabel="Any level"
+                      name="experienceLevel"
+                      options={EXPERIENCE_LEVEL_GROUP_OPTIONS}
+                      selected={filters.experienceLevel}
+                      title="Experience"
+                    />
                   </div>
-                </details>
+
+                </JobsFilterPanel>
 
                 {hasScopedResults ? (
                   <Button

@@ -1,4 +1,5 @@
 import { decodeHtmlEntitiesFull } from "@/lib/ingestion/html-description";
+import { isJobLocationProse } from "@/lib/jobs/location-label";
 import type {
   FieldCandidate,
   FieldCandidateSource,
@@ -95,6 +96,7 @@ export function cleanLocationCandidate(raw: unknown) {
   value = compactWhitespace(value);
 
   if (LOCATION_PAGE_CHROME_RE.test(value)) return "";
+  if (isJobLocationProse(value)) return "";
   if (value.length > 140) {
     const parsed = parseLocationsFromSentence(value);
     if (parsed) return parsed;

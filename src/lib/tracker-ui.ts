@@ -45,5 +45,6 @@ export function formatTrackerDate(value: Date | null) {
   if (!value) return "No deadline";
   return new Intl.DateTimeFormat("en-CA", {
     dateStyle: "medium",
+    timeZone: "UTC",
   }).format(value);
 }

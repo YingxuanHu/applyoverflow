@@ -1,4 +1,7 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { applicationCalendarDay } from "@/lib/applications/work-queue";
+import { normalizeUserTimeZone, USER_TIME_ZONE_COOKIE } from "@/lib/time-zone";
 
 import { type ApplicationReminderGroup } from "@/components/applications/application-reminders-summary";
 import { ApplicationsPageClient } from "@/components/applications/applications-page-client";
@@ -291,6 +294,8 @@ export default async function ApplicationsPage({
     }),
   }));
   const now = data.loadedAt.getTime();
+  const timeZone = normalizeUserTimeZone((await cookies()).get(USER_TIME_ZONE_COOKIE)?.value);
+  const referenceDay = applicationCalendarDay(now, timeZone);
   const reminderGroups: ApplicationReminderGroup[] = data.applications
     .map((application) => {
       const reminders = application.events
@@ -333,9 +338,9 @@ export default async function ApplicationsPage({
       <SearchParamMemory
         basePath="/applications"
         stateParamKeys={APPLICATION_STATE_PARAM_KEYS}
-        storageKey="autoapplication.applications.filters"
+        storageKey={`autoapplication.applications.filters:${sessionUser.id}`}
       />
-      <ScrollPositionMemory storageKeyPrefix="autoapplication.applications.scroll" />
+      <ScrollPositionMemory storageKeyPrefix={`autoapplication.applications.scroll:${sessionUser.id}`} />
       <div className="page-header">
         <div>
           <h1 className="page-title">Applications</h1>
@@ -362,6 +367,9 @@ export default async function ApplicationsPage({
         reminderGroups={reminderGroups}
         stateKey={clientStateKey}
         totalApplicationCount={data.totalApplicationCount}
+        referenceNow={now}
+        referenceDay={referenceDay}
+        viewerId={sessionUser.id}
       />
     </div>
   );

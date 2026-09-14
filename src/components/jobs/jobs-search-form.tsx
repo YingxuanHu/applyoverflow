@@ -26,7 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { normalizeFilterValueList } from "@/lib/filter-values";
+import { normalizeLocationSearch } from "@/lib/location-search";
 import { mergeNaturalLanguageJobsSearch } from "@/lib/jobs/search-state";
 import { getUnsupportedSearchConstraints } from "@/lib/jobs/search-constraints";
 import type { NaturalLanguageJobSearchResult } from "@/lib/jobs/natural-language-search";
@@ -143,7 +143,7 @@ function getSpeechErrorMessage(error?: string) {
 }
 
 function normalizeSearchList(value: string) {
-  return normalizeFilterValueList(value) ?? "";
+  return normalizeLocationSearch(value) ?? "";
 }
 
 function normalizeSubmittedSearchValue(scope: VisibleJobSearchScope, value: string) {
@@ -338,7 +338,7 @@ export function JobsSearchForm({
           />
         ))}
         {filterFormId
-          ? submittedHiddenFields.map((field) => (
+          ? buildCommittedSearchHiddenFields(committedValues).filter((field) => field.name !== "locationSearch").map((field) => (
               <input
                 form={filterFormId}
                 key={`filter:${field.name}:${field.value}`}

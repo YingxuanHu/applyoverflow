@@ -11,7 +11,9 @@ export const savedSearchSchema = z
   .strict();
 export type SavedSearch = z.infer<typeof savedSearchSchema> & { id: string };
 export function cleanSavedQuery(query: string) {
-  return normalizeJobsStateQuery(query, { includePage: false });
+  const params = new URLSearchParams(query);
+  params.delete("discoveredSince");
+  return normalizeJobsStateQuery(params, { includePage: false });
 }
 export function savedSearchHref(search: SavedSearch, newOnly = false) {
   const params = new URLSearchParams(search.query);
@@ -21,10 +23,4 @@ export function savedSearchHref(search: SavedSearch, newOnly = false) {
   params.set("savedSearch", search.id);
   return `/jobs?${params}`;
 }
-export function parseDiscoveredSince(value?: string | null) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return undefined;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) && date.getTime() <= Date.now()
-    ? date.toISOString()
-    : undefined;
-}
+export { parseDiscoveredSince } from "@/lib/jobs/search-params";

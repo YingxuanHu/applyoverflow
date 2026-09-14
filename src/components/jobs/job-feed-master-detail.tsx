@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
+import { CompanyLogo } from "@/components/company-logo";
 import { JobDescriptionContent } from "@/components/jobs/job-description-content";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +24,7 @@ import {
   formatSalary,
   getDeadlineUrgencyAt,
 } from "@/lib/job-display";
-import { needsDescriptionRepair } from "@/lib/jobs/description-quality";
+import { needsDescriptionRepair, resolveFeedDescription } from "@/lib/jobs/description-quality";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
 import { feedPositionKey, jobIdFromHash, parseFeedPosition, type FeedPosition } from "@/lib/jobs/feed-continuity";
 import { cn } from "@/lib/utils";
@@ -225,12 +226,15 @@ function JobFeedListRow({
       onClick={onSelect}
       type="button"
     >
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-start gap-3">
+        <CompanyLogo company={job.company} domain={job.companyDomain} />
+        <div className="min-w-0 flex-1">
         {entry.listMeta ? <div className="mb-2">{entry.listMeta}</div> : null}
         <p className="truncate text-sm font-semibold text-foreground sm:text-[15px]">
           {job.title}
         </p>
         <p className="mt-1 truncate text-sm text-foreground/80">{job.company}</p>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
@@ -286,8 +290,7 @@ function JobFeedDetailPanel({
   sourceHref?: string;
 }) {
   const { job } = entry;
-  const [description, setDescription] = useState<string | null>(job.description || (descriptions.get(job.id) ?? null));
-  const [initialDescription] = useState(job.description);
+  const [description, setDescription] = useState<string | null>(() => resolveFeedDescription(job, descriptions.get(job.id)));
   const [descriptionError, setDescriptionError] = useState(false);
   const [retry, setRetry] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -320,7 +323,7 @@ function JobFeedDetailPanel({
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
-  const descriptionText = job.description !== initialDescription ? job.description : description ?? job.description;
+  const descriptionText = resolveFeedDescription(job, description) ?? "";
 
   return (
     <aside
@@ -334,12 +337,15 @@ function JobFeedDetailPanel({
           <ArrowLeft className="h-4 w-4" /> Back to jobs
         </button>
         <div className="flex min-w-0 flex-col gap-4">
-          <div className="min-w-0">
-            <h2 className="text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
+          <div className="flex min-w-0 items-start gap-3">
+            <CompanyLogo company={job.company} domain={job.companyDomain} size="md" />
+            <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-semibold leading-snug tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-2xl">
               {job.title}
             </h2>
-            <p className="mt-1.5 text-sm font-medium text-foreground/80">{job.company}</p>
+            <p className="mt-1.5 text-sm font-medium text-foreground/80 [overflow-wrap:anywhere]">{job.company}</p>
             <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" />{job.location}</p>
+            </div>
           </div>
 
           <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
@@ -375,7 +381,7 @@ function JobFeedDetailPanel({
       <div ref={scrollRef} onScroll={(event) => { if (restoredRef.current) onDetailScroll(event.currentTarget.scrollTop); }} data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         {copyError ? <p role="alert" className="mb-3 text-sm text-destructive">Could not copy the link. Open the full page to share this job.</p> : null}
         {entry.detailMeta ? <div className="mb-4">{entry.detailMeta}</div> : null}
-        <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border/60 pb-4 text-sm sm:grid-cols-4">
+        <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border/60 pb-4 text-sm 2xl:grid-cols-4">
           <DetailField
             icon={<CalendarClock className="h-3.5 w-3.5" />}
             label="Posted"

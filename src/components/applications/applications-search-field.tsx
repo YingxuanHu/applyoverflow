@@ -99,7 +99,7 @@ export function ApplicationsSearchField({
         <label className="sr-only" htmlFor="applications-search-scope">
           Search within
         </label>
-        <div className="relative w-[5.85rem] shrink-0 border-r border-border/60 sm:w-28">
+        <div className="relative w-32 shrink-0 border-r border-border/60">
           <select
             className="h-10 w-full appearance-none bg-transparent pl-3 pr-9 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
             id="applications-search-scope"

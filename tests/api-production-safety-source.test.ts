@@ -86,7 +86,8 @@ test("jobs API has pagination bounds and slow-request diagnostics", () => {
   const jobsQueries = readRepoFile("src/lib/queries/jobs.ts");
 
   assert.match(apiUtils, /parseBoundedIntParam/);
-  assert.match(jobsRoute, /max:\s*1000/);
+  assert.match(jobsRoute, /parseJobFilters\(sp\)/);
+  assert.match(readRepoFile("src/lib/jobs/search-params.ts"), /Math.min\(1000/);
   assert.match(jobsRoute, /logSlowJobsRequest/);
   assert.match(jobsRoute, /\[api\.jobs\] slow request/);
   assert.match(jobsQueries, /buildNotPassedCanonicalWhere/);

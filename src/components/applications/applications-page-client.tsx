@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ComponentProps, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+} from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { ApplicationFlowSection } from "@/components/applications/application-flow-section";
@@ -20,10 +26,20 @@ import {
   type ApplicationFlowRange,
   type FlowApplication,
 } from "@/lib/application-flow";
-import type { TrackerSearchScope, TrackerSortFilter } from "@/lib/queries/tracker";
+import type {
+  TrackerSearchScope,
+  TrackerSortFilter,
+} from "@/lib/queries/tracker";
 import { cn } from "@/lib/utils";
+import {
+  APPLICATION_VIEWS,
+  matchesApplicationView,
+  type ApplicationView,
+} from "@/lib/applications/work-queue";
 
-type ApplicationListItem = ComponentProps<typeof ApplicationListCard>["application"];
+type ApplicationListItem = ComponentProps<
+  typeof ApplicationListCard
+>["application"];
 
 type SearchValues = Record<TrackerSearchScope, string>;
 
@@ -46,6 +62,9 @@ type ApplicationsPageClientProps = {
   reminderGroups: ApplicationReminderGroup[];
   stateKey: string;
   totalApplicationCount: number;
+  referenceNow: number;
+  referenceDay: number;
+  viewerId: string;
   filters: {
     status: TrackedApplicationStatus | "ALL";
     sort: TrackerSortFilter;
@@ -72,16 +91,21 @@ export function ApplicationsPageClient({
   reminderGroups,
   stateKey,
   totalApplicationCount,
+  referenceNow,
+  referenceDay,
+  viewerId,
   filters,
 }: ApplicationsPageClientProps) {
-  const pageStorageKey = `autoapplication.applications.page:${stateKey}`;
+  const [view, setView] = useState<ApplicationView>("all");
+  const [showReminders, setShowReminders] = useState(false);
+  const pageStorageKey = `autoapplication.applications.page:${viewerId}:${stateKey}:${view}`;
   const [currentPage, setCurrentPage] = useState(1);
   const [showFlow, setShowFlow] = useState(false);
   const [flowRange, setFlowRange] = useState<ApplicationFlowRange>("all");
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlow | null>(null);
   // Captured once so the chart's relative time-range windows stay stable across
   // re-renders (only recomputed when the range or dataset changes).
-  const [nowMs] = useState(() => Date.now());
+  const nowMs = referenceNow;
 
   // Restore the persisted page only after mount. Reading sessionStorage during
   // the initial render would diverge from the server (which always renders page
@@ -91,19 +115,45 @@ export function ApplicationsPageClient({
   }, [pageStorageKey]);
 
   const flowData = useMemo(
-    () => buildApplicationFlowData(flowApplications, { range: flowRange, now: nowMs }),
-    [flowApplications, flowRange, nowMs]
+    () =>
+      buildApplicationFlowData(flowApplications, {
+        range: flowRange,
+        now: nowMs,
+      }),
+    [flowApplications, flowRange, nowMs],
   );
 
   // Final visible list = server-filtered applications ∩ selected flow ids.
-  const displayedApplications = useMemo(() => {
+  const flowFilteredApplications = useMemo(() => {
     if (!selectedFlow) return applications;
     const ids = new Set(selectedFlow.applicationIds);
     return applications.filter((application) => ids.has(application.id));
   }, [applications, selectedFlow]);
+  const viewCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        APPLICATION_VIEWS.map(({ id }) => [
+          id,
+          flowFilteredApplications.filter((application) =>
+            matchesApplicationView(application, id, nowMs, referenceDay),
+          ).length,
+        ]),
+      ),
+    [flowFilteredApplications, nowMs, referenceDay],
+  );
+  const displayedApplications = useMemo(
+    () =>
+      flowFilteredApplications.filter((application) =>
+        matchesApplicationView(application, view, nowMs, referenceDay),
+      ),
+    [flowFilteredApplications, view, nowMs, referenceDay],
+  );
 
   const totalMatchingApplications = displayedApplications.length;
-  const pageCount = Math.max(1, Math.ceil(totalMatchingApplications / APPLICATIONS_PAGE_SIZE));
+  const pageCount = Math.max(
+    1,
+    Math.ceil(totalMatchingApplications / APPLICATIONS_PAGE_SIZE),
+  );
   const safeCurrentPage = Math.min(currentPage, pageCount);
   const paginatedApplications = useMemo(() => {
     const start = (safeCurrentPage - 1) * APPLICATIONS_PAGE_SIZE;
@@ -111,7 +161,11 @@ export function ApplicationsPageClient({
   }, [displayedApplications, safeCurrentPage]);
 
   useEffect(() => {
-    sessionStorage.setItem(pageStorageKey, String(safeCurrentPage));
+    try {
+      sessionStorage.setItem(pageStorageKey, String(safeCurrentPage));
+    } catch {
+      /* Optional navigation memory. */
+    }
   }, [pageStorageKey, safeCurrentPage]);
 
   function handleFlowRangeChange(range: ApplicationFlowRange) {
@@ -132,11 +186,19 @@ export function ApplicationsPageClient({
       if (selection.type === "node") {
         const node = flowData.nodes.find((item) => item.id === selection.id);
         if (!node) return previous;
-        return { selection, label: node.label, applicationIds: node.applicationIds };
+        return {
+          selection,
+          label: node.label,
+          applicationIds: node.applicationIds,
+        };
       }
       const link = flowData.links.find((item) => item.id === selection.id);
       if (!link) return previous;
-      return { selection, label: link.pathLabel, applicationIds: link.applicationIds };
+      return {
+        selection,
+        label: link.pathLabel,
+        applicationIds: link.applicationIds,
+      };
     });
     setCurrentPage(1);
   }
@@ -148,21 +210,35 @@ export function ApplicationsPageClient({
 
   return (
     <>
-      <ApplicationsOverviewBar />
-
-      <ApplicationRemindersSummary groups={reminderGroups} />
-
-      <section className="surface-panel p-3.5 sm:p-6">
+      <section className="min-w-0">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-foreground">Your applications</h2>
-            <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-              Jobs submitted from the feed appear here automatically.
-            </p>
+            <h2 className="text-base font-semibold text-foreground">
+              Your applications
+            </h2>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
             <CountStat count={totalMatchingApplications} label="shown" />
             <CountStat count={totalApplicationCount} label="total" />
+            <ApplicationsOverviewBar />
+            {reminderGroups.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-expanded={showReminders}
+                aria-controls="tracker-reminders"
+                onClick={() => setShowReminders((value) => !value)}
+              >
+                Reminders{" "}
+                <span className="tabular-nums">
+                  {reminderGroups.reduce(
+                    (sum, group) => sum + group.reminders.length,
+                    0,
+                  )}
+                </span>
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -172,11 +248,22 @@ export function ApplicationsPageClient({
               onClick={() => setShowFlow((value) => !value)}
               className="h-8 rounded-full px-2.5 text-xs"
             >
-              <ChevronDown className={cn("size-4 transition-transform", showFlow && "rotate-180")} />
+              <ChevronDown
+                className={cn(
+                  "size-4 transition-transform",
+                  showFlow && "rotate-180",
+                )}
+              />
               <span>{showFlow ? "Hide flow" : "View flow"}</span>
             </Button>
           </div>
         </div>
+
+        {showReminders ? (
+          <div id="tracker-reminders" className="mt-4">
+            <ApplicationRemindersSummary groups={reminderGroups} />
+          </div>
+        ) : null}
 
         {showFlow ? (
           <ApplicationFlowSection
@@ -192,8 +279,12 @@ export function ApplicationsPageClient({
         {selectedFlow ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary/10 py-1 pl-3 pr-1.5 text-xs text-foreground">
-              <span className="shrink-0 text-muted-foreground">Filtered by:</span>
-              <span className="min-w-0 truncate font-medium">{selectedFlow.label}</span>
+              <span className="shrink-0 text-muted-foreground">
+                Filtered by:
+              </span>
+              <span className="min-w-0 truncate font-medium">
+                {selectedFlow.label}
+              </span>
               <button
                 type="button"
                 onClick={clearFlowFilter}
@@ -216,7 +307,9 @@ export function ApplicationsPageClient({
           />
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label sr-only sm:not-sr-only sm:block">Status</span>
+            <span className="control-label sr-only sm:not-sr-only sm:block">
+              Status
+            </span>
             <div className="relative min-w-0">
               <select
                 name="status"
@@ -239,7 +332,9 @@ export function ApplicationsPageClient({
           </label>
 
           <label className="grid gap-1.5 text-sm">
-            <span className="control-label sr-only sm:not-sr-only sm:block">Sort</span>
+            <span className="control-label sr-only sm:not-sr-only sm:block">
+              Sort
+            </span>
             <div className="relative min-w-0">
               <select
                 name="sort"
@@ -259,7 +354,11 @@ export function ApplicationsPageClient({
 
           <div className="grid grid-cols-2 items-end gap-2 sm:col-span-2 lg:col-span-1 lg:flex lg:justify-end lg:gap-3 lg:pl-1">
             {filters.selectedTags.length > 0 ? (
-              <input type="hidden" name="tags" value={filters.selectedTags.join(",")} />
+              <input
+                type="hidden"
+                name="tags"
+                value={filters.selectedTags.join(",")}
+              />
             ) : null}
             <Button
               className={`h-10 min-w-0 px-4 lg:min-w-24 ${
@@ -317,15 +416,63 @@ export function ApplicationsPageClient({
           </div>
         ) : null}
 
-        <div className="mt-4">
+        <div
+          role="group"
+          aria-label="Application views"
+          className="mt-5 flex flex-wrap gap-x-5 gap-y-1 border-b border-border/70"
+        >
+          {APPLICATION_VIEWS.map(({ id, label, hint }) => (
+            <button
+              key={id}
+              type="button"
+              title={hint}
+              aria-pressed={view === id}
+              className={cn(
+                "inline-flex min-h-11 items-center gap-2 border-b-2 px-0.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                view === id
+                  ? "border-primary font-semibold text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => {
+                setView(id);
+                setCurrentPage(1);
+              }}
+            >
+              {label}
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {viewCounts[id]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-4" aria-live="polite" aria-atomic="false">
           {paginatedApplications.length === 0 ? (
             <div className="empty-state">
               <p className="text-sm font-medium text-foreground">
                 No applications in this view
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add a manual entry or use the jobs feed to start building your tracker.
+                {totalApplicationCount === 0
+                  ? "Save a job or add an application to get started."
+                  : "No applications match this view and your current filters."}
               </p>
+              {totalApplicationCount > 0 ? (
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  render={<Link href="/applications?reset=1" />}
+                  onClick={() => {
+                    setView("all");
+                    setSelectedFlow(null);
+                  }}
+                >
+                  Show all applications
+                </Button>
+              ) : (
+                <Button className="mt-3" render={<Link href="/jobs" />}>
+                  Browse jobs
+                </Button>
+              )}
             </div>
           ) : (
             <ul className="object-list mt-4">
@@ -335,7 +482,11 @@ export function ApplicationsPageClient({
                   className="object-row"
                   id={`application-${application.id}`}
                 >
-                  <ApplicationListCard application={application} />
+                  <ApplicationListCard
+                    application={application}
+                    referenceNow={nowMs}
+                    referenceDay={referenceDay}
+                  />
                 </li>
               ))}
             </ul>
@@ -356,17 +507,15 @@ export function ApplicationsPageClient({
 
 function readStoredPage(storageKey: string) {
   if (typeof window === "undefined") return 1;
-  const page = Number(sessionStorage.getItem(storageKey));
-  return Number.isInteger(page) && page > 0 ? page : 1;
+  try {
+    const page = Number(sessionStorage.getItem(storageKey));
+    return Number.isInteger(page) && page > 0 ? page : 1;
+  } catch {
+    return 1;
+  }
 }
 
-function CountStat({
-  count,
-  label,
-}: {
-  count: number;
-  label: string;
-}) {
+function CountStat({ count, label }: { count: number; label: string }) {
   return (
     <p className="inline-flex min-w-0 items-baseline gap-1 rounded-full bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground sm:bg-transparent sm:px-0">
       <span className="text-sm font-semibold leading-none text-foreground">
@@ -406,15 +555,29 @@ function PaginationControls({
     >
       <div className="min-w-0">
         <p className="text-sm text-muted-foreground">
-          Page <span className="font-medium text-foreground">{currentPage.toLocaleString()}</span> of{" "}
-          <span className="font-medium text-foreground">{pageCount.toLocaleString()}</span>
+          Page{" "}
+          <span className="font-medium text-foreground">
+            {currentPage.toLocaleString()}
+          </span>{" "}
+          of{" "}
+          <span className="font-medium text-foreground">
+            {pageCount.toLocaleString()}
+          </span>
         </p>
-        <form className="mt-2 flex items-center gap-2" onSubmit={submitPageJump}>
-          <label className="text-sm text-muted-foreground" htmlFor="applications-page-jump">
+        <form
+          className="mt-2 flex items-center gap-2"
+          onSubmit={submitPageJump}
+        >
+          <label
+            className="text-sm text-muted-foreground"
+            htmlFor="applications-page-jump"
+          >
             Go to
           </label>
           <input
-            aria-describedby={pageError ? "applications-page-jump-error" : undefined}
+            aria-describedby={
+              pageError ? "applications-page-jump-error" : undefined
+            }
             aria-invalid={pageError ? true : undefined}
             className="h-9 w-20 rounded-[12px] border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 aria-invalid:border-destructive/60 aria-invalid:ring-2 aria-invalid:ring-destructive/15"
             id="applications-page-jump"
@@ -435,7 +598,10 @@ function PaginationControls({
           </button>
         </form>
         {pageError ? (
-          <p className="mt-1.5 text-xs text-destructive" id="applications-page-jump-error">
+          <p
+            className="mt-1.5 text-xs text-destructive"
+            id="applications-page-jump-error"
+          >
             {pageError}
           </p>
         ) : null}

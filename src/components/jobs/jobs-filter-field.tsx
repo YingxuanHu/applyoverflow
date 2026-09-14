@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { splitFilterValues } from "@/lib/filter-values";
@@ -19,6 +19,7 @@ type JobsFilterDropdownFieldProps = {
   options: FilterOption[];
   selected?: string;
   title: string;
+  single?: boolean;
 };
 
 export function JobsFilterDropdownField({
@@ -29,9 +30,11 @@ export function JobsFilterDropdownField({
   options,
   selected,
   title,
+  single = false,
 }: JobsFilterDropdownFieldProps) {
   const initialValues = useMemo(() => splitFilterValues(selected), [selected]);
   const [selectedValues, setSelectedValues] = useState(initialValues);
+  const [optionSearch, setOptionSearch] = useState("");
 
   useEffect(() => {
     setSelectedValues(initialValues);
@@ -46,6 +49,7 @@ export function JobsFilterDropdownField({
     if (optionValues.length === 0) return;
 
     setSelectedValues((current) => {
+      if (single) return optionValues;
       const next = new Set(current);
       const checked = optionValues.every((value) => next.has(value));
       for (const value of optionValues) {
@@ -61,7 +65,7 @@ export function JobsFilterDropdownField({
       <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">{title}</p>
-          <p className="mt-0.5 truncate text-xs text-foreground">{summary}</p>
+          <p className="mt-0.5 break-words text-xs text-foreground">{summary}</p>
         </div>
         <div className="flex items-center gap-2">
           {selectedLabels.length > 0 ? (
@@ -74,6 +78,12 @@ export function JobsFilterDropdownField({
       </summary>
 
       <div className="border-t border-border/60 px-2 py-2">
+        {options.length > 10 ? (
+          <Input aria-label={`Find ${title.toLowerCase()} options`} className="mb-2 h-8 text-xs" value={optionSearch} onChange={(event) => setOptionSearch(event.target.value)} />
+        ) : null}
+        {optionSearch && !options.some((option) => option.label.toLowerCase().includes(optionSearch.trim().toLowerCase())) ? (
+          <p className="px-2 py-3 text-xs text-muted-foreground" role="status">No matching options</p>
+        ) : null}
         {selectedLabels.length > 0 ? (
           <div className="mb-2 flex justify-end">
             <button
@@ -93,7 +103,7 @@ export function JobsFilterDropdownField({
 
             return (
               <label
-                className="flex min-h-8 cursor-pointer items-center gap-2 rounded-[10px] px-2 py-1.5 text-xs text-foreground transition hover:bg-card"
+                className={`${option.label.toLowerCase().includes(optionSearch.trim().toLowerCase()) ? "flex" : "hidden"} min-h-8 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-card`}
                 key={option.label}
               >
                 <input
@@ -101,10 +111,10 @@ export function JobsFilterDropdownField({
                   className="size-3.5 shrink-0 rounded border-border/70 bg-card"
                   name={name}
                   onChange={() => toggleOption(option.value)}
-                  type="checkbox"
+                  type={single ? "radio" : "checkbox"}
                   value={option.value}
                 />
-                <span className="min-w-0 truncate">{option.label}</span>
+                <span className="min-w-0 break-words">{option.label}</span>
               </label>
             );
           })}
@@ -125,13 +135,14 @@ export function JobsTextFilterField({
   placeholder: string;
   title: string;
 }) {
+  const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasValue, setHasValue] = useState(Boolean(defaultValue?.trim()));
 
   return (
     <div className="rounded-[12px] border border-border/60 bg-card p-3 sm:col-span-2">
       <div className="flex items-center justify-between gap-3">
-        <FilterFieldLabel>{title}</FilterFieldLabel>
+        <label htmlFor={id} className="mb-1 block text-[10px] font-medium uppercase text-muted-foreground">{title}</label>
         {hasValue ? (
           <button
             className="mb-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
@@ -148,6 +159,8 @@ export function JobsTextFilterField({
       <Input
         className="h-9 rounded-[10px] px-2.5 text-xs"
         defaultValue={defaultValue ?? ""}
+        id={id}
+        maxLength={1000}
         name={hasValue ? name : undefined}
         onChange={(event) => setHasValue(Boolean(event.target.value.trim()))}
         placeholder={placeholder}
@@ -172,14 +185,6 @@ function collectSelectedLabels(current: string[], options: FilterOption[]) {
   }
 
   return labels.concat([...remaining]);
-}
-
-function FilterFieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <label className="mb-1 block text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground">
-      {children}
-    </label>
-  );
 }
 
 function getFilterSummaryText(selectedLabels: string[], emptyLabel: string) {

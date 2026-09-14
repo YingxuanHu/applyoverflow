@@ -16,3 +16,9 @@ export function needsDescriptionRepair(job: DescriptionRepairInput) {
   return Boolean(job.sourceMappings?.some((source) => source.sourceName?.startsWith("Lever:"))) &&
     !/(?:^|\n)\s*#{1,3}\s+/.test(job.description);
 }
+
+export function resolveFeedDescription(job: DescriptionRepairInput, fetched?: string | null): string | null {
+  if (job.description && !needsDescriptionRepair(job)) return job.description;
+  // A short feed preview must never replace the full text already fetched.
+  return fetched ?? (job.description || null);
+}

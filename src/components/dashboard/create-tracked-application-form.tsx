@@ -17,7 +17,7 @@ function SubmitButton({ pending }: { pending: boolean }) {
   );
 }
 
-export function CreateTrackedApplicationForm() {
+export function CreateTrackedApplicationForm({ onCreated }: { onCreated?: () => void } = {}) {
   const router = useRouter();
   const { notify } = useNotifications();
   const [pending, setPending] = useState(false);
@@ -63,6 +63,7 @@ export function CreateTrackedApplicationForm() {
         tone: "success",
       });
       router.refresh();
+      onCreated?.();
     } catch (submitError) {
       const message =
         submitError instanceof Error ? submitError.message : "Could not add application.";
@@ -84,14 +85,14 @@ export function CreateTrackedApplicationForm() {
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Company
           </span>
-          <Input name="company" required />
+          <Input name="company" required maxLength={200} />
         </label>
 
         <label className="grid gap-1.5 text-sm">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Role
           </span>
-          <Input name="roleTitle" required />
+          <Input name="roleTitle" required maxLength={300} />
         </label>
       </div>
 
@@ -100,7 +101,7 @@ export function CreateTrackedApplicationForm() {
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Posting URL
           </span>
-          <Input name="roleUrl" type="url" placeholder="https://..." />
+          <Input name="roleUrl" type="url" placeholder="https://..." maxLength={2000} />
         </label>
 
         <label className="grid gap-1.5 text-sm">
@@ -142,6 +143,7 @@ export function CreateTrackedApplicationForm() {
           </span>
           <Textarea
             name="reminder"
+            maxLength={1000}
             rows={1}
             className="h-9 min-h-9 resize-y py-2"
             placeholder="Follow up, prepare portfolio, email recruiter..."

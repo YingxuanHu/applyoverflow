@@ -52,6 +52,7 @@ import {
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { LocalDateTime } from "@/components/ui/local-date-time";
 import { Textarea } from "@/components/ui/textarea";
 import { useNotifications } from "@/components/ui/notification-provider";
 import type { DocumentType, TrackedApplicationEventType, TrackedApplicationStatus } from "@/generated/prisma/client";
@@ -241,19 +242,10 @@ function renderDescriptionSummary(text: string) {
 function formatDate(date: Date | null) {
   if (!date) return "Not set";
   return new Date(date).toLocaleDateString("en-US", {
+    timeZone: "UTC",
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
-}
-
-function formatDateTime(date: Date) {
-  return new Date(date).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
 }
 
@@ -367,20 +359,27 @@ function ApplicationHeaderEditor({
   editing: boolean;
   onClose: () => void;
 }) {
-  const [state, formAction] = useActionState(updateApplicationHeader, INITIAL_ACTION_STATE);
+  const [company, setCompany] = useState(application.company);
+  const [roleTitle, setRoleTitle] = useState(application.roleTitle);
+  const [roleUrl, setRoleUrl] = useState(application.roleUrl ?? "");
+  const [state, formAction, headerPending] = useActionState(async (previous: ActionState, data: FormData) => {
+    const result = await updateApplicationHeader(previous, data);
+    if (result.success) onClose();
+    return result;
+  }, INITIAL_ACTION_STATE);
   useActionNotifications(state);
 
   function handleCancel() {
+    setCompany(application.company);
+    setRoleTitle(application.roleTitle);
+    setRoleUrl(application.roleUrl ?? "");
     onClose();
   }
 
   if (editing) {
     return (
       <form
-        action={async (formData) => {
-          await formAction(formData);
-          onClose();
-        }}
+        action={formAction}
         className="space-y-3"
       >
         <input name="applicationId" type="hidden" value={application.id} />
@@ -391,7 +390,10 @@ function ApplicationHeaderEditor({
           <Input
             autoFocus
             className="h-10 text-base font-semibold"
-            defaultValue={application.company}
+            value={company}
+            disabled={headerPending}
+            onChange={(event) => setCompany(event.target.value)}
+            aria-label="Company"
             name="company"
             placeholder="Company name"
           />
@@ -402,7 +404,10 @@ function ApplicationHeaderEditor({
           </label>
           <Input
             className="h-10"
-            defaultValue={application.roleTitle}
+            value={roleTitle}
+            disabled={headerPending}
+            onChange={(event) => setRoleTitle(event.target.value)}
+            aria-label="Job title"
             name="roleTitle"
             placeholder="Job title"
           />
@@ -413,17 +418,22 @@ function ApplicationHeaderEditor({
           </label>
           <Input
             className="h-10"
-            defaultValue={application.roleUrl ?? ""}
+            value={roleUrl}
+            disabled={headerPending}
+            onChange={(event) => setRoleUrl(event.target.value)}
+            aria-label="Job link"
             name="roleUrl"
             placeholder="https://..."
             type="url"
           />
         </div>
+        {state.error ? <p role="alert" className="text-xs text-destructive">{state.error}</p> : null}
         <div className="flex gap-2 pt-1">
           <SubmitBtn label="Save" saving="Saving..." />
           <Button
             className="h-9 px-3 text-xs"
             onClick={handleCancel}
+            disabled={headerPending}
             size="sm"
             type="button"
             variant="secondary"
@@ -501,8 +511,12 @@ function AttachDocumentControl({
   const [showUpload, setShowUpload] = useState(false);
   const [linkState, linkAction] = useActionState(linkDocument, INITIAL_ACTION_STATE);
   const [unlinkState, unlinkAction] = useActionState(unlinkDocument, INITIAL_ACTION_STATE);
-  const [uploadState, uploadAction] = useActionState(
-    uploadWorkspaceDocument,
+  const [uploadState, uploadAction, uploadPending] = useActionState(
+    async (previous: ActionState, data: FormData) => {
+      const result = await uploadWorkspaceDocument(previous, data);
+      if (result.success) setShowUpload(false);
+      return result;
+    },
     INITIAL_ACTION_STATE
   );
   useActionNotifications(linkState);
@@ -600,10 +614,7 @@ function AttachDocumentControl({
 
       {showUpload ? (
         <form
-          action={async (formData) => {
-            await uploadAction(formData);
-            setShowUpload(false);
-          }}
+          action={uploadAction}
           className="grid gap-2 rounded-[14px] border border-border/70 bg-card p-3"
         >
           <input name="applicationId" type="hidden" value={applicationId} />
@@ -617,6 +628,7 @@ function AttachDocumentControl({
             </label>
             <Input
               id={`attach-title-${slot}`}
+              disabled={uploadPending}
               name="title"
               placeholder={`e.g. ${
                 documentType === "RESUME" ? "Resume v2" : "Cover letter – Google"
@@ -635,6 +647,7 @@ function AttachDocumentControl({
               accept={accept}
               className="hover:border-border"
               id={`attach-file-${slot}`}
+              disabled={uploadPending}
               name="file"
               required
             />
@@ -649,6 +662,7 @@ function AttachDocumentControl({
             <Button
               className="h-8 px-3 text-xs"
               onClick={() => setShowUpload(false)}
+              disabled={uploadPending}
               size="sm"
               type="button"
               variant="secondary"
@@ -863,15 +877,21 @@ function JobDescriptionField({
   const [showPaste, setShowPaste] = useState(false);
   const [pasteContent, setPasteContent] = useState("");
   const [draft, setDraft] = useState(value);
-  const [importing, setImporting] = useState(false);
-
   const [editState, setEditState] = useState<ActionState>(INITIAL_ACTION_STATE);
-  const [importState, importAction] = useActionState(importJobDescription, INITIAL_ACTION_STATE);
+  const [importState, importAction, importing] = useActionState(async (previous: ActionState, data: FormData) => {
+    const result = await importJobDescription(previous, data);
+    if (result.success) {
+      setShowPaste(false);
+      setPasteContent("");
+    } else if (result.fetchFailed) {
+      setShowPaste(true);
+    }
+    return result;
+  }, INITIAL_ACTION_STATE);
   useActionNotifications(editState);
   useActionNotifications(importState);
 
-  const importActionState = importState as ActionState & { fetchFailed?: boolean };
-  const needsPaste = showPaste || importActionState.fetchFailed;
+  const needsPaste = showPaste;
   const compactReadOnlyPreview = Boolean(value) && !editing && !needsPaste && !importing;
 
   function handleCancel() {
@@ -894,14 +914,10 @@ function JobDescriptionField({
   }
 
   function handleImportFromLink() {
-    setImporting(true);
     const formData = new FormData();
     formData.set("applicationId", applicationId);
     formData.set("content", "");
-    startTransition(async () => {
-      await importAction(formData);
-      setImporting(false);
-    });
+    startTransition(() => importAction(formData));
   }
 
   return (
@@ -919,6 +935,7 @@ function JobDescriptionField({
             <button
               className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handleImportFromLink}
+              disabled={importing}
               type="button"
             >
               {value ? "Re-import from link" : "Import from link"}
@@ -928,6 +945,7 @@ function JobDescriptionField({
             <button
               className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
               onClick={handlePasteClick}
+              disabled={importing}
               type="button"
             >
               Paste posting
@@ -936,6 +954,7 @@ function JobDescriptionField({
           {!editing && !showPaste ? (
             <button
               className="min-w-0 truncate rounded-full px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              disabled={importing}
               onClick={() => {
                 setDraft(value);
                 setEditing(true);
@@ -949,20 +968,14 @@ function JobDescriptionField({
       </div>
 
       {importState.error ? (
-        <p className="mt-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <p role="alert" className="mt-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {importState.error}
         </p>
       ) : null}
 
       {needsPaste && !editing ? (
         <form
-          action={async (formData) => {
-            setImporting(true);
-            await importAction(formData);
-            setImporting(false);
-            setShowPaste(false);
-            setPasteContent("");
-          }}
+          action={importAction}
           className="mt-3 grid gap-2"
         >
           <input name="applicationId" type="hidden" value={applicationId} />
@@ -972,6 +985,7 @@ function JobDescriptionField({
           <Textarea
             className="min-h-[120px] resize-y text-sm"
             name="content"
+            disabled={importing}
             onChange={(event) => setPasteContent(event.target.value)}
             placeholder="Paste the full job posting text here..."
             rows={6}
@@ -982,17 +996,8 @@ function JobDescriptionField({
             {hasRoleUrl && !pasteContent ? (
               <Button
                 className="h-8 px-3 text-xs"
-                onClick={() => {
-                  setImporting(true);
-                  const formData = new FormData();
-                  formData.set("applicationId", applicationId);
-                  formData.set("content", "");
-                  startTransition(async () => {
-                    await importAction(formData);
-                    setImporting(false);
-                  });
-                  setShowPaste(false);
-                }}
+                onClick={handleImportFromLink}
+                disabled={importing}
                 size="sm"
                 type="button"
                 variant="secondary"
@@ -1006,6 +1011,7 @@ function JobDescriptionField({
                 setShowPaste(false);
                 setPasteContent("");
               }}
+              disabled={importing}
               size="sm"
               type="button"
               variant="secondary"
@@ -1103,7 +1109,11 @@ function ReminderRow({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(reminder.note ?? "");
   const [timeDraft, setTimeDraft] = useState(toDateTimeLocalInputValue(reminder.reminderAt));
-  const [updateState, updateAction] = useActionState(updateTimelineEvent, INITIAL_ACTION_STATE);
+  const [updateState, updateAction, reminderPending] = useActionState(async (previous: ActionState, data: FormData) => {
+    const result = await updateTimelineEvent(previous, data);
+    if (result.success) setEditing(false);
+    return result;
+  }, INITIAL_ACTION_STATE);
   const [deleteState, deleteAction] = useActionState(deleteTimelineEvent, INITIAL_ACTION_STATE);
   const browserTimeZone = useBrowserTimeZone();
   useActionNotifications(updateState);
@@ -1126,10 +1136,7 @@ function ReminderRow({
   if (editing) {
     return (
       <form
-        action={async (formData) => {
-          await updateAction(formData);
-          setEditing(false);
-        }}
+        action={updateAction}
         className="rounded-[14px] border border-border/70 bg-card p-3"
       >
         <input name="applicationId" type="hidden" value={applicationId} />
@@ -1141,6 +1148,7 @@ function ReminderRow({
             className="min-h-[78px] resize-y text-sm"
             name="note"
             onChange={(event) => setNoteDraft(event.target.value)}
+            disabled={reminderPending}
             placeholder="Reminder"
             required
             rows={3}
@@ -1152,15 +1160,18 @@ function ReminderRow({
               className="h-9 text-sm"
               name="reminderAt"
               onChange={(event) => setTimeDraft(event.target.value)}
+              disabled={reminderPending}
               type="datetime-local"
               value={timeDraft}
             />
           </label>
           <div className="flex flex-wrap gap-2">
+            {updateState.error ? <p role="alert" className="w-full text-xs text-destructive">{updateState.error}</p> : null}
             <SubmitBtn label="Save reminder" saving="Saving..." />
             <Button
               className="h-8 px-3 text-xs"
               onClick={cancelEdit}
+              disabled={reminderPending}
               size="sm"
               type="button"
               variant="secondary"
@@ -1198,7 +1209,7 @@ function ReminderRow({
           </p>
           <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <CalendarClock className="h-3.5 w-3.5" />
-            {reminder.reminderAt ? formatDateTime(reminder.reminderAt) : "No notification time"}
+            {reminder.reminderAt ? <LocalDateTime value={reminder.reminderAt} /> : "No notification time"}
             {reminder.reminderNotifiedAt ? " · sent" : ""}
           </p>
         </div>
@@ -1249,7 +1260,15 @@ function RemindersSection({
   const [adding, setAdding] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [timeDraft, setTimeDraft] = useState("");
-  const [state, formAction] = useActionState(addTimelineEvent, INITIAL_ACTION_STATE);
+  const [state, formAction, reminderPending] = useActionState(async (previous: ActionState, data: FormData) => {
+    const result = await addTimelineEvent(previous, data);
+    if (result.success) {
+      setAdding(false);
+      setNoteDraft("");
+      setTimeDraft("");
+    }
+    return result;
+  }, INITIAL_ACTION_STATE);
   const browserTimeZone = useBrowserTimeZone();
   useActionNotifications(state);
   const sortedReminders = [...reminders].sort(compareReminderEvents);
@@ -1276,12 +1295,7 @@ function RemindersSection({
 
       {adding ? (
         <form
-          action={async (formData) => {
-            await formAction(formData);
-            setAdding(false);
-            setNoteDraft("");
-            setTimeDraft("");
-          }}
+          action={formAction}
           className="mt-3 grid gap-2 rounded-[14px] border border-border/70 bg-card p-3"
         >
           <input name="applicationId" type="hidden" value={applicationId} />
@@ -1291,6 +1305,7 @@ function RemindersSection({
             className="min-h-[82px] resize-y text-sm"
             name="note"
             onChange={(event) => setNoteDraft(event.target.value)}
+            disabled={reminderPending}
             placeholder="Reminder"
             required
             rows={3}
@@ -1302,11 +1317,13 @@ function RemindersSection({
               className="h-9 text-sm"
               name="reminderAt"
               onChange={(event) => setTimeDraft(event.target.value)}
+              disabled={reminderPending}
               type="datetime-local"
               value={timeDraft}
             />
           </label>
           <div className="flex flex-wrap gap-2">
+            {state.error ? <p role="alert" className="w-full text-xs text-destructive">{state.error}</p> : null}
             <SubmitBtn label="Save reminder" saving="Saving..." />
             <Button
               className="h-8 px-3 text-xs"
@@ -1315,6 +1332,7 @@ function RemindersSection({
                 setNoteDraft("");
                 setTimeDraft("");
               }}
+              disabled={reminderPending}
               size="sm"
               type="button"
               variant="secondary"
@@ -1379,7 +1397,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
             >
               {typeLabel}
             </span>
-            <span className="text-xs text-muted-foreground">{formatDateTime(headlineTimestamp)}</span>
+            <span className="text-xs text-muted-foreground"><LocalDateTime value={headlineTimestamp} /></span>
             {open ? (
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
             ) : (
@@ -1417,7 +1435,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
                     Detail
                   </p>
                   <p className="mt-1 text-sm font-medium text-violet-700 dark:text-violet-300">
-                    Reminder set for {formatDateTime(event.reminderAt)}
+                    Reminder set for <LocalDateTime value={event.reminderAt} />
                   </p>
                 </div>
               ) : null}
@@ -1426,7 +1444,7 @@ function EventRow({ applicationId, event }: { applicationId: string; event: Time
                 <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   {isReminder && event.reminderAt ? "Created at" : "Logged at"}
                 </p>
-                <p className="mt-1 text-sm text-foreground/85">{formatDateTime(event.timestamp)}</p>
+                <p className="mt-1 text-sm text-foreground/85"><LocalDateTime value={event.timestamp} /></p>
               </div>
 
               {note ? (
@@ -1734,7 +1752,7 @@ export function ApplicationWorkspaceClient({
             />
 
             <p className="text-ellipsis-1 text-sm text-muted-foreground">
-              {formatDate(application.deadline)} · Updated {formatDateTime(application.updatedAt)}
+              {formatDate(application.deadline)} · Updated <LocalDateTime value={application.updatedAt} />
             </p>
 
             {tags.length > 0 ? (

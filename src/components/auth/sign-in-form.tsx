@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useSyncExternalStore } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { getSignInErrorFeedback } from "@/lib/auth-sign-in-error";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 import { LOCAL_DEVELOPMENT_ADMIN } from "@/lib/local-development-auth";
 
 type SignInFormProps = {
@@ -24,21 +24,16 @@ type SignInFormProps = {
   localDevelopmentAccount?: boolean;
 };
 
+const subscribeToHydration = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
+
 function getGoogleErrorMessage(error: string | undefined) {
   if (!error) return null;
   if (error === "account_not_linked") {
     return "This Google sign-in is separate from email/password accounts. Sign in with your password account, or use a Google account that was created with Google sign-in.";
   }
   return "Google sign-in could not be completed. Try again or use email and password.";
-}
-
-// Only allow same-origin, absolute-path redirects. Rejects protocol-relative
-// ("//evil.com"), scheme ("https://evil.com"), and backslash-obfuscated targets
-// so a crafted ?callbackUrl cannot turn sign-in into an open redirect.
-function toSafeInternalPath(value: string | undefined, fallback = "/jobs"): string {
-  if (!value || !value.startsWith("/")) return fallback;
-  if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
-  return value;
 }
 
 export function SignInForm({
@@ -51,8 +46,8 @@ export function SignInForm({
   googleEnabled = false,
   localDevelopmentAccount = false,
 }: SignInFormProps) {
-  const router = useRouter();
-  const safeCallbackUrl = toSafeInternalPath(callbackUrl);
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientReady, serverReady);
+  const safeCallbackUrl = getSafeSignInCallback(callbackUrl);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(getGoogleErrorMessage(googleError));
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
@@ -75,7 +70,9 @@ export function SignInForm({
       const result = await authClient.signIn.email({
         email,
         password,
-        callbackURL: "/sign-in?verified=true",
+        // Better Auth owns navigation. Retain verification feedback and the
+        // intended destination without racing it with a second redirect.
+        callbackURL: `/sign-in?verified=true&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`,
       });
 
       if (result.error) {
@@ -85,9 +82,6 @@ export function SignInForm({
         setPending(false);
         return;
       }
-
-      router.push(safeCallbackUrl);
-      router.refresh();
     } catch {
       setError(getSignInErrorFeedback({ status: 0 }).message);
       setPending(false);
@@ -182,7 +176,7 @@ export function SignInForm({
           ) : null}
           <Button
             className="h-11 w-full rounded-full"
-            disabled={pending}
+            disabled={!hydrated || pending}
             type="submit"
           >
             {pending ? (
@@ -194,6 +188,7 @@ export function SignInForm({
               "Sign in"
             )}
           </Button>
+          <noscript><p role="alert" className="text-sm text-destructive">JavaScript is required to sign in securely.</p></noscript>
           <p className="text-center text-sm text-muted-foreground">
             Need an account?{" "}
             <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-up">

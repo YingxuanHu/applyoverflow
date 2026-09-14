@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LoaderCircle, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LocalDateTime } from "@/components/ui/local-date-time";
 import { useNotifications } from "@/components/ui/notification-provider";
 import { authClient } from "@/lib/auth-client";
 
@@ -32,17 +33,6 @@ type AccountSecurityPanelProps = {
   email: string;
   sessions: ActiveSession[];
 };
-
-function formatDate(value: string) {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(value));
-  } catch {
-    return "Unknown";
-  }
-}
 
 function getProviderLabel(providerId: string) {
   if (providerId === "credential") return "Email and password";
@@ -262,7 +252,7 @@ export function AccountSecurityPanel({
                   {getProviderLabel(signInMethod.providerId)}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Created {formatDate(signInMethod.createdAt)}
+                  Created <LocalDateTime value={signInMethod.createdAt} />
                 </p>
               </div>
             ) : null}
@@ -438,7 +428,7 @@ export function AccountSecurityPanel({
                     {getProviderLabel(signInMethod.providerId)}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Created {formatDate(signInMethod.createdAt)}
+                    Created <LocalDateTime value={signInMethod.createdAt} />
                   </p>
                 </div>
                 <span className="rounded-full border border-border/70 px-2 py-1 text-xs text-muted-foreground">
@@ -613,7 +603,7 @@ export function AccountSecurityPanel({
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Active {formatDate(currentSession.updatedAt)}
+                  Active <LocalDateTime value={currentSession.updatedAt} />
                 </p>
               </div>
             </div>
@@ -651,11 +641,11 @@ export function AccountSecurityPanel({
                           {getSessionDeviceLabel(session.userAgent)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Last active {formatDate(session.updatedAt)}
+                          Last active <LocalDateTime value={session.updatedAt} />
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Expires {formatDate(session.expiresAt)}
+                        Expires <LocalDateTime value={session.expiresAt} />
                       </p>
                     </div>
                   ))}
@@ -699,15 +689,15 @@ function SessionMobileRow({
               {current ? "This device" : getLabel(session.userAgent)}
             </p>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {current ? getLabel(session.userAgent) : `Updated ${formatDate(session.updatedAt)}`}
+              {current ? getLabel(session.userAgent) : <>Updated <LocalDateTime value={session.updatedAt} /></>}
             </p>
           </div>
           <span className="shrink-0 text-xs font-medium text-muted-foreground">Details</span>
         </div>
       </summary>
       <div className="mt-2 grid gap-1 border-t border-border/60 pt-2 text-xs leading-5 text-muted-foreground">
-        <p>Updated {formatDate(session.updatedAt)}</p>
-        <p>Expires {formatDate(session.expiresAt)}</p>
+        <p>Updated <LocalDateTime value={session.updatedAt} /></p>
+        <p>Expires <LocalDateTime value={session.expiresAt} /></p>
         <p className="break-all">IP {session.ipAddress || "unknown"}</p>
         <p className="break-all">Browser {session.userAgent || "Unknown browser"}</p>
       </div>

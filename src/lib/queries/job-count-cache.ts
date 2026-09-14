@@ -10,8 +10,12 @@ export function jobCountCacheKey(filters: JobFilterParams, viewerId: string | nu
 }
 
 export function canUseSimpleTextCount(filters: JobFilterParams) {
-  const allowed = new Set(["titleSearch", "companySearch", "page", "sortBy", "searchScope", "salaryCurrency", "debugFilters"]);
-  return Boolean(filters.titleSearch || filters.companySearch) &&
+  const allowed = new Set(["titleSearch", "companySearch", "locationSearch", "location", "page", "sortBy", "searchScope", "salaryCurrency", "debugFilters"]);
+  return Boolean(filters.titleSearch || filters.companySearch || filters.locationSearch || filters.location) &&
     !/[%_\\]/.test(`${filters.titleSearch ?? ""}${filters.companySearch ?? ""}`) &&
-    Object.entries(filters).every(([key, value]) => value === undefined || value === null || allowed.has(key));
+    Object.entries(filters).every(([key, value]) =>
+      value === undefined || value === null || allowed.has(key) ||
+      // The shared URL parser includes these defaults even without a filter.
+      (value === false && (key === "hideApplied" || key === "includeUnknownSalary")),
+    );
 }

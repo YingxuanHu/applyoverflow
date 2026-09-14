@@ -1,5 +1,9 @@
+import { buildScopedTextSearchWhere } from "./jobs";
 import type { Prisma, WorkMode } from "@/generated/prisma/client";
 import { serializeJobCardData } from "@/lib/job-serialization";
+import { buildLocationSearchPredicate } from "@/lib/location-search";
+import { normalizeExperienceLevelGroupFilterValue, CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD, METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD } from "@/lib/job-metadata";
+import { parseTopPicksFilters } from "@/lib/jobs/search-params";
 import { prisma } from "@/lib/db";
 import { normalizeSkills } from "@/lib/profile";
 import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
@@ -85,30 +89,18 @@ function buildTopPickWhere(
   userId: string,
   options: TopPicksQueryOptions = {}
 ) {
+  options = { ...options, ...parseTopPicksFilters(Object.fromEntries(Object.entries(options).filter((entry) => typeof entry[1] === "string")) as Record<string, string>) };
   const jobAnd: Prisma.JobCanonicalWhereInput[] = [
     buildDefaultCanonicalVisibilityWhere(),
   ];
 
-  if (options.titleSearch) {
-    jobAnd.push({ title: { contains: options.titleSearch, mode: "insensitive" } });
-  }
-  if (options.companySearch) {
-    jobAnd.push({ company: { contains: options.companySearch, mode: "insensitive" } });
+  for (const [field, query] of [["title", options.titleSearch], ["company", options.companySearch]] as const) {
+    const condition = buildScopedTextSearchWhere(field, query ?? undefined);
+    if (condition) jobAnd.push(condition);
   }
   const locationValue = options.locationSearch ?? options.location;
-  if (locationValue) {
-    const locationTerms = locationValue
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    if (locationTerms.length > 0) {
-      jobAnd.push({
-        OR: locationTerms.map((location) => ({
-          location: { contains: location, mode: "insensitive" as const },
-        })),
-      });
-    }
-  }
+  const locationWhere = buildLocationSearchPredicate(locationValue);
+  if (locationWhere) jobAnd.push(locationWhere);
   const jobWhere: Prisma.JobCanonicalWhereInput = { AND: jobAnd };
 
   if (options.workMode) {
@@ -118,15 +110,17 @@ function buildTopPickWhere(
       .filter(Boolean);
     if (workModes.length > 0) {
       jobWhere.workMode = { in: workModes as WorkMode[] };
+      jobWhere.workModeConfidence = { gte: METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD };
     }
   }
   if (options.experienceLevel) {
-    const groups = options.experienceLevel
+    const groups = (normalizeExperienceLevelGroupFilterValue(options.experienceLevel) ?? "")
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
     if (groups.length > 0) {
       jobWhere.experienceLevelGroup = { in: groups };
+      jobWhere.normalizedCareerStageConfidence = { gte: CAREER_STAGE_FILTER_CONFIDENCE_THRESHOLD };
     }
   }
 

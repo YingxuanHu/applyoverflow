@@ -27,8 +27,8 @@ test("a known small total never renders the fabricated '50+'", () => {
   assert.doesNotMatch(result.label, /\+/);
 });
 
-test("an unknown scoped total falls back to the public live-pool count, never copy", () => {
+test("an unknown scoped total never substitutes the public live-pool count", () => {
   const result = formatJobResultCount({ ...base, total: null });
-  assert.equal(result.label, "404,689");
+  assert.equal(result.label, "Matching jobs");
   assert.equal(result.isExact, false);
 });

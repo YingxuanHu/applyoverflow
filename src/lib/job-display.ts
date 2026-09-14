@@ -116,19 +116,21 @@ export function formatSalary(
   const factors: Record<string, number> = { hour: 2080, day: 260, week: 52, month: 12, year: 1 };
   const period = salaryPeriod && Object.hasOwn(factors, salaryPeriod) ? salaryPeriod : "year";
   const factor = factors[period];
+  const knownCurrency = salaryCurrency && /^[A-Z]{3}$/.test(salaryCurrency) ? salaryCurrency : null;
   const formatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: salaryCurrency ?? "USD",
+    style: knownCurrency ? "currency" : "decimal",
+    currency: knownCurrency ?? undefined,
     currencyDisplay: "code",
     maximumFractionDigits: period === "year" ? 0 : 2,
   });
 
+  const currencyNote = knownCurrency ? "" : " (currency not listed)";
   if (salaryMin && salaryMax) {
-    return `${formatter.format(salaryMin / factor)} - ${formatter.format(salaryMax / factor)}/${period}`;
+    return `${formatter.format(salaryMin / factor)} - ${formatter.format(salaryMax / factor)}/${period}${currencyNote}`;
   }
 
-  if (salaryMin) return `${formatter.format(salaryMin / factor)}+/${period}`;
-  return `Up to ${formatter.format((salaryMax ?? 0) / factor)}/${period}`;
+  if (salaryMin) return `${formatter.format(salaryMin / factor)}+/${period}${currencyNote}`;
+  return `Up to ${formatter.format((salaryMax ?? 0) / factor)}/${period}${currencyNote}`;
 }
 
 function toDateValue(value: string | Date) {

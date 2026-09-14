@@ -1,15 +1,12 @@
 import { type NextRequest } from "next/server";
-import { getJobs, normalizeJobSortBy, type JobFilterParams } from "@/lib/queries/jobs";
+import { getJobs } from "@/lib/queries/jobs";
 import {
   handleApiRouteError,
   paginatedResponse,
-  parseBoundedIntParam,
-  parseIntParam,
   rateLimitResponse,
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
-import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
-import { parseDiscoveredSince } from "@/lib/jobs/saved-searches";
+import { parseJobFilters } from "@/lib/jobs/search-params";
 import {
   normalizeUserTimeZone,
   USER_TIME_ZONE_COOKIE,
@@ -26,41 +23,7 @@ export async function GET(request: NextRequest) {
     if (rateLimited) return rateLimited;
 
     const sp = request.nextUrl.searchParams;
-    const searchScope = sp.get("searchScope");
-    const filters: JobFilterParams = {
-      discoveredSince: parseDiscoveredSince(sp.get("discoveredSince")),
-      search: sp.get("search") ?? undefined,
-      searchScope:
-        searchScope === "title" ||
-        searchScope === "company" ||
-        searchScope === "location" ||
-        searchScope === "all"
-          ? searchScope
-          : undefined,
-      titleSearch: sp.get("titleSearch") ?? undefined,
-      companySearch: sp.get("companySearch") ?? undefined,
-      locationSearch: sp.get("locationSearch") ?? undefined,
-      location: sp.get("location") ?? undefined,
-      source: sp.get("source") ?? undefined,
-      region: sp.get("region") ?? undefined,
-      workMode: sp.get("workMode") ?? undefined,
-      employmentType: sp.get("employmentType") ?? undefined,
-      industry: sp.get("industry") ?? undefined,
-      roleCategory: sp.get("jobFunction") ?? sp.get("function") ?? sp.get("roleCategory") ?? undefined,
-      roleFamily: sp.get("roleFamily") ?? undefined,
-      salaryMin: parseIntParam(sp.get("salaryMin"), 0) || undefined,
-      salaryMax: parseIntParam(sp.get("salaryMax"), 0) || undefined,
-      salaryCurrency: normalizeSalaryCurrency(sp.get("salaryCurrency")) ?? undefined,
-      careerStage: sp.get("careerStage") ?? undefined,
-      experienceLevel: sp.get("experienceLevel") ?? undefined,
-      expiry: sp.get("expiry") ?? undefined,
-      posted: sp.get("posted") ?? sp.get("datePosted") ?? undefined,
-      hideApplied: ["1", "true", "on"].includes(sp.get("hideApplied") ?? ""),
-      submissionCategory: sp.get("submissionCategory") ?? undefined,
-      status: sp.get("status") ?? undefined,
-      sortBy: normalizeJobSortBy(sp.get("sortBy") ?? undefined),
-      page: parseBoundedIntParam(sp.get("page"), 1, { min: 1, max: 1000 }),
-    };
+    const filters = parseJobFilters(sp);
     const result = await getJobs(
       {
         ...filters,

@@ -52,11 +52,10 @@ test("state filters expand without relying on ambiguous raw abbreviations", () =
   assert.ok(alaska.containsTerms.includes("Anchorage"));
 });
 
-test("combined city and province searches keep both exact and hierarchy terms", () => {
+test("qualified place text never broadens to an entire province", () => {
   const expanded = expandLocationSearchTerm("Toronto Ontario");
 
-  assert.ok(expanded.containsTerms.includes("Ontario"));
-  assert.ok(expanded.containsTerms.includes("Toronto"));
+  assert.deepEqual(expanded.containsTerms, ["Toronto Ontario"]);
 });
 
 test("unknown free-text locations remain searchable as entered", () => {

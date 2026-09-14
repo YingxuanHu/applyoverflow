@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { requireCurrentProfileId } from "@/lib/current-user";
+import { parseJobFilters, parseTopPicksFilters } from "@/lib/jobs/search-params";
 import { getTopPicksForUser } from "@/lib/queries/top-picks";
 
 export async function GET(request: NextRequest) {
@@ -22,13 +23,11 @@ export async function GET(request: NextRequest) {
     const userId = await requireCurrentProfileId();
     const sp = request.nextUrl.searchParams;
     const result = await getTopPicksForUser(userId, {
-      page: parseBoundedIntParam(sp.get("page"), 1, { min: 1, max: 20 }),
+      ...parseTopPicksFilters(sp),
+      page: Math.min(20, parseJobFilters(sp).page ?? 1),
       minScore:
         parseBoundedIntParam(sp.get("minScore"), 0, { min: 0, max: 100 }) ||
         undefined,
-      location: sp.get("location"),
-      workMode: sp.get("workMode"),
-      experienceLevel: sp.get("experienceLevel"),
     });
 
     return paginatedResponse(

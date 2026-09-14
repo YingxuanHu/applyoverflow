@@ -19,7 +19,7 @@ test("jobs URL params are detected and normalized for restore", () => {
     normalizeJobsStateQuery(
       "q=backend&field=title&page=3&sort=best&function=software_engineering&datePosted=7d"
     ),
-    "searchScope=title&titleSearch=backend&jobFunction=software_engineering&posted=7d&page=3"
+    "searchScope=title&titleSearch=backend&jobFunction=SOFTWARE_ENGINEERING&posted=7d&page=3"
   );
   assert.equal(normalizeJobsStateQuery("hideApplied=true"), "hideApplied=1");
   assert.equal(normalizeJobsStateQuery("status=LIVE"), "");
@@ -43,7 +43,7 @@ test("in-app restored jobs state omits stale page numbers", () => {
       "titleSearch=engineer&jobFunction=Software%20Engineering,AI%20%2F%20Machine%20Learning&industry=Finance%20%26%20Banking&page=7&sortBy=newest",
       { includePage: false }
     ),
-    "searchScope=title&titleSearch=engineer&industry=Finance+%26+Banking&jobFunction=Software+Engineering%2CAI+%2F+Machine+Learning&sortBy=newest"
+    "searchScope=title&titleSearch=engineer&industry=FINANCIAL_SERVICES&jobFunction=SOFTWARE_ENGINEERING%2CAI_MACHINE_LEARNING&sortBy=newest"
   );
 });
 
@@ -63,7 +63,7 @@ test("guided job search replaces only the filter groups it recognizes", () => {
         workMode: "REMOTE",
       }
     ),
-    "/jobs?searchScope=title&titleSearch=backend&companySearch=OpenAI&workMode=REMOTE&jobFunction=Software+Engineering&hideApplied=1&sortBy=newest"
+    "/jobs?searchScope=title&titleSearch=backend&companySearch=OpenAI&workMode=REMOTE&jobFunction=SOFTWARE_ENGINEERING&hideApplied=1&sortBy=newest"
   );
 });
 
@@ -73,7 +73,7 @@ test("guided job search preserves unrelated saved filters", () => {
       "locationSearch=Toronto&careerStage=ENTRY_LEVEL&hideApplied=1",
       { posted: "7d" }
     ),
-    "/jobs?searchScope=location&locationSearch=Toronto&hideApplied=1&careerStage=ENTRY_LEVEL&posted=7d"
+    "/jobs?searchScope=location&locationSearch=Toronto&hideApplied=1&careerStage=ENTRY_JUNIOR&posted=7d"
   );
 });
 
@@ -84,7 +84,7 @@ test("guided job search can retain the Top Picks route", () => {
       { jobFunction: "Software Engineering" },
       { basePath: "/jobs/top-picks" }
     ),
-    "/jobs/top-picks?searchScope=location&locationSearch=Toronto&jobFunction=Software+Engineering&sortBy=newest"
+    "/jobs/top-picks?searchScope=location&locationSearch=Toronto&jobFunction=SOFTWARE_ENGINEERING&sortBy=newest"
   );
 });
 

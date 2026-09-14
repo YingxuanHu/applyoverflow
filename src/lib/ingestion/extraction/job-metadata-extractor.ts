@@ -332,7 +332,7 @@ function addWorkModeCandidate(
   evidence: string,
   sourceConfidenceHint: number
 ) {
-  const parsed = parseWorkModeSignal(raw);
+  const parsed = parseWorkModeSignal(raw, source === "description_text");
   if (!parsed) return;
   const sourceScore = WORK_MODE_SOURCE_WEIGHTS[source] ?? 0.25;
   const confidence = clamp01(sourceScore * 0.62 + parsed.signalStrength * 0.28 + sourceConfidenceHint * 0.1 - parsed.penalty);
@@ -347,9 +347,17 @@ function addWorkModeCandidate(
   });
 }
 
-function parseWorkModeSignal(raw: unknown) {
-  const text = normalizeText(stringifyMetadataValue(raw));
+function parseWorkModeSignal(raw: unknown, description = false) {
+  let text = normalizeText(stringifyMetadataValue(raw));
   if (!text) return null;
+  if (description) {
+    // Technical vocabulary and benefits are not evidence of the role's location.
+    text = text
+      .replace(/\b(?:distributed\s+(?:systems?|computing|databases?|tracing)|virtual\s+(?:machines?|events?|interviews?|reality)|remote\s+(?:sensing|access|controls?|devices?|monitoring|customers?|clients?)|hybrid\s+(?:cloud|vehicles?|engines?))\b/gi, "")
+      .replace(/\bflexible\s+(?:working?\s+)?(?:hours?|schedule|scheduling)\b/gi, "");
+    const roleWorkPattern = /\b(?:fully\s+remote|100%\s+remote|remote\s+(?:role|position|job|work|working|opportunity|team)|(?:role|position|job|work|working|location)\s+(?:is\s+|will\s+be\s+|can\s+be\s+)?(?:fully\s+)?remote|work\s+remotely|work\s+from\s+home|hybrid\s+(?:role|position|work|working|schedule|model)|(?:role|position|job|work|working|location)\s+(?:is\s+)?hybrid|\d+\s+days?\s+(?:in|at)\s+(?:the\s+)?office|on[-\s]?site|office[-\s]?based|in[-\s]?office|location\s+flexible|remote\s+or\s+hybrid|hybrid\s+or\s+remote)\b/i;
+    if (!roleWorkPattern.test(text) && !NEGATIVE_REMOTE_RE.test(text)) return null;
+  }
   const canonical = text.toUpperCase().replace(/[\s-]+/g, "_");
 
   if (canonical === "REMOTE") {

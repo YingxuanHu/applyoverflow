@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { Input } from "@/components/ui/input";
+import { LocalDateTime } from "@/components/ui/local-date-time";
 import { Textarea } from "@/components/ui/textarea";
 import { useNotifications } from "@/components/ui/notification-provider";
 
@@ -48,13 +49,7 @@ const INITIAL_STATE: ActionState = {
 
 function formatReminderDate(date: Date | null) {
   if (!date) return "No notification time";
-  return new Date(date).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return <LocalDateTime value={date} />;
 }
 
 function toDateTimeLocalInputValue(date: Date | null) {
@@ -148,7 +143,11 @@ function ReminderSummaryItem({
   const [noteDraft, setNoteDraft] = useState(reminder.note ?? "");
   const [timeDraft, setTimeDraft] = useState(toDateTimeLocalInputValue(reminder.reminderAt));
   const [updateState, updateAction, updatePending] = useActionState(
-    updateTimelineEvent,
+    async (previous: ActionState, data: FormData) => {
+      const result = await updateTimelineEvent(previous, data);
+      if (result.success) setEditing(false);
+      return result;
+    },
     INITIAL_STATE
   );
   const browserTimeZone = useBrowserTimeZone();
@@ -157,10 +156,7 @@ function ReminderSummaryItem({
   if (editing) {
     return (
       <form
-        action={async (formData) => {
-          await updateAction(formData);
-          setEditing(false);
-        }}
+        action={updateAction}
         className="rounded-[12px] border border-border/70 bg-card p-2.5"
       >
         <input name="applicationId" type="hidden" value={applicationId} />
@@ -171,6 +167,7 @@ function ReminderSummaryItem({
           className="min-h-[64px] resize-y text-sm"
           name="note"
           onChange={(event) => setNoteDraft(event.target.value)}
+          disabled={updatePending}
           placeholder="Reminder"
           required
           rows={3}
@@ -178,11 +175,14 @@ function ReminderSummaryItem({
         />
         <Input
           className="mt-2 h-8 text-xs"
+          aria-label="Notify at"
           name="reminderAt"
           onChange={(event) => setTimeDraft(event.target.value)}
+          disabled={updatePending}
           type="datetime-local"
           value={timeDraft}
         />
+        {updateState.error ? <p role="alert" className="mt-2 text-xs text-destructive">{updateState.error}</p> : null}
         <div className="mt-2 flex flex-wrap gap-2">
           <Button className="h-7 px-2.5 text-xs" disabled={updatePending} size="sm" type="submit">
             {updatePending ? "Saving..." : "Save"}

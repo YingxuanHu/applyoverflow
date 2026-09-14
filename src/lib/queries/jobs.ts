@@ -1,5 +1,8 @@
+import { buildSalaryRangeWhere } from "@/lib/jobs/salary-filter";
 import { prisma } from "@/lib/db";
 import { canUseSimpleTextCount, jobCountCacheKey } from "./job-count-cache";
+import { runBoundedJobCount } from "./job-count-budget";
+import { buildFeedLocationSql } from "./job-location-sql";
 import { PAGE_SIZE } from "@/lib/constants";
 import {
   Prisma,
@@ -8,7 +11,7 @@ import {
   type TrackedApplicationStatus,
 } from "@/generated/prisma/client";
 import { splitFilterValues } from "@/lib/filter-values";
-import { expandLocationSearchTerm } from "@/lib/location-search";
+import { buildLocationSearchPredicate } from "@/lib/location-search";
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
 import {
   sanitizeCompanyName,
@@ -49,11 +52,9 @@ import {
 } from "@/lib/job-filter-contract";
 import { computeRankingScore } from "@/lib/ingestion/quality";
 import {
-  convertSalaryAmount,
   convertSalaryRange,
   FALLBACK_SALARY_EXCHANGE_RATES,
   normalizeSalaryCurrency,
-  SALARY_COMPARISON_CURRENCIES,
   type SalaryComparisonCurrency,
   type SalaryExchangeRates,
 } from "@/lib/currency-conversion";
@@ -165,6 +166,7 @@ const JOB_CARD_INCLUDE = (
 ) =>
   ({
     eligibility: true,
+    companyRecord: { select: { name: true, domain: true, careersUrl: true } },
     feedIndex: {
       select: { status: true },
     },
@@ -194,9 +196,12 @@ const JOB_FEED_CARD_SELECT = (
     id: true,
     title: true,
     company: true,
+    companyRecord: { select: { name: true, domain: true, careersUrl: true } },
     location: true,
     region: true,
     workMode: true,
+    workModeConfidence: true,
+    workModeStatus: true,
     industry: true,
     status: true,
     roleFamily: true,
@@ -207,6 +212,9 @@ const JOB_FEED_CARD_SELECT = (
     normalizedIndustryConfidence: true,
     classificationStatus: true,
     experienceLevel: true,
+    experienceLevelGroup: true,
+    normalizedCareerStage: true,
+    normalizedCareerStageConfidence: true,
     salaryMin: true,
     salaryMax: true,
     salaryCurrency: true,
@@ -650,25 +658,26 @@ async function countJobFeedIndexMatches(
   filters: JobFilterParams,
   viewerProfileId: string | null,
   now: Date,
-  useSqlDemoVisibilityFilter: boolean
+  useSqlDemoVisibilityFilter: boolean,
+  bounded = false
 ) {
-  const load = async () => {
+  const query = async (db: Pick<typeof prisma, "$queryRaw" | "jobFeedIndex">) => {
     if (!useSqlDemoVisibilityFilter && canUseSimpleTextCount(filters)) {
-      const terms = (["title", "company"] as const).flatMap((field) =>
-        buildSearchLikePatternGroups(filters[field === "title" ? "titleSearch" : "companySearch"])
-          .map((patterns) => Prisma.sql`(${Prisma.join(patterns.map((pattern) =>
-            Prisma.sql`${Prisma.raw(`jfi.\"${field}\"`)} ILIKE ${pattern}`), " OR ")})`)
-      );
-      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      const [row] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
         SELECT count(*) FROM "JobFeedIndex" AS jfi
         INNER JOIN "JobCanonical" AS jc ON jc.id = jfi."canonicalJobId"
         WHERE ${buildRawDefaultPublicFeedWhere(now, viewerProfileId)}
-          ${terms.length ? Prisma.sql`AND ${Prisma.join(terms, " AND ")}` : Prisma.empty}
+          ${buildRawScopedTextSearchClause(filters)}
       `);
       return Number(row.count);
     }
-    return prisma.jobFeedIndex.count({ where });
+    return db.jobFeedIndex.count({ where });
   };
+  const load = () => bounded ? runBoundedJobCount(() => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+    await tx.$executeRaw`SET LOCAL statement_timeout = '25s'`;
+    return query(tx);
+  }, { maxWait: 1000, timeout: 27_000 })) : query(prisma);
   // Full-text prefilters currently have page-dependent windows. Never reuse
   // those totals, nor applied-state counts without their own version token.
   if (filters.hideApplied || filters.search || useSqlDemoVisibilityFilter) return load();
@@ -684,6 +693,28 @@ async function countJobFeedIndexMatches(
   } finally {
     inflightCountStore.delete(key);
   }
+}
+
+async function readCachedJobCount(filters: JobFilterParams, viewerProfileId: string | null) {
+  if (filters.hideApplied || filters.search) return null;
+  return readTimedCache<number>(jobCountCacheKey(filters, viewerProfileId, await getViewerFeedVersion(viewerProfileId)));
+}
+
+/** Exact totals use the same query plan as the visible rows, without hydrating jobs. */
+export async function getJobSearchCount(filters: JobFilterParams, options: {
+  viewerProfileId: string;
+  authUserId: string;
+}) {
+  if (!shouldUseJobFeedIndex(filters, options.viewerProfileId) || !hasScopedFeedRequest(filters) || filters.search) return null;
+  const normalizedFilters = { ...filters, salaryCurrency: await loadSalaryComparisonCurrency(filters.salaryCurrency, options.viewerProfileId) };
+  const cached = await readCachedJobCount(normalizedFilters, options.viewerProfileId);
+  if (cached !== null) return cached;
+  const salaryExchangeRates = filters.salaryMin || filters.salaryMax
+    ? await loadSalaryExchangeRates() : FALLBACK_SALARY_EXCHANGE_RATES;
+  const { where, now } = await buildFeedIndexQuery({
+    filters: normalizedFilters, ...options, salaryExchangeRates, useSqlDemoVisibilityFilter: false, skipScopedProbe: true,
+  });
+  return countJobFeedIndexMatches(where, normalizedFilters, options.viewerProfileId, now, false, true);
 }
 
 // Prisma binds enum filters as parameters, which prevents PostgreSQL from
@@ -712,6 +743,12 @@ function buildRawCompanyVisibilitySql(alias: "jfi" | "jc") {
 }
 
 function buildRawDefaultPublicFeedWhere(now: Date, viewerProfileId: string | null) {
+  return Prisma.sql`jfi.status = 'LIVE'::"JobStatus"
+    AND ${buildRawCompanyVisibilitySql("jfi")}
+    AND ${buildRawCanonicalPublicFeedWhere(now, viewerProfileId)}`;
+}
+
+function buildRawCanonicalPublicFeedWhere(now: Date, viewerProfileId: string | null) {
   const recentSourceCutoff = new Date(now.getTime() - 14 * 86_400_000);
   const recentAliveCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const excludedApplyLinkStatuses = [
@@ -733,9 +770,7 @@ function buildRawDefaultPublicFeedWhere(now: Date, viewerProfileId: string | nul
       `
     : Prisma.empty;
 
-  return Prisma.sql`jfi.status = 'LIVE'::"JobStatus"
-      AND ${buildRawCompanyVisibilitySql("jfi")}
-      AND jc.status = 'LIVE'::"JobStatus"
+  return Prisma.sql`jc.status = 'LIVE'::"JobStatus"
       AND jc."availabilityScore" >= ${DEFAULT_MIN_AVAILABILITY_SCORE}
       AND jc."deadSignalAt" IS NULL
       AND (jc."applyUrl" LIKE 'http://%' OR jc."applyUrl" LIKE 'https://%')
@@ -755,45 +790,76 @@ function buildRawDefaultPublicFeedWhere(now: Date, viewerProfileId: string | nul
   `;
 }
 
-async function getDefaultPublicFeedIndexRows(input: {
+function buildRawScopedTextSearchClause(filters: JobFilterParams) {
+  const terms = (["title", "company"] as const).flatMap((field) =>
+    buildSearchLikePatternGroups(filters[field === "title" ? "titleSearch" : "companySearch"])
+      .map((patterns) => Prisma.sql`(${Prisma.join(patterns.map((pattern) =>
+        Prisma.sql`${Prisma.raw(`jfi.\"${field}\"`)} ILIKE ${pattern}`), " OR ")})`)
+  );
+  if (filters.locationSearch) terms.push(buildFeedLocationSql(filters.locationSearch));
+  if (filters.location) terms.push(buildFeedLocationSql(filters.location));
+  return terms.length ? Prisma.sql`AND ${Prisma.join(terms, " AND ")}` : Prisma.empty;
+}
+
+async function getPublicRankedFeedIndexRows(input: {
+  filters: JobFilterParams;
   now: Date;
   viewerProfileId: string | null;
   skip: number;
+  orderCandidatesFirst: boolean;
 }) {
-  const { now, viewerProfileId, skip } = input;
+  const { filters, now, viewerProfileId, skip, orderCandidatesFirst } = input;
+  const rankingOrder = Prisma.sql`jfi."rankingScore" DESC, jfi."freshnessScore" DESC,
+    jfi."qualityScore" DESC, jfi."trustScore" DESC, jfi."postedAt" DESC, jfi."canonicalJobId" DESC`;
+  if (orderCandidatesFirst) {
+    // OFFSET 0 preserves the ordered candidate subquery and the correlated
+    // validation step. LIMIT stays outside visibility/PASS checks: PostgreSQL
+    // can stop after a full page without validating every geographic match.
+    return prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
+      SELECT jfi."canonicalJobId"
+      FROM (
+        SELECT jfi."canonicalJobId", jfi."rankingScore", jfi."freshnessScore",
+          jfi."qualityScore", jfi."trustScore", jfi."postedAt"
+        FROM "JobFeedIndex" AS jfi
+        WHERE jfi.status = 'LIVE'::"JobStatus" AND ${buildRawCompanyVisibilitySql("jfi")}
+          ${buildRawScopedTextSearchClause(filters)}
+        ORDER BY ${rankingOrder}
+        OFFSET 0
+      ) AS jfi
+      CROSS JOIN LATERAL (
+        SELECT jc.id FROM "JobCanonical" AS jc
+        WHERE jc.id = jfi."canonicalJobId" AND ${buildRawCanonicalPublicFeedWhere(now, viewerProfileId)}
+        OFFSET 0
+      ) AS visible
+      ORDER BY ${rankingOrder}
+      LIMIT ${PAGE_SIZE + 1} OFFSET ${skip}
+    `);
+  }
   return prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
     SELECT jfi."canonicalJobId"
     FROM "JobFeedIndex" AS jfi
     INNER JOIN "JobCanonical" AS jc ON jc.id = jfi."canonicalJobId"
     WHERE ${buildRawDefaultPublicFeedWhere(now, viewerProfileId)}
-    ORDER BY
-      jfi."rankingScore" DESC,
-      jfi."freshnessScore" DESC,
-      jfi."qualityScore" DESC,
-      jfi."trustScore" DESC,
-      jfi."postedAt" DESC,
-      jfi."canonicalJobId" DESC
+      ${buildRawScopedTextSearchClause(filters)}
+    ORDER BY ${rankingOrder}
     LIMIT ${PAGE_SIZE + 1}
     OFFSET ${skip}
   `);
 }
 
-async function getJobsFromFeedIndex(input: {
+async function buildFeedIndexQuery(input: {
   filters: JobFilterParams;
   viewerProfileId: string | null;
   authUserId: string | null;
   salaryExchangeRates: SalaryExchangeRates;
-  summaryPromise: Promise<JobFeedSummary>;
-  includeExactTotal: boolean;
   useSqlDemoVisibilityFilter: boolean;
+  skipScopedProbe?: boolean;
 }) {
   const {
     filters,
     viewerProfileId,
     authUserId,
     salaryExchangeRates,
-    summaryPromise,
-    includeExactTotal,
     useSqlDemoVisibilityFilter,
   } = input;
   const page = filters.page ?? 1;
@@ -865,52 +931,41 @@ async function getJobsFromFeedIndex(input: {
     }
   }
 
-  // Accelerate a single SELECTIVE scoped title/company search. The default
-  // rank-ordered scan is pathological for selective terms — it discards
-  // hundreds of thousands of high-rank non-matching rows per page (e.g.
-  // company "google" → ~21s). When the term is selective we pull its full
-  // ordered match set through the trigram index and paginate it in app, which
-  // is fast and yields an exact total. With structured filters, we still use
-  // the selective id list as a prefilter and let the normal indexed query apply
-  // the hard filters. Only the sole-text-search case can paginate the id list
-  // directly because then the id list is the whole ordered result.
+  // Probe selective text searches to avoid scanning the entire rank index.
+  // Geographic searches with no extra constraints use the ordered-candidate
+  // SQL path directly. A probe never determines visibility or pagination.
   let acceleratedScopedField: "title" | "company" | null = null;
   if (
     searchPrefilterIds === null &&
     !filters.search &&
-    !filters.locationSearch
+    !input.skipScopedProbe &&
+    !(Boolean(filters.locationSearch || filters.location) && canUseSimpleTextCount(filters) && (!filters.sortBy || filters.sortBy === "relevance")) &&
+    !hasNonDefaultJobStatusFilter(filters.status)
   ) {
     const soleScopedSearch =
-      filters.titleSearch && !filters.companySearch
+      filters.titleSearch && !filters.companySearch && !filters.locationSearch && !filters.location
         ? ({ field: "title", query: filters.titleSearch } as const)
-        : filters.companySearch && !filters.titleSearch
+        : filters.companySearch && !filters.titleSearch && !filters.locationSearch && !filters.location
           ? ({ field: "company", query: filters.companySearch } as const)
+          : !filters.titleSearch && !filters.companySearch && Boolean(filters.locationSearch || filters.location)
+            ? ({ field: "location", query: filters.locationSearch ?? filters.location } as const)
           : null;
     if (soleScopedSearch) {
-      const orderedIds = await getSelectiveScopedSearchIds(
+      const candidateIds = await getSelectiveScopedSearchIds(
         soleScopedSearch.field,
         soleScopedSearch.query,
         SELECTIVE_SCOPED_SEARCH_THRESHOLD
       );
-      if (orderedIds !== null) {
-        searchPrefilterIds = orderedIds;
-        acceleratedScopedField = soleScopedSearch.field;
-        useDirectPrefilterSlice = canSlicePrefilterIds;
+      if (candidateIds !== null) {
+        searchPrefilterIds = candidateIds;
+        acceleratedScopedField = soleScopedSearch.field === "location" ? null : soleScopedSearch.field;
+        // Candidate IDs are not yet public or viewer-filtered. Apply all
+        // visibility checks and the complete sort tuple before pagination.
       }
     }
   }
 
   if (searchPrefilterIds !== null) {
-    if (searchPrefilterIds.length === 0) {
-      return {
-        data: [],
-        total: 0,
-        hasNextPage: false,
-        page,
-        pageSize: PAGE_SIZE,
-        summary: await summaryPromise,
-      } satisfies JobsResult;
-    }
     where.canonicalJobId = { in: searchPrefilterIds };
   } else if (filters.search) {
     appendFeedIndexTextSearchWhere(
@@ -1123,15 +1178,33 @@ async function getJobsFromFeedIndex(input: {
 
   const orderBy = buildJobFeedIndexOrderBy(filters.sortBy);
 
+  return { where, now, page, skip, orderBy, searchPrefilterIds, useDirectPrefilterSlice, requireLiveCanonicalJobs };
+}
+
+async function getJobsFromFeedIndex(input: {
+  filters: JobFilterParams;
+  viewerProfileId: string | null;
+  authUserId: string | null;
+  salaryExchangeRates: SalaryExchangeRates;
+  summaryPromise: Promise<JobFeedSummary>;
+  includeExactTotal: boolean;
+  deferExactTotal: boolean;
+  useSqlDemoVisibilityFilter: boolean;
+}) {
+  const { filters, viewerProfileId, authUserId, summaryPromise, includeExactTotal, deferExactTotal, useSqlDemoVisibilityFilter } = input;
+  const { where, now, page, skip, orderBy, searchPrefilterIds, useDirectPrefilterSlice, requireLiveCanonicalJobs } = await buildFeedIndexQuery(input);
+
   const totalPromise = includeExactTotal
-    ? countJobFeedIndexMatches(where, filters, viewerProfileId, now, useSqlDemoVisibilityFilter)
+    ? deferExactTotal
+      ? readCachedJobCount(filters, viewerProfileId)
+      : countJobFeedIndexMatches(where, filters, viewerProfileId, now, useSqlDemoVisibilityFilter)
     : Promise.resolve(null);
-  const useRawDefaultPublicFeedLookup =
-    !includeExactTotal &&
+  // Broad scoped searches need the same literal LIVE predicate as the default
+  // feed to use its partial rank index. Keep selective-id and hard-filter paths.
+  const useRawPublicRankedFeedLookup =
     !useSqlDemoVisibilityFilter &&
     !useDirectPrefilterSlice &&
-    searchPrefilterIds === null &&
-    !hasScopedFeedRequest(filters) &&
+    (!hasScopedFeedRequest(filters) || canUseSimpleTextCount(filters)) &&
     (!filters.sortBy || filters.sortBy === "relevance");
 
   const indexedRows =
@@ -1139,11 +1212,13 @@ async function getJobsFromFeedIndex(input: {
       ? searchPrefilterIds
           .slice(skip, skip + PAGE_SIZE + 1)
           .map((canonicalJobId) => ({ canonicalJobId }))
-      : useRawDefaultPublicFeedLookup
-        ? await getDefaultPublicFeedIndexRows({
+      : useRawPublicRankedFeedLookup
+        ? await getPublicRankedFeedIndexRows({
+            filters,
             now,
             viewerProfileId,
             skip,
+            orderCandidatesFirst: searchPrefilterIds !== null || Boolean(filters.locationSearch || filters.location),
           })
       : await prisma.jobFeedIndex.findMany({
           where,
@@ -1167,7 +1242,8 @@ async function getJobsFromFeedIndex(input: {
     const total = includeExactTotal ? await totalPromise : null;
     return {
       data: [],
-      total: total ?? (includeExactTotal ? 0 : null),
+      total: total ?? (includeExactTotal && page === 1 ? 0 : null),
+      countPending: deferExactTotal && total === null && page > 1,
       hasNextPage: false,
       page,
       pageSize: PAGE_SIZE,
@@ -1212,12 +1288,14 @@ async function getJobsFromFeedIndex(input: {
     } satisfies JobsResult;
   }
 
-  const total = await totalPromise;
+  const cachedTotal = await totalPromise;
+  const total = cachedTotal ?? (deferExactTotal && page === 1 && indexedRows.length <= PAGE_SIZE ? data.length : null);
 
   return {
     data,
     total,
-    hasNextPage: total !== null ? skip + PAGE_SIZE < total : data.length === PAGE_SIZE,
+    countPending: deferExactTotal && total === null,
+    hasNextPage: indexedRows.length > PAGE_SIZE,
     page,
     pageSize: PAGE_SIZE,
     summary: await summaryPromise,
@@ -1397,7 +1475,7 @@ function hasSearchFilters(filters: JobFilterParams) {
 
 type ScopedTextSearchMode = "any-term" | "all-terms";
 
-function buildScopedTextSearchWhere(
+export function buildScopedTextSearchWhere(
   field: ScopedJobSearchScope,
   query: string | undefined,
   mode: ScopedTextSearchMode = "all-terms"
@@ -1411,7 +1489,7 @@ function buildScopedTextSearchWhere(
   const clauses = termGroups.map((terms) => {
     const variantClauses = terms.map((term) => ({
       [field]: {
-        contains: term,
+        contains: escapeLikePattern(term),
         mode: "insensitive" as const,
       },
     })) as PrismaTypes.JobCanonicalWhereInput[];
@@ -1455,7 +1533,7 @@ function buildFeedIndexTextSearchWhere(
   const clauses = termGroups.map((terms) => {
     const variantClauses = terms.map((term) => ({
       [field]: {
-        contains: term,
+        contains: escapeLikePattern(term),
         mode: "insensitive" as const,
       },
     })) as PrismaTypes.JobFeedIndexWhereInput[];
@@ -1648,11 +1726,19 @@ async function searchJobFeedIndexExactCompanyIds(query: string, limit: number) {
  *    so ranking/pagination/count are all fast and the total is exact.
  */
 async function getSelectiveScopedSearchIds(
-  field: "title" | "company",
+  field: "title" | "company" | "location",
   query: string | undefined,
   threshold: number
 ): Promise<string[] | null> {
   const likePatternGroups = buildSearchLikePatternGroups(query);
+  if (field === "location") {
+    const rows = await prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
+      SELECT jfi."canonicalJobId" FROM "JobFeedIndex" AS jfi
+      WHERE jfi.status = 'LIVE'::"JobStatus" AND ${buildFeedLocationSql(query)}
+      LIMIT ${threshold + 1}
+    `);
+    return rows.length > threshold ? null : rows.map((row) => row.canonicalJobId);
+  }
   if (likePatternGroups.length === 0) return null;
 
   const column = field === "title" ? `"title"` : `"company"`;
@@ -1668,14 +1754,12 @@ async function getSelectiveScopedSearchIds(
     .join(" AND ");
   const limitParam = params.length + 1;
 
-  // No ORDER BY here: the trigram bitmap can stop early at the LIMIT, so the
-  // probe is fast even for broad terms (which we then reject). For selective
-  // terms we get the full match set and order it in app by the same key the
-  // feed uses (rankingScore desc, postedAt desc) — cheap for <= threshold rows.
+  // Candidate IDs only: the final query applies visibility and sorts before
+  // taking a page. No scores or timestamps need to be transferred for a probe.
   const rows = await prisma.$queryRawUnsafe<
-    Array<{ canonicalJobId: string; rankingScore: number; postedAt: Date }>
+    Array<{ canonicalJobId: string }>
   >(
-    `SELECT "canonicalJobId", "rankingScore", "postedAt" FROM "JobFeedIndex"
+    `SELECT "canonicalJobId" FROM "JobFeedIndex"
      WHERE status = 'LIVE' AND ${whereSql}
      LIMIT $${limitParam}`,
     ...params,
@@ -1683,44 +1767,10 @@ async function getSelectiveScopedSearchIds(
   );
 
   if (rows.length > threshold) return null;
-  rows.sort(
-    (left, right) =>
-      right.rankingScore - left.rankingScore ||
-      right.postedAt.getTime() - left.postedAt.getTime()
-  );
   return rows.map((row) => row.canonicalJobId);
 }
 
-function buildLocationSearchWhere(
-  query: string | undefined
-): PrismaTypes.JobCanonicalWhereInput | null {
-  const locations = splitFilterValues(query);
-  if (locations.length === 0) return null;
-
-  const clauses = locations.flatMap((location) => {
-    const expanded = expandLocationSearchTerm(location);
-    const textCondition = buildScopedTextSearchWhere("location", location, "all-terms");
-    const locationClauses: PrismaTypes.JobCanonicalWhereInput[] = [];
-
-    if (textCondition) locationClauses.push(textCondition);
-
-    for (const term of expanded.containsTerms) {
-      locationClauses.push({
-        location: { contains: term, mode: "insensitive" },
-      });
-    }
-
-    if (expanded.region) {
-      locationClauses.push({ region: expanded.region });
-    }
-
-    if (locationClauses.length === 0) return [];
-    return locationClauses.length === 1 ? locationClauses : [{ OR: locationClauses }];
-  });
-
-  if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { OR: clauses };
-}
+const buildLocationSearchWhere = buildLocationSearchPredicate;
 
 function appendLocationSearchWhere(
   where: Prisma.JobCanonicalWhereInput,
@@ -1730,36 +1780,7 @@ function appendLocationSearchWhere(
   if (condition) appendAndCondition(where, condition);
 }
 
-function buildFeedIndexLocationSearchWhere(
-  query: string | undefined
-): PrismaTypes.JobFeedIndexWhereInput | null {
-  const locations = splitFilterValues(query);
-  if (locations.length === 0) return null;
-
-  const clauses = locations.flatMap((location) => {
-    const expanded = expandLocationSearchTerm(location);
-    const textCondition = buildFeedIndexTextSearchWhere("location", location, "all-terms");
-    const locationClauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
-
-    if (textCondition) locationClauses.push(textCondition);
-
-    for (const term of expanded.containsTerms) {
-      locationClauses.push({
-        location: { contains: term, mode: "insensitive" },
-      });
-    }
-
-    if (expanded.region) {
-      locationClauses.push({ region: expanded.region });
-    }
-
-    if (locationClauses.length === 0) return [];
-    return locationClauses.length === 1 ? locationClauses : [{ OR: locationClauses }];
-  });
-
-  if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { OR: clauses };
-}
+const buildFeedIndexLocationSearchWhere = buildLocationSearchPredicate;
 
 function appendFeedIndexLocationSearchWhere(
   where: Prisma.JobFeedIndexWhereInput,
@@ -1769,163 +1790,7 @@ function appendFeedIndexLocationSearchWhere(
   if (condition) appendFeedIndexAndCondition(where, condition);
 }
 
-function buildNumericSalaryRangeWhere(
-  salaryMin: number | undefined,
-  salaryMax: number | undefined
-): PrismaTypes.JobCanonicalWhereInput | null {
-  const clauses: PrismaTypes.JobCanonicalWhereInput[] = [];
-
-  if (salaryMin) {
-    clauses.push({
-      OR: [{ salaryMax: { gte: salaryMin } }, { salaryMin: { gte: salaryMin } }],
-    });
-  }
-
-  if (salaryMax) {
-    clauses.push({
-      OR: [
-        { salaryMin: { lte: salaryMax } },
-        {
-          AND: [{ salaryMin: null }, { salaryMax: { lte: salaryMax } }],
-        },
-      ],
-    });
-  }
-
-  if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { AND: clauses };
-}
-
-function buildNumericSalaryRangeIndexWhere(
-  salaryMin: number | undefined,
-  salaryMax: number | undefined
-): PrismaTypes.JobFeedIndexWhereInput | null {
-  const clauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
-
-  if (salaryMin) {
-    clauses.push({
-      OR: [{ salaryMax: { gte: salaryMin } }, { salaryMin: { gte: salaryMin } }],
-    });
-  }
-
-  if (salaryMax) {
-    clauses.push({
-      OR: [
-        { salaryMin: { lte: salaryMax } },
-        {
-          AND: [{ salaryMin: null }, { salaryMax: { lte: salaryMax } }],
-        },
-      ],
-    });
-  }
-
-  if (clauses.length === 0) return null;
-  return clauses.length === 1 ? clauses[0] : { AND: clauses };
-}
-
-function buildSalaryRangeWhere(
-  salaryMin: number | undefined,
-  salaryMax: number | undefined,
-  comparisonCurrency: SalaryComparisonCurrency,
-  exchangeRates: SalaryExchangeRates,
-  includeUnknownSalary: boolean = false
-): PrismaTypes.JobCanonicalWhereInput | null {
-  if (!salaryMin && !salaryMax) return null;
-
-  const clauses: PrismaTypes.JobCanonicalWhereInput[] = [];
-
-  for (const jobCurrency of SALARY_COMPARISON_CURRENCIES) {
-    const convertedMin =
-      salaryMin != null
-        ? convertSalaryAmount(salaryMin, comparisonCurrency, jobCurrency, exchangeRates) ??
-          undefined
-        : undefined;
-    const convertedMax =
-      salaryMax != null
-        ? convertSalaryAmount(salaryMax, comparisonCurrency, jobCurrency, exchangeRates) ??
-          undefined
-        : undefined;
-    const rangeWhere = buildNumericSalaryRangeWhere(convertedMin, convertedMax);
-    if (!rangeWhere) continue;
-
-    clauses.push({
-      AND: [{ salaryCurrency: jobCurrency }, rangeWhere],
-    });
-  }
-
-  const rawFallback = buildNumericSalaryRangeWhere(salaryMin, salaryMax);
-  if (rawFallback && comparisonCurrency === "USD") {
-    clauses.push({
-      AND: [{ salaryCurrency: null }, rawFallback],
-    });
-  }
-
-  if (clauses.length === 0) return null;
-  const salaryWhere = clauses.length === 1 ? clauses[0] : { OR: clauses };
-
-  if (!includeUnknownSalary) return salaryWhere;
-
-  return {
-    OR: [
-      salaryWhere,
-      {
-        AND: [{ salaryMin: null }, { salaryMax: null }],
-      },
-    ],
-  };
-}
-
-function buildSalaryRangeIndexWhere(
-  salaryMin: number | undefined,
-  salaryMax: number | undefined,
-  comparisonCurrency: SalaryComparisonCurrency,
-  exchangeRates: SalaryExchangeRates,
-  includeUnknownSalary: boolean = false
-): PrismaTypes.JobFeedIndexWhereInput | null {
-  if (!salaryMin && !salaryMax) return null;
-
-  const clauses: PrismaTypes.JobFeedIndexWhereInput[] = [];
-
-  for (const jobCurrency of SALARY_COMPARISON_CURRENCIES) {
-    const convertedMin =
-      salaryMin != null
-        ? convertSalaryAmount(salaryMin, comparisonCurrency, jobCurrency, exchangeRates) ??
-          undefined
-        : undefined;
-    const convertedMax =
-      salaryMax != null
-        ? convertSalaryAmount(salaryMax, comparisonCurrency, jobCurrency, exchangeRates) ??
-          undefined
-        : undefined;
-    const rangeWhere = buildNumericSalaryRangeIndexWhere(convertedMin, convertedMax);
-    if (!rangeWhere) continue;
-
-    clauses.push({
-      AND: [{ salaryCurrency: jobCurrency }, rangeWhere],
-    });
-  }
-
-  const rawFallback = buildNumericSalaryRangeIndexWhere(salaryMin, salaryMax);
-  if (rawFallback && comparisonCurrency === "USD") {
-    clauses.push({
-      AND: [{ salaryCurrency: null }, rawFallback],
-    });
-  }
-
-  if (clauses.length === 0) return null;
-  const salaryWhere = clauses.length === 1 ? clauses[0] : { OR: clauses };
-
-  if (!includeUnknownSalary) return salaryWhere;
-
-  return {
-    OR: [
-      salaryWhere,
-      {
-        AND: [{ salaryMin: null }, { salaryMax: null }],
-      },
-    ],
-  };
-}
+const buildSalaryRangeIndexWhere = buildSalaryRangeWhere;
 
 // ─── Ranking ──────────────────────────────────────────────────────────────────
 
@@ -2783,6 +2648,7 @@ type JobFeedSummary = {
 
 type JobsResult = Awaited<ReturnType<typeof getJobsByRelevance>> & {
   summary: JobFeedSummary;
+  countPending?: boolean;
 };
 
 type DemoSourceMapping = {
@@ -3330,6 +3196,7 @@ export async function getJobs(
     viewerProfileId?: string | null;
     authUserId?: string | null;
     userTimeZone?: string | null;
+    deferExactTotal?: boolean;
   }
 ) {
   const viewerProfileId =
@@ -3356,13 +3223,14 @@ export async function getJobs(
       : FALLBACK_SALARY_EXCHANGE_RATES;
   const useHotFeedSnapshot = isHotDefaultFeedRequest(filters);
   const heartbeat = useHotFeedSnapshot ? await getIngestionHeartbeat() : null;
+  const deferExactTotal = Boolean(options?.deferExactTotal && shouldUseJobFeedIndex(filters, viewerProfileId) && !filters.search);
   const cacheKey = buildJobsCacheKey(
     viewerProfileId,
     filters,
     useHotFeedSnapshot ? (heartbeat?.lastUpdatedAt ?? "none") : null,
     userTimeZone,
     await getViewerFeedVersion(viewerProfileId)
-  );
+  ) + (deferExactTotal ? ":deferred-count" : "");
   const hydrateResponse = async (result: JobsResult) => {
     const data = await overlayViewerJobState(result.data, viewerProfileId, authUserId);
     if (data[0]) {
@@ -3384,8 +3252,8 @@ export async function getJobs(
     const useFeedIndexForRequest = shouldUseJobFeedIndex(filters, viewerProfileId);
     // The unfiltered headline is the exact public-board count maintained in
     // JobFeedSummaryCache. Do not repeat an expensive per-user COUNT merely to
-    // calculate pagination for that same default pool. Searches and filters
-    // still return their exact matching total for the headline and pagination.
+    // calculate pagination for that same default pool. The UI may defer a
+    // scoped count; API callers retain exact totals unless they opt out.
     const includeExactTotal = hasScopedFeedRequest(filters);
     const isExplicitSort = Boolean(filters.sortBy && filters.sortBy !== "relevance");
     const defaultScoringWindowPages = Math.floor(DEFAULT_SCORING_WINDOW_SIZE / PAGE_SIZE);
@@ -3646,6 +3514,7 @@ export async function getJobs(
             salaryExchangeRates,
             summaryPromise,
             includeExactTotal,
+            deferExactTotal,
             useSqlDemoVisibilityFilter,
           }),
           "feed-index"
@@ -3675,6 +3544,7 @@ export async function getJobs(
           salaryExchangeRates,
           summaryPromise,
           includeExactTotal,
+          deferExactTotal,
           useSqlDemoVisibilityFilter,
         }),
         "feed-index"

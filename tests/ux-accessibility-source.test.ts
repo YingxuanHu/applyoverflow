@@ -16,8 +16,8 @@ test("auth shell mounts a single form so labels and browser autofill are unambig
 test("mobile account and application controls retain accessible names", () => {
   assert.match(read("layout/user-menu.tsx"), /aria-label=\{`Account menu for/);
   const tracker = read("applications/applications-page-client.tsx");
-  assert.match(tracker, /sr-only sm:not-sr-only sm:block">Status/);
-  assert.match(tracker, /sr-only sm:not-sr-only sm:block">Sort/);
+  assert.match(tracker, /sr-only sm:not-sr-only sm:block">\s*Status/);
+  assert.match(tracker, /sr-only sm:not-sr-only sm:block">\s*Sort/);
   assert.match(read("applications/workspace-client.tsx"), /aria-label="Application status"/);
 });
 

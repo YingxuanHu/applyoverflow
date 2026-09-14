@@ -258,6 +258,9 @@ export async function addTimelineEvent(
     if (typeRaw === "REMINDER" && !note) {
       return { error: "Reminder text is required.", success: null };
     }
+    if (typeRaw === "REMINDER" && note.length > 1000) {
+      return { error: "Keep reminders under 1,000 characters.", success: null };
+    }
 
     if (typeRaw === "REMINDER" && reminderAtRaw) {
       reminderAt = await parseReminderDateTimeLocal(reminderAtRaw, formData);

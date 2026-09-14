@@ -45,6 +45,7 @@ export type JobCardData = {
   id: string;
   title: string;
   company: string;
+  companyDomain?: string | null;
   location: string;
   geoScope: GeoScope;
   workMode: WorkMode;

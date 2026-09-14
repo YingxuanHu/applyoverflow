@@ -50,7 +50,7 @@ test("submitting a scoped job search preserves other active scoped searches", ()
 
   assert.match(html, /name="titleSearch"/);
   assert.match(html, /name="companySearch" value="Amazon"/);
-  assert.match(html, /name="locationSearch" value="Toronto,Montreal"/);
+  assert.match(html, /name="locationSearch" value="Toronto;Montreal"/);
   assert.doesNotMatch(html, /name="search" value="ignored global text"/);
 });
 
@@ -66,7 +66,7 @@ test("location search keeps location OR additions without duplicate values", () 
     })
   );
 
-  assert.match(html, /name="locationSearch" value="Toronto,Montreal"/);
+  assert.match(html, /name="locationSearch" value="Toronto;Montreal"/);
   assert.match(html, /name="searchScope" value="location"/);
 });
 
