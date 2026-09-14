@@ -1,6 +1,6 @@
 # Production Workflow Audit
 
-Date: 2026-09-14. Status: patches in the working tree, not deployed.
+Date: 2026-09-14. This is the pre-release audit record. Its patches were subsequently deployed in `61ec780`; see the [production release follow-up](2026-09-14-production-release.md) for current verification and remaining issues.
 
 Follow-up: [Search latency](2026-09-14-search-latency.md) implements deferred exact counts, faster geographic row lookup, and selective pagination correctness. The diagnosis below records the earlier audit baseline; see the follow-up for the current implementation and remaining limits.
 

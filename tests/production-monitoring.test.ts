@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,9 +33,11 @@ for (const failedDocker of [false, true]) {
     const dir = await mkdtemp(path.join(tmpdir(), "ao-monitor-test-"));
     const log = path.join(dir, "alerts.log");
     try {
+      const policy = path.join(dir, "policy.sh");
+      await writeFile(policy, "#!/bin/bash\nprintf '%s\\n' '[tablespace-policy] mode=check root=87%' '[tablespace-policy] resident index=HealthyIndex size=1B' '[tablespace-policy] pending index=BusyIndex size=2B location=pg_default'\nexit 1\n", { mode: 0o700 });
       const result = spawnSync("bash", ["-s"], {
         cwd: process.cwd(), encoding: "utf8", timeout: 5000,
-        env: { ...process.env, APP_DIR: dir, MONITOR_LOG_FILE: log, MONITOR_ALERT_WEBHOOK_URL: "", POSTGRES_TABLESPACE_POLICY_SCRIPT: "/not-present", FAIL_DOCKER: String(failedDocker) },
+        env: { ...process.env, APP_DIR: dir, MONITOR_LOG_FILE: log, MONITOR_ALERT_WEBHOOK_URL: "", POSTGRES_TABLESPACE_POLICY_SCRIPT: policy, FAIL_DOCKER: String(failedDocker) },
         input: `
 df() { printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/test 100 87 13 87%% /\\n'; }
 free() { printf 'Mem: 8000 2000 4000 0 0 2000\\nSwap: 0 0 0\\n'; }
@@ -49,6 +51,8 @@ source "$PWD/deploy/single-vps/monitor-health.sh"
       assert.equal(result.status, 0, result.stderr);
       const output = await readFile(log, "utf8");
       assert.match(output, /root disk is 87% full/);
+      assert.match(output, /pending index=BusyIndex/);
+      assert.doesNotMatch(output, /resident index=HealthyIndex/);
       if (failedDocker) assert.match(output, /could not inspect Caddy errors/);
       else assert.doesNotMatch(output, /Caddy logged/);
     } finally { await rm(dir, { recursive: true, force: true }); }

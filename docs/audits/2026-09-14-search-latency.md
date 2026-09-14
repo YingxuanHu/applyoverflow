@@ -1,6 +1,6 @@
 # Search Latency Follow-Up
 
-Status: implemented and tested locally; not committed or deployed.
+Status: subsequently committed and deployed in `61ec780`. The measurements below describe the pre-release investigation; see the [production release follow-up](2026-09-14-production-release.md) for deployed browser timings and remaining bottlenecks.
 
 ## Diagnosis
 

@@ -2,6 +2,8 @@
 
 ## Scope and Release State
 
+Release update: the logo implementation was subsequently deployed in `61ec780`. This document preserves the earlier audit and its dated sample. See the [production release follow-up](2026-09-14-production-release.md) for current visual checks, including unresolved logos.
+
 Signed into applyoverflow.com using a dedicated, standard-permission audit account created with the existing password hashing and credential-account mechanism. No admin role, authentication bypass, or public default password was added. Credentials are kept in a mode-0600 local file, outside the repository. Notifications are disabled for the account.
 
 The deployed Jobs UI contains no employer image elements, and `/api/company-logo?domain=stripe.com` returns 404. The logo implementation is local and has not been deployed. This is a deployment gap, separate from the coverage problems below.

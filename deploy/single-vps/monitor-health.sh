@@ -60,6 +60,7 @@ if [[ -x "$TABLESPACE_POLICY_SCRIPT" ]]; then
       ENV_FILE="$ENV_FILE" \
       "$TABLESPACE_POLICY_SCRIPT" --check 2>&1
   )"; then
+    tablespace_report="$(printf '%s\n' "$tablespace_report" | awk '!/\[tablespace-policy\] resident /')"
     tablespace_report="${tablespace_report//$'\n'/; }"
     add_alert "PostgreSQL tablespace policy: ${tablespace_report:0:700}"
   fi
