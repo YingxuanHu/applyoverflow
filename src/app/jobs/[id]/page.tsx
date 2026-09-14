@@ -117,6 +117,7 @@ export default async function JobDetailPage({
             salaryMin={displaySalary.salaryMin}
             salaryMax={displaySalary.salaryMax}
             salaryCurrency={displaySalary.salaryCurrency}
+            salaryPeriod={job.salaryPeriod}
             primaryExternalLink={null}
           />
         </div>
@@ -163,7 +164,8 @@ export default async function JobDetailPage({
             formatSalary(
               displaySalary.salaryMin,
               displaySalary.salaryMax,
-              displaySalary.salaryCurrency
+              displaySalary.salaryCurrency,
+              job.salaryPeriod
             ) || "—"
           }
         />

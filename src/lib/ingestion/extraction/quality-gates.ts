@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { inferRegion } from "@/lib/region";
 import { extractAndScoreDescription } from "@/lib/ingestion/extraction/description-extractor";
 import { extractAndScoreLocation, extractLocationCandidates } from "@/lib/ingestion/extraction/location-extractor";
 import { extractJobMetadata } from "@/lib/ingestion/extraction/job-metadata-extractor";
@@ -75,7 +76,7 @@ export function extractNormalizedJobFacts(
     salaryMax: job.salaryMax,
     salaryCurrency: job.salaryCurrency,
     description: description.text ?? job.description,
-    regionHint: null,
+    regionHint: inferRegion(location?.value ?? job.location),
   });
 
   const quality = evaluateExtractionQuality({

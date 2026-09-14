@@ -38,6 +38,34 @@ function buildJob(overrides: Partial<SourceConnectorJob>): SourceConnectorJob {
   };
 }
 
+test("geographic locations outrank work arrangements and provider identifiers", () => {
+  for (const workplaceType of ["Hybrid", "Remote", "OnSite"]) {
+    const job = buildJob({ location: "Sao Paulo", metadata: {
+      detail: { workplaceType, locationName: "Sao Paulo" },
+      listing: { locationId: "59d0b9d1-aa24-41c2-be07-cba5b27881a8" },
+    } });
+    assert.equal(extractAndScoreLocation(job)?.value, "Sao Paulo");
+  }
+  assert.equal(extractAndScoreLocation(buildJob({ location: "London, ON", metadata: { city: "London" } }))?.value, "London, ON");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Remote", metadata: {} }))?.value, "Remote");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "", metadata: { locationId: "12345", workplaceType: "Hybrid" } })), null);
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Hybrid", metadata: { jobLocation: { address: { addressLocality: "London", addressRegion: "ON", addressCountry: "CA" } } } }))?.value, "London, ON, CA");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "", metadata: { location_name: "Sao Paulo" } }))?.value, "Sao Paulo");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Remote", metadata: { locations: ["Toronto, ON", "Vancouver, BC"] } }))?.value, "Toronto, Vancouver");
+});
+
+test("normalized salary uses Canadian geography without overriding explicit currency", () => {
+  const job = buildJob({ location: "Elmsdale, NS, CA", description: "Responsibilities include managing store operations. Hiring range: $16.75 - $21.95 per hour." });
+  const salary = extractNormalizedJobFacts(job).salary;
+  assert.equal(salary.currency, "CAD");
+  assert.equal(salary.period, "hour");
+  assert.equal(salary.min, 16.75);
+  assert.equal(salary.annualizedMin, 34840);
+  assert.equal(extractNormalizedJobFacts({ ...job, salaryCurrency: "USD" }).salary.currency, "USD");
+  assert.equal(extractNormalizedJobFacts({ ...job, description: "Salary: US$ 100,000 - US$ 120,000 per year." }).salary.currency, "USD");
+  assert.equal(extractNormalizedJobFacts({ ...job, location: "Seattle, WA", description: "Salary: C$ 100,000 - C$ 120,000 per year." }).salary.currency, "CAD");
+});
+
 test("title extractor accepts clean role titles", () => {
   const goodTitles = [
     "Software Engineer",

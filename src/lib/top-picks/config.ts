@@ -12,18 +12,21 @@ export const TOP_PICKS_ACTIVE_USER_DAYS =
 export const TOP_PICKS_RESULT_TTL_MS =
   TOP_PICKS_REFRESH_MAX_AGE_MINUTES * 60_000;
 
+export const TOP_PICKS_ALGORITHM_VERSION = "top-picks-v3";
+
 export const TOP_PICK_SCORING_WEIGHTS = {
-  roleFit: 30,
-  seniorityFit: 22,
-  skillFit: 15,
-  topApplicantFit: 16,
-  semanticFit: 6,
+  roleFit: 28,
+  seniorityFit: 20,
+  skillFit: 22,
+  // Keep the applicant proxy as a diagnostic, not a second copy of role/skill fit.
+  topApplicantFit: 0,
+  semanticFit: 5,
   preferenceFit: 6,
-  locationWorkModeFit: 6,
-  salaryFit: 3,
+  locationWorkModeFit: 8,
+  salaryFit: 4,
   freshnessFit: 3,
   sourceQualityFit: 4,
-  feedbackFit: 5,
+  feedbackFit: 0,
 } as const;
 
 export const TOP_PICK_MIN_SCORE =

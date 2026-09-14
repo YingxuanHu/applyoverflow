@@ -13,8 +13,43 @@ import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { requireCurrentProfileId } from "@/lib/current-user";
 import { saveTopPickFeedback } from "@/lib/top-picks/service";
 import { revalidatePaths } from "@/lib/revalidation";
+import { prisma } from "@/lib/db";
+import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
+import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
 
 const FEEDBACK_TYPES = new Set<string>(Object.values(UserJobPreferenceFeedbackType));
+
+export async function GET() {
+  try {
+    const userId = await requireCurrentProfileId();
+    const data = await prisma.userJobPreferenceFeedback.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, distinct: ["jobId"], take: 100, select: { jobId: true, job: { select: { title: true, company: true } } } });
+    return successResponse({ data });
+  } catch (error) { return handleApiRouteError(error, "GET /api/jobs/top-picks/feedback", "Could not load hidden picks"); }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const limited = await rateLimitResponse(request, "jobs:top-picks:feedback", API_RATE_LIMITS.authenticatedWrite);
+    if (limited) return limited;
+    const userId = await requireCurrentProfileId();
+    const parsed = await parseJsonBodyWithLimit<{ jobId?: unknown }>(request, API_BODY_LIMITS.smallJson, "Restore pick");
+    if (!parsed.ok) return parsed.response;
+    const jobId = parsed.data?.jobId;
+    if (typeof jobId !== "string" || !jobId || jobId.length > 200) return errorResponse("Invalid jobId", 400);
+    const restored = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${userId} FOR UPDATE`;
+      const removed = await tx.userJobPreferenceFeedback.deleteMany({ where: { userId, jobId } });
+      if (!removed.count) return false;
+      const profile = await tx.userMatchProfile.findUnique({ where: { userId }, select: { profileVersion: true } });
+      if (!profile) return false;
+      const result = await tx.userTopPick.updateMany({ where: { userId, jobId, profileVersion: profile.profileVersion, expiresAt: { gt: new Date() }, job: { is: buildDefaultCanonicalVisibilityWhere() } }, data: { isValid: true, invalidatedAt: null } });
+      return result.count > 0;
+    });
+    await enqueueDurableTopPicksRefresh({ userId, reason: "feedback_changed", priorityScore: 60 });
+    revalidatePaths(["/jobs", "/jobs/top-picks"]);
+    return successResponse({ success: true, restored });
+  } catch (error) { return handleApiRouteError(error, "DELETE /api/jobs/top-picks/feedback", "Could not restore pick"); }
+}
 
 export async function POST(request: NextRequest) {
   try {

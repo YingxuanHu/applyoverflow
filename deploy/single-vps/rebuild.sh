@@ -78,6 +78,10 @@ if [[ " $BUILD_SERVICES " != *" worker-maintenance "* ]]; then
 fi
 echo "Verifying guarded HTTP transport in the candidate runtime"
 "${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance node --import tsx --test tests/ssrf-guard.test.ts </dev/null
+if [[ " $BUILD_SERVICES " == *" app "* ]]; then
+  echo "Verifying PDF generation in the candidate web runtime"
+  "${COMPOSE[@]}" run -T --rm --no-deps app node pdf-smoke/pdf-runtime-smoke.mjs </dev/null
+fi
 echo "Applying database migrations"
 "${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance npx prisma migrate deploy </dev/null
 

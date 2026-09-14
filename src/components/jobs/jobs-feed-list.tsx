@@ -8,9 +8,13 @@ import { JobFeedMasterDetail } from "@/components/jobs/job-feed-master-detail";
 import type { JobCardData } from "@/types";
 
 export function JobsFeedList({
+  profileSkills,
+  viewerId,
   initialJobs,
   referenceNow,
 }: {
+  profileSkills?: string[];
+  viewerId: string;
   initialJobs: JobCardData[];
   referenceNow: string;
 }) {
@@ -46,6 +50,8 @@ export function JobsFeedList({
 
   return (
     <JobFeedMasterDetail
+      profileSkills={profileSkills}
+      viewerId={viewerId}
       entries={jobs.map((job) => ({ id: job.id, job }))}
       onSavedChange={handleSavedChange}
       referenceNow={referenceNow}

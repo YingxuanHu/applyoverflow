@@ -1,6 +1,7 @@
 import type { Prisma, WorkMode } from "@/generated/prisma/client";
 import { serializeJobCardData } from "@/lib/job-serialization";
 import { prisma } from "@/lib/db";
+import { normalizeSkills } from "@/lib/profile";
 import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
 import { TOP_PICKS_PAGE_LIMIT } from "@/lib/top-picks/config";
 import {
@@ -148,11 +149,18 @@ export async function getTopPicksForUser(
     TOP_PICKS_PAGE_LIMIT
   );
   const authUserId = await getAuthUserIdForProfile(userId);
-  const where = buildTopPickWhere(userId, options);
+  const viewer = await prisma.userProfile.findUnique({ where: { id: userId }, select: { skillsJson: true } });
+  const profile = await prisma.userMatchProfile.findUnique({ where: { userId }, select: { profileVersion: true } });
+  const baseWhere = buildTopPickWhere(userId, options);
+  const where = {
+    ...baseWhere,
+    profileVersion: profile?.profileVersion ?? -1,
+    job: { is: { AND: [baseWhere.job.is, { preferenceFeedback: { none: { userId } } }] } },
+  };
   const [rows, total, status] = await Promise.all([
     prisma.userTopPick.findMany({
       where,
-      orderBy: [{ score: "desc" }, { rank: "asc" }],
+      orderBy: [{ rank: "asc" }, { id: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize + 1,
       select: {
@@ -177,6 +185,7 @@ export async function getTopPicksForUser(
   }
 
   return {
+    profileSkills: normalizeSkills(viewer?.skillsJson).map((skill) => skill.name),
     data,
     total,
     page,

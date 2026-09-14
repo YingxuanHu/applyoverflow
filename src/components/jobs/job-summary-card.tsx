@@ -52,7 +52,8 @@ export function JobSummaryCard({
   const salaryLabel = formatSalary(
     job.salaryMin,
     job.salaryMax,
-    job.salaryCurrency
+    job.salaryCurrency,
+    job.salaryPeriod
   );
   const summary = job.shortSummary?.trim();
   const roleLabel =

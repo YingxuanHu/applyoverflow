@@ -7,6 +7,7 @@ import {
   type UserJobIntent,
 } from "../src/lib/top-picks/intent";
 import {
+  needsSourceDescriptionForScoring,
   scoreJobForUser,
   type TopPickScoringJob,
   type TopPickUserHistory,
@@ -114,6 +115,14 @@ function job(overrides: Partial<TopPickScoringJob> = {}): TopPickScoringJob {
 }
 
 describe("buildUserJobIntent", () => {
+  it("requires feedback on distinct jobs before suppressing a role category", () => {
+    const feedback = { jobId: "one", feedbackType: "WRONG_ROLE", job: { id: "one", title: "Accountant", company: "Example", location: "Toronto", workMode: "HYBRID", normalizedRoleCategory: "FINANCE_ACCOUNTING" } };
+    const input = { userId: "test", profileVersion: 1, skills: [], experiences: [], educations: [], projects: [] };
+    const repeated = buildUserJobIntent({ ...input, feedback: [feedback, feedback] });
+    strictEqual(repeated.negativeSignals.dislikedRoleCategories.length, 0);
+    const distinct = buildUserJobIntent({ ...input, feedback: [feedback, { ...feedback, jobId: "two", job: { ...feedback.job, id: "two" } }] });
+    ok(distinct.negativeSignals.dislikedRoleCategories.includes("FINANCE_ACCOUNTING"));
+  });
   it("reports missing profile signal before recommendations can be generated", () => {
     const readiness = assessUserJobIntentSignal(
       intent({
@@ -186,7 +195,13 @@ describe("buildUserJobIntent", () => {
   });
 });
 
-describe("scoreJobForUser v2", () => {
+describe("scoreJobForUser v3", () => {
+  it("avoids fetching full text for candidates rejected by source-independent gates", () => {
+    strictEqual(needsSourceDescriptionForScoring(intent(), job(), emptyHistory), true);
+    strictEqual(needsSourceDescriptionForScoring(intent(), job({ status: "EXPIRED" }), emptyHistory), false);
+    strictEqual(needsSourceDescriptionForScoring(intent(), job({ title: "Marketing director", normalizedRoleCategory: "MARKETING" }), emptyHistory), false);
+    strictEqual(needsSourceDescriptionForScoring(intent(), job(), { ...emptyHistory, excludedJobIds: new Set(["job_1"]) }), false);
+  });
   it("scores a strong role and seniority match highly", () => {
     const result = scoreJobForUser(intent(), job(), emptyHistory);
 
@@ -195,7 +210,7 @@ describe("scoreJobForUser v2", () => {
     ok(result.matchReasons.some((reason) => reason.includes("Strong role match")));
   });
 
-  it("stores LinkedIn-style top applicant proxy metadata for explainable ranking", () => {
+  it("stores explainable requirements coverage metadata", () => {
     const result = scoreJobForUser(intent(), job(), emptyHistory);
     const breakdown = result.scoreBreakdown as {
       strategy?: string;
@@ -204,7 +219,7 @@ describe("scoreJobForUser v2", () => {
 
     strictEqual(
       breakdown.strategy,
-      "linkedin-style-preferences-profile-top-applicant-proxy"
+      "requirements-coverage-and-profile-fit"
     );
     ok((breakdown.components?.topApplicantFit ?? 0) >= 80);
   });
@@ -293,7 +308,7 @@ describe("scoreJobForUser v2", () => {
     );
 
     strictEqual(result.excluded, false);
-    ok(result.concerns.some((concern) => concern.includes("Salary is not listed")));
+    ok(result.concerns.some((concern) => concern.includes("cannot be compared reliably")));
   });
 
   it("caps low-confidence unknown role jobs even with a strong title match", () => {
@@ -426,6 +441,58 @@ describe("scoreJobForUser v2", () => {
   });
 });
 
+describe("requirements-aware ranking", () => {
+  function component(result: ReturnType<typeof scoreJobForUser>, name: string) {
+    return (result.scoreBreakdown.components as Record<string, number>)[name];
+  }
+
+  it("does not punish a broader profile for unrelated additional skills", () => {
+    const posting = job({ description: "## Requirements\n- TypeScript and React\n## Preferred\n- AWS" });
+    const narrow = scoreJobForUser(intent(), posting, emptyHistory);
+    const broad = scoreJobForUser(intent({ strongSkills: [...intent().strongSkills, "excel", "payroll", "seo", "financial reporting", "python"] }), posting, emptyHistory);
+    strictEqual(broad.score, narrow.score);
+    strictEqual(component(broad, "skillFit"), 100);
+  });
+
+  it("values required capability coverage more than preferred capability coverage", () => {
+    const posting = job({ description: "## Requirements\n- Python\n## Nice to have\n- React" });
+    const required = scoreJobForUser(intent({ mustHaveSkills: ["python"], strongSkills: [], niceToHaveSkills: [] }), posting, emptyHistory);
+    const optional = scoreJobForUser(intent({ mustHaveSkills: ["react"], strongSkills: [], niceToHaveSkills: [] }), posting, emptyHistory);
+    strictEqual(component(required, "skillFit"), 75);
+    strictEqual(component(optional, "skillFit"), 25);
+    ok(required.score > optional.score);
+    ok(optional.concerns.some((value) => value.includes("python")));
+  });
+
+  it("does not match Java to JavaScript", () => {
+    const result = scoreJobForUser(intent({ mustHaveSkills: ["java"], strongSkills: [], niceToHaveSkills: [] }), job({ shortSummary: "JavaScript", description: "## Requirements\n- JavaScript" }), emptyHistory);
+    strictEqual(component(result, "skillFit"), 0);
+  });
+
+  for (const fixture of [
+    { role: "FINANCE_ACCOUNTING", title: "Junior Accountant", skills: ["financial reporting", "excel"], text: "Financial statements and Microsoft Excel" },
+    { role: "HUMAN_RESOURCES", title: "HR Coordinator", skills: ["recruiting", "payroll"], text: "Talent acquisition and payroll" },
+    { role: "MARKETING", title: "Marketing Coordinator", skills: ["seo", "content strategy"], text: "Search engine optimization and content strategy" },
+  ]) {
+    it(`covers source requirements outside technology: ${fixture.title}`, () => {
+      const result = scoreJobForUser(intent({ explicitTargetTitles: [fixture.title], explicitTargetRoleCategories: [fixture.role], inferredTargetRoleCategories: [], inferredTargetTitles: [], mustHaveSkills: fixture.skills, strongSkills: [], niceToHaveSkills: [] }), job({ title: fixture.title, normalizedRoleCategory: fixture.role, shortSummary: fixture.text, description: `## Requirements\n- ${fixture.text}` }), emptyHistory);
+      strictEqual(result.excluded, false);
+      strictEqual(component(result, "skillFit"), 100);
+    });
+  }
+
+  it("keeps absent capability evidence neutral instead of treating it as a full match", () => {
+    const result = scoreJobForUser(intent(), job({ shortSummary: "Build products for customers.", description: null }), emptyHistory);
+    strictEqual(component(result, "skillFit"), 50);
+    strictEqual(result.scoreBreakdown.skillEvidence, "unknown");
+  });
+
+  it("does not let a fresh posting hide poor source trust", () => {
+    const result = scoreJobForUser(intent(), job({ qualityScore: 20, trustScore: 20, freshnessScore: 100 }), emptyHistory);
+    strictEqual(component(result, "sourceQualityFit"), 20);
+  });
+});
+
 describe("scoreJobForUser salary currency conversion", () => {
   function salaryFitComponent(result: ReturnType<typeof scoreJobForUser>) {
     const breakdown = result.scoreBreakdown as {
@@ -433,6 +500,18 @@ describe("scoreJobForUser salary currency conversion", () => {
     };
     return breakdown.components?.salaryFit ?? 0;
   }
+
+  it("does not guess missing currency", () => {
+    const result = scoreJobForUser(intent(), job({ salaryCurrency: null }), emptyHistory);
+    strictEqual(salaryFitComponent(result), 52);
+  });
+
+  it("accepts fixed offers, salaries above target and minimum-only preferences", () => {
+    for (const [min, max] of [[100_000, 100_000], [170_000, 200_000]]) {
+      strictEqual(salaryFitComponent(scoreJobForUser(intent(), job({ salaryMin: min, salaryMax: max }), emptyHistory)), 100);
+      strictEqual(salaryFitComponent(scoreJobForUser(intent({ targetSalaryMax: undefined }), job({ salaryMin: min, salaryMax: max }), emptyHistory)), 100);
+    }
+  });
 
   it("converts the job salary into the intent currency before measuring overlap", () => {
     // Intent targets CAD 80k-150k. A USD 55k-65k range is below target when
@@ -467,6 +546,6 @@ describe("scoreJobForUser salary currency conversion", () => {
     strictEqual(result.excluded, false);
     // Unconvertible currency -> salary component is skipped (unknown neutral).
     strictEqual(salaryFitComponent(result), 52);
-    ok(result.concerns.some((concern) => concern.includes("Salary is not listed")));
+    ok(result.concerns.some((concern) => concern.includes("cannot be compared reliably")));
   });
 });

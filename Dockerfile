@@ -21,13 +21,22 @@ ENV BETTER_AUTH_SECRET="build-time-placeholder"
 ENV BETTER_AUTH_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
 RUN npm run build
+RUN node --import tsx scripts/build-pdf-smoke-fixtures.ts /app/pdf-smoke
 
-FROM base AS web
+# Keep TeX out of ingestion workers and build dependencies.
+FROM base AS pdf-runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends texlive-xetex texlive-latex-extra texlive-fonts-recommended fonts-texgyre \
+  && rm -rf /var/lib/apt/lists/*
+
+FROM pdf-runtime AS web
 ARG BUILD_SHA=unknown
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 BUILD_SHA=$BUILD_SHA
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/pdf-smoke ./pdf-smoke
+COPY --chown=node:node scripts/pdf-runtime-smoke.mjs ./pdf-smoke/
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1

@@ -1,0 +1,3 @@
+ALTER TABLE "TopPickRefreshTask"
+  ADD COLUMN "requestedVersion" INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN "claimedVersion" INTEGER NOT NULL DEFAULT 0;

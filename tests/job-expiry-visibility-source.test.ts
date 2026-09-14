@@ -49,7 +49,7 @@ test("feed, detail, top picks, and summary use strict canonical visibility", () 
   assert.match(applicationQuerySource, /JOB_BOARD_MIN_AVAILABILITY_SCORE/);
   assert.match(applicationQuerySource, /hasRecentLiveEvidence/);
   assert.match(topPicksQuerySource, /buildDefaultCanonicalVisibilityWhere/);
-  assert.match(topPicksServiceSource, /canonicalJob:\s*\{\s*is: buildDefaultCanonicalVisibilityWhere\(\)/);
+  assert.match(topPicksServiceSource, /canonicalJob:\s*\{\s*is:\s*\{\s*AND:\s*\[buildDefaultCanonicalVisibilityWhere\(\), \.\.\.requiredWhere\]/);
   assert.match(topPicksGatesSource, /SOURCE_STALE/);
   assert.match(topPicksGatesSource, /HIDDEN_LOW_QUALITY/);
   assert.match(topPicksGatesSource, /job\.availabilityScore \?\? 100\) < 60/);

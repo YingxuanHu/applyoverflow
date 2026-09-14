@@ -227,13 +227,23 @@ export function stabilizeTeXSource(source: string) {
   );
 }
 
+function resumeHeaderLayout() {
+  // Moderncv centers a variable-height header on its baseline. Top alignment
+  // keeps additional contact lines from moving the applicant's name off-page.
+  return String.raw`\makeatletter
+\patchcmd{\makehead}{\parbox{\makeheaddetailswidth}}{\parbox[t]{\makeheaddetailswidth}}{}{}
+\patchcmd{\makehead}{0.8\textwidth}{\textwidth}{}{}
+\patchcmd{\makehead}{\\\addressfont\color{color2}}{\\[0.3em]\addressfont\color{color2}}{}{}
+\makeatother`;
+}
+
 export function generateResumeTeX(data: TailoredResume): string {
   const lines: string[] = [];
 
   lines.push(String.raw`\documentclass[11pt,a4paper,sans]{moderncv}`);
   lines.push(String.raw`\moderncvstyle[nosymbols]{banking}`);
   lines.push(String.raw`\moderncvcolor{black}`);
-  lines.push(String.raw`\moderncvicons{awesome}`);
+  lines.push(String.raw`\moderncvicons{letters}`);
   lines.push("");
   lines.push(String.raw`\usepackage[utf8]{inputenc}`);
   lines.push(String.raw`\usepackage{enumitem}`);
@@ -241,7 +251,8 @@ export function generateResumeTeX(data: TailoredResume): string {
   lines.push(String.raw`\usepackage{graphicx}`);
   lines.push(String.raw`\usepackage{xcolor}`);
   lines.push("");
-  lines.push(String.raw`\usepackage[top=0.8cm, bottom=0.3cm, left=1cm, right=1cm]{geometry}`);
+  lines.push(String.raw`\usepackage[top=1.2cm, bottom=0.8cm, left=1cm, right=1cm]{geometry}`);
+  lines.push(resumeHeaderLayout());
   lines.push("");
   lines.push(
     String.raw`\setlist[itemize]{label={\Large\textbullet},leftmargin=0.4cm,itemsep=1.8pt,parsep=0pt,topsep=0pt,partopsep=0pt,`
@@ -383,7 +394,7 @@ function unifiedExtraInfo(contact: UnifiedResume["contact"]) {
   if (contact.portfolio) {
     const label = compactUrlLabel(contact.portfolio, /^/);
     const url = contact.portfolio.replace(/^https?:\/\//i, "");
-    parts.push(String.raw`\faGlobe\enspace\httplink[${tex(label)}]{${tex(url)}}`);
+    parts.push(String.raw`\homepagesymbol\enspace\httplink[${tex(label)}]{${tex(url)}}`);
   }
 
   return parts.join(String.raw` \enspace\textbullet\enspace `);
@@ -398,7 +409,7 @@ export function generateUnifiedResumeTeX(data: UnifiedResume): string {
   lines.push(String.raw`\documentclass[11pt,a4paper,sans]{moderncv}`);
   lines.push(String.raw`\moderncvstyle[nosymbols]{banking}`);
   lines.push(String.raw`\moderncvcolor{black}`);
-  lines.push(String.raw`\moderncvicons{awesome}`);
+  lines.push(String.raw`\moderncvicons{letters}`);
   lines.push("");
   lines.push(String.raw`\usepackage[utf8]{inputenc}`);
   lines.push(String.raw`\usepackage{enumitem}`);
@@ -406,7 +417,8 @@ export function generateUnifiedResumeTeX(data: UnifiedResume): string {
   lines.push(String.raw`\usepackage{graphicx}`);
   lines.push(String.raw`\usepackage{xcolor}`);
   lines.push("");
-  lines.push(String.raw`\usepackage[top=0.8cm, bottom=0.3cm, left=1cm, right=1cm]{geometry}`);
+  lines.push(String.raw`\usepackage[top=1.2cm, bottom=0.8cm, left=1cm, right=1cm]{geometry}`);
+  lines.push(resumeHeaderLayout());
   lines.push("");
   lines.push(
     String.raw`\setlist[itemize]{label={\Large\textbullet},leftmargin=0.4cm,itemsep=1.8pt,parsep=0pt,topsep=0pt,partopsep=0pt,`
@@ -421,13 +433,6 @@ export function generateUnifiedResumeTeX(data: UnifiedResume): string {
     lines.push(String.raw`  ${extraInfo}%`);
     lines.push(String.raw`}`);
   }
-  lines.push("");
-  lines.push(String.raw`\makeatletter`);
-  lines.push(String.raw`\patchcmd{\makehead}`);
-  lines.push(String.raw`  {\\\addressfont\color{color2}}`);
-  lines.push(String.raw`  {\\[-0.7em]\addressfont\color{color2}}`);
-  lines.push(String.raw`  {}{}`);
-  lines.push(String.raw`\makeatother`);
   lines.push("");
   lines.push(String.raw`\begin{document}`);
   lines.push("");
@@ -544,14 +549,16 @@ async function runLatexCompiler(compiler: string, texPath: string, tempDir: stri
     const { stdout, stderr } = await execFileAsync(
       compiler,
       [
+        "-no-shell-escape",
         "-interaction=nonstopmode",
         "-halt-on-error",
         "-file-line-error",
         `-output-directory=${tempDir}`,
-        texPath,
+        path.basename(texPath),
       ],
       {
         cwd: tempDir,
+        env: { ...process.env, openin_any: "p", openout_any: "p" },
         encoding: "utf8",
         timeout: 45000,
         maxBuffer: 20 * 1024 * 1024,

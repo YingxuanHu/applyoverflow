@@ -56,7 +56,7 @@ export function SearchParamMemory({
 
     // A direct keyword URL should win over a remembered structured filter set.
     // We only restore saved jobs filters when the route has no jobs state at all.
-    if (normalizer === "jobs" && hasJobsStateParams(searchParams)) return;
+    if (normalizer === "jobs" && (hasJobsStateParams(searchParams) || searchParams.has("savedSearch") || searchParams.has("discoveredSince"))) return;
 
     if (!firstRunForRouteInstance) {
       clearInAppSearchParamMemory(storageKey);

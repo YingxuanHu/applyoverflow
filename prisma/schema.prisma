@@ -799,6 +799,7 @@ model JobCanonical {
   @@index([status, salaryMax(sort: Desc)])
   // Lifecycle reconciliation: status + lastSeenAt
   @@index([status, lastSeenAt])
+  @@index([status, firstSeenAt(sort: Desc)])
   @@index([status, availabilityScore(sort: Desc)])
   @@index([status, qualityScore(sort: Desc)])
   @@index([status, freshnessScore(sort: Desc)])
@@ -1035,6 +1036,8 @@ model TopPickRefreshTask {
   leaseExpiresAt DateTime?
   attemptCount   Int      @default(0)
   maxAttempts    Int      @default(5)
+  requestedVersion Int   @default(1)
+  claimedVersion Int     @default(0)
   startedAt      DateTime?
   finishedAt     DateTime?
   lastError      String?

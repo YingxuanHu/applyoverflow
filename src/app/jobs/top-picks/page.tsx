@@ -296,11 +296,13 @@ function getRefreshHelpText(status: {
   if (status.validCount > 0) {
     return "Cached recommendations. Refresh checks for fresher matches without blocking this page.";
   }
-  return "No cached recommendations matched the current filters.";
+  return "No qualifying matches were found for your current profile and requirements.";
 }
 
 function getTopPicksEmptyState(
   status: {
+    stale?: boolean;
+    lastComputedAt?: string | null;
     canRefresh?: boolean;
     missingProfileSignals?: string[];
     profileReady?: boolean;
@@ -330,6 +332,13 @@ function getTopPicksEmptyState(
       title: "No picks match these filters",
       message:
         "Try clearing a filter, lowering the minimum score, or browsing all jobs.",
+    };
+  }
+
+  if (!status.stale && !status.refreshing && status.lastComputedAt) {
+    return {
+      title: "No qualifying picks right now",
+      message: "No jobs met your current profile and match requirements in this refresh.",
     };
   }
 
@@ -535,12 +544,13 @@ export default async function JobsTopPicksPage({
   const shouldLoadInitialPicks =
     result.total === 0 &&
     result.status.validCount === 0 &&
+    (result.status.stale || result.status.refreshing) &&
     result.status.canRefresh !== false &&
     result.status.profileReady !== false;
   const shouldRefreshTopPicks =
     result.status.canRefresh !== false &&
     result.status.profileReady !== false &&
-    (result.status.stale || result.status.validCount === 0);
+    (result.status.stale || result.status.refreshing);
   const rankedPickLabel =
     result.total === 0 && result.status.profileReady === false
       ? "Complete your profile"
@@ -567,9 +577,10 @@ export default async function JobsTopPicksPage({
 
   return (
     <TopPicksRefreshCoordinator
+      refreshInProgress={result.status.refreshing}
       initialLoad={shouldLoadInitialPicks}
       refreshEnabled={shouldRefreshTopPicks}
-      storageKey={`page:${result.status.profileVersion ?? "new"}:${result.status.lastComputedAt ?? "none"}`}
+      storageKey={`page:${userId}:${result.status.profileVersion ?? "new"}:${result.status.lastComputedAt ?? "none"}`}
     >
       <div className="app-page space-y-5">
         <ScrollPositionMemory
@@ -744,6 +755,8 @@ export default async function JobsTopPicksPage({
           ) : null}
 
           <TopPicksList
+            profileSkills={result.profileSkills}
+            viewerId={userId}
             emptyState={emptyState}
             initialPicks={result.data}
             referenceNow={referenceNow}

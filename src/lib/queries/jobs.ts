@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { canUseSimpleTextCount, jobCountCacheKey } from "./job-count-cache";
 import { PAGE_SIZE } from "@/lib/constants";
 import {
   Prisma,
@@ -152,6 +153,7 @@ const SEARCH_SCOPE_COLUMNS: Record<ScopedJobSearchScope, string> = {
 };
 
 const inflightJobsQueryStore = new Map<string, Promise<JobsResult>>();
+const inflightCountStore = new Map<string, Promise<number>>();
 const TRACKED_APPLICATION_NOT_APPLIED_STATUSES: TrackedApplicationStatus[] = [
   "WISHLIST",
   "PREPARING",
@@ -208,6 +210,7 @@ const JOB_FEED_CARD_SELECT = (
     salaryMin: true,
     salaryMax: true,
     salaryCurrency: true,
+    salaryPeriod: true,
     shortSummary: true,
     applyUrl: true,
     postedAt: true,
@@ -593,7 +596,7 @@ function shouldUseJobFeedIndex(filters: JobFilterParams, viewerProfileId: string
   void viewerProfileId;
   return (
     process.env.USE_JOB_FEED_INDEX !== "0" &&
-    !filters.source
+    !filters.source && !filters.discoveredSince
   );
 }
 
@@ -642,8 +645,45 @@ function buildNotAppliedCanonicalWhere(
   };
 }
 
-async function countJobFeedIndexMatches(where: Prisma.JobFeedIndexWhereInput) {
-  return prisma.jobFeedIndex.count({ where });
+async function countJobFeedIndexMatches(
+  where: Prisma.JobFeedIndexWhereInput,
+  filters: JobFilterParams,
+  viewerProfileId: string | null,
+  now: Date,
+  useSqlDemoVisibilityFilter: boolean
+) {
+  const load = async () => {
+    if (!useSqlDemoVisibilityFilter && canUseSimpleTextCount(filters)) {
+      const terms = (["title", "company"] as const).flatMap((field) =>
+        buildSearchLikePatternGroups(filters[field === "title" ? "titleSearch" : "companySearch"])
+          .map((patterns) => Prisma.sql`(${Prisma.join(patterns.map((pattern) =>
+            Prisma.sql`${Prisma.raw(`jfi.\"${field}\"`)} ILIKE ${pattern}`), " OR ")})`)
+      );
+      const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT count(*) FROM "JobFeedIndex" AS jfi
+        INNER JOIN "JobCanonical" AS jc ON jc.id = jfi."canonicalJobId"
+        WHERE ${buildRawDefaultPublicFeedWhere(now, viewerProfileId)}
+          ${terms.length ? Prisma.sql`AND ${Prisma.join(terms, " AND ")}` : Prisma.empty}
+      `);
+      return Number(row.count);
+    }
+    return prisma.jobFeedIndex.count({ where });
+  };
+  // Full-text prefilters currently have page-dependent windows. Never reuse
+  // those totals, nor applied-state counts without their own version token.
+  if (filters.hideApplied || filters.search || useSqlDemoVisibilityFilter) return load();
+  const key = jobCountCacheKey(filters, viewerProfileId, await getViewerFeedVersion(viewerProfileId));
+  const cached = readTimedCache<number>(key);
+  if (cached !== null) return cached;
+  const inflight = inflightCountStore.get(key);
+  if (inflight) return inflight;
+  const request = load().then((count) => writeTimedCache(key, count, 60_000));
+  inflightCountStore.set(key, request);
+  try {
+    return await request;
+  } finally {
+    inflightCountStore.delete(key);
+  }
 }
 
 // Prisma binds enum filters as parameters, which prevents PostgreSQL from
@@ -671,12 +711,7 @@ function buildRawCompanyVisibilitySql(alias: "jfi" | "jc") {
   `;
 }
 
-async function getDefaultPublicFeedIndexRows(input: {
-  now: Date;
-  viewerProfileId: string | null;
-  skip: number;
-}) {
-  const { now, viewerProfileId, skip } = input;
+function buildRawDefaultPublicFeedWhere(now: Date, viewerProfileId: string | null) {
   const recentSourceCutoff = new Date(now.getTime() - 14 * 86_400_000);
   const recentAliveCutoff = new Date(now.getTime() - 30 * 86_400_000);
   const excludedApplyLinkStatuses = [
@@ -698,11 +733,7 @@ async function getDefaultPublicFeedIndexRows(input: {
       `
     : Prisma.empty;
 
-  return prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
-    SELECT jfi."canonicalJobId"
-    FROM "JobFeedIndex" AS jfi
-    INNER JOIN "JobCanonical" AS jc ON jc.id = jfi."canonicalJobId"
-    WHERE jfi.status = 'LIVE'::"JobStatus"
+  return Prisma.sql`jfi.status = 'LIVE'::"JobStatus"
       AND ${buildRawCompanyVisibilitySql("jfi")}
       AND jc.status = 'LIVE'::"JobStatus"
       AND jc."availabilityScore" >= ${DEFAULT_MIN_AVAILABILITY_SCORE}
@@ -721,6 +752,20 @@ async function getDefaultPublicFeedIndexRows(input: {
       )
       AND ${buildRawCompanyVisibilitySql("jc")}
       ${passedJobFilter}
+  `;
+}
+
+async function getDefaultPublicFeedIndexRows(input: {
+  now: Date;
+  viewerProfileId: string | null;
+  skip: number;
+}) {
+  const { now, viewerProfileId, skip } = input;
+  return prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
+    SELECT jfi."canonicalJobId"
+    FROM "JobFeedIndex" AS jfi
+    INNER JOIN "JobCanonical" AS jc ON jc.id = jfi."canonicalJobId"
+    WHERE ${buildRawDefaultPublicFeedWhere(now, viewerProfileId)}
     ORDER BY
       jfi."rankingScore" DESC,
       jfi."freshnessScore" DESC,
@@ -1079,7 +1124,7 @@ async function getJobsFromFeedIndex(input: {
   const orderBy = buildJobFeedIndexOrderBy(filters.sortBy);
 
   const totalPromise = includeExactTotal
-    ? countJobFeedIndexMatches(where)
+    ? countJobFeedIndexMatches(where, filters, viewerProfileId, now, useSqlDemoVisibilityFilter)
     : Promise.resolve(null);
   const useRawDefaultPublicFeedLookup =
     !includeExactTotal &&
@@ -2920,10 +2965,12 @@ function buildJobsCacheKey(
     salaryMin: filters.salaryMin ?? null,
     salaryMax: filters.salaryMax ?? null,
     salaryCurrency: filters.salaryCurrency ?? null,
+    includeUnknownSalary: filters.includeUnknownSalary ?? false,
     careerStage: filters.careerStage ?? filters.experienceLevel ?? null,
     experienceLevel: filters.experienceLevel ?? null,
     expiry: filters.expiry ?? null,
     posted: filters.posted ?? null,
+    discoveredSince: filters.discoveredSince ?? null,
     submissionCategory: filters.submissionCategory ?? null,
     status: hasNonDefaultJobStatusFilter(filters.status) ? filters.status ?? null : null,
     hideApplied: filters.hideApplied ? 1 : null,
@@ -2953,6 +3000,7 @@ function hasScopedFeedRequest(filters: JobFilterParams) {
     filters.experienceLevel ||
     filters.expiry ||
     filters.posted ||
+    filters.discoveredSince ||
     filters.submissionCategory ||
     hasNonDefaultJobStatusFilter(filters.status) ||
     filters.hideApplied
@@ -3246,6 +3294,7 @@ async function getJobsByRelevance(
 }
 
 export type JobFilterParams = {
+  discoveredSince?: string;
   search?: string;
   searchScope?: JobSearchScope;
   titleSearch?: string;
@@ -3351,6 +3400,7 @@ export async function getJobs(
       );
 
     const where: Prisma.JobCanonicalWhereInput = {};
+    if (filters.discoveredSince) where.firstSeenAt = { gt: new Date(filters.discoveredSince) };
     let searchMatchTotalHint: number | null = null;
 
     if (useSqlDemoVisibilityFilter) {

@@ -59,10 +59,16 @@ export async function runTopPicksRefreshQueue(options: {
         reason: payload.reason ?? "durable_queue",
         candidateLimit: payload.candidateLimit,
         storeLimit: payload.storeLimit,
+        claim: task,
       });
-      await finishTopPicksRefreshTask(task.id, "SUCCESS", {
+      const finished = await finishTopPicksRefreshTask(task, "SUCCESS", {
         lastResult: result,
       });
+      if (!finished || finished.status === "PENDING") {
+        summary.skipped += 1;
+        summary.results.push({ taskId: task.id, status: finished ? "FOLLOW_UP_QUEUED" : "SUPERSEDED" });
+        return;
+      }
       summary.succeeded += 1;
       summary.results.push({
         taskId: task.id,
@@ -75,26 +81,28 @@ export async function runTopPicksRefreshQueue(options: {
     } catch (error) {
       const message = errorMessage(error);
       const shouldRetry = task.attemptCount < task.maxAttempts;
-      if (shouldRetry) {
-        const retryAt = new Date(Date.now() + getTopPicksRetryDelayMs(task.attemptCount));
-        await finishTopPicksRefreshTask(task.id, "FAILED", {
-          lastError: message,
-          retryAt,
-        });
+      const retryAt = shouldRetry ? new Date(Date.now() + getTopPicksRetryDelayMs(task.attemptCount)) : null;
+      const finished = await finishTopPicksRefreshTask(task, "FAILED", {
+        lastError: message,
+        retryAt,
+      });
+      if (!finished) {
+        summary.skipped += 1;
+        summary.results.push({ taskId: task.id, userId: task.userId, status: "SUPERSEDED" });
+        return;
+      }
+      if (finished.status === "PENDING") {
         summary.retried += 1;
         summary.results.push({
           taskId: task.id,
           userId: task.userId,
-          status: "RETRY",
-          retryAt: retryAt.toISOString(),
+          status: finished.requestedVersion > task.claimedVersion ? "FOLLOW_UP_QUEUED" : "RETRY",
+          retryAt: finished.notBeforeAt.toISOString(),
           error: message,
         });
         return;
       }
 
-      await finishTopPicksRefreshTask(task.id, "FAILED", {
-        lastError: message,
-      });
       summary.failed += 1;
       summary.results.push({
         taskId: task.id,

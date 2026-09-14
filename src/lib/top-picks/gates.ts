@@ -1,4 +1,5 @@
 import { DEMO_SOURCE_NAMES } from "@/lib/job-links";
+import { capabilityEvidence, extractCapabilities } from "@/lib/jobs/capabilities";
 
 import {
   TOP_PICK_ADJACENT_ROLE_SCORE_CAP,
@@ -16,6 +17,7 @@ import {
 } from "./intent";
 
 export type TopPickScoringJob = {
+  employmentType?: string | null;
   id: string;
   title: string;
   company: string;
@@ -144,18 +146,6 @@ const ROLE_ADJACENCY: Record<string, string[]> = {
   MEDIA_CONTENT_COMMUNICATIONS: ["MARKETING", "DESIGN_UX"],
 };
 
-const TITLE_SKILL_PATTERNS = [
-  { skill: "typescript", pattern: /\btypescript|javascript|node|react|next\.?js\b/i },
-  { skill: "python", pattern: /\bpython|django|flask|fastapi\b/i },
-  { skill: "java", pattern: /\bjava|spring\b/i },
-  { skill: "sql", pattern: /\bsql|postgres|mysql|snowflake|database\b/i },
-  { skill: "aws", pattern: /\baws|amazon web services|cloud\b/i },
-  { skill: "kubernetes", pattern: /\bkubernetes|k8s|docker|terraform\b/i },
-  { skill: "figma", pattern: /\bfigma|design system|prototype\b/i },
-  { skill: "excel", pattern: /\bexcel|financial modeling|fp&a\b/i },
-  { skill: "salesforce", pattern: /\bsalesforce|crm\b/i },
-  { skill: "tableau", pattern: /\btableau|power bi|looker|dashboard\b/i },
-];
 
 function toDate(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -217,13 +207,8 @@ function inferSeniorityFromTitle(title: string) {
   return null;
 }
 
-function extractSkillsFromText(text: string) {
-  return TITLE_SKILL_PATTERNS
-    .filter((item) => item.pattern.test(text))
-    .map((item) => item.skill);
-}
-
 export function normalizeJobForMatching(job: TopPickScoringJob): NormalizedJobMatchFields {
+  const skillEvidence = capabilityEvidence(job.description ?? "");
   const title = normalizeIntentText(job.title);
   const summary = normalizeIntentText(job.shortSummary);
   const description = normalizeIntentText(job.description);
@@ -269,10 +254,10 @@ export function normalizeJobForMatching(job: TopPickScoringJob): NormalizedJobMa
     salaryMin: job.salaryMin ?? undefined,
     salaryMax: job.salaryMax ?? undefined,
     salaryCurrency: job.salaryCurrency ?? undefined,
-    normalizedSkills: extractSkillsFromText(allText),
-    requiredSkills: extractSkillsFromText(summary),
-    preferredSkills: extractSkillsFromText(description || summary),
-    sourceQualityScore: Math.max(job.qualityScore ?? 0, job.trustScore ?? 0, job.freshnessScore ?? 0),
+    normalizedSkills: extractCapabilities([title, summary, description].join(" ")),
+    requiredSkills: [...new Set(skillEvidence.filter((item) => item.category === "requirements").map((item) => item.skill))],
+    preferredSkills: [...new Set(skillEvidence.filter((item) => item.category === "preferred").map((item) => item.skill))],
+    sourceQualityScore: (job.qualityScore ?? 52) * 0.5 + (job.trustScore ?? 52) * 0.5,
     availabilityScore: job.availabilityScore ?? undefined,
     postedAt: toDate(job.postedAt),
     validThrough: toDate(job.deadline),

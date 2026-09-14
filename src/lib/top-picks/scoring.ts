@@ -1,7 +1,10 @@
 import { convertSalaryAmount } from "@/lib/currency-conversion";
+import { evaluateRequirements } from "@/lib/top-picks/requirements";
+import { extractCapabilities } from "@/lib/jobs/capabilities";
 
 import {
   TOP_PICK_SCORING_WEIGHTS,
+  TOP_PICKS_ALGORITHM_VERSION,
   TOP_PICK_UNKNOWN_ROLE_SCORE_CAP,
 } from "./config";
 import {
@@ -111,42 +114,42 @@ function seniorityScore(seniorityGate: SeniorityGateResult) {
   return 0;
 }
 
-// Short skills ("ai", "go", "ml", "qa", "ux", "r", "c") match far too eagerly as
-// bare substrings ("go" in "category", "ai" in "available", "ml" in "html"), so
-// require them to appear as a whole token. Longer skills keep cheap substring
-// matching, where accidental collisions are rare.
 function skillMatchesText(skill: string, text: string): boolean {
-  if (skill.length > 3) {
-    return text.includes(skill);
-  }
   const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(text);
 }
 
 function scoreSkillFit(intent: UserJobIntent, job: NormalizedJobMatchFields) {
-  const skillWeights = new Map<string, number>();
-  for (const skill of intent.mustHaveSkills) skillWeights.set(skill, 3);
-  for (const skill of intent.strongSkills) skillWeights.set(skill, Math.max(skillWeights.get(skill) ?? 0, 2));
-  for (const skill of intent.niceToHaveSkills) skillWeights.set(skill, Math.max(skillWeights.get(skill) ?? 0, 1));
-  const rankedSkills = [...skillWeights.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 30);
-  if (rankedSkills.length === 0) return { score: 50, matched: [] as string[] };
-
-  const text = job.jobTextSearch;
+  const profileSkills = unique([...intent.mustHaveSkills, ...intent.strongSkills, ...intent.niceToHaveSkills], 200);
+  const knownSkills = new Set(profileSkills.flatMap((skill) => [skill, ...extractCapabilities(skill)]).map(normalizeIntentText));
+  // Measure coverage of the posting, not the fraction of a person's entire skill set it mentions.
+  const requirements = new Map<string, number>();
+  for (const skill of job.preferredSkills) requirements.set(normalizeIntentText(skill), 1);
+  for (const skill of job.requiredSkills) requirements.set(normalizeIntentText(skill), 3);
+  const explicitRequirements = requirements.size > 0;
+  if (!explicitRequirements) {
+    for (const skill of job.normalizedSkills) requirements.set(normalizeIntentText(skill), 1);
+    for (const skill of profileSkills) {
+      if (skillMatchesText(skill, job.jobTextSearch) && !extractCapabilities(skill).length) requirements.set(skill, 1);
+    }
+  }
+  if (!requirements.size) return { score: 50, matched: [] as string[], missingRequired: [] as string[], evidence: "unknown" };
   let possible = 0;
   let matchedWeight = 0;
   const matched: string[] = [];
-  for (const [skill, weight] of rankedSkills) {
+  const missingRequired: string[] = [];
+  for (const [skill, weight] of requirements) {
     possible += weight;
-    if (skillMatchesText(skill, text)) {
+    if (knownSkills.has(skill)) {
       matchedWeight += weight;
       matched.push(skill);
-    }
+    } else if (weight === 3) missingRequired.push(skill);
   }
   return {
     score: clamp((matchedWeight / Math.max(1, possible)) * 100),
     matched: matched.slice(0, 6),
+    missingRequired,
+    evidence: explicitRequirements ? "source_requirements" : "posting_mentions",
   };
 }
 
@@ -197,24 +200,21 @@ function scoreSalaryFit(intent: UserJobIntent, job: NormalizedJobMatchFields) {
 
   const targetMin = intent.targetSalaryMin ?? 0;
   const targetMax = intent.targetSalaryMax ?? Number.MAX_SAFE_INTEGER;
-  // Compare like-for-like: convert the job salary into the intent's target
-  // currency before measuring overlap. A missing job currency is assumed to
-  // already be in the target currency (identity conversion). When a rate is
-  // unavailable (unsupported currency on either side), skip the salary
-  // component and treat fit as unknown rather than comparing mismatched units.
-  const targetCurrency = intent.targetSalaryCurrency ?? "USD";
-  const jobCurrency = job.salaryCurrency ?? targetCurrency;
+  const targetCurrency = intent.targetSalaryCurrency;
+  const jobCurrency = job.salaryCurrency;
+  if (!targetCurrency || !jobCurrency) return { score: 52, unknown: true };
   const rawJobMin = job.salaryMin ?? job.salaryMax ?? 0;
   const rawJobMax = job.salaryMax ?? job.salaryMin ?? Number.MAX_SAFE_INTEGER;
   const jobMin = convertSalaryAmount(rawJobMin, jobCurrency, targetCurrency);
   const jobMax = convertSalaryAmount(rawJobMax, jobCurrency, targetCurrency);
   if (jobMin == null || jobMax == null) return { score: 52, unknown: true };
 
-  const overlap = Math.max(0, Math.min(targetMax, jobMax) - Math.max(targetMin, jobMin));
+  if (jobMax < targetMin) return { score: jobMax >= targetMin * 0.9 ? 58 : 30, unknown: false };
+  // A salary above the target is not a mismatch; fixed offers and minimum-only targets also qualify.
+  if (jobMin >= targetMin) return { score: 100, unknown: false };
+  const overlap = Math.max(0, Math.min(targetMax, jobMax) - targetMin);
   const targetWidth = Math.max(1, targetMax - targetMin);
-  if (overlap > 0) return { score: clamp(74 + (overlap / targetWidth) * 26), unknown: false };
-  if (jobMax >= targetMin * 0.9) return { score: 58, unknown: false };
-  return { score: 30, unknown: false };
+  return { score: clamp(74 + (overlap / targetWidth) * 26), unknown: false };
 }
 
 function scoreFreshness(job: NormalizedJobMatchFields) {
@@ -227,19 +227,16 @@ function scoreFreshness(job: NormalizedJobMatchFields) {
 }
 
 function scoreSourceQuality(job: NormalizedJobMatchFields) {
-  return clamp(job.sourceQualityScore && job.sourceQualityScore > 0 ? job.sourceQualityScore : 52);
+  return clamp(job.sourceQualityScore ?? 52);
 }
 
 function scoreSemanticText(intent: UserJobIntent, job: NormalizedJobMatchFields) {
   const targets = unique([
     ...intent.explicitTargetTitles,
     ...intent.inferredTargetTitles,
-    ...intent.mustHaveSkills,
-    ...intent.strongSkills,
   ], 30);
   if (targets.length === 0) return 50;
-  const matched = targets.filter((term) => job.jobTextSearch.includes(term));
-  return clamp((matched.length / Math.min(targets.length, 12)) * 100);
+  return targets.some((term) => skillMatchesText(term, job.normalizedTitle)) ? 100 : 50;
 }
 
 function scoreTopApplicantFit(input: {
@@ -330,13 +327,13 @@ function generateReasons(input: {
     (input.roleGate.strength === "exact" || input.roleGate.strength === "strong") &&
     input.seniorityGate.strength !== "weak"
   ) {
-    reasons.push("Strong applicant fit for this posting.");
+    reasons.push("Strong alignment with your profile.");
   }
   if (input.locationWorkModeFit >= 78) {
     reasons.push("Location or work mode matches your preferences.");
   }
   if (input.salaryFit.score >= 72 && !input.salaryFit.unknown) {
-    reasons.push("Salary range overlaps with your target.");
+    reasons.push("Listed salary meets or overlaps your target.");
   }
   if (reasons.length < 2 && input.freshness >= 90) {
     reasons.push("Recently posted.");
@@ -359,12 +356,19 @@ function generateConcerns(input: {
   if (input.roleGate.strength === "weak") concerns.push("Role fit is based on title evidence, so confidence is lower.");
   if (input.seniorityGate.strength === "stretch") concerns.push("This role may be a seniority stretch.");
   if (input.seniorityGate.strength === "weak") concerns.push("Seniority is not clearly listed.");
-  if (input.salaryUnknown) concerns.push("Salary is not listed, so salary fit is uncertain.");
+  if (input.salaryUnknown) concerns.push("Salary or currency is missing or cannot be compared reliably.");
   if (input.locationWorkModeFit < 45) concerns.push("Location or work mode may be outside your preference.");
   if (!input.job.roleCategory || input.job.roleCategoryConfidence < 0.6) {
     concerns.push("Job function classification is lower confidence.");
   }
   return concerns.slice(0, 3);
+}
+
+export function needsSourceDescriptionForScoring(intent: UserJobIntent, sourceJob: TopPickScoringJob, history: TopPickUserHistory) {
+  // These gates depend only on title, classification, lifecycle and feedback,
+  // so a source description cannot rescue a rejected candidate.
+  const job = normalizeJobForMatching({ ...sourceJob, description: null });
+  return evaluateEligibilityGate(job, intent).passed && !history.excludedJobIds.has(job.jobId) && evaluateRoleGate(job, intent).passed;
 }
 
 export function scoreJobForUser(
@@ -374,6 +378,8 @@ export function scoreJobForUser(
   context: ScoreContext = {}
 ): TopPickScoreResult {
   const job = normalizeJobForMatching(sourceJob);
+  const requirements = intent.requirements ? evaluateRequirements(intent.requirements, { ...sourceJob, employmentType: sourceJob.employmentType ?? sourceJob.employmentTypeGroup }) : { passed: true, conflicts: [], unknown: [] };
+  if (!requirements.passed) return rejectResult(job.jobId, "hard_requirement", { eligibilityGate: { passed: false, reason: "hard_requirement", details: requirements }, concerns: [...requirements.conflicts, ...requirements.unknown.map((item) => `${item} is not stated`)] });
   const eligibilityGate = evaluateEligibilityGate(job, intent);
   if (!eligibilityGate.passed) {
     return rejectResult(job.jobId, eligibilityGate.reason ?? "eligibility_rejected", {
@@ -434,7 +440,7 @@ export function scoreJobForUser(
     sourceQualityFit: rounded(sourceQualityFit),
     feedbackFit: rounded(feedbackFit),
   };
-  const totalWeight = Object.values(TOP_PICK_SCORING_WEIGHTS).reduce((sum, weight) => sum + weight, 0);
+  const totalWeight = Object.values(TOP_PICK_SCORING_WEIGHTS).reduce<number>((sum, weight) => sum + weight, 0);
   const rawScore =
     (components.roleFit * TOP_PICK_SCORING_WEIGHTS.roleFit +
       components.seniorityFit * TOP_PICK_SCORING_WEIGHTS.seniorityFit +
@@ -464,13 +470,14 @@ export function scoreJobForUser(
     warnings.push("years_requirement_cap");
   }
   const score = rounded(Math.min(rawScore, scoreCap));
-  const concerns = generateConcerns({
+  const concerns = [...requirements.unknown.map((item) => `${item} is not stated; check the source before applying.`),
+    ...(skillFit.missingRequired.length ? [`Required skills not found in your profile: ${skillFit.missingRequired.slice(0, 4).join(", ")}.`] : []), ...generateConcerns({
     roleGate,
     seniorityGate,
     salaryUnknown: salaryFit.unknown,
     locationWorkModeFit,
     job,
-  });
+  })].slice(0, 3);
 
   return {
     jobId: job.jobId,
@@ -478,8 +485,8 @@ export function scoreJobForUser(
     rawScore: rounded(rawScore),
     scoreCap,
     scoreBreakdown: {
-      version: "top-picks-v2",
-      strategy: "linkedin-style-preferences-profile-top-applicant-proxy",
+      version: TOP_PICKS_ALGORITHM_VERSION,
+      strategy: "requirements-coverage-and-profile-fit",
       candidateChannels: context.candidateChannels ?? [],
       components,
       rawScore: rounded(rawScore),
@@ -489,6 +496,8 @@ export function scoreJobForUser(
       seniorityGate,
       eligibilityGate,
       matchedSkills: skillFit.matched,
+      missingRequiredSkills: skillFit.missingRequired,
+      skillEvidence: skillFit.evidence,
       warnings,
       roleCategory: job.roleCategory,
       roleCategoryConfidence: job.roleCategoryConfidence,

@@ -107,22 +107,28 @@ export function formatRelativeAge(
 export function formatSalary(
   salaryMin: number | null,
   salaryMax: number | null,
-  salaryCurrency: string | null
+  salaryCurrency: string | null,
+  salaryPeriod?: string | null
 ) {
   if (!salaryMin && !salaryMax) return "";
 
+  // Stored bounds are annualized for filtering; show the source pay period.
+  const factors: Record<string, number> = { hour: 2080, day: 260, week: 52, month: 12, year: 1 };
+  const period = salaryPeriod && Object.hasOwn(factors, salaryPeriod) ? salaryPeriod : "year";
+  const factor = factors[period];
   const formatter = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: salaryCurrency ?? "USD",
-    maximumFractionDigits: 0,
+    currencyDisplay: "code",
+    maximumFractionDigits: period === "year" ? 0 : 2,
   });
 
   if (salaryMin && salaryMax) {
-    return `${formatter.format(salaryMin)} - ${formatter.format(salaryMax)}`;
+    return `${formatter.format(salaryMin / factor)} - ${formatter.format(salaryMax / factor)}/${period}`;
   }
 
-  if (salaryMin) return `${formatter.format(salaryMin)}+`;
-  return `Up to ${formatter.format(salaryMax ?? 0)}`;
+  if (salaryMin) return `${formatter.format(salaryMin / factor)}+/${period}`;
+  return `Up to ${formatter.format((salaryMax ?? 0) / factor)}/${period}`;
 }
 
 function toDateValue(value: string | Date) {

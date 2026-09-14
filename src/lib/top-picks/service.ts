@@ -5,6 +5,9 @@ import {
   type WorkMode,
 } from "@/generated/prisma/client";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
+import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
+import { loadScoringDescriptions } from "@/lib/top-picks/source-descriptions";
+import { mergeCandidateChannels, selectTopPicks } from "./selection";
 import { prisma } from "@/lib/db";
 import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
 import {
@@ -16,6 +19,7 @@ import {
 
 import {
   TOP_PICK_MIN_SCORE,
+  TOP_PICKS_ALGORITHM_VERSION,
   TOP_PICKS_CANDIDATE_LIMIT,
   TOP_PICKS_RESULT_TTL_MS,
   TOP_PICKS_STORE_LIMIT,
@@ -29,6 +33,7 @@ import {
   type UserJobIntent,
 } from "./intent";
 import {
+  needsSourceDescriptionForScoring,
   scoreJobForUser,
   type TopPickScoreResult,
   type TopPickScoringJob,
@@ -37,6 +42,8 @@ import {
 import {
   enqueueDurableTopPicksRefresh,
   getTopPicksRefreshTaskStatus,
+  topPicksClaimWhere,
+  type TopPicksRefreshClaim,
 } from "./refresh-queue";
 
 const MAX_CHANNEL_LIMIT = 5000;
@@ -69,6 +76,7 @@ export const TOP_PICK_JOB_SELECT = (
     salaryMin: true,
     salaryMax: true,
     salaryCurrency: true,
+    salaryPeriod: true,
     shortSummary: true,
     description: true,
     applyUrl: true,
@@ -119,6 +127,7 @@ export type TopPickJobRecord = PrismaTypes.JobCanonicalGetPayload<{
 }>;
 
 const TOP_PICK_SCORING_JOB_SELECT = {
+  employmentType: true,
   id: true,
   title: true,
   company: true,
@@ -154,6 +163,7 @@ export type TopPickScoringJobRecord = PrismaTypes.JobCanonicalGetPayload<{
 }>;
 
 export type RefreshTopPicksResult = {
+  algorithmVersion: string;
   userId: string;
   profileVersion: number;
   candidateCount: number;
@@ -194,7 +204,15 @@ function normalizeText(value: string | null | undefined) {
 }
 
 export async function buildAndStoreUserMatchProfile(userId: string) {
-  const profile = await prisma.userProfile.findUnique({
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${userId} FOR UPDATE`;
+    return buildUserMatchProfileSnapshot(tx, userId);
+  });
+}
+
+async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, userId: string) {
+  const requirements = await tx.userPreference.findUnique({ where: { userId_key: { userId, key: REQUIREMENTS_KEY } }, select: { value: true } });
+  const profile = await tx.userProfile.findUnique({
     where: { id: userId },
     select: {
       id: true,
@@ -237,12 +255,12 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
   if (!profile) return null;
 
   const [existing, applications, feedback] = await Promise.all([
-    prisma.userMatchProfile.findUnique({
+    tx.userMatchProfile.findUnique({
       where: { userId },
       select: { profileHash: true, profileVersion: true },
     }),
     profile.authUserId
-      ? prisma.trackedApplication.findMany({
+      ? tx.trackedApplication.findMany({
           where: {
             userId: profile.authUserId,
             canonicalJobId: { not: null },
@@ -264,7 +282,7 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
           },
         })
       : Promise.resolve([]),
-    prisma.userJobPreferenceFeedback.findMany({
+    tx.userJobPreferenceFeedback.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 500,
@@ -290,6 +308,7 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
   const projects = normalizeProjects(profile.projectsJson);
 
   const preliminaryIntent = buildUserJobIntent({
+    requirements: parseRequirements(requirements?.value),
     userId: profile.id,
     profileVersion: existing?.profileVersion ?? 1,
     headline: profile.headline,
@@ -341,7 +360,7 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
     experienceSummary: intent.experienceSummary,
   };
 
-  await prisma.userMatchProfile.upsert({
+  await tx.userMatchProfile.upsert({
     where: { userId },
     create: {
       ...snapshot,
@@ -419,13 +438,17 @@ function assessStoredProfileSignal(
   };
 }
 
-function buildBaseFeedWhere(history?: TopPickUserHistory): PrismaTypes.JobFeedIndexWhereInput {
+function buildBaseFeedWhere(history?: TopPickUserHistory, intent?: UserJobIntent): PrismaTypes.JobFeedIndexWhereInput {
+  const requirements = intent?.requirements;
+  const requiredWhere: PrismaTypes.JobCanonicalWhereInput[] = [];
+  if (requirements?.workModes.length) requiredWhere.push({ workMode: { in: [...requirements.workModes, ...(requirements.unknownPolicy === "include" ? ["UNKNOWN" as const] : [])] } });
+  if (requirements?.employmentTypes.length) requiredWhere.push({ employmentType: { in: [...requirements.employmentTypes, ...(requirements.unknownPolicy === "include" ? ["UNKNOWN" as const] : [])] } });
   const excluded = history ? [...history.excludedJobIds] : [];
   return {
     status: "LIVE",
     ...(excluded.length > 0 ? { canonicalJobId: { notIn: excluded } } : {}),
     canonicalJob: {
-      is: buildDefaultCanonicalVisibilityWhere(),
+      is: { AND: [buildDefaultCanonicalVisibilityWhere(), ...requiredWhere] },
     },
     OR: [{ deadline: null }, { deadline: { gte: new Date() } }],
     AND: [
@@ -454,7 +477,9 @@ async function fetchCandidateIds(
   const rows = await prisma.jobFeedIndex.findMany({
     where,
     select: { canonicalJobId: true },
-    orderBy: [{ rankingScore: "desc" }, { postedAt: "desc" }],
+    orderBy: channel === "fresh_quality_inside_role"
+      ? [{ postedAt: "desc" }, { rankingScore: "desc" }, { canonicalJobId: "asc" }]
+      : [{ rankingScore: "desc" }, { postedAt: "desc" }, { canonicalJobId: "asc" }],
     take: Math.min(limit, MAX_CHANNEL_LIMIT),
   });
   return { channel, ids: rows.map((row) => row.canonicalJobId) };
@@ -465,35 +490,13 @@ export type TopPickCandidate = {
   channels: string[];
 };
 
-function mergeCandidateChannels(
-  batches: Array<{ channel: string; ids: string[] }>,
-  limit: number
-) {
-  const channelsById = new Map<string, Set<string>>();
-  const output: string[] = [];
-  const candidatesByChannel: Record<string, number> = {};
-  for (const batch of batches) {
-    candidatesByChannel[batch.channel] = batch.ids.length;
-    for (const id of batch.ids) {
-      let channels = channelsById.get(id);
-      if (!channels) {
-        if (output.length >= limit) continue;
-        channels = new Set<string>();
-        channelsById.set(id, channels);
-        output.push(id);
-      }
-      channels.add(batch.channel);
-    }
-  }
-  return { ids: output, channelsById, candidatesByChannel };
-}
-
 export async function retrieveTopPickCandidates(
   intent: UserJobIntent,
   options: { limit?: number; history?: TopPickUserHistory } = {}
 ): Promise<{ candidates: TopPickCandidate[]; candidatesByChannel: Record<string, number> }> {
-  const limit = options.limit ?? TOP_PICKS_CANDIDATE_LIMIT;
-  const baseWhere = buildBaseFeedWhere(options.history);
+  const requestedLimit = options.limit ?? TOP_PICKS_CANDIDATE_LIMIT;
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20000, Math.floor(requestedLimit))) : 20000;
+  const baseWhere = buildBaseFeedWhere(options.history, intent);
   const allowedRoles = getAllowedRoleCategories(intent);
   const roleCompatibleWhere: PrismaTypes.JobFeedIndexWhereInput =
     allowedRoles.length > 0
@@ -512,8 +515,8 @@ export async function retrieveTopPickCandidates(
           ],
         }
       : {};
-  const largestChannelLimit = Math.max(1200, Math.ceil(limit / 2));
-  const smallChannelLimit = Math.max(500, Math.ceil(limit / 5));
+  const largestChannelLimit = Math.min(MAX_CHANNEL_LIMIT, limit, Math.max(30, Math.ceil(limit / 2)));
+  const smallChannelLimit = Math.min(MAX_CHANNEL_LIMIT, limit, Math.max(15, Math.ceil(limit / 5)));
   const candidateBatchPromises: Array<Promise<{ channel: string; ids: string[] }>> = [];
 
   if (intent.explicitTargetRoleCategories.length > 0) {
@@ -523,7 +526,7 @@ export async function retrieveTopPickCandidates(
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.explicitTargetRoleCategories },
           normalizedRoleCategoryConfidence: { gte: 0.7 },
-          ...seniorityWhere,
+          AND: [seniorityWhere],
         }),
         largestChannelLimit
       )
@@ -537,7 +540,7 @@ export async function retrieveTopPickCandidates(
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.inferredTargetRoleCategories },
           normalizedRoleCategoryConfidence: { gte: 0.7 },
-          ...seniorityWhere,
+          AND: [seniorityWhere],
         }),
         largestChannelLimit
       )
@@ -553,7 +556,7 @@ export async function retrieveTopPickCandidates(
       fetchCandidateIds(
         "target_title",
         andFeedWhere(baseWhere, {
-          ...seniorityWhere,
+          AND: [seniorityWhere],
           OR: titleTerms.map((term) => ({
             title: { contains: term, mode: "insensitive" as const },
           })),
@@ -572,7 +575,7 @@ export async function retrieveTopPickCandidates(
         "skill_inside_compatible_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
-          ...seniorityWhere,
+          AND: [seniorityWhere],
           OR: skills.map((skill) => ({
             searchText: { contains: skill, mode: "insensitive" as const },
           })),
@@ -605,7 +608,7 @@ export async function retrieveTopPickCandidates(
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.positiveSignals.likedRoleCategories },
           normalizedRoleCategoryConfidence: { gte: 0.66 },
-          ...seniorityWhere,
+          AND: [seniorityWhere],
         }),
         smallChannelLimit
       )
@@ -621,7 +624,7 @@ export async function retrieveTopPickCandidates(
       fetchCandidateIds(
         "positive_feedback_title",
         andFeedWhere(baseWhere, {
-          ...seniorityWhere,
+          AND: [seniorityWhere],
           OR: likedTitleTerms.map((title) => ({
             title: { contains: title, mode: "insensitive" as const },
           })),
@@ -642,7 +645,7 @@ export async function retrieveTopPickCandidates(
         "location_work_mode_inside_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
-          ...seniorityWhere,
+          AND: [seniorityWhere],
           OR: [
             ...locationTerms.map((location) => ({
               location: { contains: location, mode: "insensitive" as const },
@@ -663,7 +666,7 @@ export async function retrieveTopPickCandidates(
         "top_applicant_proxy",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
-          ...seniorityWhere,
+          AND: [seniorityWhere],
           qualityScore: { gte: 55 },
           trustScore: { gte: 50 },
         }),
@@ -675,7 +678,7 @@ export async function retrieveTopPickCandidates(
         "fresh_quality_inside_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
-          ...seniorityWhere,
+          AND: [seniorityWhere],
         }),
         smallChannelLimit
       )
@@ -753,13 +756,7 @@ export async function loadUserTopPickHistory(userId: string): Promise<TopPickUse
   const tooJuniorRoleCategories = new Set<string>();
 
   for (const item of feedback) {
-    if (
-      item.feedbackType === "NOT_INTERESTED" ||
-      item.feedbackType === "LOW_QUALITY" ||
-      item.feedbackType === "ALREADY_SEEN"
-    ) {
-      excludedJobIds.add(item.jobId);
-    }
+    excludedJobIds.add(item.jobId);
     if (item.feedbackType === "WRONG_ROLE" && item.job.normalizedRoleCategory) {
       suppressedRoleCategories.add(item.job.normalizedRoleCategory);
     }
@@ -794,6 +791,7 @@ export async function loadUserTopPickHistory(userId: string): Promise<TopPickUse
 
 function toScoringJob(job: TopPickScoringJobRecord): TopPickScoringJob {
   return {
+    employmentType: job.employmentType,
     id: job.id,
     title: job.title,
     company: job.company,
@@ -825,31 +823,6 @@ function toScoringJob(job: TopPickScoringJobRecord): TopPickScoringJob {
   };
 }
 
-function dedupeTopPickResults(
-  scored: Array<TopPickScoreResult & { job: TopPickScoringJobRecord }>
-) {
-  const seen = new Set<string>();
-  const output: Array<TopPickScoreResult & { job: TopPickScoringJobRecord }> = [];
-  const companyCounts = new Map<string, number>();
-
-  for (const item of scored) {
-    const companyKey = normalizeText(item.job.company);
-    const count = companyCounts.get(companyKey) ?? 0;
-    if (count >= 8 && output.length >= 20) continue;
-    const key = [
-      normalizeText(item.job.company),
-      normalizeText(item.job.title).replace(/\([^)]*\)/g, "").trim(),
-      normalizeText(item.job.location),
-    ].join("::");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    companyCounts.set(companyKey, count + 1);
-    output.push(item);
-  }
-
-  return output;
-}
-
 function incrementCounter(record: Record<string, number>, key?: string) {
   const normalized = key || "unknown";
   record[normalized] = (record[normalized] ?? 0) + 1;
@@ -862,6 +835,7 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue {
 export async function replaceUserTopPicks(input: {
   userId: string;
   profileVersion: number;
+  claim?: TopPicksRefreshClaim;
   picks: Array<TopPickScoreResult & { job: TopPickScoringJobRecord }>;
 }) {
   const now = new Date();
@@ -869,6 +843,19 @@ export async function replaceUserTopPicks(input: {
   const jobIds = input.picks.map((pick) => pick.job.id);
 
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${input.userId} FOR UPDATE`;
+    if (input.claim) {
+      await tx.$queryRaw`SELECT id FROM "TopPickRefreshTask" WHERE id = ${input.claim.id} FOR UPDATE`;
+      const activeClaim = await tx.topPickRefreshTask.findFirst({ where: {
+        ...topPicksClaimWhere(input.claim), userId: input.userId,
+        requestedVersion: input.claim.claimedVersion, leaseExpiresAt: { gt: new Date() },
+      }, select: { id: true } });
+      if (!activeClaim) throw new Error("Refresh was superseded or its lease expired; discard this result.");
+    }
+    const current = await tx.userMatchProfile.findUnique({ where: { userId: input.userId }, select: { profileVersion: true } });
+    if (current && current.profileVersion !== input.profileVersion) {
+      throw new Error("Match settings changed during refresh; retry with the current profile.");
+    }
     if (jobIds.length > 0) {
       await tx.userTopPick.updateMany({
         where: {
@@ -928,7 +915,7 @@ export async function replaceUserTopPicks(input: {
 
 export async function refreshTopPicksForUser(
   userId: string,
-  options: { reason?: string; candidateLimit?: number; storeLimit?: number } = {}
+  options: { reason?: string; candidateLimit?: number; storeLimit?: number; claim?: TopPicksRefreshClaim } = {}
 ): Promise<RefreshTopPicksResult> {
   const startedAt = Date.now();
   const profile = await buildAndStoreUserMatchProfile(userId);
@@ -936,9 +923,11 @@ export async function refreshTopPicksForUser(
     await replaceUserTopPicks({
       userId,
       profileVersion: profile?.profileVersion ?? 1,
+      claim: options.claim,
       picks: [],
     });
     return {
+      algorithmVersion: TOP_PICKS_ALGORITHM_VERSION,
       userId,
       profileVersion: profile?.profileVersion ?? 1,
       candidateCount: 0,
@@ -955,12 +944,18 @@ export async function refreshTopPicksForUser(
     limit: options.candidateLimit ?? TOP_PICKS_CANDIDATE_LIMIT,
     history,
   });
-  const scored = candidates.map((candidate) => ({
-    ...scoreJobForUser(profile, toScoringJob(candidate.job), history, {
-      candidateChannels: candidate.channels,
-    }),
-    job: candidate.job,
-  }));
+  const scored: Array<TopPickScoreResult & { job: TopPickScoringJobRecord }> = [];
+  // Keep full source text bounded independently of the candidate pool size.
+  for (let offset = 0; offset < candidates.length; offset += 40) {
+    const batch = candidates.slice(offset, offset + 40);
+    const descriptions = await loadScoringDescriptions(batch
+      .filter((candidate) => needsSourceDescriptionForScoring(profile, toScoringJob(candidate.job), history))
+      .map((candidate) => candidate.job));
+    for (const candidate of batch) scored.push({
+      ...scoreJobForUser(profile, { ...toScoringJob(candidate.job), description: descriptions.get(candidate.job.id) ?? null }, history, { candidateChannels: candidate.channels }),
+      job: candidate.job,
+    });
+  }
   const rejectedByEligibilityReason: Record<string, number> = {};
   const rejectedByRoleReason: Record<string, number> = {};
   const rejectedBySeniorityReason: Record<string, number> = {};
@@ -984,10 +979,8 @@ export async function refreshTopPicksForUser(
   const filtered = scored
     .filter((item) => !item.excluded && item.score >= TOP_PICK_MIN_SCORE)
     .sort((left, right) => right.score - left.score);
-  const top = dedupeTopPickResults(filtered).slice(
-    0,
-    options.storeLimit ?? TOP_PICKS_STORE_LIMIT
-  );
+  const storeLimit = Number.isFinite(options.storeLimit) ? Math.max(1, Math.min(300, Math.floor(options.storeLimit!))) : TOP_PICKS_STORE_LIMIT;
+  const top = selectTopPicks(filtered, storeLimit);
 
   for (const item of top) {
     incrementCounter(finalRoleDistribution, item.job.normalizedRoleCategory ?? "unknown");
@@ -999,6 +992,7 @@ export async function refreshTopPicksForUser(
   await replaceUserTopPicks({
     userId,
     profileVersion: profile.profileVersion,
+    claim: options.claim,
     picks: top,
   });
 
@@ -1007,6 +1001,7 @@ export async function refreshTopPicksForUser(
       ? Math.round(top.reduce((sum, pick) => sum + pick.score, 0) / top.length)
       : 0;
   const result = {
+    algorithmVersion: TOP_PICKS_ALGORITHM_VERSION,
     userId,
     profileVersion: profile.profileVersion,
     candidateCount: candidates.length,
@@ -1024,7 +1019,7 @@ export async function refreshTopPicksForUser(
     ...result,
     reason: options.reason ?? "manual",
     topScore: top[0]?.score ?? 0,
-    lowestStoredScore: top.at(-1)?.score ?? 0,
+    lowestStoredScore: top.length ? Math.min(...top.map((pick) => pick.score)) : 0,
     finalRoleDistribution,
     finalSeniorityDistribution,
     finalLocationDistribution,
@@ -1083,25 +1078,36 @@ export async function getTopPicksRefreshStatus(userId: string) {
   );
   const visibleTopPickWhere = {
     userId,
+    profileVersion: profile?.profileVersion ?? -1,
     isValid: true,
     expiresAt: { gt: new Date() },
     job: {
-      is: buildDefaultCanonicalVisibilityWhere(),
+      is: { AND: [buildDefaultCanonicalVisibilityWhere(), { preferenceFeedback: { none: { userId } } }] },
     },
   } satisfies PrismaTypes.UserTopPickWhereInput;
   const [latestPick, validCount] = await Promise.all([
     prisma.userTopPick.findFirst({
       where: visibleTopPickWhere,
       orderBy: { computedAt: "desc" },
-      select: { computedAt: true, expiresAt: true, profileVersion: true },
+      select: { computedAt: true, expiresAt: true, profileVersion: true, scoreBreakdown: true },
     }),
     prisma.userTopPick.count({ where: visibleTopPickWhere }),
   ]);
   const now = new Date();
+  const lastResult = refreshTask?.lastResult;
+  const freshEmptyResult = refreshTask?.status === "SUCCESS" && refreshTask.finishedAt &&
+    refreshTask.finishedAt.getTime() + TOP_PICKS_RESULT_TTL_MS > now.getTime() &&
+    lastResult && typeof lastResult === "object" && !Array.isArray(lastResult) &&
+    lastResult.profileVersion === profile?.profileVersion && lastResult.storedCount === 0 &&
+    lastResult.algorithmVersion === TOP_PICKS_ALGORITHM_VERSION;
+  const breakdown = latestPick?.scoreBreakdown;
+  const oldAlgorithm = breakdown && typeof breakdown === "object" && !Array.isArray(breakdown) &&
+    typeof breakdown.version === "string" && breakdown.version !== TOP_PICKS_ALGORITHM_VERSION;
   const stale =
-    !latestPick ||
-    latestPick.expiresAt <= now ||
-    (profile ? latestPick.profileVersion !== profile.profileVersion : false);
+    (!latestPick && !freshEmptyResult) || Boolean(oldAlgorithm) ||
+    Boolean(latestPick && (latestPick.expiresAt <= now || latestPick.profileVersion !== profile?.profileVersion));
+  const computedAt = latestPick?.computedAt ?? (freshEmptyResult ? refreshTask.finishedAt : null);
+  const expiresAt = latestPick?.expiresAt ?? (computedAt ? new Date(computedAt.getTime() + TOP_PICKS_RESULT_TTL_MS) : null);
   return {
     hasProfileSnapshot: Boolean(profile),
     profileReady: profileReadiness.canGenerate,
@@ -1109,8 +1115,8 @@ export async function getTopPicksRefreshStatus(userId: string) {
     missingProfileSignals: profileReadiness.missingSignals,
     profileReadinessMessage: profileReadiness.message,
     profileVersion: profile?.profileVersion ?? null,
-    lastComputedAt: latestPick?.computedAt.toISOString() ?? null,
-    expiresAt: latestPick?.expiresAt.toISOString() ?? null,
+    lastComputedAt: computedAt?.toISOString() ?? null,
+    expiresAt: expiresAt?.toISOString() ?? null,
     validCount,
     refreshing: Boolean(refreshTask?.active),
     refreshTask: refreshTask

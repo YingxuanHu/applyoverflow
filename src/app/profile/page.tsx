@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { getOptionalSessionUser, requireCurrentProfileId } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { buildProfileFormValues } from "@/lib/profile";
+import { MatchRequirementsForm } from "@/components/profile/match-requirements-form";
+import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
 
 type ProfileSummary = {
   headline: boolean;
@@ -53,6 +55,7 @@ export default async function ProfilePage() {
   }
 
   const profileId = await requireCurrentProfileId();
+  const requirements = await prisma.userPreference.findUnique({ where: { userId_key: { userId: profileId, key: REQUIREMENTS_KEY } }, select: { value: true } });
   const profile = await prisma.userProfile.findUnique({
     where: { id: profileId },
     select: {
@@ -88,7 +91,7 @@ export default async function ProfilePage() {
   return (
     <div className="app-page space-y-6">
       <header className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0 max-w-full">
           <h1 className="page-title">Profile</h1>
           <p className="page-description">
             Personal information, experience, and job preferences used to tailor your search and applications.
@@ -100,6 +103,7 @@ export default async function ProfilePage() {
         </Button>
       </header>
 
+      <MatchRequirementsForm initial={parseRequirements(requirements?.value)} />
       <section className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}

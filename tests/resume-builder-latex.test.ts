@@ -45,6 +45,8 @@ test("unified resume output follows the fixed moderncv builder hierarchy", () =>
   });
 
   assert.match(tex, /\\moderncvstyle\[nosymbols\]\{banking\}/);
+  assert.match(tex, /\\moderncvicons\{letters\}/);
+  assert.doesNotMatch(tex, /fontawesome|\\fa[A-Z]/);
   assert.match(tex, /\\extrainfo\{%/);
   assert.match(tex, /\\patchcmd\{\\makehead\}/);
   assert.match(tex, /\\section\{Recent Projects\}/);

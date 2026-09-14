@@ -9,6 +9,7 @@ import {
 } from "@/lib/api-utils";
 import { API_RATE_LIMITS } from "@/lib/api-rate-limit";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
+import { parseDiscoveredSince } from "@/lib/jobs/saved-searches";
 import {
   normalizeUserTimeZone,
   USER_TIME_ZONE_COOKIE,
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const searchScope = sp.get("searchScope");
     const filters: JobFilterParams = {
+      discoveredSince: parseDiscoveredSince(sp.get("discoveredSince")),
       search: sp.get("search") ?? undefined,
       searchScope:
         searchScope === "title" ||

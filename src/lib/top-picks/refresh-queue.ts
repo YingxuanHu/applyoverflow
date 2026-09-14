@@ -46,6 +46,12 @@ function normalizePositiveLimit(value: number | undefined) {
   return Number.isFinite(value) && value && value > 0 ? Math.round(value) : null;
 }
 
+export type TopPicksRefreshClaim = Pick<TopPickRefreshTask, "id" | "startedAt" | "attemptCount" | "claimedVersion">;
+
+export function topPicksClaimWhere(claim: TopPicksRefreshClaim) {
+  return { id: claim.id, status: "RUNNING", startedAt: claim.startedAt, attemptCount: claim.attemptCount, claimedVersion: claim.claimedVersion };
+}
+
 export async function enqueueDurableTopPicksRefresh(input: {
   userId: string;
   reason?: string;
@@ -54,179 +60,107 @@ export async function enqueueDurableTopPicksRefresh(input: {
   priorityScore?: number;
   notBeforeAt?: Date;
 }) {
-  const now = new Date();
-  const existing = await prisma.topPickRefreshTask.findUnique({
-    where: { userId: input.userId },
-    select: {
-      id: true,
-      status: true,
-      priorityScore: true,
-      notBeforeAt: true,
-      attemptCount: true,
-      maxAttempts: true,
-    },
-  });
-  const status = (existing?.status ?? "PENDING") as TopPickRefreshTaskStatus;
-  const candidateLimit = normalizePositiveLimit(input.candidateLimit);
-  const storeLimit = normalizePositiveLimit(input.storeLimit);
-  const notBeforeAt = input.notBeforeAt ?? now;
-  const maxAttempts = getMaxAttempts();
-
-  if (!existing) {
-    const task = await prisma.topPickRefreshTask.create({
-      data: {
-        userId: input.userId,
-        status: "PENDING",
-        priorityScore: input.priorityScore ?? 0,
-        reason: input.reason ?? null,
-        candidateLimit,
-        storeLimit,
-        notBeforeAt,
-        maxAttempts,
-      },
-    });
-    return { status: "queued" as const, task };
-  }
-
-  if (status === "RUNNING") {
-    const task = await prisma.topPickRefreshTask.update({
-      where: { userId: input.userId },
-      data: {
-        priorityScore: Math.max(existing.priorityScore, input.priorityScore ?? 0),
-        reason: input.reason ?? "manual",
-        candidateLimit,
-        storeLimit,
-        maxAttempts: Math.max(existing.maxAttempts, maxAttempts),
-      },
-    });
-    return { status: "running" as const, task };
-  }
-
-  const shouldResetAttempts =
-    status === "SUCCESS" ||
-    status === "FAILED" ||
-    status === "SKIPPED" ||
-    existing.attemptCount >= existing.maxAttempts;
-
-  const task = await prisma.topPickRefreshTask.update({
-    where: { userId: input.userId },
-    data: {
-      status: "PENDING",
-      priorityScore: Math.max(existing.priorityScore, input.priorityScore ?? 0),
+  return prisma.$transaction(async (tx) => {
+    // Serialize first insertion and publication with the same per-profile lock.
+    await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${input.userId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM "TopPickRefreshTask" WHERE "userId" = ${input.userId} FOR UPDATE`;
+    const existing = await tx.topPickRefreshTask.findUnique({ where: { userId: input.userId } });
+    const now = new Date();
+    const notBeforeAt = input.notBeforeAt ?? now;
+    const payload = {
       reason: input.reason ?? "manual",
-      candidateLimit,
-      storeLimit,
-      notBeforeAt:
-        notBeforeAt < existing.notBeforeAt || status !== "PENDING"
-          ? notBeforeAt
-          : existing.notBeforeAt,
-      leaseExpiresAt: null,
-      startedAt: null,
-      finishedAt: null,
-      lastError: null,
-      attemptCount: shouldResetAttempts ? 0 : existing.attemptCount,
-      maxAttempts: Math.max(existing.maxAttempts, maxAttempts),
-    },
+      candidateLimit: normalizePositiveLimit(input.candidateLimit),
+      storeLimit: normalizePositiveLimit(input.storeLimit),
+      priorityScore: Math.max(existing?.priorityScore ?? 0, input.priorityScore ?? 0),
+      maxAttempts: getMaxAttempts(),
+    };
+    if (!existing) {
+      const task = await tx.topPickRefreshTask.create({ data: { userId: input.userId, ...payload, notBeforeAt } });
+      return { status: "queued" as const, task };
+    }
+    const running = existing.status === "RUNNING";
+    const task = await tx.topPickRefreshTask.update({
+      where: { id: existing.id },
+      data: {
+        ...payload,
+        requestedVersion: { increment: 1 },
+        ...(running ? {} : {
+          status: "PENDING",
+          attemptCount: 0,
+          startedAt: null,
+          finishedAt: null,
+          leaseExpiresAt: null,
+          lastError: null,
+          notBeforeAt: existing.status === "PENDING" && existing.notBeforeAt < notBeforeAt ? existing.notBeforeAt : notBeforeAt,
+        }),
+      },
+    });
+    return { status: running ? "running" as const : "queued" as const, task };
   });
-  return { status: "queued" as const, task };
 }
 
 async function recoverStaleRunningTopPicksTasks(now: Date) {
-  const staleCutoff = new Date(now.getTime() - getLeaseMinutes() * 60 * 1000);
-  const result = await prisma.topPickRefreshTask.updateMany({
-    where: {
-      status: "RUNNING",
-      startedAt: { lt: staleCutoff },
-    },
-    data: {
-      status: "PENDING",
-      startedAt: null,
-      finishedAt: null,
-      leaseExpiresAt: null,
-      notBeforeAt: now,
-      lastError: `Recovered stale RUNNING top-picks refresh task after exceeding ${getLeaseMinutes()} minute lease window.`,
-    },
-  });
-  return result.count;
+  const staleCutoff = new Date(now.getTime() - getLeaseMinutes() * 60_000);
+  return prisma.$executeRaw(Prisma.sql`
+    UPDATE "TopPickRefreshTask"
+    SET "status" = CASE WHEN "requestedVersion" > "claimedVersion" OR "attemptCount" < "maxAttempts" THEN 'PENDING' ELSE 'FAILED' END,
+        "attemptCount" = CASE WHEN "requestedVersion" > "claimedVersion" THEN 0 ELSE "attemptCount" END,
+        "startedAt" = NULL, "leaseExpiresAt" = NULL, "finishedAt" = ${now},
+        "notBeforeAt" = ${now}, "updatedAt" = ${now},
+        "lastError" = 'Refresh lease expired before completion.'
+    WHERE "status" = 'RUNNING' AND (
+      "leaseExpiresAt" <= ${now} OR ("leaseExpiresAt" IS NULL AND "startedAt" < ${staleCutoff})
+    )
+  `);
 }
 
-export async function claimTopPicksRefreshTasks(
-  limit: number,
-  now: Date = new Date()
-) {
+export async function claimTopPicksRefreshTasks(limit: number, now: Date = new Date()) {
   await recoverStaleRunningTopPicksTasks(now);
-  const claimLimit = Math.max(1, Math.min(Math.round(limit), 25));
-  const leaseExpiresAt = new Date(now.getTime() + getLeaseMinutes() * 60 * 1000);
-
-  const claimed = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+  const claimLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.round(limit), 25)) : 1;
+  const leaseExpiresAt = new Date(now.getTime() + getLeaseMinutes() * 60_000);
+  return prisma.$queryRaw<TopPickRefreshTask[]>(Prisma.sql`
     WITH next_tasks AS (
-      SELECT t."id"
-      FROM "TopPickRefreshTask" t
-      WHERE
-        t."status" = 'PENDING'
-        AND t."notBeforeAt" <= ${now}
+      SELECT t."id" FROM "TopPickRefreshTask" t
+      WHERE t."status" = 'PENDING' AND t."notBeforeAt" <= ${now} AND t."attemptCount" < t."maxAttempts"
       ORDER BY t."priorityScore" DESC, t."createdAt" ASC
-      LIMIT ${claimLimit}
-      FOR UPDATE SKIP LOCKED
+      LIMIT ${claimLimit} FOR UPDATE SKIP LOCKED
     )
     UPDATE "TopPickRefreshTask" t
-    SET
-      "status" = 'RUNNING',
-      "startedAt" = ${now},
-      "leaseExpiresAt" = ${leaseExpiresAt},
-      "attemptCount" = t."attemptCount" + 1,
-      "updatedAt" = ${now}
-    FROM next_tasks
-    WHERE t."id" = next_tasks."id"
-    RETURNING t."id"
+    SET "status" = 'RUNNING', "startedAt" = ${now}, "finishedAt" = NULL,
+        "leaseExpiresAt" = ${leaseExpiresAt}, "attemptCount" = t."attemptCount" + 1,
+        "claimedVersion" = t."requestedVersion", "updatedAt" = ${now}
+    FROM next_tasks WHERE t."id" = next_tasks."id"
+    RETURNING t.*
   `);
-
-  if (claimed.length === 0) return [];
-
-  return prisma.topPickRefreshTask.findMany({
-    where: { id: { in: claimed.map((task) => task.id) } },
-    orderBy: [{ priorityScore: "desc" }, { createdAt: "asc" }],
-  });
 }
 
 export async function finishTopPicksRefreshTask(
-  taskId: string,
+  claim: TopPicksRefreshClaim,
   status: Extract<TopPickRefreshTaskStatus, "SUCCESS" | "FAILED" | "SKIPPED">,
-  options: {
-    finishedAt?: Date;
-    lastError?: string | null;
-    lastResult?: unknown;
-    retryAt?: Date | null;
-  } = {}
+  options: { finishedAt?: Date; lastError?: string | null; lastResult?: unknown; retryAt?: Date | null } = {}
 ) {
-  const finishedAt = options.finishedAt ?? new Date();
-
-  if (status === "FAILED" && options.retryAt) {
-    return prisma.topPickRefreshTask.update({
-      where: { id: taskId },
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "TopPickRefreshTask" WHERE id = ${claim.id} FOR UPDATE`;
+    const finishedAt = options.finishedAt ?? new Date();
+    const current = await tx.topPickRefreshTask.findFirst({
+      where: { ...topPicksClaimWhere(claim), leaseExpiresAt: { gt: finishedAt } },
+    });
+    if (!current) return null; // A superseded or expired worker must not finish a newer claim.
+    const followUp = current.requestedVersion > claim.claimedVersion;
+    const retry = status === "FAILED" && options.retryAt && current.attemptCount < current.maxAttempts;
+    return tx.topPickRefreshTask.update({
+      where: { id: claim.id },
       data: {
-        status: "PENDING",
-        startedAt: null,
-        finishedAt: null,
+        status: followUp || retry ? "PENDING" : status,
+        attemptCount: followUp ? 0 : current.attemptCount,
+        startedAt: followUp || retry ? null : current.startedAt,
+        finishedAt: followUp || retry ? null : finishedAt,
+        notBeforeAt: followUp ? finishedAt : retry ? options.retryAt! : current.notBeforeAt,
         leaseExpiresAt: null,
-        notBeforeAt: options.retryAt,
         lastError: options.lastError ?? null,
+        lastResult: options.lastResult !== undefined ? toJsonValue(options.lastResult) : Prisma.DbNull,
       },
     });
-  }
-
-  return prisma.topPickRefreshTask.update({
-    where: { id: taskId },
-    data: {
-      status,
-      finishedAt,
-      leaseExpiresAt: null,
-      lastError: options.lastError ?? null,
-      lastResult:
-        options.lastResult !== undefined
-          ? toJsonValue(options.lastResult)
-          : Prisma.DbNull,
-    },
   });
 }
 

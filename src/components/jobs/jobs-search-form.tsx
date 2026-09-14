@@ -187,6 +187,7 @@ export function JobsSearchForm({
   const [isPending, setIsPending] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const aiSubmitHandlerRef = useRef<((event: FormEvent<HTMLFormElement>) => void) | null>(null);
+  const aiRequestRef = useRef<AbortController | null>(null);
   const baseTranscriptRef = useRef("");
   const finalTranscriptRef = useRef("");
   const interimTranscriptRef = useRef("");
@@ -197,6 +198,7 @@ export function JobsSearchForm({
     return () => {
       recognitionRef.current?.abort();
       recognitionRef.current = null;
+      aiRequestRef.current?.abort();
     };
   }, []);
 
@@ -204,7 +206,14 @@ export function JobsSearchForm({
     recognitionRef.current?.stop();
   }
 
+  function cancelAiSearch() {
+    aiRequestRef.current?.abort();
+    aiRequestRef.current = null;
+    setIsPending(false);
+  }
+
   function startListening() {
+    cancelAiSearch();
     const SpeechRecognition = getSpeechRecognitionConstructor();
     if (!SpeechRecognition) {
       setVoiceMessage("Voice input is not available in this browser. Type what you want instead.");
@@ -270,6 +279,7 @@ export function JobsSearchForm({
   }
 
   function handleScopeChange(nextScope: SearchMode) {
+    cancelAiSearch();
     if (isListening) stopListening();
     setScope(nextScope);
     setDraftValue((currentDraft) => {
@@ -299,6 +309,7 @@ export function JobsSearchForm({
       >
         {scope === "ai" ? (
           <AiSearchSubmitHandler
+            requestRef={aiRequestRef}
             basePath={basePath}
             draftValue={draftValue}
             isListening={isListening}
@@ -370,6 +381,7 @@ export function JobsSearchForm({
               className="h-10 rounded-none border-0 bg-transparent pl-9 pr-16 text-sm focus-visible:border-transparent focus-visible:ring-0 sm:pr-[4.25rem]"
               maxLength={scope === "ai" ? MAX_AI_SEARCH_LENGTH : 120}
               onChange={(event) => {
+                cancelAiSearch();
                 if (isListening) stopListening();
                 setDraftValue(event.target.value);
                 setError(null);
@@ -386,6 +398,7 @@ export function JobsSearchForm({
                       <Button
                         aria-label="Clear search"
                         onClick={() => {
+                          cancelAiSearch();
                           if (isListening) stopListening();
                           setDraftValue("");
                           setError(null);
@@ -453,6 +466,7 @@ export function JobsSearchForm({
 }
 
 function AiSearchSubmitHandler({
+  requestRef,
   basePath,
   draftValue,
   isListening,
@@ -461,6 +475,7 @@ function AiSearchSubmitHandler({
   stopListening,
   submitHandlerRef,
 }: {
+  requestRef: MutableRefObject<AbortController | null>;
   basePath: "/jobs" | "/jobs/top-picks";
   draftValue: string;
   isListening: boolean;
@@ -481,6 +496,10 @@ function AiSearchSubmitHandler({
     }
 
     if (isListening) stopListening();
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(new DOMException("Search timed out", "TimeoutError")), 15000);
     onPendingChange(true);
     onError(null);
     try {
@@ -488,12 +507,14 @@ function AiSearchSubmitHandler({
         body: JSON.stringify({ text }),
         headers: { "content-type": "application/json" },
         method: "POST",
+        signal: controller.signal,
       });
       const payload = (await response.json().catch(() => null)) as
         | NaturalLanguageJobSearchResult
         | { error?: string }
         | null;
 
+      if (controller.signal.aborted || requestRef.current !== controller) return;
       if (!response.ok) {
         onError(payload && "error" in payload && payload.error ? payload.error : "Could not interpret this search.");
         return;
@@ -511,9 +532,17 @@ function AiSearchSubmitHandler({
       showJobsLoadingPopup(href);
       router.push(href);
     } catch {
-      onError("Could not interpret this search.");
+      if (requestRef.current === controller && (!controller.signal.aborted || controller.signal.reason?.name === "TimeoutError")) {
+        onError(controller.signal.reason?.name === "TimeoutError"
+          ? "Search timed out. Try again or use a keyword search."
+          : "Could not interpret this search.");
+      }
     } finally {
-      onPendingChange(false);
+      window.clearTimeout(timeout);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        onPendingChange(false);
+      }
     }
   };
 

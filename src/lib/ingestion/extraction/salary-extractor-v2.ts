@@ -146,6 +146,7 @@ function parseSalarySnippet(
 
   const currency =
     amounts.map((entry) => entry.currency).find(Boolean) ??
+    inferCurrencyFromText(snippet) ??
     normalizeCurrencyCode(input.salaryCurrency) ??
     inferDefaultCurrency(input.regionHint);
   const reasons = ["salary_context"];
@@ -219,6 +220,14 @@ function inferCurrencyFromToken(symbol: string | undefined, code: string | undef
   if (raw.includes("AUD")) return "AUD";
   if (raw.includes("NZD")) return "NZD";
   if (raw.includes("$")) return null;
+  return null;
+}
+
+function inferCurrencyFromText(value: string) {
+  // A word boundary after "$" misses prefixes such as "US$ 100,000".
+  // Preserve explicit currency evidence before using the job's geography.
+  if (/\bUSD\b|\bUS\s*\$|\bU\.?S\.?\s+dollars\b/i.test(value)) return "USD";
+  if (/\bCAD\b|\bCA?\s*\$|\bCanadian dollars\b/i.test(value)) return "CAD";
   return null;
 }
 

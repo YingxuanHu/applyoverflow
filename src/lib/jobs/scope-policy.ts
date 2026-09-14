@@ -10,6 +10,8 @@ export const EXCLUDED_TITLE_PATTERNS = [
   // Childcare / Domestic
   /\b(babysitter|nanny|caregiver|childcare|au pair)\b/i,
   // Food service / Retail frontline
+  /\b(?:bakery|deli|produce|meat|grocery)\s+(?:in[ -]?store\s+)?(?:clerk|associate|assistant|team member)\b/i,
+  /\bin[ -]?store\s+(?:clerk|associate|cashier|stocker)\b/i,
   /\b(barista|server|cook\b|chef\b|dishwasher|busser|bartender|cashier|stocker|grocery|salad\s+bar|meat\s+clerk|produce\s+clerk|deli\s+clerk|bakery\s+clerk|retail\s+store\s+manager|retail\s+associate|store\s+associate|store\s+clerk)\b/i,
   // Education (non-tech). "dean" alone is too broad — academic deans of
   // operations / career services / student affairs / business admin /
@@ -43,6 +45,7 @@ export function isExcludedJobTitle(title: string) {
       /\b(benefits|billing|records|payroll|revenue\s+cycle|insurance|compliance)\s+(?:\w+\s+){0,2}(analyst|specialist|clerk|coordinator|manager|director|administrator|auditor)\b/i.test(title)) return false;
   // Industry names are not occupations: pharmacy data analysts, server
   // engineers and school administrators belong in the knowledge-worker pool.
+  if (/\bsupply chain\s+(analyst|manager|director|specialist|consultant|coordinator)\b/i.test(title)) return false;
   if (/\b(software|data|systems?|platform|cloud|security|network|research|policy|financial|business|marketing|sales|legal|people|human resources|communications|product|project)\s+(?:\w+\s+){0,2}(engineer|developer|analyst|scientist|researcher|designer|manager|director|specialist|consultant|administrator)\b/i.test(title) ||
       /\b(office manager|administrator|administration|admissions|enrollment|fundraising|clinical research associate|medical science liaison)\b/i.test(title) ||
       /\b(?:sql\s+)?server\s+(engineer|developer|dba|administrator)\b/i.test(title)) {

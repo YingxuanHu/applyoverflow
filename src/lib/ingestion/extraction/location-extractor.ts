@@ -63,7 +63,9 @@ export function extractLocationCandidates(
     candidates.push(scoreLocationCandidate(cleaned, rawCandidate));
   }
 
-  return candidates.sort((left, right) => right.confidence - left.confidence);
+  // A work arrangement cannot replace a city, even when it came from an ATS.
+  const geographic = candidates.filter((candidate) => !isWorkModeOnly(candidate.value));
+  return (geographic.length ? geographic : candidates).sort((left, right) => right.confidence - left.confidence);
 }
 
 export function selectBestLocationCandidate(
@@ -84,6 +86,7 @@ export function cleanLocationCandidate(raw: unknown) {
       .replace(/\u00a0/g, " ")
   );
   if (!value) return "";
+  if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value) || /^\d+$/.test(value)) return "";
 
   value = value
     .replace(/^(?:location|locations|job location|work location)\s*:?\s*/i, "")
@@ -126,6 +129,10 @@ function scoreLocationCandidate(
     score += 0.08;
   }
   CITY_TOKEN_RE.lastIndex = 0;
+  if (value.includes(",")) {
+    reasons.push("qualified_location");
+    score += 0.12;
+  }
 
   if (MULTIPLE_RE.test(value)) {
     reasons.push("multiple_locations");
@@ -177,13 +184,25 @@ function parseLocationsFromSentence(value: string) {
 function collectMetadataLocationCandidates(metadata: unknown) {
   const hits: Array<{ value: string; source: FieldCandidateSource; evidence: string }> = [];
   const visit = (value: unknown, path: string[]) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child, path);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.addressLocality === "string") {
+      const country = typeof record.addressCountry === "object" && record.addressCountry
+        ? (record.addressCountry as Record<string, unknown>).name : record.addressCountry;
+      const address = [record.addressLocality, record.addressRegion, country]
+        .filter((part): part is string => typeof part === "string" && Boolean(part.trim()));
+      hits.push({ value: address.join(", "), source: "structured_location", evidence: `${path.join(".")}.address` });
+    }
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      const keyLower = key.toLowerCase();
+      const keyLower = key.toLowerCase().replace(/[_ -]/g, "");
       const nextPath = [...path, key];
       const pathLower = nextPath.join(".").toLowerCase();
       if (typeof child === "string") {
-        if (/(location|joblocation|address|city|workplace)/i.test(keyLower)) {
+        if (/^(?:locations?|locationname|locationtext|formattedlocation|joblocation|worklocation|address|addresslocality|city)$/.test(keyLower)) {
           hits.push({
             value: child,
             source: /(jsonld|json_ld|structured|schema)/i.test(pathLower)
@@ -192,6 +211,8 @@ function collectMetadataLocationCandidates(metadata: unknown) {
             evidence: nextPath.join("."),
           });
         }
+      } else if (Array.isArray(child) && /^(?:locations?|joblocations?|worklocations?)$/.test(keyLower) && child.every((part) => typeof part === "string")) {
+        hits.push({ value: child.join("; "), source: "structured_location", evidence: nextPath.join(".") });
       } else {
         visit(child, nextPath);
       }
@@ -199,6 +220,10 @@ function collectMetadataLocationCandidates(metadata: unknown) {
   };
   visit(metadata, ["metadata"]);
   return hits;
+}
+
+function isWorkModeOnly(value: string) {
+  return /^(?:remote|hybrid|on[ -]?site|flexible|work from home|anywhere|multiple locations?)$/i.test(value.trim());
 }
 
 function extractRemoteLocationText(description: string | null | undefined) {

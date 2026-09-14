@@ -30,11 +30,10 @@ export async function POST(request: NextRequest) {
         refresh: currentStatus,
       });
     }
-
-    const refresh = await enqueueTopPicksRefresh(userId, {
-      reason: "manual_api",
-    });
-    if (shouldKickTopPicksRefreshInline()) {
+    const refresh = currentStatus.refreshing
+      ? { status: currentStatus.refreshTask?.running ? "running" : "queued" }
+      : await enqueueTopPicksRefresh(userId, { reason: "manual_api" });
+    if (shouldKickTopPicksRefreshInline() && !currentStatus.refreshTask?.running) {
       void runTopPicksRefreshQueue({ limit: 1, concurrency: 1 }).catch((error) => {
         console.error("top-picks refresh kick failed", { userId, error });
       });

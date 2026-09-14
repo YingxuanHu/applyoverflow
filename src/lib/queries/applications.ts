@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { buildApplicationPreflight } from "@/lib/jobs/application-preflight";
 import { sanitizeCompanyName, sanitizeJobTitle } from "@/lib/job-cleanup";
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
 import {
@@ -151,9 +152,13 @@ export async function getApplicationReviewData(
 
   const packagePreview = buildPackagePreview(detailJob, profile, recommendedResume);
   const reviewState = getApplicationReviewState(detailJob);
+  const sourceUrls = [...new Set([job.applyUrl, ...job.sourceMappings.map((mapping) => mapping.sourceUrl)].filter((url): url is string => Boolean(url)))];
+  const previousApplication = profile.authUserId ? await prisma.trackedApplication.findFirst({ where: { userId: profile.authUserId, status: { notIn: ["WISHLIST", "PREPARING"] }, OR: [{ canonicalJobId: job.id }, { roleUrl: { in: sourceUrls } }] }, select: { id: true } }) : null;
+  const contact = profile.contactJson && typeof profile.contactJson === "object" && !Array.isArray(profile.contactJson) ? profile.contactJson : {};
 
   return {
     job: detailJob,
+    preflight: buildApplicationPreflight({ resume: recommendedResume, packageUpdatedAt: latestPackage?.updatedAt ?? null, email: typeof contact.email === "string" && contact.email.trim() ? contact.email.trim() : null, workAuthorization: profile.workAuthorization, confirmedAt: job.lastConfirmedAliveAt, sourceSeenAt: job.lastSourceSeenAt, previousApplicationId: previousApplication?.id ?? null, description: job.description, hasCoverLetter: Boolean(latestPackage?.coverLetterContent?.trim()) }),
     recommendedResume: recommendedResume
       ? serializeResumeVariant(recommendedResume)
       : null,

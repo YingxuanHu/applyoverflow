@@ -194,6 +194,15 @@
 }
 
 @layer components {
+  /* Keep wheel/touch scrolling inside the desktop master-detail panels at
+     their boundaries. Stacked layouts retain normal page scroll chaining. */
+  @media (min-width: 64rem) {
+    .app-scroll-root [data-job-list-scroll],
+    .app-scroll-root [data-description-scroll] {
+      overscroll-behavior-y: contain;
+    }
+  }
+
   .app-page {
     @apply mx-auto w-full max-w-[1180px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10;
   }

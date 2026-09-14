@@ -11,6 +11,7 @@ import {
   CircleDollarSign,
   ExternalLink,
   MapPin,
+  Link2,
 } from "lucide-react";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/job-display";
 import { needsDescriptionRepair } from "@/lib/jobs/description-quality";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
+import { feedPositionKey, jobIdFromHash, parseFeedPosition, type FeedPosition } from "@/lib/jobs/feed-continuity";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
@@ -36,6 +38,8 @@ export type JobFeedEntry = {
 };
 
 type JobFeedMasterDetailProps = {
+  profileSkills?: string[];
+  viewerId: string;
   entries: JobFeedEntry[];
   referenceNow: string;
   sourceHref?: string;
@@ -43,6 +47,8 @@ type JobFeedMasterDetailProps = {
 };
 
 export function JobFeedMasterDetail({
+  profileSkills,
+  viewerId,
   entries,
   onSavedChange,
   referenceNow,
@@ -53,6 +59,50 @@ export function JobFeedMasterDetail({
   );
   const detailPanelRef = useRef<HTMLElement>(null);
   const listPanelRef = useRef<HTMLElement>(null);
+  const positionRef = useRef<FeedPosition | null>(null);
+  const [restoredDetailTop, setRestoredDetailTop] = useState(0);
+  const storageKey = feedPositionKey(viewerId, sourceHref ?? "/jobs");
+  const entriesRef = useRef(entries);
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const restore = () => {
+      let saved: FeedPosition | null = null;
+      try { saved = parseFeedPosition(sessionStorage.getItem(storageKey)); } catch { /* Storage may be disabled. */ }
+      const linked = jobIdFromHash(location.hash);
+      const entry = entriesRef.current.find((item) => item.job.id === (linked ?? saved?.jobId)) ?? entriesRef.current[0];
+      if (!entry) return;
+      const sameJob = saved?.jobId === entry.job.id;
+      positionRef.current = { jobId: entry.job.id, listTop: saved?.listTop ?? 0, detailTop: sameJob ? saved?.detailTop ?? 0 : 0, savedAt: Date.now() };
+      setSelectedEntryId(entry.id);
+      setRestoredDetailTop(positionRef.current.detailTop);
+      const scroller = listPanelRef.current?.querySelector<HTMLElement>("[data-job-list-scroll]");
+      if (scroller) scroller.scrollTop = saved?.listTop ?? 0;
+    };
+    const persist = () => {
+      if (!positionRef.current) return;
+      try {
+        const keys = Object.keys(sessionStorage).filter((key) => key.startsWith("job-position:"));
+        if (keys.length >= 30 && !sessionStorage.getItem(storageKey)) sessionStorage.removeItem(keys[0]);
+        sessionStorage.setItem(storageKey, JSON.stringify({ ...positionRef.current, savedAt: Date.now() }));
+      } catch { /* Navigation still works without persistence. */ }
+    };
+    const schedulePersist = () => { clearTimeout(timer); timer = setTimeout(persist, 150); };
+    restore();
+    window.addEventListener("hashchange", restore);
+    window.addEventListener("pagehide", persist);
+    const root = listPanelRef.current?.parentElement;
+    root?.addEventListener("scroll", schedulePersist, true);
+    root?.addEventListener("click", schedulePersist);
+    return () => {
+      clearTimeout(timer);
+      persist();
+      window.removeEventListener("hashchange", restore);
+      window.removeEventListener("pagehide", persist);
+      root?.removeEventListener("scroll", schedulePersist, true);
+      root?.removeEventListener("click", schedulePersist);
+    };
+  }, [storageKey]);
   const [descriptions] = useState(() => new Map<string, string>());
   const returnToList = () => {
     const selected = listPanelRef.current?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -64,10 +114,16 @@ export function JobFeedMasterDetail({
 
   if (!selectedEntry) return null;
 
-  const selectEntry = (entryId: string) => {
+  const selectEntry = (entryId: string, moveToDetail = true) => {
     setSelectedEntryId(entryId);
+    const jobId = entries.find((entry) => entry.id === entryId)?.job.id;
+    if (jobId) {
+      positionRef.current = { jobId, listTop: positionRef.current?.listTop ?? 0, detailTop: 0, savedAt: positionRef.current?.savedAt ?? 0 };
+      setRestoredDetailTop(0);
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}#job-${jobId}`);
+    }
 
-    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+    if (!moveToDetail || !window.matchMedia("(max-width: 1023px)").matches) return;
 
     window.requestAnimationFrame(() => {
       const detailPanel = detailPanelRef.current;
@@ -88,7 +144,7 @@ export function JobFeedMasterDetail({
       <section
         ref={listPanelRef}
         aria-label="Jobs on this page"
-        className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:flex-col"
+        className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:min-h-0 lg:flex-col"
       >
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
           <p className="text-sm font-medium text-foreground">
@@ -96,7 +152,23 @@ export function JobFeedMasterDetail({
           </p>
           <p className="text-xs text-muted-foreground">Select a job to review</p>
         </div>
-        <div className="max-h-[40rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
+        <div data-job-list-scroll onScroll={(event) => { if (positionRef.current) positionRef.current.listTop = event.currentTarget.scrollTop; }} onKeyDown={(event) => {
+          const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+          if (!keys.includes(event.key) || !(event.target instanceof HTMLElement) || event.target.tagName !== "BUTTON") return;
+          event.preventDefault();
+          const current = entries.findIndex((entry) => entry.id === selectedEntry.id);
+          const index = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : Math.max(0, Math.min(entries.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+          selectEntry(entries[index].id, false);
+          const button = event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[index];
+          button?.focus({ preventScroll: true });
+          if (button) {
+            const list = event.currentTarget;
+            const rowRect = button.getBoundingClientRect();
+            const listRect = list.getBoundingClientRect();
+            if (rowRect.top < listRect.top) list.scrollTop += rowRect.top - listRect.top;
+            else if (rowRect.bottom > listRect.bottom) list.scrollTop += rowRect.bottom - listRect.bottom;
+          }
+        }} className="max-h-[40rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
           {entries.map((entry) => (
             <JobFeedListRow
               active={entry.id === selectedEntry.id}
@@ -110,6 +182,7 @@ export function JobFeedMasterDetail({
       </section>
 
       <JobFeedDetailPanel
+        profileSkills={profileSkills}
         entry={selectedEntry}
         key={selectedEntry.id}
         panelRef={detailPanelRef}
@@ -118,6 +191,8 @@ export function JobFeedMasterDetail({
         onSavedChange={onSavedChange}
         referenceNow={referenceNow}
         sourceHref={sourceHref}
+        initialScrollTop={restoredDetailTop}
+        onDetailScroll={(top) => { if (positionRef.current) positionRef.current.detailTop = top; }}
       />
     </div>
   );
@@ -135,7 +210,7 @@ function JobFeedListRow({
   referenceNow: string;
 }) {
   const { job } = entry;
-  const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
+  const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
 
   return (
@@ -188,6 +263,9 @@ function JobFeedListRow({
 }
 
 function JobFeedDetailPanel({
+  profileSkills,
+  initialScrollTop,
+  onDetailScroll,
   entry,
   onSavedChange,
   panelRef,
@@ -196,6 +274,9 @@ function JobFeedDetailPanel({
   referenceNow,
   sourceHref,
 }: {
+  profileSkills?: string[];
+  initialScrollTop: number;
+  onDetailScroll: (top: number) => void;
   entry: JobFeedEntry;
   onSavedChange?: (jobId: string, saved: boolean) => void;
   panelRef: RefObject<HTMLElement | null>;
@@ -209,6 +290,15 @@ function JobFeedDetailPanel({
   const [initialDescription] = useState(job.description);
   const [descriptionError, setDescriptionError] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (description === null) return;
+    if (scrollRef.current) scrollRef.current.scrollTop = initialScrollTop;
+    restoredRef.current = true;
+  }, [description, initialScrollTop]);
   useEffect(() => {
     if ((job.description && !needsDescriptionRepair(job)) || descriptions.has(job.id)) {
       return;
@@ -227,7 +317,7 @@ function JobFeedDetailPanel({
       .catch(() => { if (!controller.signal.aborted) setDescriptionError(true); });
     return () => controller.abort();
   }, [job, descriptions, retry]);
-  const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency);
+  const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
   const deadlineUrgency = getDeadlineUrgencyAt(job.deadline, referenceNow);
   const postingHref = job.primaryExternalLink?.href ?? job.sourcePostingLink?.href;
   const descriptionText = job.description !== initialDescription ? job.description : description ?? job.description;
@@ -235,7 +325,7 @@ function JobFeedDetailPanel({
   return (
     <aside
       aria-label={`Details for ${job.title}`}
-      className="surface-panel flex min-h-[40rem] min-w-0 scroll-mt-20 flex-col overflow-hidden lg:h-full"
+      className="surface-panel flex min-h-[40rem] min-w-0 scroll-mt-20 flex-col overflow-hidden lg:h-full lg:min-h-0"
       ref={panelRef}
       tabIndex={-1}
     >
@@ -243,8 +333,7 @@ function JobFeedDetailPanel({
         <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground lg:hidden">
           <ArrowLeft className="h-4 w-4" /> Back to jobs
         </button>
-        {entry.detailMeta ? <div className="mb-3">{entry.detailMeta}</div> : null}
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-4">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
               {job.title}
@@ -253,7 +342,12 @@ function JobFeedDetailPanel({
             <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" />{job.location}</p>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 sm:justify-end">
+          <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+            <Button size="icon" variant="outline" title={copied ? "Link copied" : "Copy job link"} aria-label={copied ? "Link copied" : "Copy job link"} onClick={async () => {
+              setCopyError(false);
+              try { await navigator.clipboard.writeText(new URL(buildJobDetailHref(job.id, sourceHref, job.id), location.origin).href); setCopied(true); }
+              catch { setCopied(false); setCopyError(true); }
+            }}><Link2 className="h-4 w-4" /></Button>
             {postingHref ? (
               <Button
                 className="h-10 rounded-[12px] px-3.5"
@@ -276,7 +370,12 @@ function JobFeedDetailPanel({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border/60 pt-4 text-sm sm:grid-cols-4">
+      </div>
+
+      <div ref={scrollRef} onScroll={(event) => { if (restoredRef.current) onDetailScroll(event.currentTarget.scrollTop); }} data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+        {copyError ? <p role="alert" className="mb-3 text-sm text-destructive">Could not copy the link. Open the full page to share this job.</p> : null}
+        {entry.detailMeta ? <div className="mb-4">{entry.detailMeta}</div> : null}
+        <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border/60 pb-4 text-sm sm:grid-cols-4">
           <DetailField
             icon={<CalendarClock className="h-3.5 w-3.5" />}
             label="Posted"
@@ -299,9 +398,6 @@ function JobFeedDetailPanel({
             valueClassName={deadlineUrgency?.color}
           />
         </div>
-      </div>
-
-      <div data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-foreground">Job description</p>
           <Link
@@ -319,7 +415,7 @@ function JobFeedDetailPanel({
           <p role="status" className="mt-4 animate-pulse text-sm text-muted-foreground">Loading description...</p>
         ) : descriptionText.trim() ? (
           <div className="mt-4 pb-2">
-            <JobDescriptionContent description={descriptionText} />
+            <JobDescriptionContent description={descriptionText} profileSkills={profileSkills} />
           </div>
         ) : !descriptionError ? (
           <p className="mt-4 text-sm text-muted-foreground">

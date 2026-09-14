@@ -15,6 +15,12 @@ test("publication rechecks occupation and geography independently of old classif
   };
   assert.equal(shouldExcludeFromFeedIndex(valid), false);
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, title: "Grocery Clerk Part Time Day" }), true);
+  for (const title of ["Bakery InStore Clerk Part Time Day", "Bakery In-Store Clerk Part Time Evening", "Produce In Store Clerk", "InStore Associate"]) {
+    assert.equal(shouldExcludeFromFeedIndex({ ...valid, title }), true, title);
+  }
+  for (const title of ["Bakery Operations Analyst", "Retail Software Engineer", "Grocery Supply Chain Manager"]) {
+    assert.equal(shouldExcludeFromFeedIndex({ ...valid, title }), false, title);
+  }
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, location: "Kediri, Jawa Timur, ID" }), true);
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, title: "Healthcare Administration Director" }), false);
   for (const title of ["Pharmacy Benefits Analyst", "Dental Billing Specialist", "Police Records Clerk", "Hospital Revenue Cycle Manager"]) {

@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { TOP_PICKS_ALGORITHM_VERSION } from "./config";
+import type { MatchRequirements } from "@/lib/top-picks/requirements";
 
 import type { ExperienceLevel, WorkMode } from "@/generated/prisma/client";
 import type {
@@ -24,6 +26,7 @@ export type TopPickFeedbackSignal = {
 };
 
 export type UserJobIntent = {
+  requirements?: MatchRequirements;
   userId: string;
   profileVersion: number;
   explicitTargetTitles: string[];
@@ -81,6 +84,7 @@ export type TopPicksProfileReadiness = {
 };
 
 export type BuildUserJobIntentInput = {
+  requirements?: MatchRequirements;
   userId: string;
   profileVersion: number;
   headline?: string | null;
@@ -543,7 +547,7 @@ function buildSkillBuckets(input: BuildUserJobIntentInput) {
 function buildHash(intent: Omit<UserJobIntent, "profileHash">) {
   const hashableIntent: Partial<Omit<UserJobIntent, "profileHash">> = { ...intent };
   delete hashableIntent.profileVersion;
-  return createHash("sha256").update(JSON.stringify(hashableIntent)).digest("hex");
+  return createHash("sha256").update(JSON.stringify({ algorithm: TOP_PICKS_ALGORITHM_VERSION, ...hashableIntent })).digest("hex");
 }
 
 export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobIntent {
@@ -597,18 +601,16 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
     .filter((value): value is string => Boolean(value));
   const wrongRoleCategories = feedback
     .filter((item) => item.feedbackType === "WRONG_ROLE")
+    .filter((item, index, list) => list.findIndex((other) => other.jobId === item.jobId) === index)
     .map((item) => item.job.normalizedRoleCategory)
     .filter((value): value is string => Boolean(value));
   const repeatedWrongRoles = wrongRoleCategories.filter(
     (category, index, list) => list.indexOf(category) !== index
   );
-  const negativeJobIds = feedback
-    .filter((item) =>
-      ["NOT_INTERESTED", "LOW_QUALITY", "ALREADY_SEEN"].includes(item.feedbackType)
-    )
-    .map((item) => item.jobId);
+  const negativeJobIds = feedback.map((item) => item.jobId);
 
   const intentWithoutHash: Omit<UserJobIntent, "profileHash"> = {
+    requirements: input.requirements,
     userId: input.userId,
     profileVersion: input.profileVersion,
     explicitTargetTitles,
@@ -653,7 +655,7 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
     },
     negativeSignals: {
       rejectedJobIds: unique(negativeJobIds, 200),
-      dislikedRoleCategories: uniqueCodes(wrongRoleCategories, 10),
+      dislikedRoleCategories: uniqueCodes(repeatedWrongRoles, 10),
       dislikedTitles: unique(
         feedback
           .filter((item) => item.feedbackType === "WRONG_ROLE")

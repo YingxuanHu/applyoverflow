@@ -16,6 +16,7 @@ type JobMetaRowProps = {
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
+  salaryPeriod?: string | null;
   primaryExternalLink: JobResolvedLink | null;
   variant?: "detail" | "card";
   className?: string;
@@ -29,11 +30,12 @@ export function JobMetaRow({
   salaryMin,
   salaryMax,
   salaryCurrency,
+  salaryPeriod,
   primaryExternalLink,
   variant = "detail",
   className,
 }: JobMetaRowProps) {
-  const salary = formatSalary(salaryMin, salaryMax, salaryCurrency);
+  const salary = formatSalary(salaryMin, salaryMax, salaryCurrency, salaryPeriod);
   const isDetail = variant === "detail";
 
   return (

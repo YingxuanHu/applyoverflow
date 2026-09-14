@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, CheckCircle2, CircleAlert } from "lucide-react";
 import { ApplicationReviewActions } from "@/components/jobs/application-review-actions";
 import { JobDescriptionSection } from "@/components/jobs/job-description-section";
 import { getOptionalSessionUser } from "@/lib/current-user";
@@ -101,6 +101,15 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
       </div>
 
       {/* Primary actions — first thing the user acts on */}
+      <section aria-label="Application preflight" className="border-t border-border py-4">
+        <h2 className="mb-3 text-base font-semibold">Before you apply</h2>
+        <dl className="grid gap-x-6 gap-y-4 md:grid-cols-2">
+          {reviewData.preflight.map((check) => <div key={check.label} className="min-w-0 text-sm">
+            <dt className="flex items-center gap-2 font-medium">{check.status === "ready" ? <CheckCircle2 aria-hidden className="size-4 shrink-0 text-emerald-600" /> : <CircleAlert aria-hidden className="size-4 shrink-0 text-amber-600" />}{check.label}<span className="text-xs font-normal text-muted-foreground">{check.status === "ready" ? "Available" : check.status === "missing" ? "Missing" : "Review"}</span></dt>
+            <dd className="mt-1 break-words pl-6 text-muted-foreground">{check.detail}{check.href ? <Link href={check.href} className="ml-2 text-primary underline">Review</Link> : null}</dd>
+          </div>)}
+        </dl>
+      </section>
       <div className="border-t border-border py-4">
         <ApplicationReviewActions
           jobId={job.id}
@@ -260,7 +269,7 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
         <div className="grid grid-cols-2 gap-x-8 gap-y-2 pb-4 sm:grid-cols-4">
           <Field
             label="Salary"
-            value={formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency)}
+            value={formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod)}
           />
           <Field label="Work mode" value={formatDisplayLabel(job.workMode)} />
           <Field label="Work auth" value={workAuthorization ?? "Not set"} />

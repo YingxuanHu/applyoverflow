@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/tooltip";
 import type { TopPickCardData } from "@/lib/queries/top-picks";
 import { cn } from "@/lib/utils";
+import { TOP_PICK_FEEDBACK_OPTIONS, type TopPickFeedbackType } from "@/lib/top-picks/feedback-options";
+import { HiddenPicks } from "@/components/jobs/hidden-picks";
 
 type TopPicksStatus = {
   lastComputedAt: string | null;
@@ -43,6 +45,8 @@ type TopPicksEmptyState = {
 };
 
 type TopPicksListProps = {
+  profileSkills?: string[];
+  viewerId: string;
   initialPicks: TopPickCardData[];
   referenceNow: string;
   emptyState?: TopPicksEmptyState;
@@ -66,11 +70,13 @@ export function TopPicksRefreshCoordinator({
   children,
   initialLoad,
   refreshEnabled,
+  refreshInProgress = false,
   storageKey,
 }: {
   children: ReactNode;
   initialLoad: boolean;
   refreshEnabled: boolean;
+  refreshInProgress?: boolean;
   storageKey: string;
 }) {
   const router = useRouter();
@@ -100,7 +106,7 @@ export function TopPicksRefreshCoordinator({
             method: "POST",
           });
           if (!response.ok) throw new Error("top picks refresh failed");
-        } else if (!initialLoad) {
+        } else if (!initialLoad && !refreshInProgress) {
           return;
         }
 
@@ -113,7 +119,7 @@ export function TopPicksRefreshCoordinator({
           return;
         }
 
-        if (initialLoad) {
+        if (initialLoad || refreshInProgress) {
           retryTimer = window.setTimeout(() => {
             setRetryCount((current) => current + 1);
           }, 5_000);
@@ -129,7 +135,7 @@ export function TopPicksRefreshCoordinator({
       cancelled = true;
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [initialLoad, refreshEnabled, retryCount, router, storageKey]);
+  }, [initialLoad, refreshEnabled, refreshInProgress, retryCount, router, storageKey]);
 
   return (
     <TopPicksRefreshContext.Provider value={{ isInitialLoad }}>
@@ -139,6 +145,8 @@ export function TopPicksRefreshCoordinator({
 }
 
 export function TopPicksList({
+  profileSkills,
+  viewerId,
   emptyState,
   initialPicks,
   referenceNow,
@@ -150,6 +158,8 @@ export function TopPicksList({
   const search = searchParams.toString();
   const sourceHref = search ? `${pathname}?${search}` : pathname;
   const [picks, setPicks] = useState(initialPicks);
+  const [dismissed, setDismissed] = useState<TopPickCardData | null>(null);
+  const [feedbackType, setFeedbackType] = useState<TopPickFeedbackType>("NOT_INTERESTED");
   const [pendingFeedbackJobId, setPendingFeedbackJobId] = useState<
     string | null
   >(null);
@@ -175,10 +185,11 @@ export function TopPicksList({
     fetch("/api/jobs/top-picks/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, feedbackType: "NOT_INTERESTED" }),
+      body: JSON.stringify({ jobId, feedbackType }),
     })
       .then((response) => {
         if (!response.ok) throw new Error("feedback failed");
+        setDismissed(picks.find((pick) => pick.job.id === jobId) ?? null);
         setPicks((current) => current.filter((pick) => pick.job.id !== jobId));
         notify({
           title: "Removed from top picks",
@@ -197,10 +208,17 @@ export function TopPicksList({
       .finally(() => setPendingFeedbackJobId(null));
   }
 
+  const feedbackControls = <HiddenPicks dismissed={dismissed} onRestore={(jobId, restored) => {
+    if (dismissed?.job.id === jobId) {
+      if (restored) setPicks((current) => current.some((pick) => pick.job.id === jobId) ? current : [...current, dismissed].sort((a, b) => a.rank - b.rank));
+      setDismissed(null);
+    }
+  }} />;
+
   if (picks.length === 0) {
     if (isInitialLoad) {
       return (
-        <div
+        <div><div
           aria-live="polite"
           className="empty-state flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center"
           role="status"
@@ -212,7 +230,7 @@ export function TopPicksList({
           <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
             Ranking live jobs against your profile and preferences.
           </p>
-        </div>
+        </div>{feedbackControls}</div>
       );
     }
 
@@ -223,7 +241,7 @@ export function TopPicksList({
     };
 
     return (
-      <div className="empty-state flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center">
+      <div><div className="empty-state flex min-h-[180px] flex-col items-center justify-center px-4 py-10 text-center">
         <p className="text-sm font-medium text-foreground">{state.title}</p>
         <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
           {state.message}
@@ -237,12 +255,17 @@ export function TopPicksList({
             {state.actionLabel}
           </Button>
         ) : null}
-      </div>
+      </div>{feedbackControls}</div>
     );
   }
 
   return (
+    <div className="space-y-3">
+    {feedbackControls}
     <JobFeedMasterDetail
+      profileSkills={profileSkills}
+      key={sourceHref}
+      viewerId={viewerId}
       entries={picks.map((pick) => ({
         id: pick.id,
         job: pick.job,
@@ -279,16 +302,22 @@ export function TopPicksList({
           </div>
         ),
         detailActions: (
+          <div className="flex items-center gap-1">
+          <select aria-label="Reason for hiding this pick" className="h-10 max-w-36 rounded-md border border-border bg-background px-2 text-xs" value={feedbackType} onChange={(event) => setFeedbackType(event.target.value as TopPickFeedbackType)}>
+            {TOP_PICK_FEEDBACK_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
           <TopPickDismissButton
-            disabled={pendingFeedbackJobId === pick.job.id}
+            disabled={pendingFeedbackJobId !== null}
             onDismiss={() => markNotInterested(pick.job.id)}
           />
+          </div>
         ),
       }))}
       onSavedChange={handleSavedChange}
       referenceNow={referenceNow}
       sourceHref={sourceHref}
     />
+    </div>
   );
 }
 

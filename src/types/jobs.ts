@@ -61,6 +61,7 @@ export type JobCardData = {
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
+  salaryPeriod?: string | null;
   shortSummary: string;
   description: string;
   applyUrl: string;
@@ -126,6 +127,7 @@ export type ApplicationReviewState =
   | "NOT_ELIGIBLE";
 
 export type ApplicationReviewData = {
+  preflight: import("@/lib/jobs/application-preflight").PreflightCheck[];
   job: JobDetailData;
   recommendedResume: ResumeVariantSummary | null;
   latestPackage: ApplicationPackageSummary | null;

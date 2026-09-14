@@ -3,6 +3,8 @@ import "dotenv/config";
 import { prisma } from "@/lib/db";
 
 const statements = [
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS "JobCanonical_status_firstSeenAt_idx"
+    ON "JobCanonical" ("status", "firstSeenAt" DESC)`,
   `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
   `CREATE INDEX CONCURRENTLY IF NOT EXISTS "JobCanonical_searchVector_idx"
     ON "JobCanonical" USING GIN ("searchVector")`,

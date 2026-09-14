@@ -47,6 +47,9 @@ import {
 } from "@/lib/jobs/search-state";
 import { formatJobResultCount } from "@/lib/jobs/result-count";
 import { serializeJobCardData } from "@/lib/job-serialization";
+import { normalizeSkills } from "@/lib/profile";
+import { SavedSearches } from "@/components/jobs/saved-searches";
+import { parseDiscoveredSince } from "@/lib/jobs/saved-searches";
 import { getIngestionStatus } from "@/lib/queries/ingestion";
 import {
   getJobs,
@@ -144,7 +147,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   );
 
   const activeFilterCount = countActiveFilters(filters);
-  const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
+  const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters) || Boolean(filters.discoveredSince);
   const headlineCount = formatJobResultCount({
     hasScopedResults,
     total: jobsResult.total,
@@ -472,6 +475,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </div>
       </section>
 
+      <SavedSearches query={navigationKey} />
+      {filters.discoveredSince ? <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">Discovered after {new Date(filters.discoveredSince).toLocaleString("en-CA", { timeZone: userTimeZone })}<Link className="text-primary underline" href={buildJobsHref(resolvedSearchParams, { discoveredSince: undefined, page: undefined })}>Show all matches</Link></p> : null}
       <section>
           {showPagination ? (
             <PaginationControls
@@ -509,6 +514,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </div>
           ) : (
             <JobsFeedList
+              profileSkills={normalizeSkills(currentProfile.skillsJson).map((skill) => skill.name)}
+              viewerId={viewerProfileId}
               initialJobs={jobCards}
               key={navigationKey}
               referenceNow={renderReferenceNow}
@@ -621,6 +628,7 @@ function parseJobFilters(
 
   return {
     search,
+    discoveredSince: parseDiscoveredSince(getSearchParam(searchParams, "discoveredSince")),
     searchScope: effectiveSearchScope,
     titleSearch,
     companySearch,
@@ -981,6 +989,7 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
   const includeSalaryFields = filters.salaryMin || filters.salaryMax;
 
   return buildHiddenFields([
+    ["discoveredSince", filters.discoveredSince],
     ["status", filters.status],
     ["sortBy", filters.sortBy],
     ["location", filters.location],
@@ -1003,6 +1012,7 @@ function buildSearchFormHiddenFields(filters: JobFilterParams) {
 
 function buildFilterPanelHiddenFields(filters: JobFilterParams) {
   return buildHiddenFields([
+    ["discoveredSince", filters.discoveredSince],
     ["sortBy", filters.sortBy],
     // Preserve legacy/admin params from shared URLs without exposing them as
     // primary user-facing filter controls.

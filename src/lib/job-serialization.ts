@@ -33,6 +33,7 @@ type JobSerializationInput = {
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
+  salaryPeriod?: string | null;
   shortSummary: string;
   description: string;
   applyUrl: string;
@@ -98,6 +99,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     salaryMin: resolvedSalary.salaryMin,
     salaryMax: resolvedSalary.salaryMax,
     salaryCurrency: resolvedSalary.salaryCurrency,
+    salaryPeriod: job.salaryPeriod ?? null,
     shortSummary,
     description,
     applyUrl: job.applyUrl,

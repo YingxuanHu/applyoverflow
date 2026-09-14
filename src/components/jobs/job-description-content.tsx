@@ -3,14 +3,19 @@
 import { useId, useMemo, type MouseEvent } from "react";
 import { buildDescriptionPresentation } from "@/lib/jobs/description-presentation";
 import { hasUsableSourceDescription } from "@/lib/jobs/description-quality";
+import { capabilityEvidence, extractCapabilities } from "@/lib/jobs/capabilities";
 
-export function JobDescriptionContent({ description }: { description: string }) {
+export function JobDescriptionContent({ description, profileSkills = [] }: { description: string; profileSkills?: string[] }) {
   const id = useId();
   const { sections, highlights } = useMemo(() => buildDescriptionPresentation(description), [description]);
   const isCompleteEnough = useMemo(() => hasUsableSourceDescription(description), [description]);
   const sectionId = (index: number) => `${id}-section-${index}`;
-  function jump(event: MouseEvent<HTMLAnchorElement>, index: number) {
-    const target = document.getElementById(sectionId(index));
+  const evidence = useMemo(() => capabilityEvidence(description), [description]);
+  const profileCapabilities = new Set(extractCapabilities(profileSkills.join("; ")));
+  const qualifications = evidence.filter((fact, index) => ["requirements", "preferred"].includes(fact.category) && evidence.findIndex((other) => other.skill === fact.skill && other.category === fact.category) === index);
+  const blockId = (section: number, block: number, item = 0) => `${sectionId(section)}-block-${block}-${item}`;
+  function jump(event: MouseEvent<HTMLAnchorElement>, index: number, block?: number, item?: number) {
+    const target = document.getElementById(block === undefined ? sectionId(index) : blockId(index, block, item));
     if (!target) return;
     event.preventDefault();
     const scroller = target.closest<HTMLElement>("[data-description-scroll]");
@@ -27,6 +32,15 @@ export function JobDescriptionContent({ description }: { description: string }) 
   return (
     <div className="max-w-[78ch] min-w-0 break-words text-[15px] leading-7 text-foreground/85 [overflow-wrap:anywhere]" data-job-description>
       {!isCompleteEnough ? <p className="mb-5 border-l-2 border-border pl-3 text-sm leading-6 text-muted-foreground">{sections.length ? "This source excerpt may be incomplete. Check the original posting for the full requirements." : "The source description is not available yet. Check the original posting for the full requirements."}</p> : null}
+      {qualifications.length ? <section aria-label="Qualification evidence" className="mb-6 border-y border-border/60 py-4">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">Qualification evidence</h3>
+        <dl className="space-y-3">
+          {qualifications.slice(0, 8).map((fact) => <div key={`${fact.category}:${fact.skill}`} className="text-sm leading-6">
+            <dt className="flex flex-wrap items-baseline gap-x-2 font-medium">{fact.skill}<span className="text-xs font-normal text-muted-foreground">{fact.category === "preferred" ? "Preferred" : "Requirements section"}{profileSkills.length ? profileCapabilities.has(fact.skill) ? " · Listed in your profile" : " · Not listed in your profile" : ""}</span></dt>
+            <dd className="text-muted-foreground"><a className="underline decoration-border underline-offset-4 hover:text-primary" href={`#${blockId(fact.sectionIndex, fact.blockIndex, fact.itemIndex)}`} onClick={(event) => jump(event, fact.sectionIndex, fact.blockIndex, fact.itemIndex)}>{fact.text.length <= 400 ? fact.text : "View the full source passage"}</a></dd>
+          </div>)}
+        </dl>
+      </section> : null}
       {highlights.length ? (
         <section aria-label="At a glance" className="mb-6 border-y border-border/60 py-4">
           <h3 className="mb-3 text-sm font-semibold text-foreground">At a glance</h3>
@@ -54,16 +68,16 @@ export function JobDescriptionContent({ description }: { description: string }) 
           <section key={index} className="space-y-3" aria-labelledby={section.heading ? sectionId(index) : undefined}>
             {section.heading ? <h3 id={sectionId(index)} tabIndex={-1} className="scroll-mt-24 text-base font-semibold leading-6 text-foreground focus-visible:outline-2 focus-visible:outline-primary">{section.heading}</h3> : null}
             {section.blocks.map((block, blockIndex) => {
-              if (block.kind === "paragraph") return <p key={blockIndex}>{block.text}</p>;
+              if (block.kind === "paragraph") return <p id={blockId(index, blockIndex)} tabIndex={-1} key={blockIndex}>{block.text}</p>;
               if (block.kind !== "list") return null;
               const ordered = block.items.every((item) => /^\d+\.\s/.test(item));
               return ordered ? (
                 <ol key={blockIndex} className="list-decimal space-y-2 pl-5 marker:text-muted-foreground">
-                  {block.items.map((item, itemIndex) => <li key={itemIndex} value={Number.parseInt(item, 10)} className="pl-0.5">{item.replace(/^\d+\.\s+/, "")}</li>)}
+                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} value={Number.parseInt(item, 10)} className="pl-0.5">{item.replace(/^\d+\.\s+/, "")}</li>)}
                 </ol>
               ) : (
                 <ul key={blockIndex} className="list-disc space-y-2 pl-5 marker:text-primary/70">
-                  {block.items.map((item, itemIndex) => <li key={itemIndex} className="pl-0.5">{item}</li>)}
+                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} className="pl-0.5">{item}</li>)}
                 </ul>
               );
             })}
