@@ -82,25 +82,36 @@ if [[ "$load_too_high" == "1" ]]; then
   add_alert "1m load is ${load_1m} on ${cpu_count} CPUs"
 fi
 
+supply_log_dir="${SUPPLY_HEALTH_LOG_DIR:-$APP_DIR/logs}"
+recent_supply_report=""
+if [[ -d "$supply_log_dir" ]]; then
+  recent_supply_report="$(find "$supply_log_dir" -maxdepth 1 -type f -name 'supply-health-*.json' -mmin -120 -print | sort | tail -1)"
+fi
+if [[ -z "$recent_supply_report" ]]; then
+  add_alert "supply-health report missing or over 2 hours old"
+elif grep -Eq '"complete"[[:space:]]*:[[:space:]]*false' "$recent_supply_report"; then
+  add_alert "supply-health report is partial; inspect section query budgets"
+fi
+
 if command -v docker >/dev/null 2>&1 && [[ -d "$APP_DIR" ]]; then
   compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-  unhealthy="$(
+  if ! unhealthy="$(
     cd "$APP_DIR" &&
       "${compose[@]}" ps --format '{{.Name}} {{.State}} {{.Health}}' 2>/dev/null |
       awk '$2 != "running" || ($3 != "" && $3 != "healthy") { print }'
-  )"
-  if [[ -n "$unhealthy" ]]; then
+  )"; then
+    add_alert "could not inspect container health"
+  elif [[ -n "$unhealthy" ]]; then
     add_alert "container health issue: ${unhealthy//$'\n'/; }"
   fi
 
-  five_xx_count="$(
+  if ! five_xx_count="$(
     cd "$APP_DIR" &&
       "${compose[@]}" logs --since 5m caddy 2>/dev/null |
-      grep -E '"status":[[:space:]]*5[0-9][0-9]' |
-      wc -l |
-      tr -d ' '
-  )"
-  if [[ "$five_xx_count" =~ ^[0-9]+$ ]] && (( five_xx_count >= FIVE_XX_WARN_COUNT )); then
+      awk '/"status":[[:space:]]*5[0-9][0-9]/ { count++ } END { print count + 0 }'
+  )"; then
+    add_alert "could not inspect Caddy errors"
+  elif [[ "$five_xx_count" =~ ^[0-9]+$ ]] && (( five_xx_count >= FIVE_XX_WARN_COUNT )); then
     add_alert "Caddy logged ${five_xx_count} 5xx responses in the last 5 minutes"
   fi
 fi

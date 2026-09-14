@@ -18,6 +18,7 @@ import {
   ROLE_CATEGORY_FILTER_CONFIDENCE_THRESHOLD,
 } from "../src/lib/job-metadata";
 import { RETENTION_POLL_PRIORITY_FLOOR } from "../src/lib/ingestion/task-queue";
+import { collectReportSections } from "../src/lib/ingestion/supply-report-runner";
 
 const EVIDENCE_WINDOW_DAYS = 14;
 const ALIVE_WINDOW_DAYS = 30;
@@ -30,24 +31,24 @@ const SUPPLY_TARGET_LIVE_JOBS = (() => {
 
 type Report = Record<string, unknown>;
 
-async function canonicalByStatus() {
-  const rows = await prisma.jobCanonical.groupBy({
+async function canonicalByStatus(db: Prisma.TransactionClient) {
+  const rows = await db.jobCanonical.groupBy({
     by: ["status"],
     _count: { _all: true },
   });
   return Object.fromEntries(rows.map((row) => [row.status, row._count._all]));
 }
 
-async function feedByStatus() {
-  const rows = await prisma.jobFeedIndex.groupBy({
+async function feedByStatus(db: Prisma.TransactionClient) {
+  const rows = await db.jobFeedIndex.groupBy({
     by: ["status"],
     _count: { _all: true },
   });
   return Object.fromEntries(rows.map((row) => [row.status, row._count._all]));
 }
 
-async function weeklyFlow(weeks: number) {
-  return prisma.$queryRaw<
+async function weeklyFlow(db: Prisma.TransactionClient, weeks: number) {
+  return db.$queryRaw<
     Array<{ week: Date; added: bigint; expired: bigint; removed: bigint }>
   >(Prisma.sql`
     SELECT w.week,
@@ -83,8 +84,8 @@ async function weeklyFlow(weeks: number) {
   `);
 }
 
-async function liveEvidenceBuckets() {
-  const [row] = await prisma.$queryRaw<
+async function liveEvidenceBuckets(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       live_total: bigint;
       fresh_0_7d: bigint;
@@ -123,8 +124,8 @@ async function liveEvidenceBuckets() {
   return row;
 }
 
-async function hiddenButLive() {
-  const [row] = await prisma.$queryRaw<Array<{ hidden_live: bigint }>>(Prisma.sql`
+async function hiddenButLive(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<Array<{ hidden_live: bigint }>>(Prisma.sql`
     SELECT COUNT(*) AS hidden_live
     FROM "JobFeedIndex" f
     JOIN "JobCanonical" c ON c.id = f."canonicalJobId"
@@ -133,8 +134,8 @@ async function hiddenButLive() {
   return Number(row?.hidden_live ?? 0);
 }
 
-async function pollCoverage() {
-  const [row] = await prisma.$queryRaw<
+async function pollCoverage(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       pollable: bigint;
       polled_24h: bigint;
@@ -160,8 +161,8 @@ async function pollCoverage() {
 
 // Poll cadence across every connector run. This is intentionally not a
 // retention measure: growth and repair polls also contribute to the cadence.
-async function successfulPollCadence() {
-  const [row] = await prisma.$queryRaw<
+async function successfulPollCadence(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       polls_24h: bigint;
       fresh_under_3d: bigint;
@@ -201,8 +202,8 @@ async function successfulPollCadence() {
 // that snapshot avoids the false conclusion that a successful retention poll
 // targeted a recently refreshed source just because the poll itself made it
 // fresh. Historical tasks without this telemetry remain untracked.
-async function retentionLaneEffectiveness() {
-  const [row] = await prisma.$queryRaw<
+async function retentionLaneEffectiveness(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       successful_polls: bigint;
       tracked_successful_polls: bigint;
@@ -256,8 +257,8 @@ async function retentionLaneEffectiveness() {
   return row;
 }
 
-async function jobsAtRisk() {
-  const [row] = await prisma.$queryRaw<
+async function jobsAtRisk(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{ sources: bigint; retained_live_jobs: bigint }>
   >(Prisma.sql`
     SELECT COUNT(*) AS sources, COALESCE(SUM("retainedLiveJobCount"), 0) AS retained_live_jobs
@@ -269,8 +270,8 @@ async function jobsAtRisk() {
   return row;
 }
 
-async function expiryAttribution() {
-  const [row] = await prisma.$queryRaw<
+async function expiryAttribution(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       expired_14d: bigint;
       evidence_starved: bigint;
@@ -291,8 +292,8 @@ async function expiryAttribution() {
   return row;
 }
 
-async function queueBacklog() {
-  return prisma.$queryRaw<
+async function queueBacklog(db: Prisma.TransactionClient) {
+  return db.$queryRaw<
     Array<{ kind: string; status: string; count: bigint; oldest_due: Date | null }>
   >(Prisma.sql`
     SELECT kind::text, status::text, COUNT(*) AS count, MIN("notBeforeAt") AS oldest_due
@@ -306,8 +307,8 @@ async function queueBacklog() {
 // Label coverage over the visible feed: a job is only filterable when its
 // structured labels clear the same confidence thresholds the feed filters
 // use, so unlabeled supply is invisible to filtered searches even when LIVE.
-async function labelCoverage() {
-  const [row] = await prisma.$queryRaw<
+async function labelCoverage(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{
       visible: bigint;
       role_labeled: bigint;
@@ -339,8 +340,8 @@ async function labelCoverage() {
   return row;
 }
 
-async function zombieSources() {
-  const [row] = await prisma.$queryRaw<
+async function zombieSources(db: Prisma.TransactionClient) {
+  const [row] = await db.$queryRaw<
     Array<{ f10_plus: bigint; f100_plus: bigint; quarantined: bigint }>
   >(Prisma.sql`
     SELECT
@@ -350,6 +351,29 @@ async function zombieSources() {
     FROM "CompanySource"
   `);
   return row;
+}
+
+async function recentIngestionOutcomes(db: Prisma.TransactionClient) {
+  return db.$queryRaw<Array<{ family: string; status: string; failureKind: string; runs: number; fetched: number; created: number; updated: number }>>(Prisma.sql`
+    SELECT split_part("connectorKey", ':', 1) AS family, status::text,
+      CASE
+        WHEN status <> 'FAILED' THEN 'none'
+        WHEN "errorSummary" ~* 'timeout exceeded when trying to connect|prisma|pg.pool|database server|connection terminated' THEN 'database'
+        WHEN "errorSummary" ~* 'TIME_BUDGET_EXCEEDED|RuntimeBudget|ABORTED_BY_RUNNER' THEN 'runtime_budget'
+        WHEN "errorSummary" ~* 'AbortError|timed? ?out|timeout' THEN 'upstream_timeout'
+        WHEN "errorSummary" ~ '(401|403|429)' THEN 'upstream_blocked'
+        WHEN "errorSummary" ~ '(400|404|410)' THEN 'upstream_invalid'
+        ELSE 'other'
+      END AS "failureKind",
+      count(*)::int AS runs,
+      sum("fetchedCount")::int AS fetched,
+      sum("canonicalCreatedCount")::int AS created,
+      sum("canonicalUpdatedCount")::int AS updated
+    FROM "IngestionRun"
+    WHERE "startedAt" > now() - interval '1 hour'
+    GROUP BY 1, 2, 3
+    ORDER BY runs DESC
+  `);
 }
 
 function toNumber(value: unknown): number {
@@ -363,37 +387,59 @@ function formatPercent(part: number, whole: number): string {
 
 async function main() {
   const asJson = process.argv.includes("--json");
-  const publicSummary = await prisma.jobFeedSummaryCache.findUnique({ where: { id: "singleton" } });
-
-  const [
-    canonical,
-    feed,
-    flow,
-    evidence,
-    hiddenLive,
-    coverage,
-    cadence,
-    retentionLane,
-    atRisk,
-    expiry,
-    backlog,
-    zombies,
-    labels,
-  ] = await Promise.all([
-    canonicalByStatus(),
-    feedByStatus(),
-    weeklyFlow(8),
-    liveEvidenceBuckets(),
-    hiddenButLive(),
-    pollCoverage(),
-    successfulPollCadence(),
-    retentionLaneEffectiveness(),
-    jobsAtRisk(),
-    expiryAttribution(),
-    queueBacklog(),
-    zombieSources(),
-    labelCoverage(),
-  ]);
+  const read = <T>(query: (db: Prisma.TransactionClient) => Promise<T>) =>
+    prisma.$transaction(async (db) => {
+      await db.$executeRaw`SET TRANSACTION READ ONLY`;
+      await db.$executeRaw`SET LOCAL statement_timeout = '25s'`;
+      await db.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+      return query(db);
+    }, { maxWait: 5000, timeout: 28_000 });
+  const sections = await collectReportSections({
+    publicSummary: () => read((db) => db.jobFeedSummaryCache.findUniqueOrThrow({ where: { id: "singleton" } })),
+    recentIngestion: () => read(recentIngestionOutcomes),
+    canonical: () => read(canonicalByStatus),
+    feed: () => read(feedByStatus),
+    flow: () => read((db) => weeklyFlow(db, 8)),
+    evidence: () => read(liveEvidenceBuckets),
+    hiddenLive: () => read(hiddenButLive),
+    coverage: () => read(pollCoverage),
+    cadence: () => read(successfulPollCadence),
+    retentionLane: () => read(retentionLaneEffectiveness),
+    atRisk: () => read(jobsAtRisk),
+    expiry: () => read(expiryAttribution),
+    backlog: () => read(queueBacklog),
+    zombies: () => read(zombieSources),
+    labels: () => read(labelCoverage),
+  });
+  const publicSummary = sections.publicSummary.data;
+  const canonical = sections.canonical.data;
+  const feed = sections.feed.data;
+  const flow = sections.flow.data;
+  const evidence = sections.evidence.data;
+  const hiddenLive = sections.hiddenLive.data;
+  const coverage = sections.coverage.data;
+  const cadence = sections.cadence.data;
+  const retentionLane = sections.retentionLane.data;
+  const atRisk = sections.atRisk.data;
+  const expiry = sections.expiry.data;
+  const backlog = sections.backlog.data;
+  const zombies = sections.zombies.data;
+  const labels = sections.labels.data;
+  const queryTimingsMs = Object.fromEntries(Object.entries(sections).map(([name, section]) => [name, section.elapsedMs]));
+  if (Object.values(sections).some((section) => section.error) || canonical === null || feed === null || flow === null || evidence === null || hiddenLive === null || coverage === null || cadence === null || retentionLane === null || atRisk === null || expiry === null || backlog === null || zombies === null || labels === null) {
+    // Preserve healthy sections without turning unavailable diagnostics into
+    // zeroes or presenting a partial report as healthy.
+    console.log(JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      complete: false,
+      publicBoard: { liveJobCount: publicSummary?.liveJobCount ?? null, computedAt: publicSummary?.computedAt ?? null, metric: "JobFeedSummaryCache.liveJobCount" },
+      diagnosticScope: "All other counts are non-public diagnostics, not the filtered /jobs pool.",
+      sections,
+      queryTimingsMs,
+      warnings: Object.entries(sections).filter(([, section]) => section.error).map(([name]) => `Supply-health section unavailable: ${name}`),
+    }, (_, value) => typeof value === "bigint" ? Number(value) : value, 2));
+    return;
+  }
 
   const liveTotal = toNumber(evidence?.live_total);
   const staleOver14 = toNumber(evidence?.stale_over_14d);
@@ -486,6 +532,9 @@ async function main() {
 
   const report: Report = {
     generatedAt: new Date().toISOString(),
+    complete: true,
+    queryTimingsMs,
+    recentIngestion: { windowHours: 1, countsAreNonPublic: true, outcomes: sections.recentIngestion.data },
     publicBoard: {
       liveJobCount: visibleLive,
       computedAt: publicSummary?.computedAt.toISOString() ?? null,

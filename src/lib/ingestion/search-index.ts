@@ -513,13 +513,18 @@ export async function upsertJobFeedIndexes(
   }
 }
 
-function buildJobFeedIndexRepairQuery(mode: JobFeedIndexRepairMode, limit: number) {
+export function buildJobFeedIndexRepairQuery(mode: JobFeedIndexRepairMode, limit: number) {
   const missingClause = Prisma.sql`jfi."canonicalJobId" IS NULL`;
   const staleClause = Prisma.sql`jfi."canonicalJobId" IS NOT NULL AND jfi."indexedAt" < jc."updatedAt"`;
   const hiddenButVisibleClause = Prisma.sql`
     jfi."canonicalJobId" IS NOT NULL
     AND jc.status = 'LIVE'
     AND jfi.status <> 'LIVE'
+    -- This coarse SQL test cannot reproduce the complete scope/quality gate.
+    -- A recently indexed hidden row is an intentional decision, not necessarily
+    -- corruption. Retry it daily; actual canonical changes remain immediate
+    -- through staleClause, and missing rows never wait for this cooldown.
+    AND jfi."indexedAt" < NOW() - INTERVAL '1 day'
     AND jc."deadSignalAt" IS NULL
     AND jc."availabilityScore" >= ${JOB_BOARD_MIN_AVAILABILITY_SCORE}
     AND (jc."titleStatus" IS NULL OR jc."titleStatus" IN ('verified', 'confident'))

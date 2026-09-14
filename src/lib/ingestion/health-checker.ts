@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { healthCheckStorageSnippet } from "@/lib/ingestion/health-check-storage";
 import { normalizeApplyUrlKey } from "@/lib/ingestion/dedupe";
 import {
   APPLY_LINK_VALIDATION_STATUS,
@@ -479,7 +480,7 @@ async function recordHealthCheck(
       checkedAt: outcome.checkedAt,
       responseTimeMs: outcome.responseTimeMs,
       closureReason: outcome.closureReason,
-      responseSnippet: outcome.responseSnippet,
+      responseSnippet: healthCheckStorageSnippet(outcome.result, outcome.responseSnippet),
       metadataJson: {
         validationStatus: outcome.validationStatus,
         validationReason: outcome.validationReason,
