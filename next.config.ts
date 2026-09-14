@@ -4,6 +4,10 @@ const projectRoot = __dirname;
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  experimental: {
+    webpackBuildWorker: true,
+    webpackMemoryOptimizations: true,
+  },
   outputFileTracingExcludes: { "/*": ["./.env", "./.env.*", "./data/uploads/**/*", "./data/automation-screenshots/**/*"] },
   onDemandEntries: {
     maxInactiveAge: 15 * 1000,
