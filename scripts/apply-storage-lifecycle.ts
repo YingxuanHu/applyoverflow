@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import { prisma } from "../src/lib/db";
+import { createBoundedMaintenanceClient, prisma } from "../src/lib/db";
 import {
   INACTIVE_JOB_RETENTION_DAYS,
   INACTIVE_JOB_STATUSES,
@@ -437,9 +437,20 @@ async function applyCompressionSettings() {
 }
 
 async function runVacuum(tableNames: string[]) {
-  for (const tableName of [...new Set(tableNames)]) {
-    await prisma.$executeRawUnsafe(`vacuum (analyze) "${tableName}"`);
-    console.log(`[vacuum] analyzed ${tableName}`);
+  const maintenance = createBoundedMaintenanceClient();
+  try {
+    for (const tableName of [...new Set(tableNames)]) {
+      if (!/^[A-Za-z][A-Za-z0-9]*$/.test(tableName)) throw new Error("Invalid maintenance table");
+      try {
+        await maintenance.$executeRawUnsafe(`vacuum (analyze) "${tableName}"`);
+        console.log(`[vacuum] analyzed ${tableName}`);
+      } catch (error) {
+        console.error(`[vacuum] deferred ${tableName}; autovacuum remains enabled:`, error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      }
+    }
+  } finally {
+    await maintenance.$disconnect();
   }
 }
 

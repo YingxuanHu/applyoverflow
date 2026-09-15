@@ -1,12 +1,12 @@
 import { Parser } from "htmlparser2";
 
 const BLOCK_TAGS = new Set(["p", "div", "section", "article", "blockquote", "ul", "ol", "dl", "dt", "dd", "table", "tr", "pre"]);
-const OMIT_TAGS = new Set(["script", "style", "noscript", "template", "iframe", "svg"]);
+const OMIT_TAGS = new Set(["script", "style", "noscript", "template", "iframe", "svg", "nav"]);
 
 /** Convert source markup to inert text without flattening its document structure. */
 export function descriptionHtmlToText(source: string): string {
   if (!source.trim()) return "";
-  const hasMarkup = /<\/?(?:html|body|p|div|section|article|h[1-6]|br|li|ul|ol|span|strong|b|em|a|table|tr|td|script|style|blockquote|pre)\b[^>]*>/i.test(source);
+  const hasMarkup = /<\/?(?:html|body|nav|p|div|section|article|h[1-6]|br|li|ul|ol|dl|dt|dd|span|strong|b|em|a|table|tr|td|script|style|blockquote|pre)\b[^>]*>/i.test(source);
   let output = "";
   let omitted = 0;
   let boldStart: number | null = null;
@@ -47,8 +47,9 @@ export function descriptionHtmlToText(source: string): string {
       }
     },
     ontext(text) {
+      if (omitted) return;
       if (pendingBold && text.trim()) pendingBold = null;
-      if (!omitted) output += hasMarkup ? text.replace(/\s+/g, " ") : text;
+      output += hasMarkup ? text.replace(/\s+/g, " ") : text;
     },
     onclosetag(name) {
       if (OMIT_TAGS.has(name)) { omitted = Math.max(0, omitted - 1); return; }

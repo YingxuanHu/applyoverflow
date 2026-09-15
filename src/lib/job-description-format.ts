@@ -4,6 +4,7 @@ import {
   hasDescriptionPollution,
 } from "@/lib/ingestion/html-description";
 import { descriptionHtmlToText } from "@/lib/jobs/description-html";
+import { descriptionMetadata, repairDescriptionTextStructure, stripCareerPageNavigation } from "@/lib/jobs/description-text-structure";
 
 export type DescriptionBlock =
   | { kind: "header"; text: string }
@@ -26,10 +27,12 @@ const SECTION_HEADINGS = [
   "about this role",
   "role overview",
   "position overview",
+  "position summary",
   "job description",
   "job summary",
   "responsibilities",
   "key responsibilities",
+  "job responsibilities",
   "what you'll do",
   "what youll do",
   "what you will do",
@@ -118,6 +121,7 @@ const COLLAPSED_SECTION_HEADINGS = [
 
 const LIST_LIKE_HEADINGS = new Set([
   "responsibilities",
+  "job responsibilities",
   "key responsibilities",
   "what you'll do",
   "what youll do",
@@ -625,7 +629,8 @@ function looksLikeStructuredDescription(raw: string) {
 function splitInlineHeadingValues(raw: string) {
   return raw.replace(
     /^([A-Z][A-Za-z0-9/&+,'’() -]{1,48}):\s+(.+)$/gm,
-    (_match, label: string, value: string) => {
+    (match, label: string, value: string) => {
+      if (descriptionMetadata(match)) return match;
       const normalizedLabel = normalizeHeadingKey(label);
       const trimmedValue = value.trim();
 
@@ -672,6 +677,7 @@ function splitCollapsedSectionHeadings(raw: string) {
 }
 
 function cleanupJobDescription(raw: string) {
+  raw = stripCareerPageNavigation(raw);
   const embeddedDescription = extractEmbeddedDescription(raw);
   const source =
     embeddedDescription ??
@@ -688,6 +694,7 @@ function cleanupJobDescription(raw: string) {
 
   cleaned = normalizeCommonMojibake(cleaned);
   cleaned = stripLeadingTitleBullets(cleaned);
+  cleaned = repairDescriptionTextStructure(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
   cleaned = splitCollapsedSectionHeadings(cleaned);
@@ -934,12 +941,14 @@ const ROLE_OVERVIEW_HEADING_KEYS = new Set([
   "about this role",
   "role overview",
   "position overview",
+  "position summary",
   "job description",
   "job summary",
 ]);
 
 const RESPONSIBILITY_HEADING_KEYS = new Set([
   "responsibilities",
+  "job responsibilities",
   "key responsibilities",
   "what youll do",
   "what you will do",

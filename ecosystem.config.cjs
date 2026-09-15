@@ -276,6 +276,18 @@ const overnightAccelerationApps = overnightAccelerationEnabled
 
 const maintenanceApps = [
   buildMaintenanceShellApp(
+    "maintenance-saved-job-changes",
+    "-lc 'sleep 120; while true; do timeout 180s node_modules/.bin/tsx -r dotenv/config scripts/refresh-saved-job-changes.ts || true; sleep 300; done'",
+    "./logs/maintenance-saved-job-changes-out.log",
+    "./logs/maintenance-saved-job-changes-err.log"
+  ),
+  buildMaintenanceShellApp(
+    "maintenance-storage-growth",
+    "-lc 'sleep 300; while true; do timeout 30s node_modules/.bin/tsx -r dotenv/config scripts/report-storage-growth.ts || true; sleep 86400; done'",
+    "./logs/maintenance-storage-growth-out.log",
+    "./logs/maintenance-storage-growth-err.log"
+  ),
+  buildMaintenanceShellApp(
     "maintenance-feed-summary",
     `-lc 'while true; do node_modules/.bin/tsx -r dotenv/config scripts/refresh-job-feed-summary.ts || true; sleep ${process.env.JOB_FEED_SUMMARY_REFRESH_SECONDS || 300}; done'`,
     "./logs/maintenance-feed-summary-out.log",

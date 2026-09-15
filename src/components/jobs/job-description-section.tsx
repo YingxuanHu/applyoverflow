@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { after } from "next/server";
 import { enqueueDescriptionRepair } from "@/lib/jobs/description-repair";
 import { JobDescriptionContent } from "./job-description-content";
+import { ReportJobDetails } from "./report-job-details";
 
 type JobDescriptionSectionProps = {
   title?: string;
@@ -43,6 +44,8 @@ export function JobDescriptionSection({
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
       </div>
+
+      <ReportJobDetails jobId={job.id} />
 
       {shouldShowDescription ? (
         <div className="mt-4">

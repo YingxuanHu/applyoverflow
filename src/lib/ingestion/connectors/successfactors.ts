@@ -9,7 +9,8 @@ import type {
   SourceConnectorFetchResult,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
-import { decodeHtmlEntitiesFull as decodeHtmlEntities } from "@/lib/ingestion/html-description";
+import { decodeHtmlEntitiesFull as decodeHtmlEntities, extractBalancedTagContent } from "@/lib/ingestion/html-description";
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
 import {
   buildTimeoutSignal,
   throwIfAborted,
@@ -419,18 +420,10 @@ function parseJobDetailPage(
     /<a[^>]*class="[^"]*\bapply\b[^"]*"[^>]*href="([^"]+)"/i
   );
   const applyUrl = applyHref ? new URL(applyHref, detailUrl).toString() : null;
-  const descriptionHtml =
-    extractBalancedTagContent(
-      html,
-      /<span class="jobdescription">/i,
-      "span"
-    ) ??
-    extractBalancedTagContent(
-      html,
-      /itemprop="description"[^>]*>/i,
-      "span"
-    );
-  const description = descriptionHtml ? htmlToText(descriptionHtml) : null;
+  const descriptionTag = /<(span|div|section)\b[^>]*(?:class=["'][^"']*\bjobdescription\b[^"']*["']|itemprop=["']description["'])[^>]*>/i;
+  const descriptionMatch = descriptionTag.exec(html);
+  const descriptionHtml = descriptionMatch ? extractBalancedTagContent(html, descriptionMatch[1], descriptionMatch.index + descriptionMatch[0].length) : null;
+  const description = descriptionHtml ? descriptionHtmlToText(descriptionHtml) : null;
 
   return {
     title: title || null,
@@ -522,62 +515,6 @@ function extractLastMatch(html: string, pattern: RegExp) {
   const matches = [...html.matchAll(pattern)];
   const value = matches[matches.length - 1]?.[1];
   return value ?? null;
-}
-
-function extractBalancedTagContent(
-  html: string,
-  startPattern: RegExp,
-  tagName: string
-) {
-  const match = startPattern.exec(html);
-  if (!match || match.index < 0) return null;
-
-  const openTagIndex = html.lastIndexOf("<", match.index);
-  const startIndex = html.indexOf(">", match.index);
-  if (openTagIndex < 0 || startIndex < 0) return null;
-
-  let depth = 1;
-  let cursor = startIndex + 1;
-  const openTag = new RegExp(`<${tagName}(\\s|>)`, "gi");
-  const closeTag = new RegExp(`</${tagName}>`, "gi");
-  openTag.lastIndex = cursor;
-  closeTag.lastIndex = cursor;
-
-  while (depth > 0) {
-    const nextOpen = openTag.exec(html);
-    const nextClose = closeTag.exec(html);
-
-    if (!nextClose) return null;
-
-    if (nextOpen && nextOpen.index < nextClose.index) {
-      depth += 1;
-      openTag.lastIndex = nextOpen.index + nextOpen[0].length;
-      closeTag.lastIndex = cursor;
-      cursor = nextOpen.index + nextOpen[0].length;
-      continue;
-    }
-
-    depth -= 1;
-    cursor = nextClose.index + nextClose[0].length;
-    if (depth === 0) {
-      return html.slice(startIndex + 1, nextClose.index);
-    }
-  }
-
-  return null;
-}
-
-function htmlToText(html: string) {
-  return cleanText(
-    html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<img[^>]*>/gi, " ")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/p>/gi, "\n")
-      .replace(/<\/li>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-  );
 }
 
 function cleanText(value: string | null | undefined) {

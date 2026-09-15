@@ -157,7 +157,11 @@ const CONTAINER_MATCHERS: ContainerMatcher[] = [
   // SuccessFactors
   {
     label: "successfactors-jobdescription",
-    open: /<(div)[^>]*(?:id|class)=["'][^"']*(?:jobdescription|job-description|jobDetail)[^"']*["'][^>]*>/i,
+    open: /<(div|span|section)\b[^>]*(?:id|class)=["'][^"']*(?:jobdescription|job-description)[^"']*["'][^>]*>/i,
+  },
+  {
+    label: "schema-description",
+    open: /<(div|span|section)\b[^>]*itemprop=["']description["'][^>]*>/i,
   },
   // Taleo
   {
@@ -552,8 +556,15 @@ export function extractDescriptionFromHtml(html: string): string {
 
   if (candidates.length === 0) return "";
 
-  candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
+  // A substantial explicit description must not lose to a longer page menu or
+  // table of contents. Generic main/article/content wrappers remain fallbacks.
+  const scoped = candidates.filter((candidate) =>
+    ["successfactors-jobdescription", "schema-description", "workday-jobPostingDescription", "generic-job-description", "generic-id-description", "taleo-description"].includes(candidate.label) &&
+    candidate.text.length >= 400 && /\b(?:responsibilities|qualifications|requirements|position summary|about the role|what you will|what you'll)\b/i.test(candidate.text)
+  );
+  const ranked = scoped.length ? scoped : candidates;
+  ranked.sort((a, b) => b.score - a.score);
+  const best = ranked[0];
   return capDescriptionText(trimDescriptionPollution(best.text), best.label);
 }
 

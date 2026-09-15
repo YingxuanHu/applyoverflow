@@ -1,11 +1,14 @@
 import { prisma } from "@/lib/db";
 import { requireCurrentProfileId } from "@/lib/current-user";
+import { buildDecisionFacts, decisionFactSelect } from "@/lib/jobs/decision-facts";
 
 export async function saveJob(
   canonicalJobId: string,
   status: "ACTIVE" | "APPLIED" | "EXPIRED" | "DISMISSED" = "ACTIVE"
 ) {
   const userId = await requireCurrentProfileId();
+  const checkedAt = new Date();
+  const job = await prisma.jobCanonical.findUniqueOrThrow({ where: { id: canonicalJobId }, select: decisionFactSelect });
   const [saved] = await prisma.$transaction([prisma.savedJob.upsert({
     where: {
       userId_canonicalJobId: {
@@ -17,6 +20,8 @@ export async function saveJob(
       userId,
       canonicalJobId,
       status,
+      factsSnapshotJson: buildDecisionFacts(job),
+      factsCheckedAt: checkedAt,
     },
     update: {
       status,

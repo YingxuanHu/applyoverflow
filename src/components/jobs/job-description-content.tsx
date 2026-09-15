@@ -4,6 +4,7 @@ import { useId, useMemo, type MouseEvent } from "react";
 import { buildDescriptionPresentation } from "@/lib/jobs/description-presentation";
 import { hasUsableSourceDescription } from "@/lib/jobs/description-quality";
 import { capabilityEvidence, extractCapabilities } from "@/lib/jobs/capabilities";
+import { descriptionMetadata } from "@/lib/jobs/description-text-structure";
 
 export function JobDescriptionContent({ description, profileSkills = [] }: { description: string; profileSkills?: string[] }) {
   const id = useId();
@@ -68,7 +69,25 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
           <section key={index} className="space-y-3" aria-labelledby={section.heading ? sectionId(index) : undefined}>
             {section.heading ? <h3 id={sectionId(index)} tabIndex={-1} className="scroll-mt-24 text-base font-semibold leading-6 text-foreground focus-visible:outline-2 focus-visible:outline-primary">{section.heading}</h3> : null}
             {section.blocks.map((block, blockIndex) => {
-              if (block.kind === "paragraph") return <p id={blockId(index, blockIndex)} tabIndex={-1} key={blockIndex}>{block.text}</p>;
+              if (block.kind === "paragraph") {
+                const fact = descriptionMetadata(block.text);
+                if (!fact) return <p id={blockId(index, blockIndex)} tabIndex={-1} key={blockIndex}>{block.text}</p>;
+                const previous = section.blocks[blockIndex - 1];
+                if (previous?.kind === "paragraph" && descriptionMetadata(previous.text)) return null;
+                const facts = [];
+                for (let next = blockIndex; next < section.blocks.length; next += 1) {
+                  const candidate = section.blocks[next];
+                  const metadata = candidate.kind === "paragraph" ? descriptionMetadata(candidate.text) : null;
+                  if (!metadata) break;
+                  facts.push({ ...metadata, index: next });
+                }
+                return <dl key={blockIndex} className="grid gap-x-6 gap-y-3 py-2 text-sm sm:grid-cols-2">
+                  {facts.map((metadata) => <div key={metadata.index} id={blockId(index, metadata.index)} tabIndex={-1}>
+                    <dt className="text-xs font-medium text-muted-foreground">{metadata.label}</dt>
+                    <dd className="text-foreground">{metadata.value}</dd>
+                  </div>)}
+                </dl>;
+              }
               if (block.kind !== "list") return null;
               const ordered = block.items.every((item) => /^\d+\.\s/.test(item));
               return ordered ? (

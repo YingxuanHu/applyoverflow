@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Columns3 } from "lucide-react";
 import { cookies } from "next/headers";
 import { applicationCalendarDay } from "@/lib/applications/work-queue";
 import { normalizeUserTimeZone, USER_TIME_ZONE_COOKIE } from "@/lib/time-zone";
@@ -348,6 +350,7 @@ export default async function ApplicationsPage({
             Track feed submissions and manual applications in one workflow.
           </p>
         </div>
+        <Link href="/applications/compare" className="inline-flex items-center gap-2 text-sm font-medium text-primary"><Columns3 className="h-4 w-4" />Compare saved jobs</Link>
       </div>
 
       <ApplicationsPageClient

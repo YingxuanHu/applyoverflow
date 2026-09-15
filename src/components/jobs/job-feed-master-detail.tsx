@@ -1,5 +1,7 @@
 "use client";
 
+import { ReportJobDetails } from "@/components/jobs/report-job-details";
+
 import Link from "next/link";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
@@ -414,6 +416,7 @@ function JobFeedDetailPanel({
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </div>
+        <ReportJobDetails key={job.id} jobId={job.id} />
         {descriptionError ? (
           <p role="alert" className="mt-4 text-sm">Could not load the description. <button type="button" className="text-primary underline" onClick={() => { setDescriptionError(false); setRetry((value) => value + 1); }}>Try again</button></p>
         ) : null}

@@ -419,6 +419,7 @@ model UserProfile {
   documents              Document[]
   preferences            UserPreference[]
   savedJobs              SavedJob[]
+  jobDataReports         JobDataReport[]
   behaviorSignals        UserBehaviorSignal[]
   applicationSubmissions ApplicationSubmission[]
   applicationPackages    ApplicationPackage[]
@@ -755,6 +756,7 @@ model JobCanonical {
   eligibility            JobEligibility?
   sourceMappings         JobSourceMapping[]
   savedJobs              SavedJob[]
+  dataReports            JobDataReport[]
   applicationSubmissions ApplicationSubmission[]
   applicationPackages    ApplicationPackage[]
   behaviorSignals        UserBehaviorSignal[]
@@ -934,6 +936,8 @@ model SavedJob {
   canonicalJobId String
   status         SavedJobStatus @default(ACTIVE)
   notes          String?
+  factsSnapshotJson Json?
+  factsCheckedAt DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -942,6 +946,25 @@ model SavedJob {
 
   @@unique([userId, canonicalJobId])
   @@index([userId, status])
+  @@index([status, factsCheckedAt])
+}
+
+model JobDataReport {
+  id             String   @id @default(cuid())
+  userId         String
+  canonicalJobId String
+  category       String
+  details        String   @db.VarChar(500)
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  resolvedAt     DateTime?
+
+  user         UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canonicalJob JobCanonical @relation(fields: [canonicalJobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, canonicalJobId, category])
+  @@index([status, createdAt])
+  @@index([canonicalJobId])
 }
 
 model UserPreference {

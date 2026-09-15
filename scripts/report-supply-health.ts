@@ -19,6 +19,7 @@ import {
 } from "../src/lib/job-metadata";
 import { RETENTION_POLL_PRIORITY_FLOOR } from "../src/lib/ingestion/task-queue";
 import { collectReportSections } from "../src/lib/ingestion/supply-report-runner";
+import { buildSourceRecoveryReportQuery } from "../src/lib/ingestion/source-recovery-report";
 
 const EVIDENCE_WINDOW_DAYS = 14;
 const ALIVE_WINDOW_DAYS = 30;
@@ -228,6 +229,7 @@ async function retentionLaneEffectiveness(db: Prisma.TransactionClient) {
         END AS "selectionRetainedLiveJobCount"
       FROM "SourceTask" st
       WHERE st."kind" = 'CONNECTOR_POLL'::"SourceTaskKind"
+        AND st."status" = 'SUCCESS'::"SourceTaskStatus"
         AND st."priorityScore" >= ${RETENTION_POLL_PRIORITY_FLOOR}
         AND st."finishedAt" >= now() - interval '24 hours'
     )
@@ -406,6 +408,7 @@ async function main() {
     cadence: () => read(successfulPollCadence),
     retentionLane: () => read(retentionLaneEffectiveness),
     atRisk: () => read(jobsAtRisk),
+    recovery: () => read((db) => db.$queryRaw(buildSourceRecoveryReportQuery())),
     expiry: () => read(expiryAttribution),
     backlog: () => read(queueBacklog),
     zombies: () => read(zombieSources),
@@ -535,6 +538,7 @@ async function main() {
     complete: true,
     queryTimingsMs,
     recentIngestion: { windowHours: 1, countsAreNonPublic: true, outcomes: sections.recentIngestion.data },
+    sourceRecovery: { limit: 100, countsAreNonPublic: true, candidates: sections.recovery.data },
     publicBoard: {
       liveJobCount: visibleLive,
       computedAt: publicSummary?.computedAt.toISOString() ?? null,

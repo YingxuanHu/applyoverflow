@@ -35,6 +35,7 @@ export default async function IngestionOpsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Link href="/ops/job-reports" className="text-sm text-muted-foreground hover:text-foreground">Job reports</Link>
           <Link
             href="/ops/health"
             className="text-sm text-muted-foreground hover:text-foreground"

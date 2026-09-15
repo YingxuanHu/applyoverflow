@@ -227,7 +227,7 @@ test("app-only releases build current migrations and never recreate database dep
   assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance node --import tsx --test tests\/ssrf-guard.test.ts/);
   assert.ok(result.stdout.indexOf("--test tests/ssrf-guard.test.ts") < result.stdout.indexOf("prisma migrate deploy"));
   assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance npx prisma migrate deploy/);
-  assert.match(result.stdout, /up -d --no-deps --force-recreate --wait --wait-timeout 120 app/);
+  assert.match(result.stdout, /up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 app/);
   assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d).*postgres/);
 });
 
@@ -260,4 +260,35 @@ test("deployment can direct builds and pruning to an attached-volume builder", (
   assert.match(result.stdout, /build --builder release-volume worker-maintenance/);
   assert.match(result.stdout, /buildx --builder release-volume prune -af/);
   assert.doesNotMatch(result.stdout, /DOCKER builder prune/);
+});
+
+test("prebuilt deployment verifies revision/platform, keeps smoke tests and migrations, and never builds on the VPS", () => {
+  const source = read("deploy/single-vps/rebuild.sh");
+  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
+  const run = (revision = "test-release", platform = "linux/amd64") => spawnSync("bash", ["-s"], {
+    cwd: root, encoding: "utf8", timeout: 5000,
+    input: `docker() {
+      case "$*" in
+        *"config --images"*) printf 'single-vps-app\\nsingle-vps-worker-maintenance\\n';;
+        *"image inspect"*"Architecture"*) printf '%s\\n' "$TEST_PLATFORM";;
+        *"image inspect"*"revision"*) printf '%s\\n' "$TEST_REVISION";;
+        *) printf 'DOCKER %s\\n' "$*";;
+      esac
+    }\ndf() { :; }\n${remote}`,
+    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "", TEST_REVISION: revision, TEST_PLATFORM: platform,
+      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+  });
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /image tag applyoverflow-release:test-release-web single-vps-app:latest/);
+  assert.match(result.stdout, /ssrf-guard.test.ts/);
+  assert.match(result.stdout, /pdf-runtime-smoke.mjs/);
+  assert.match(result.stdout, /prisma migrate deploy/);
+  assert.match(result.stdout, /up -d --no-deps --no-build/);
+  assert.doesNotMatch(result.stdout, /DOCKER.*(?:build app|build worker|builder prune|buildx)/);
+  for (const rejected of [run("wrong-revision"), run("test-release", "linux/arm64")]) {
+    assert.equal(rejected.status, 1);
+    assert.doesNotMatch(rejected.stdout, /image tag|prisma migrate deploy|up -d/);
+  }
 });

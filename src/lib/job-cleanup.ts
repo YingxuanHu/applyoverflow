@@ -7,6 +7,7 @@ import {
   extractTitleFromUrl,
 } from "@/lib/ingestion/extraction/title-extractor";
 import { descriptionHtmlToText } from "@/lib/jobs/description-html";
+import { repairDescriptionTextStructure } from "@/lib/jobs/description-text-structure";
 
 const TITLE_ROLE_HINT_RE =
   /\b(engineer|developer|manager|analyst|scientist|designer|architect|consultant|specialist|coordinator|director|lead|leader|partner|recruiter|intern|internship|administrator|technician|officer|developer relations|researcher|associate|representative|banker|sales|customer|content|marketing|marketer|operations|lighter|trainer|tutor|student|co-?op|executive|head|counsel|compliance|clerk|inspector|operator|strategist|electrician|bricklayer|welder|welding|fabrication)\b/i;
@@ -332,7 +333,7 @@ export function sanitizeJobDescriptionText(
   context?: { title?: string | null; location?: string | null }
 ) {
   const raw = asText(value);
-  const joined = descriptionHtmlToText(raw);
+  const joined = repairDescriptionTextStructure(descriptionHtmlToText(raw));
   const dePolluted = trimDescriptionPollution(joined);
 
   const title = compactWhitespace(context?.title ?? "");

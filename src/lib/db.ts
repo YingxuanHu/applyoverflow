@@ -179,8 +179,8 @@ function getDatabaseSslConfig() {
   return undefined;
 }
 
-function createPrismaClient() {
-  const role = detectDatabaseProcessRole();
+function createPrismaClient(boundedMaintenance = false) {
+  const role = boundedMaintenance ? "maintenance" : detectDatabaseProcessRole();
   const connectionString = resolveDatabaseConnectionString(role);
   const parsedDatabaseUrl = new URL(connectionString);
 
@@ -195,7 +195,8 @@ function createPrismaClient() {
   const adapter = new PrismaPg(
     {
       connectionString,
-      max: getDatabasePoolMax(role),
+      max: boundedMaintenance ? 1 : getDatabasePoolMax(role),
+      ...(boundedMaintenance ? { statement_timeout: 60_000, lock_timeout: 1_000 } : {}),
       idleTimeoutMillis: getDatabaseIdleTimeoutMs(),
       connectionTimeoutMillis: getDatabaseConnectionTimeoutMs(),
       ssl: getDatabaseSslConfig(),
@@ -230,6 +231,12 @@ function createPrismaProxy() {
 }
 
 export const prisma = globalForPrisma.prismaProxy ?? createPrismaProxy();
+
+// VACUUM cannot run in a transaction. Session-startup limits on a dedicated
+// client keep its timeout from leaking to unrelated pooled application work.
+export function createBoundedMaintenanceClient() {
+  return createPrismaClient(true);
+}
 
 function visitErrorTree(
   error: unknown,
