@@ -61,6 +61,10 @@ test("geographic locations outrank work arrangements and provider identifiers", 
   assert.equal(extractAndScoreLocation(buildJob({ location: "Hybrid", metadata: { jobLocation: { address: { addressLocality: "London", addressRegion: "ON", addressCountry: "CA" } } } }))?.value, "London, ON, CA");
   assert.equal(extractAndScoreLocation(buildJob({ location: "", metadata: { location_name: "Sao Paulo" } }))?.value, "Sao Paulo");
   assert.equal(extractAndScoreLocation(buildJob({ location: "Remote", metadata: { locations: ["Toronto, ON", "Vancouver, BC"] } }))?.value, "Toronto, Vancouver");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Remote, UNAVAILABLE, US; Amarillo, TX, US", metadata: {} }))?.value, "Remote, US; Amarillo, TX, US");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Remote, Canada; Austin, TX, US", metadata: {} }))?.value, "Remote, Canada; Austin, TX, US");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Berlin, Berlin, Germany", metadata: { location: "Remote job" } }))?.value, "Berlin, Berlin, Germany");
+  assert.equal(extractAndScoreLocation(buildJob({ location: "Doha, unavailable, Qatar", metadata: {} }))?.value, "Doha, Qatar");
 });
 
 test("normalized salary uses Canadian geography without overriding explicit currency", () => {

@@ -23,6 +23,7 @@ import {
 } from "@/lib/ingestion/normalized-records";
 import { computeNormalizedQualityScore } from "@/lib/ingestion/quality";
 import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
+import { shouldUseIncomingExtractedValue } from "@/lib/ingestion/canonical-field-selection";
 import { readCompanySiteCompletenessSignal, readConnectorFetchError } from "@/lib/ingestion/source-fetch-quality";
 import {
   deriveSourceIdentitySnapshot,
@@ -1888,18 +1889,26 @@ export async function upsertCanonicalJob({
     preferIncomingSource ||
     currentCanonical.titleStatus == null ||
     currentCanonical.titleConfidence == null;
-  const useIncomingLocationExtraction =
-    preferIncomingSource ||
-    currentCanonical.locationStatus == null ||
-    currentCanonical.locationConfidence == null;
+  const useIncomingLocationExtraction = shouldUseIncomingExtractedValue({
+    preferIncomingSource,
+    currentConfidence: currentCanonical.locationConfidence,
+    currentSource: currentCanonical.locationSource,
+    nextConfidence: normalizedJob.locationConfidence ?? null,
+    nextSource: normalizedJob.locationSource ?? null,
+    nextValueIsKnown: isMeaningfulString(normalizedJob.location, ["Unknown"]),
+  });
   const useIncomingDescriptionExtraction =
     preferIncomingSource ||
     currentCanonical.descriptionStatus == null ||
     currentCanonical.descriptionConfidence == null;
-  const useIncomingWorkModeExtraction =
-    preferIncomingSource ||
-    currentCanonical.workModeStatus == null ||
-    currentCanonical.workModeConfidence == null;
+  const useIncomingWorkModeExtraction = shouldUseIncomingExtractedValue({
+    preferIncomingSource,
+    currentConfidence: currentCanonical.workModeConfidence,
+    currentSource: currentCanonical.workModeSource,
+    nextConfidence: normalizedJob.workModeConfidence ?? null,
+    nextSource: normalizedJob.workModeSource ?? null,
+    nextValueIsKnown: normalizedJob.workMode !== "UNKNOWN",
+  });
   const useIncomingEmploymentTypeExtraction =
     preferIncomingSource ||
     currentCanonical.employmentTypeStatus == null ||
@@ -2071,7 +2080,7 @@ export async function upsertCanonicalJob({
       location: chooseCanonicalStringValue({
         currentValue: currentCanonical.location,
         nextValue: normalizedJob.location,
-        preferNext: preferIncomingSource,
+        preferNext: useIncomingLocationExtraction,
         unknownValues: ["Unknown"],
       }),
       locationConfidence: chooseCanonicalNullableValue({
@@ -2097,17 +2106,13 @@ export async function upsertCanonicalJob({
       locationKey: chooseCanonicalStringValue({
         currentValue: currentCanonical.locationKey,
         nextValue: normalizedJob.locationKey,
-        preferNext: preferIncomingSource,
+        preferNext: useIncomingLocationExtraction,
       }),
-      region: chooseCanonicalNullableValue({
-        currentValue: currentCanonical.region,
-        nextValue: normalizedJob.region,
-        preferNext: preferIncomingSource,
-      }),
+      region: useIncomingLocationExtraction ? normalizedJob.region : currentCanonical.region,
       workMode: chooseCanonicalEnumValue({
         currentValue: currentCanonical.workMode,
         nextValue: normalizedJob.workMode,
-        preferNext: preferIncomingSource,
+        preferNext: useIncomingWorkModeExtraction,
         unknownValue: "UNKNOWN",
       }),
       workModeConfidence: chooseCanonicalNullableValue({

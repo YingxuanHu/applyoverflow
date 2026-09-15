@@ -323,14 +323,12 @@ export function TopPicksList({
 
 export function TopPicksStatusSummary({
   canRefresh,
-  inlineProfileHelp,
   rankedPickLabel,
   refreshedLabel,
   refreshHelp,
   showInlineProfileHelp,
 }: {
   canRefresh?: boolean;
-  inlineProfileHelp: string;
   rankedPickLabel: string;
   refreshedLabel: string;
   refreshHelp: string;
@@ -363,20 +361,20 @@ export function TopPicksStatusSummary({
         <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
           {rankedPickLabel}
         </p>
-        <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
-          {refreshedLabel}
-          {inlineProfileHelp ? (
-            <span className="text-muted-foreground">
-              {" "}
-              ({inlineProfileHelp})
-            </span>
-          ) : null}
-        </p>
-        {!showInlineProfileHelp ? (
+        {showInlineProfileHelp ? (
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+            {refreshHelp}
+          </p>
+        ) : (
+          <>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
+            {refreshedLabel}
+          </p>
           <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
             {refreshHelp}
           </p>
-        ) : null}
+          </>
+        )}
       </div>
       {canRefresh === false ? (
         <Button

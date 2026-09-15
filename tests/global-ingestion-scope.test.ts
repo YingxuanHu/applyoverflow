@@ -63,6 +63,7 @@ test("normalization rejects excluded frontline and manual roles even when remote
     "Forklift Operator II",
     "Grocery Clerk Part Time Day",
     "Salad Bar Clerk",
+    "HMR Clerk Part Time Evening",
     "310T Apprentice Mechanic",
     "Retail Store Manager",
   ];

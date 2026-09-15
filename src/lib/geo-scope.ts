@@ -991,6 +991,28 @@ export function isClearlyNonNorthAmericanLocation(location: string): boolean {
   return WEAK_NON_NA_MARKER_PATTERN.test(folded);
 }
 
+const AMBIGUOUS_JOB_LOCATION = /^(?:|unknown|unavailable|multiple locations?|remote(?: job)?|hybrid|on[ -]?site|flexible)$/i;
+
+/**
+ * Use an explicit geography in the title only when the stored location has no
+ * geographic value. This catches source rows such as "... in Berlin" paired
+ * with "Remote job" without treating a US role that supports EMEA as foreign.
+ */
+export function isClearlyNonNorthAmericanJobLocation({
+  title,
+  location,
+  region,
+}: {
+  title: string;
+  location: string;
+  region: Region | null;
+}) {
+  if (isClearlyNonNorthAmericanLocation(location)) return true;
+  if (region === "US" || region === "CA") return false;
+  if (!AMBIGUOUS_JOB_LOCATION.test(location.trim())) return false;
+  return isClearlyNonNorthAmericanLocation(title);
+}
+
 export function formatGeoScopeLabel(scope: GeoScope) {
   switch (scope) {
     case "US":

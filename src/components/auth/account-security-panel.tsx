@@ -100,6 +100,21 @@ function SecurityInput({
   );
 }
 
+function PasswordManagerUsername({ email, name }: { email: string; name: string }) {
+  return (
+    <input
+      aria-hidden="true"
+      autoComplete="username"
+      className="sr-only"
+      name={name}
+      readOnly
+      tabIndex={-1}
+      type="email"
+      value={email}
+    />
+  );
+}
+
 export function AccountSecurityPanel({
   accounts,
   currentSessionId,
@@ -269,7 +284,7 @@ export function AccountSecurityPanel({
           <div className="border-t border-border/60 px-3.5 py-3">
             {hasPassword ? (
               <form onSubmit={onChangePassword}>
-                <input type="hidden" name="username" autoComplete="username" value={email} />
+                <PasswordManagerUsername email={email} name="mobileUsername" />
                 <div className="grid gap-3">
                   <SecurityInput
                     autoComplete="current-password"
@@ -444,7 +459,7 @@ export function AccountSecurityPanel({
             className="rounded-lg border border-border/60 bg-background/60 p-4"
             onSubmit={onChangePassword}
           >
-            <input type="hidden" name="username" autoComplete="username" value={email} />
+            <PasswordManagerUsername email={email} name="username" />
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-foreground">Change password</p>

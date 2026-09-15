@@ -122,11 +122,6 @@ function getRefreshedLabel(status: {
   return `Updated ${formatPostedAge(status.lastComputedAt)}`;
 }
 
-function formatInlineStatusHelp(text: string) {
-  const trimmed = text.trim().replace(/\.+$/, "");
-  return trimmed ? trimmed.charAt(0).toLowerCase() + trimmed.slice(1) : "";
-}
-
 function getRefreshHelpText(status: {
   canRefresh?: boolean;
   hasProfileSnapshot: boolean;
@@ -400,9 +395,6 @@ export default async function JobsTopPicksPage({
   const refreshHelp = getRefreshHelpText(result.status);
   const showInlineProfileHelp =
     result.status.profileReady === false || result.status.canRefresh === false;
-  const inlineProfileHelp = showInlineProfileHelp
-    ? formatInlineStatusHelp(refreshHelp)
-    : "";
   const emptyState = getTopPicksEmptyState(result.status, hasScopedResults);
   const searchFormInitialValues = buildSearchFormInitialValues(filters);
   const searchFormStateKey = JSON.stringify({
@@ -446,14 +438,13 @@ export default async function JobsTopPicksPage({
               result.status.canRefresh !== false &&
               result.status.profileReady !== false
             }
-            inlineProfileHelp={inlineProfileHelp}
             rankedPickLabel={rankedPickLabel}
             refreshedLabel={refreshedLabel}
             refreshHelp={refreshHelp}
             showInlineProfileHelp={showInlineProfileHelp}
           />
 
-          <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
+          {!showInlineProfileHelp ? <div className="mt-4 space-y-3 border-t border-border/60 pt-3 sm:mt-5 sm:space-y-4 sm:pt-4">
             <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
               <JobsSearchForm
                 basePath="/jobs/top-picks"
@@ -512,10 +503,10 @@ export default async function JobsTopPicksPage({
                 groups={activeFilterGroups}
               />
             ) : null}
-          </div>
+          </div> : null}
         </section>
 
-        <section>
+        {!showInlineProfileHelp ? <section>
           {showPagination ? (
             <PaginationControls
               ariaLabel="Top picks top pagination"
@@ -556,7 +547,7 @@ export default async function JobsTopPicksPage({
               totalPages={totalPages}
             />
           ) : null}
-        </section>
+        </section> : null}
       </div>
     </TopPicksRefreshCoordinator>
   );

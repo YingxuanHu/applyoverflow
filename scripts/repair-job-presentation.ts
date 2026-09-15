@@ -2,7 +2,7 @@ import "dotenv/config";
 import { prisma } from "@/lib/db";
 import { normalizeLocationKey } from "@/lib/ingestion/dedupe";
 import { parseSourceConnectorJobFromRawPayload } from "@/lib/ingestion/normalized-records";
-import { planJobPresentationRepair } from "@/lib/ingestion/presentation-repair";
+import { planJobPresentationRepairFromSources } from "@/lib/ingestion/presentation-repair";
 import { upsertJobFeedIndex } from "@/lib/ingestion/search-index";
 
 // An explicit, reviewed batch is required. This script is not a database sweep.
@@ -16,12 +16,13 @@ async function main() {
   let conflicts = 0;
   for (const id of ids) {
     const job = await prisma.jobCanonical.findUnique({ where: { id }, include: {
-      sourceMappings: { where: { removedAt: null }, orderBy: [{ isPrimary: "desc" }, { sourceQualityRank: "desc" }, { lastSeenAt: "desc" }], take: 1, include: { rawJob: true } },
+      sourceMappings: { where: { removedAt: null }, orderBy: [{ isPrimary: "desc" }, { sourceQualityRank: "desc" }, { lastSeenAt: "desc" }], take: 10, include: { rawJob: true } },
     } });
     if (!job) { console.log(JSON.stringify({ id, skipped: "not_found" })); continue; }
-    const raw = job.sourceMappings[0]?.rawJob;
-    const source = raw ? parseSourceConnectorJobFromRawPayload({ sourceName: raw.sourceName, sourceId: raw.sourceId, rawPayload: raw.rawPayload }) : null;
-    const plan = planJobPresentationRepair(job, source);
+    const sources = job.sourceMappings.map(({ rawJob: raw }) =>
+      parseSourceConnectorJobFromRawPayload({ sourceName: raw.sourceName, sourceId: raw.sourceId, rawPayload: raw.rawPayload })
+    );
+    const plan = planJobPresentationRepairFromSources(job, sources);
     console.log(JSON.stringify({ id, mode: apply ? "apply" : "dry-run", ...plan }));
     if (!apply || !plan.reasons.length) continue;
     const result = await prisma.jobCanonical.updateMany({

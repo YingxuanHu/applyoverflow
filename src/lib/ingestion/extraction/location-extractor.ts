@@ -93,6 +93,7 @@ export function cleanLocationCandidate(raw: unknown) {
     .replace(/^(?:location|locations|job location|work location)\s*:?\s*/i, "")
     .replace(/^(?:this role|the role|candidates|employees)\s+(?:can|may|must)?\s*(?:be\s+)?(?:based|located|work)\s+(?:in|from)\s+/i, "")
     .replace(/^(?:based|located)\s+(?:in|from)\s+/i, "");
+  value = cleanUnavailableLocationParts(value);
   value = compactWhitespace(value);
 
   if (LOCATION_PAGE_CHROME_RE.test(value)) return "";
@@ -108,6 +109,19 @@ export function cleanLocationCandidate(raw: unknown) {
   if (parsed && parsed.length < value.length) return parsed;
 
   return value;
+}
+
+function cleanUnavailableLocationParts(value: string) {
+  const alternatives = value
+    .split(";")
+    .map((alternative) => alternative
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part && !/^(?:unavailable|not available|n\/?a|null|unknown)$/i.test(part))
+      .join(", "))
+    .filter(Boolean);
+
+  return alternatives.join("; ");
 }
 
 function scoreLocationCandidate(
@@ -225,7 +239,7 @@ function collectMetadataLocationCandidates(metadata: unknown) {
 }
 
 function isWorkModeOnly(value: string) {
-  return /^(?:remote|hybrid|on[ -]?site|flexible|work from home|anywhere|multiple locations?)$/i.test(value.trim());
+  return /^(?:remote(?: job)?|hybrid|on[ -]?site|flexible|work from home|anywhere|multiple locations?)$/i.test(value.trim());
 }
 
 function extractRemoteLocationText(description: string | null | undefined) {

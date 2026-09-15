@@ -12,7 +12,7 @@ export const EXCLUDED_TITLE_PATTERNS = [
   // Food service / Retail frontline
   /\b(?:bakery|deli|produce|meat|grocery)\s+(?:in[ -]?store\s+)?(?:clerk|associate|assistant|team member)\b/i,
   /\bin[ -]?store\s+(?:clerk|associate|cashier|stocker)\b/i,
-  /\b(barista|server|cook\b|chef\b|dishwasher|busser|bartender|cashier|stocker|grocery|salad\s+bar|meat\s+clerk|produce\s+clerk|deli\s+clerk|bakery\s+clerk|retail\s+store\s+manager|retail\s+associate|store\s+associate|store\s+clerk)\b/i,
+  /\b(barista|server|cook\b|chef\b|dishwasher|busser|bartender|cashier|stocker|grocery|h\.?m\.?r\.?\s+clerk|salad\s+bar|meat\s+clerk|produce\s+clerk|deli\s+clerk|bakery\s+clerk|retail\s+store\s+manager|retail\s+associate|store\s+associate|store\s+clerk)\b/i,
   // Education (non-tech). "dean" alone is too broad — academic deans of
   // operations / career services / student affairs / business admin /
   // research are legitimate white-collar admin roles. Allow those by

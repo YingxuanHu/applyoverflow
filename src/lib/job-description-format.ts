@@ -78,6 +78,10 @@ const SECTION_HEADINGS = [
   "colleague development",
   "training & onboarding",
   "interview process",
+  "our process",
+  "actively hiring",
+  "application deadline",
+  "location",
   "accommodation",
   "language requirement",
   "work authorization",
@@ -676,6 +680,26 @@ function splitCollapsedSectionHeadings(raw: string) {
   });
 }
 
+function splitInlineMarkdownStructure(raw: string) {
+  const headings = [...SECTION_HEADINGS].sort(
+    (left, right) => right.length - left.length
+  );
+  const pattern = headings.map(escapeRegex).join("|");
+
+  let structured = raw.replace(
+    new RegExp(`(^|\\s)#{1,6}\\s*(${pattern})(?=\\s)`, "gim"),
+    (_match, boundary: string, heading: string) =>
+      `${boundary.trimEnd()}\n\n## ${heading.trim()}\n`
+  );
+
+  // Some ATS APIs flatten Markdown into one line. Preserve source wording but
+  // recover list boundaries after sentence punctuation and section labels.
+  structured = structured.replace(/(\*\*)\s+\*(?=\s+\S)/g, "$1\n- ");
+  structured = structured.replace(/([.!?:;])\s+\*(?=\s+\S)/g, "$1\n- ");
+
+  return structured;
+}
+
 function cleanupJobDescription(raw: string) {
   raw = stripCareerPageNavigation(raw);
   const embeddedDescription = extractEmbeddedDescription(raw);
@@ -695,6 +719,7 @@ function cleanupJobDescription(raw: string) {
   cleaned = normalizeCommonMojibake(cleaned);
   cleaned = stripLeadingTitleBullets(cleaned);
   cleaned = repairDescriptionTextStructure(cleaned);
+  cleaned = splitInlineMarkdownStructure(cleaned);
 
   cleaned = splitInlineHeadingValues(cleaned);
   cleaned = splitCollapsedSectionHeadings(cleaned);
@@ -762,7 +787,7 @@ export function parseJobDescriptionBlocks(raw: string): DescriptionBlock[] {
 
   const allCapsHeader = /^[A-Z][A-Z\s&'/():-]{3,}$/;
   const titleHeader = /^[A-Z][^.!?]{0,55}:$/;
-  const markdownHeader = /^#{1,3}\s+\S/;
+  const markdownHeader = /^#{1,6}\s+\S/;
   const boldHeader = /^\*\*([^*]+)\*\*:?$/;
   const bullet = /^[-•*–·]\s+(.+)$/;
   const numberedItem = /^\d{1,2}\.\s+(.+)$/;

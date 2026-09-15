@@ -144,8 +144,8 @@ export function CreateTrackedApplicationForm({ onCreated }: { onCreated?: () => 
           <Textarea
             name="reminder"
             maxLength={1000}
-            rows={1}
-            className="h-9 min-h-9 resize-y py-2"
+            rows={2}
+            className="min-h-20 max-h-32 resize-y overflow-y-auto py-2.5 [field-sizing:fixed]"
             placeholder="Follow up, prepare portfolio, email recruiter..."
           />
         </label>

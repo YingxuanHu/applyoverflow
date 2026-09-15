@@ -107,6 +107,17 @@ test("recovers collapsed section headings and readable paragraphs for feed descr
   assert.equal(paragraphs.length >= 3, true);
 });
 
+test("recovers level-four Markdown headings and inline bullets from flattened ATS text", () => {
+  const raw = "#### About the Role We build reliable data platforms. #### What You'll Do * Lead discovery with client teams. * Write the target architecture. #### What We're Looking For * **Strong technical writing.** * 8+ years of platform experience. #### Application Deadline Applications close October 4, 2026.";
+  const blocks = parseJobDescriptionBlocks(raw);
+  const headings = blocks.filter((block) => block.kind === "header").map((block) => block.text);
+  const items = blocks.filter((block) => block.kind === "list").flatMap((block) => block.items);
+
+  assert.deepEqual(headings, ["About the Role", "What You'll Do", "What We're Looking For", "Application Deadline"]);
+  assert.deepEqual(items, ["Lead discovery with client teams.", "Write the target architecture.", "**Strong technical writing.**", "8+ years of platform experience."]);
+  assert.doesNotMatch(JSON.stringify(blocks), /####/);
+});
+
 test("splits a long unstructured description into readable paragraphs without dropping content", () => {
   const raw = [
     "We are hiring a Product Operations Manager to improve planning and execution across the organization.",

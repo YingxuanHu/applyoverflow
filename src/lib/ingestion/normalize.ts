@@ -8,7 +8,7 @@ import type {
   NormalizedJobInput,
   SourceConnectorJob,
 } from "@/lib/ingestion/types";
-import { isClearlyNonNorthAmericanLocation } from "@/lib/geo-scope";
+import { isClearlyNonNorthAmericanJobLocation } from "@/lib/geo-scope";
 import { inferRegion } from "@/lib/region";
 export { inferRegion } from "@/lib/region";
 import { buildCanonicalDedupeFields } from "@/lib/ingestion/dedupe";
@@ -524,7 +524,7 @@ export function normalizeSourceJob({
   // location explicitly names a non-NA geography ("Jakarta", "Berlin,
   // Germany"), the job is out of scope. Ambiguous region-less locations
   // ("Remote") stay eligible.
-  if (region === UNKNOWN_REGION && isClearlyNonNorthAmericanLocation(location)) {
+  if (isClearlyNonNorthAmericanJobLocation({ title, location, region })) {
     return {
       kind: "rejected",
       reason: "out_of_scope_geography",

@@ -84,7 +84,16 @@ export function DeleteAccountCard({
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="grid gap-4">
-          <input type="hidden" name="username" autoComplete="username" value={email} />
+          <input
+            aria-hidden="true"
+            autoComplete="username"
+            className="sr-only"
+            name="username"
+            readOnly
+            tabIndex={-1}
+            type="email"
+            value={email}
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             {hasPassword ? (
               <label className="grid gap-1.5 text-sm">

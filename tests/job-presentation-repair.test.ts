@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planJobPresentationRepair } from "../src/lib/ingestion/presentation-repair";
+import { planJobPresentationRepair, planJobPresentationRepairFromSources } from "../src/lib/ingestion/presentation-repair";
 import type { SourceConnectorJob } from "../src/lib/ingestion/types";
 
-const current = { title: "Software Engineer", location: "Hybrid", region: null, salaryMin: 34840, salaryMax: 45656, salaryCurrency: "USD", salaryPeriod: "hour", salarySource: "description_regex", salaryRawText: "$16.75 - $21.95 per hour" };
+const current = { title: "Software Engineer", location: "Hybrid", region: null, workMode: "HYBRID" as const, workModeConfidence: 0.95, workModeStatus: "confident", workModeSource: "ats_api", salaryMin: 34840, salaryMax: 45656, salaryCurrency: "USD", salaryPeriod: "hour", salarySource: "description_regex", salaryRawText: "$16.75 - $21.95 per hour" };
 const source: SourceConnectorJob = { sourceId: "test", sourceUrl: null, title: current.title, company: "Example", location: "Toronto, ON, CA", description: current.salaryRawText, applyUrl: "https://example.com/jobs/1", postedAt: null, deadline: null, employmentType: null, workMode: "HYBRID", salaryMin: null, salaryMax: null, salaryCurrency: null, metadata: { detail: { workplaceType: "Hybrid", locationName: "Toronto, ON, CA" } } };
 
 test("repair restores evidence-backed presentation without lifecycle or compensation amount writes", () => {
@@ -27,4 +27,24 @@ test("repair hides foreign and retail jobs in the read model only", () => {
   assert.equal(foreign.hideFromFeed, true);
   assert.equal("status" in foreign.patch, false);
   assert.equal(planJobPresentationRepair({ ...current, title: "Bakery InStore Clerk" }, null).hideFromFeed, true);
+  assert.equal(planJobPresentationRepair({ ...current, title: "Account Manager in Berlin", location: "Remote" }, null).hideFromFeed, true);
+});
+test("repair considers secondary mappings for stronger structured work-mode evidence", () => {
+  const result = planJobPresentationRepairFromSources(
+    { ...current, location: "Ferndale, WA, US", region: "US", workMode: "REMOTE", workModeConfidence: 0.6294, workModeSource: "description_text" },
+    [{ ...source, location: "Ferndale, WA, US", workMode: null }, { ...source, location: "Unknown", workMode: "ONSITE" }]
+  );
+  assert.equal(result.patch.workMode, "ONSITE");
+  assert.equal(result.patch.workModeSource, "connector_raw");
+});
+
+test("repair checks visibility without source mappings and restores remote-job geography", () => {
+  assert.equal(planJobPresentationRepairFromSources({ ...current, title: "HMR Clerk" }, []).hideFromFeed, true);
+  const result = planJobPresentationRepairFromSources(
+    { ...current, title: "Account Manager in Berlin", location: "Remote job", region: "US" },
+    [{ ...source, location: "Berlin, Berlin, Germany", metadata: { location: "Remote job" } }]
+  );
+  assert.equal(result.patch.location, "Berlin, Berlin, Germany");
+  assert.equal(result.patch.region, null);
+  assert.equal(result.hideFromFeed, true);
 });

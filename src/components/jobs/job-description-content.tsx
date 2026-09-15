@@ -6,6 +6,14 @@ import { hasUsableSourceDescription } from "@/lib/jobs/description-quality";
 import { capabilityEvidence, extractCapabilities } from "@/lib/jobs/capabilities";
 import { descriptionMetadata } from "@/lib/jobs/description-text-structure";
 
+function InlineDescriptionText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*\n]+\*\*|__[^_\n]+__)/g);
+  return parts.map((part, index) => {
+    const emphasized = part.match(/^(?:\*\*|__)(.+)(?:\*\*|__)$/);
+    return emphasized ? <strong className="font-semibold text-foreground" key={index}>{emphasized[1]}</strong> : part;
+  });
+}
+
 export function JobDescriptionContent({ description, profileSkills = [] }: { description: string; profileSkills?: string[] }) {
   const id = useId();
   const { sections, highlights } = useMemo(() => buildDescriptionPresentation(description), [description]);
@@ -51,7 +59,7 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
                 <dt className="text-xs font-medium leading-6 text-muted-foreground">
                   <a href={`#${sectionId(highlight.sectionIndex)}`} onClick={(event) => jump(event, highlight.sectionIndex)} className="underline decoration-border underline-offset-4 hover:text-primary">{highlight.label}</a>
                 </dt>
-                <dd className="text-sm leading-6">{highlight.text}</dd>
+                <dd className="text-sm leading-6"><InlineDescriptionText text={highlight.text} /></dd>
               </div>
             ))}
           </dl>
@@ -71,7 +79,7 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
             {section.blocks.map((block, blockIndex) => {
               if (block.kind === "paragraph") {
                 const fact = descriptionMetadata(block.text);
-                if (!fact) return <p id={blockId(index, blockIndex)} tabIndex={-1} key={blockIndex}>{block.text}</p>;
+                if (!fact) return <p id={blockId(index, blockIndex)} tabIndex={-1} key={blockIndex}><InlineDescriptionText text={block.text} /></p>;
                 const previous = section.blocks[blockIndex - 1];
                 if (previous?.kind === "paragraph" && descriptionMetadata(previous.text)) return null;
                 const facts = [];
@@ -84,7 +92,7 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
                 return <dl key={blockIndex} className="grid gap-x-6 gap-y-3 py-2 text-sm sm:grid-cols-2">
                   {facts.map((metadata) => <div key={metadata.index} id={blockId(index, metadata.index)} tabIndex={-1}>
                     <dt className="text-xs font-medium text-muted-foreground">{metadata.label}</dt>
-                    <dd className="text-foreground">{metadata.value}</dd>
+                    <dd className="text-foreground"><InlineDescriptionText text={metadata.value} /></dd>
                   </div>)}
                 </dl>;
               }
@@ -92,11 +100,11 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
               const ordered = block.items.every((item) => /^\d+\.\s/.test(item));
               return ordered ? (
                 <ol key={blockIndex} className="list-decimal space-y-2 pl-5 marker:text-muted-foreground">
-                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} value={Number.parseInt(item, 10)} className="pl-0.5">{item.replace(/^\d+\.\s+/, "")}</li>)}
+                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} value={Number.parseInt(item, 10)} className="pl-0.5"><InlineDescriptionText text={item.replace(/^\d+\.\s+/, "")} /></li>)}
                 </ol>
               ) : (
                 <ul key={blockIndex} className="list-disc space-y-2 pl-5 marker:text-primary/70">
-                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} className="pl-0.5">{item}</li>)}
+                  {block.items.map((item, itemIndex) => <li id={blockId(index, blockIndex, itemIndex)} tabIndex={-1} key={itemIndex} className="pl-0.5"><InlineDescriptionText text={item} /></li>)}
                 </ul>
               );
             })}
