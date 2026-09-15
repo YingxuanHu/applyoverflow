@@ -6,7 +6,7 @@ import {
 } from "@/lib/ingestion/company-discovery";
 import { buildCompanyKey } from "@/lib/ingestion/discovery/company-corpus";
 import { detectAtsTenantFromUrl } from "@/lib/ingestion/discovery/ats-tenant-detector";
-import { normalizeUrlIdentityKey } from "@/lib/ingestion/source-quality";
+import { normalizeSourceCandidateUrlIdentityKey } from "@/lib/ingestion/discovery/candidate-url-identity";
 import { inspectCompanySiteRoute } from "@/lib/ingestion/connectors";
 import { Prisma } from "@/generated/prisma/client";
 import type {
@@ -43,7 +43,7 @@ export async function registerSourceCandidate(input: {
   status?: SourceCandidateStatus;
   metadataJson?: Record<string, Prisma.InputJsonValue | null> | null;
 }) {
-  const normalizedUrlKey = normalizeUrlIdentityKey(input.candidateUrl) ?? input.candidateUrl;
+  const normalizedUrlKey = normalizeSourceCandidateUrlIdentityKey(input.candidateUrl) ?? input.candidateUrl;
   const urlParts = getUrlParts(input.candidateUrl);
   const detectedTenant = detectAtsTenantFromUrl(input.candidateUrl);
   const companyNameHint = input.companyNameHint?.trim() || null;

@@ -1,4 +1,5 @@
-import Link from "next/link";
+import Form from "next/form";
+import { PaginationLink } from "@/components/navigation/pagination-link";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -44,10 +45,10 @@ export function PaginationControls({
     >
       <div className="flex min-w-max items-center gap-2 text-sm text-muted-foreground">
         <span>Page</span>
-        <form
+        <Form
           action={basePath}
           className="flex"
-          method="get"
+          scroll={false}
         >
           {buildHiddenSearchInputs(searchParams)}
           <label className="sr-only" htmlFor={pageInputId}>
@@ -76,7 +77,7 @@ export function PaginationControls({
               <ArrowRight className="size-3.5" aria-hidden="true" />
             </button>
           </div>
-        </form>
+        </Form>
         {totalPages !== null ? (
           <span className="tabular-nums">
             of <span className="font-medium text-foreground">{totalPages.toLocaleString()}</span>
@@ -121,12 +122,9 @@ function PageLink({
   }
 
   return (
-    <Link
-      className="inline-flex h-8 items-center gap-1 rounded-[10px] border border-input/80 bg-background px-2.5 text-sm text-foreground transition-colors hover:bg-muted"
-      href={href}
-    >
+    <PaginationLink href={href}>
       {children}
-    </Link>
+    </PaginationLink>
   );
 }
 

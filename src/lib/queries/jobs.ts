@@ -27,6 +27,7 @@ import {
 import { getIngestionHeartbeat } from "@/lib/queries/ingestion";
 import { getViewerFeedVersion, overlayViewerJobState } from "@/lib/jobs/viewer-state";
 import { inferGeoScope } from "@/lib/geo-scope";
+import { REGISTRATION_GATED_BOARD_PREFIXES } from "@/lib/jobs/outbound-policy";
 import {
   JOB_BOARD_MIN_AVAILABILITY_SCORE,
   buildDefaultCanonicalVisibilityWhere,
@@ -774,6 +775,7 @@ function buildRawCanonicalPublicFeedWhere(now: Date, viewerProfileId: string | n
       AND jc."availabilityScore" >= ${DEFAULT_MIN_AVAILABILITY_SCORE}
       AND jc."deadSignalAt" IS NULL
       AND (jc."applyUrl" LIKE 'http://%' OR jc."applyUrl" LIKE 'https://%')
+      AND ${Prisma.join(REGISTRATION_GATED_BOARD_PREFIXES.map((prefix) => Prisma.sql`jc."applyUrl" NOT ILIKE ${`${prefix}%`}`), " AND ")}
       AND (
         jc."applyUrlValidationStatus" IS NULL
         OR jc."applyUrlValidationStatus"::text NOT IN (${Prisma.join(
@@ -845,6 +847,30 @@ async function getPublicRankedFeedIndexRows(input: {
     LIMIT ${PAGE_SIZE + 1}
     OFFSET ${skip}
   `);
+}
+
+async function shouldOrderSearchCandidatesFirst(filters: JobFilterParams) {
+  if (filters.locationSearch || filters.location) return true;
+  if (!filters.titleSearch && !filters.companySearch) return false;
+  return isEstimatedSelectiveSearch(filters, SELECTIVE_SCOPED_SEARCH_THRESHOLD);
+}
+
+async function isEstimatedSelectiveSearch(filters: JobFilterParams, threshold: number) {
+  const key = `search-plan:${JSON.stringify([filters.titleSearch, filters.companySearch, filters.locationSearch, filters.location, threshold])}`;
+  const cached = readTimedCache<boolean>(key);
+  if (cached !== null) return cached;
+  // EXPLAIN without ANALYZE only plans the scan. Its estimate chooses an
+  // execution strategy; it never caps matches or supplies a displayed count.
+  const rows = await prisma.$queryRaw<Array<{
+    "QUERY PLAN": Array<{ Plan: { "Plan Rows": number } }>;
+  }>>(Prisma.sql`
+    EXPLAIN (FORMAT JSON)
+    SELECT jfi."canonicalJobId" FROM "JobFeedIndex" AS jfi
+    WHERE jfi.status = 'LIVE'::"JobStatus"
+      ${buildRawScopedTextSearchClause(filters)}
+  `);
+  const estimate = rows[0]?.["QUERY PLAN"]?.[0]?.Plan?.["Plan Rows"];
+  return writeTimedCache(key, Number.isFinite(estimate) && estimate <= threshold, 60_000);
 }
 
 async function buildFeedIndexQuery(input: {
@@ -931,15 +957,15 @@ async function buildFeedIndexQuery(input: {
     }
   }
 
-  // Probe selective text searches to avoid scanning the entire rank index.
-  // Geographic searches with no extra constraints use the ordered-candidate
-  // SQL path directly. A probe never determines visibility or pagination.
+  // Simple text searches use raw SQL paths that cannot consume probe IDs,
+  // so probing would repeat the text scan.
+  // Keep selective probes for structured filters and explicit sorts.
   let acceleratedScopedField: "title" | "company" | null = null;
   if (
     searchPrefilterIds === null &&
     !filters.search &&
     !input.skipScopedProbe &&
-    !(Boolean(filters.locationSearch || filters.location) && canUseSimpleTextCount(filters) && (!filters.sortBy || filters.sortBy === "relevance")) &&
+    !(canUseSimpleTextCount(filters) && (!filters.sortBy || filters.sortBy === "relevance")) &&
     !hasNonDefaultJobStatusFilter(filters.status)
   ) {
     const soleScopedSearch =
@@ -1218,7 +1244,7 @@ async function getJobsFromFeedIndex(input: {
             now,
             viewerProfileId,
             skip,
-            orderCandidatesFirst: searchPrefilterIds !== null || Boolean(filters.locationSearch || filters.location),
+            orderCandidatesFirst: await shouldOrderSearchCandidatesFirst(filters),
           })
       : await prisma.jobFeedIndex.findMany({
           where,
@@ -1730,6 +1756,12 @@ async function getSelectiveScopedSearchIds(
   query: string | undefined,
   threshold: number
 ): Promise<string[] | null> {
+  if (!query?.trim()) return null;
+  const filters: JobFilterParams = field === "title" ? { titleSearch: query }
+    : field === "company" ? { companySearch: query } : { locationSearch: query };
+  // Broad probes cannot narrow the query, so avoid fetching thousands of IDs
+  // before every page. The final query still evaluates all original filters.
+  if (!await isEstimatedSelectiveSearch(filters, threshold)) return null;
   const likePatternGroups = buildSearchLikePatternGroups(query);
   if (field === "location") {
     const rows = await prisma.$queryRaw<Array<{ canonicalJobId: string }>>(Prisma.sql`
@@ -3232,9 +3264,13 @@ export async function getJobs(
     await getViewerFeedVersion(viewerProfileId)
   ) + (deferExactTotal ? ":deferred-count" : "");
   const hydrateResponse = async (result: JobsResult) => {
-    const data = await overlayViewerJobState(result.data, viewerProfileId, authUserId);
+    const [data, first] = await Promise.all([
+      overlayViewerJobState(result.data, viewerProfileId, authUserId),
+      result.data[0]
+        ? prisma.jobCanonical.findUnique({ where: { id: result.data[0].id }, select: { description: true } })
+        : Promise.resolve(null),
+    ]);
     if (data[0]) {
-      const first = await prisma.jobCanonical.findUnique({ where: { id: data[0].id }, select: { description: true } });
       data[0] = { ...data[0], description: first?.description ?? "" };
     }
     return { ...result, data };
@@ -3293,7 +3329,7 @@ export async function getJobs(
       appendAndCondition(where, buildNotAppliedCanonicalWhere(authUserId));
     }
 
-    if (filters.search) {
+    if (filters.search && !useFeedIndexForRequest) {
       const matchingIds = await searchJobIds(
         filters.search,
         filters.searchScope ?? "all"

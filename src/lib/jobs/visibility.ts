@@ -1,5 +1,6 @@
 import type { Prisma as PrismaTypes } from "@/generated/prisma/client";
 import { APPLY_LINK_VALIDATION_STATUS } from "@/lib/ingestion/apply-link-quality";
+import { REGISTRATION_GATED_BOARD_PREFIXES } from "@/lib/jobs/outbound-policy";
 
 export const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
 export const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
@@ -29,6 +30,7 @@ export function buildApplyableVisibilityWhere(): PrismaTypes.JobCanonicalWhereIn
       { applyUrl: { startsWith: "https://" } },
     ],
     AND: [
+      { NOT: REGISTRATION_GATED_BOARD_PREFIXES.map((prefix) => ({ applyUrl: { startsWith: prefix, mode: "insensitive" as const } })) },
       {
         OR: [
           { applyUrlValidationStatus: null },

@@ -871,6 +871,7 @@ const NA_HOMONYM_GEO_MARKERS = new Set([
   "AMSTERDAM",
   "SYDNEY",
   "PERTH",
+  "BRISBANE",
   "GLASGOW",
   "EDINBURGH",
   "BELFAST",

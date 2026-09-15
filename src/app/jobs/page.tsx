@@ -49,6 +49,7 @@ import { SavedSearches } from "@/components/jobs/saved-searches";
 import { parseJobFilters, countActiveJobFilters } from "@/lib/jobs/search-params";
 import { splitLocationSearchValues } from "@/lib/location-search";
 import { getIngestionStatus } from "@/lib/queries/ingestion";
+import { jobCountCacheKey } from "@/lib/queries/job-count-cache";
 import {
   getJobs,
   type JobFilterParams,
@@ -176,7 +177,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const savedFilterStorageKey = `${JOBS_SEARCH_STATE_STORAGE_KEY}:${viewerProfileId}`;
 
   return (
-    <JobsSearchCountProvider key={`${viewerProfileId}:${navigationKey}:${jobsResult.total ?? "pending"}`} initialTotal={jobsResult.total} pending={jobsResult.countPending ?? false} query={navigationKey} page={currentPage} pageSize={jobsResult.pageSize}>
+    <JobsSearchCountProvider key={jobCountCacheKey(filters, viewerProfileId, currentProfile.feedStateVersion)} initialTotal={jobsResult.total} pending={jobsResult.countPending ?? false} query={navigationKey} page={currentPage} pageSize={jobsResult.pageSize}>
     <div className="app-page space-y-6">
       <UserTimeZoneCookie
         cookieName={USER_TIME_ZONE_COOKIE}
@@ -409,10 +410,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               ) : null}
             </div>
           </div>
+          <SavedSearches query={navigationKey} />
           </div>
       </section>
 
-      <SavedSearches query={navigationKey} />
       {filters.discoveredSince ? <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">Discovered after {new Date(filters.discoveredSince).toLocaleString("en-CA", { timeZone: userTimeZone })}<Link className="text-primary underline" href={buildJobsHref(resolvedSearchParams, { discoveredSince: undefined, page: undefined })}>Show all matches</Link></p> : null}
       <section>
           {showPagination ? (

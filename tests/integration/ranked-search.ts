@@ -51,6 +51,7 @@ async function main() {
     await prisma.jobCanonical.update({ where: { id: jobId(6) }, data: { status: "REMOVED" } });
     await prisma.jobFeedIndex.update({ where: { canonicalJobId: jobId(6) }, data: { status: "REMOVED" } });
     await prisma.jobFeedIndex.update({ where: { canonicalJobId: jobId(7) }, data: { company: "unknown" } });
+    await prisma.jobCanonical.update({ where: { id: jobId(128) }, data: { applyUrl: "https://weworkremotely.com/remote-jobs/example-registration-gate" } });
     await prisma.userBehaviorSignal.create({ data: { userId: token, canonicalJobId: jobId(size - 1), action: "PASS" } });
 
     const deferredFilters = parseJobFilters({ titleSearch: token, region: "CA" });
@@ -59,7 +60,7 @@ async function main() {
     assert.equal(deferred.countPending, true);
     assert.equal(deferred.data.length, 50);
     const exact = await getJobSearchCount(deferredFilters, { viewerProfileId: token, authUserId: token });
-    assert.equal(exact, size - 9, "deferred count includes all hard filters and PASS exclusions");
+    assert.equal(exact, size - 10, "deferred count includes hard filters, board-gate and PASS exclusions");
     const next = await getJobs({ ...deferredFilters, page: 2 }, { viewerProfileId: token, authUserId: null, deferExactTotal: true });
     assert.equal(next.total, exact, "later pages reuse the exact count");
 
@@ -94,7 +95,7 @@ async function main() {
           // Without salary bounds this flag changes no matches, but excludes
           // the narrow raw-SQL path and uses a distinct response-cache key.
           const fallback = await getJobs({ ...filters, includeUnknownSalary: true }, options);
-          assert.equal(fast.total, size - 8 - (viewerProfileId ? 1 : 0));
+          assert.equal(fast.total, size - 9 - (viewerProfileId ? 1 : 0));
           assert.equal(fast.total, fallback.total);
           assert.equal(fast.hasNextPage, fallback.hasNextPage);
           assert.equal(fast.data.length, 50);

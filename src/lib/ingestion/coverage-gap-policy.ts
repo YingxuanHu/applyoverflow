@@ -1,6 +1,6 @@
 // A "coverage gap" company is one whose jobs the feed only sees through
-// aggregator boards: enough aggregator-primary visible jobs to prove real
-// hiring volume, zero first-party-primary visible jobs, and no healthy
+// aggregator boards: enough aggregator-only indexed jobs to indicate
+// hiring activity, zero first-party-mapped indexed jobs, and no healthy
 // CompanySource that could surface them directly. These are the
 // highest-value discovery targets — one first-party source upgrades the
 // whole company's coverage.

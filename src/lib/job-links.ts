@@ -1,3 +1,6 @@
+import { getSourceQualitySnapshot } from "@/lib/ingestion/source-quality";
+import { isRegistrationGatedBoardUrl } from "@/lib/jobs/outbound-policy";
+
 export const DEMO_SOURCE_NAMES = [
   "BoardAggregator-X",
   "CompanyCareer-Direct",
@@ -114,6 +117,10 @@ export function getSourceTrust(
     };
   }
 
+  if (isRegistrationGatedBoardUrl(parsedUrl.toString())) {
+    return { level: "UNAVAILABLE", label: "Board registration required", summary: "This board requires registration to reveal the application destination. A direct employer posting is needed." };
+  }
+
   if (isTrustedConnectorSourceName(sourceName) || hasTrustedHost(parsedUrl)) {
     return {
       level: "TRUSTED",
@@ -185,13 +192,26 @@ export function resolveJobLinks({
     null;
 
   const parsedApplyUrl = normalizeExternalUrl(applyUrl);
+  const directSource = enrichedSources
+    .filter((source) => source.trust.level !== "UNAVAILABLE" && source.parsedSourceUrl)
+    .map((source) => ({ ...source, quality: getSourceQualitySnapshot({ sourceName: source.sourceName, sourceUrl: source.sourceUrl, applyUrl: source.sourceUrl }) }))
+    .filter((source) => source.quality.kind === "DIRECT_COMPANY" || source.quality.kind === "FIRST_PARTY_COMPANY")
+    .sort((a, b) => b.quality.rank - a.quality.rank || Number(b.isPrimary) - Number(a.isPrimary))[0];
+  const applyQuality = getSourceQualitySnapshot({ sourceName: "", sourceUrl: null, applyUrl });
+  const preferDirectSource = directSource?.parsedSourceUrl &&
+    (isRegistrationGatedBoardUrl(applyUrl) || applyQuality.kind === "AGGREGATOR_REDIRECT" || applyQuality.kind === "STRUCTURED_BOARD");
   const canUseApplyUrl =
     parsedApplyUrl !== null &&
     !allSourcesAreDemo &&
     !hasBlockedHost(parsedApplyUrl) &&
-    (trustedSource !== null || liveSource !== null);
+    !isRegistrationGatedBoardUrl(parsedApplyUrl.toString()) &&
+    (trustedSource !== null || liveSource !== null ||
+      (enrichedSources.some((source) => !isDemoSourceName(source.sourceName)) &&
+        (applyQuality.kind === "DIRECT_COMPANY" || applyQuality.kind === "FIRST_PARTY_COMPANY")));
 
-  const primaryExternalLink = canUseApplyUrl
+  const primaryExternalLink = preferDirectSource
+    ? { href: directSource.parsedSourceUrl!.toString(), label: "Open employer posting", kind: "SOURCE" as const, sourceName: directSource.sourceName }
+    : canUseApplyUrl
     ? {
         href: parsedApplyUrl.toString(),
         label: "Open application",

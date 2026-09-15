@@ -20,20 +20,24 @@ export function JobsSearchCountProvider({ children, initialTotal, pending, query
   pageSize: number;
 }) {
   const router = useRouter();
-  const [total, setTotal] = useState(initialTotal);
+  const [resolvedTotal, setTotal] = useState<number | null>(null);
+  const total = initialTotal ?? resolvedTotal;
   const [loading, setLoading] = useState(pending);
   const [attempt, setAttempt] = useState(0);
+  const params = new URLSearchParams(query);
+  params.delete("page");
+  params.delete("sortBy");
+  params.delete("debugFilters");
+  params.sort();
+  const countQuery = params.toString();
+  const needsCount = pending && total === null;
 
   useEffect(() => {
-    if (!pending) return;
+    if (!needsCount) return;
     const controller = new AbortController();
     let active = true;
     const timeout = setTimeout(() => controller.abort(), 30_000);
-    const params = new URLSearchParams(query);
-    params.delete("page");
-    params.delete("sortBy");
-    params.delete("debugFilters");
-    void fetch(`/api/jobs/count?${params}`, { signal: controller.signal, cache: "no-store" })
+    void fetch(`/api/jobs/count?${countQuery}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Matching total unavailable");
         const result = await response.json();
@@ -46,7 +50,7 @@ export function JobsSearchCountProvider({ children, initialTotal, pending, query
         if (active) setLoading(false);
       });
     return () => { active = false; clearTimeout(timeout); controller.abort(); };
-  }, [pending, query, attempt]);
+  }, [needsCount, countQuery, attempt]);
 
   useEffect(() => {
     if (total === null) return;

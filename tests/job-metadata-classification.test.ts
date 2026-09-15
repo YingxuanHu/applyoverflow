@@ -9,6 +9,13 @@ import {
   normalizeRoleCategoryFilterValue,
 } from "../src/lib/job-metadata";
 
+test("refrigeration engineering overrides stale software role labels", () => {
+  for (const title of ["Junior Refrigeration Engineer/EIT", "HVAC Design Engineer", "Thermal Engineer"]) {
+    const result = classifyJobMetadata({ title, company: "Laporte", description: "Design refrigeration systems and prepare technical specifications. Use engineering design software.", roleFamily: "SWE", legacyIndustry: "TECH", inferredEmploymentType: "FULL_TIME", sourceEmploymentType: null, workMode: "ONSITE" });
+    assert.equal(result.normalizedRoleCategory, "ENGINEERING_HARDWARE", title);
+  }
+});
+
 test("senior software engineer is not classified as internship", () => {
   const metadata = classifyJobMetadata({
     title: "Senior Software Engineer",

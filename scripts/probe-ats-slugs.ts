@@ -8,7 +8,7 @@
 //
 // Modes:
 //   --mode=coverage  (default) companies with a domain but no healthy source
-//   --mode=repair    companies whose sources are all broken/quarantined
+//   --mode=repair    companies with broken, stale, or never-successful sources
 //   --names="Acme, Foo Corp"  probe explicit company names from the DB
 //
 // Usage:
@@ -34,6 +34,7 @@ import {
   shouldFastTrackRegisteredProbeHit,
 } from "../src/lib/ingestion/discovery/probe-fast-track-policy";
 import type { AtsPlatform } from "../src/generated/prisma/client";
+import { buildSourceCoverageRepairQuery } from "../src/lib/ingestion/source-coverage-queries";
 
 type Mode = "coverage" | "repair" | "names";
 
@@ -114,8 +115,6 @@ type ProbeTargetCompany = {
   domain: string | null;
 };
 
-const HEALTHY_SOURCE_STATUSES = ["ACTIVE", "PROVISIONED"] as const;
-
 async function loadKnownProbeTenantKeys(
   platforms: ProbeableAtsPlatform[]
 ): Promise<KnownProbeTenantKeys> {
@@ -136,7 +135,7 @@ async function loadKnownProbeTenantKeys(
   const [activeSources, promotedCandidates] = await Promise.all([
     prisma.companySource.findMany({
       where: {
-        status: { in: [...HEALTHY_SOURCE_STATUSES] },
+        status: { in: ["ACTIVE", "PROVISIONED"] },
         atsTenant: { is: { platform: { in: supportedPlatforms } } },
       },
       select: { atsTenant: { select: { platform: true, tenantKey: true } } },
@@ -279,26 +278,12 @@ async function loadCoverageTargets(limit: number): Promise<ProbeTargetCompany[]>
 }
 
 async function loadRepairTargets(limit: number): Promise<ProbeTargetCompany[]> {
-  // Companies whose registered sources are all broken: at least one source in
-  // a repair-needing state and none healthy. These are the rotted career URLs
-  // the probe can often replace with a working board on the same platform or
-  // reveal a migration to a different ATS.
-  return prisma.company.findMany({
-    where: {
-      sources: {
-        some: {
-          OR: [
-            { status: { in: ["REDISCOVER_REQUIRED", "DISABLED"] } },
-            { validationState: { in: ["INVALID", "BLOCKED", "NEEDS_REDISCOVERY"] } },
-          ],
-        },
-        none: { status: { in: [...HEALTHY_SOURCE_STATUSES] } },
-      },
-    },
-    select: { id: true, name: true, domain: true },
-    orderBy: [{ discoveryConfidence: "desc" }, { updatedAt: "desc" }],
-    take: limit,
-  });
+  return prisma.$transaction(async (db) => {
+    await db.$executeRaw`SET TRANSACTION READ ONLY`;
+    await db.$executeRaw`SET LOCAL statement_timeout = '25s'`;
+    await db.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+    return db.$queryRaw<ProbeTargetCompany[]>(buildSourceCoverageRepairQuery(limit));
+  }, { timeout: 28_000 });
 }
 
 async function loadNamedTargets(names: string[]): Promise<ProbeTargetCompany[]> {

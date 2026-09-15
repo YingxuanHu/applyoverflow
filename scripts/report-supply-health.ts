@@ -285,6 +285,8 @@ async function expiryAttribution(db: Prisma.TransactionClient) {
       COUNT(*) AS expired_14d,
       COUNT(*) FILTER (
         WHERE "expiredAt" - COALESCE("lastSourceSeenAt", "lastSeenAt") > make_interval(days => ${EVIDENCE_WINDOW_DAYS}::int)
+          AND "deadSignalAt" IS NULL
+          AND (deadline IS NULL OR deadline >= "expiredAt")
       ) AS evidence_starved,
       COUNT(*) FILTER (WHERE "deadSignalAt" IS NOT NULL) AS had_dead_signal,
       COUNT(*) FILTER (WHERE deadline IS NOT NULL AND deadline < "expiredAt") AS had_passed_deadline
@@ -483,7 +485,7 @@ async function main() {
   }
   if (expired14 > 0 && starved / expired14 > 0.5) {
     warnings.push(
-      `${formatPercent(starved, expired14)} of expiries in the last 14d were evidence-starved (we stopped looking), not confirmed closures.`
+      `${formatPercent(starved, expired14)} of recent expiries have stale source evidence without a recorded closure signal or passed deadline. Review polling; this is not proof that the jobs remain open.`
     );
   }
   if (
@@ -585,6 +587,8 @@ async function main() {
       retainedLiveJobs: toNumber(atRisk?.retained_live_jobs),
     },
     expiryAttribution: {
+      countsAreNonPublic: true,
+      basis: "Current records with expiredAt in the last 14 days; not an event history. Evidence-starved excludes recorded dead signals and passed deadlines; other buckets can overlap.",
       expired14d: expired14,
       evidenceStarved: starved,
       hadDeadSignal: toNumber(expiry?.had_dead_signal),
@@ -654,7 +658,7 @@ async function main() {
     `Jobs at risk: ${toNumber(atRisk?.retained_live_jobs)} live jobs on ${toNumber(atRisk?.sources)} sources not polled in 7d+`
   );
   console.log(
-    `Expiry attribution (14d): ${expired14} expired | ${starved} evidence-starved (${formatPercent(starved, expired14)}) | ${toNumber(expiry?.had_dead_signal)} dead-signal | ${toNumber(expiry?.had_passed_deadline)} passed-deadline`
+    `Expiry diagnostics (14d, current non-public records): ${expired14} expired | ${starved} stale-evidence without recorded closure (${formatPercent(starved, expired14)}) | ${toNumber(expiry?.had_dead_signal)} dead-signal | ${toNumber(expiry?.had_passed_deadline)} passed-deadline (closure buckets may overlap)`
   );
   console.log(
     `Zombies: ${toNumber(zombies?.f10_plus)} sources with 10+ consecutive failures (${toNumber(zombies?.f100_plus)} with 100+), ${toNumber(zombies?.quarantined)} quarantined`

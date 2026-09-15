@@ -1,3 +1,5 @@
+import { isRegistrationGatedBoardUrl } from "@/lib/jobs/outbound-policy";
+
 export const APPLY_LINK_VALIDATION_STATUS = {
   ACTIVE: "ACTIVE",
   NEEDS_REVALIDATION: "NEEDS_REVALIDATION",
@@ -114,6 +116,11 @@ export function classifyApplyLinkQuality(input: {
       "Apply URL is missing or not absolute.",
       contentMatch
     );
+  }
+
+  if (isRegistrationGatedBoardUrl(finalUrl)) {
+    return bad(APPLY_LINK_VALIDATION_STATUS.HIDDEN_LOW_QUALITY,
+      "Job board requires registration before revealing the employer application link.", contentMatch);
   }
 
   if (input.statusCode !== null && TERMINAL_HTTP_STATUSES.has(input.statusCode)) {

@@ -19,7 +19,7 @@ export const EXCLUDED_TITLE_PATTERNS = [
   // requiring "dean" NOT be followed by an admin-flavoured noun, mirroring
   // the same lookahead trick used for "principal" above. "associate dean"
   // / "assistant dean" of operations / administration / finance also pass.
-  /\b(teacher|professor|lecturer|tutor(?!ial)|principal(?!\s+(?:engineer|architect|consultant|analyst|developer|scientist|designer|manager|director|swe|technical|planning|product|data|security|program|software|cloud|platform|solutions|financial|investment))|superintendent|librarian|dean\b(?!\s+(?:of\s+)?(?:operations|administration|admin|finance|business|career\s+services|student\s+affairs|enrollment|research|admissions|advancement|external\s+affairs|institutional))|provost)\b/i,
+  /\b(teacher|professor|lecturer|tutor(?!ial)|principal(?!\s+(?:engineer|architect|consultant|analyst|developer|scientist|designer|manager|director|swe|technical|planning|product|data|security|program|software|cloud|platform|solutions|financial|investment|wealth|advisor|adviser))|superintendent|librarian|dean\b(?!\s+(?:of\s+)?(?:operations|administration|admin|finance|business|career\s+services|student\s+affairs|enrollment|research|admissions|advancement|external\s+affairs|institutional))|provost)\b/i,
   // Skilled trades / Construction
   /\b(crane operator|heavy equipment|excavat|concrete|paving|asphalt|demolition|scaffolding|surveyor)\b/i,
   // Law enforcement / Emergency / Military (not corporate security)

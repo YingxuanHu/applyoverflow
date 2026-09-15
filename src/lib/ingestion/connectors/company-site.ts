@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   EmploymentType,
   ExtractionRouteKind,
@@ -1102,10 +1103,22 @@ function inferWorkMode(text: string): WorkMode | null {
   return null;
 }
 
-function buildSourceId(requisitionId: string | null, sourceUrl: string, title: string) {
-  return requisitionId
-    ? `company:${requisitionId}`
-    : `company:${Buffer.from(`${sourceUrl}|${title}`).toString("base64url").slice(0, 48)}`;
+export function buildSourceId(requisitionId: string | null, sourceUrl: string, title: string) {
+  // A truncated Base64 URL only encodes its prefix, causing unrelated postings
+  // to overwrite each other's raw records. Hash the complete stable URL instead.
+  // Retain the title discriminator for sites publishing multiple jobs at one URL.
+  if (requisitionId) return `company:${requisitionId}`;
+  let identity = sourceUrl;
+  try {
+    const url = new URL(sourceUrl);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^utm_|^(gclid|fbclid)$/i.test(key)) url.searchParams.delete(key);
+    }
+    url.searchParams.sort();
+    identity = url.toString();
+  } catch { /* Retain the full input if URL parsing fails. */ }
+  return `company:url-sha256:${createHash("sha256").update(JSON.stringify([identity, title.trim().toLowerCase().replace(/\s+/g, " ")])).digest("hex")}`;
 }
 
 function stripHtml(value: string | null | undefined) {

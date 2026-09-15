@@ -273,7 +273,7 @@ const STRONG_TITLE_RULES: PatternRule[] = [
     category: "ENGINEERING_HARDWARE",
     confidence: 0.86,
     title: [
-      /\b(?:mechanical|electrical|civil|structural|aerospace|industrial|chemical|biomedical|environmental|manufacturing|process|quality|plant|automation|controls)\s+engineer\b/i,
+      /\b(?:mechanical|electrical|civil|structural|aerospace|industrial|chemical|biomedical|environmental|manufacturing|process|quality|plant|automation|controls|refrigeration|hvac|building services|thermal)\s+(?:design\s+)?engineer\b/i,
       /\b(?:production supervisor|cnc machinist|manufacturing technician)\b/i,
     ],
     reasons: ["strong_engineering_manufacturing_title"],

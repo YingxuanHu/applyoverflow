@@ -148,7 +148,11 @@ const ROLE_PATTERNS: Array<{
       /\b(mechanical engineer|mechanical design engineer|hardware engineer|mechatronics engineer|civil engineer|structural engineer|transportation engineer|geotechnical engineer|electrical engineer|electronics engineer|power systems engineer|controls engineer|chemical engineer|process engineer|process safety engineer|aerospace engineer|avionics engineer|propulsion engineer|biomedical engineer|validation engineer|industrial engineer|manufacturing engineer|quality engineer|environmental engineer|energy engineer|renewable energy engineer|sustainability engineer|materials engineer|metallurgical engineer)\b/i,
     roleFamily: "Engineering",
   },
-  // SWE: broad engineering catch-all — listed last among tech so specific roles above take priority
+  {
+    pattern: /\b(?:refrigeration|hvac|building services|thermal)\s+(?:design\s+)?engineer\b/i,
+    roleFamily: "Engineering",
+  },
+  // SWE: listed last among tech so specific roles above take priority.
   // "web" is scoped to "web engineer|web developer" to avoid matching design/content titles.
   // Avoid generic "engineer", "developer", and "mobile" matches here; those
   // caused non-software engineers, developer advocates, and article/product

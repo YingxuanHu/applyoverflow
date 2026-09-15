@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { BookmarkPlus, Check, Pencil, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, ChevronDown, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { savedSearchHref, type SavedSearch } from "@/lib/jobs/saved-searches";
 
@@ -53,7 +53,7 @@ export function SavedSearches({ query }: { query: string }) {
   }
   return (
     <details
-      className="border-y border-border py-3 text-sm"
+      className="group border-t border-border/60 pt-3 text-sm sm:pt-4"
       onToggle={(event) => {
         if (event.currentTarget.open)
           void load().catch(() =>
@@ -63,7 +63,10 @@ export function SavedSearches({ query }: { query: string }) {
           );
       }}
     >
-      <summary className="cursor-pointer font-medium">Saved searches</summary>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-medium text-foreground [&::-webkit-details-marker]:hidden">
+        Saved searches
+        <ChevronDown className="size-4 text-muted-foreground transition group-open:rotate-180" />
+      </summary>
       <form
         method="post"
         className="mt-3 flex flex-wrap gap-2"

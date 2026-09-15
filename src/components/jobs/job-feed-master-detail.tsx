@@ -10,13 +10,14 @@ import {
   BriefcaseBusiness,
   Building2,
   CalendarClock,
+  ChevronDown,
   CircleDollarSign,
   ExternalLink,
   MapPin,
-  Link2,
 } from "lucide-react";
 
 import { JobCardActions } from "@/components/jobs/job-card-actions";
+import { MarkAppliedButton } from "@/components/jobs/mark-applied-button";
 import { CompanyLogo } from "@/components/company-logo";
 import { JobDescriptionContent } from "@/components/jobs/job-description-content";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import {
 import { needsDescriptionRepair, resolveFeedDescription } from "@/lib/jobs/description-quality";
 import { buildJobDetailHref } from "@/lib/jobs/return-navigation";
 import { feedPositionKey, jobIdFromHash, parseFeedPosition, type FeedPosition } from "@/lib/jobs/feed-continuity";
+import { groupFeedEntries } from "@/lib/jobs/feed-groups";
 import { cn } from "@/lib/utils";
 import type { JobCardData } from "@/types";
 
@@ -64,6 +66,7 @@ export function JobFeedMasterDetail({
   const listPanelRef = useRef<HTMLElement>(null);
   const positionRef = useRef<FeedPosition | null>(null);
   const [restoredDetailTop, setRestoredDetailTop] = useState(0);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const storageKey = feedPositionKey(viewerId, sourceHref ?? "/jobs");
   const entriesRef = useRef(entries);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
@@ -114,6 +117,12 @@ export function JobFeedMasterDetail({
   };
 
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? entries[0] ?? null;
+  const groups = groupFeedEntries(entries).map((group) => {
+    const expanded = expandedGroups.has(group[0].id);
+    const representative = group.find((entry) => entry.id === selectedEntry?.id) ?? group[0];
+    return { id: group[0].id, group, expanded, visible: expanded ? group : [representative] };
+  });
+  const visibleEntries = groups.flatMap((group) => group.visible);
 
   if (!selectedEntry) return null;
 
@@ -157,12 +166,12 @@ export function JobFeedMasterDetail({
         </div>
         <div data-job-list-scroll onScroll={(event) => { if (positionRef.current) positionRef.current.listTop = event.currentTarget.scrollTop; }} onKeyDown={(event) => {
           const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
-          if (!keys.includes(event.key) || !(event.target instanceof HTMLElement) || event.target.tagName !== "BUTTON") return;
+          if (!keys.includes(event.key) || !(event.target instanceof HTMLElement) || !event.target.hasAttribute("data-job-entry")) return;
           event.preventDefault();
-          const current = entries.findIndex((entry) => entry.id === selectedEntry.id);
-          const index = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : Math.max(0, Math.min(entries.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
-          selectEntry(entries[index].id, false);
-          const button = event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[index];
+          const current = visibleEntries.findIndex((entry) => entry.id === selectedEntry.id);
+          const index = event.key === "Home" ? 0 : event.key === "End" ? visibleEntries.length - 1 : Math.max(0, Math.min(visibleEntries.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+          selectEntry(visibleEntries[index].id, false);
+          const button = event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-job-entry]")[index];
           button?.focus({ preventScroll: true });
           if (button) {
             const list = event.currentTarget;
@@ -172,7 +181,9 @@ export function JobFeedMasterDetail({
             else if (rowRect.bottom > listRect.bottom) list.scrollTop += rowRect.bottom - listRect.bottom;
           }
         }} className="max-h-[40rem] divide-y divide-border/55 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1">
-          {entries.map((entry) => (
+          {groups.map(({ id, group, expanded, visible }) => <div key={id}>
+          <div id={`job-group-${id}`} className="divide-y divide-border/55">
+          {visible.map((entry) => (
             <JobFeedListRow
               active={entry.id === selectedEntry.id}
               entry={entry}
@@ -181,6 +192,16 @@ export function JobFeedMasterDetail({
               referenceNow={referenceNow}
             />
           ))}
+          </div>
+          {group.length > 1 ? <button type="button" aria-expanded={expanded} aria-controls={`job-group-${id}`} onClick={() => setExpandedGroups((previous) => {
+            const next = new Set(previous);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+          })} className="flex w-full items-center justify-between gap-2 px-5 pb-3 pt-1 text-left text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+            <span>{expanded ? "Collapse postings" : `${group.length - 1} other posting${group.length > 2 ? "s" : ""} on this page`}</span>
+            <ChevronDown aria-hidden="true" className={cn("size-3.5 shrink-0", expanded && "rotate-180")} />
+          </button> : null}
+          </div>)}
         </div>
       </section>
 
@@ -218,6 +239,7 @@ function JobFeedListRow({
 
   return (
     <button
+      data-job-entry={entry.id}
       aria-current={active ? "true" : undefined}
       className={cn(
         "relative block w-full border-l-2 px-4 py-4 text-left transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 sm:px-5",
@@ -295,8 +317,8 @@ function JobFeedDetailPanel({
   const [description, setDescription] = useState<string | null>(() => resolveFeedDescription(job, descriptions.get(job.id)));
   const [descriptionError, setDescriptionError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
+  const [markedApplied, setMarkedApplied] = useState(false);
+  const hasApplied = job.hasApplied || markedApplied;
   const scrollRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
   useEffect(() => {
@@ -351,11 +373,6 @@ function JobFeedDetailPanel({
           </div>
 
           <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
-            <Button size="icon" variant="outline" title={copied ? "Link copied" : "Copy job link"} aria-label={copied ? "Link copied" : "Copy job link"} onClick={async () => {
-              setCopyError(false);
-              try { await navigator.clipboard.writeText(new URL(buildJobDetailHref(job.id, sourceHref, job.id), location.origin).href); setCopied(true); }
-              catch { setCopied(false); setCopyError(true); }
-            }}><Link2 className="h-4 w-4" /></Button>
             {postingHref ? (
               <Button
                 className="h-10 rounded-[12px] px-3.5"
@@ -366,12 +383,20 @@ function JobFeedDetailPanel({
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             ) : null}
+            <MarkAppliedButton
+              jobId={job.id}
+              applied={hasApplied}
+              onApplied={() => {
+                setMarkedApplied(true);
+                onSavedChange?.(job.id, false);
+              }}
+            />
             <JobCardActions
               align="end"
               iconOnly
-              initialSaved={job.isSaved}
+              initialSaved={hasApplied ? false : job.isSaved}
               jobId={job.id}
-              key={`${job.id}:${job.isSaved ? "saved" : "unsaved"}`}
+              key={`${job.id}:${!hasApplied && job.isSaved ? "saved" : "unsaved"}`}
               onSavedChange={(saved) => onSavedChange?.(job.id, saved)}
             />
             {entry.detailActions}
@@ -381,7 +406,6 @@ function JobFeedDetailPanel({
       </div>
 
       <div ref={scrollRef} onScroll={(event) => { if (restoredRef.current) onDetailScroll(event.currentTarget.scrollTop); }} data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
-        {copyError ? <p role="alert" className="mb-3 text-sm text-destructive">Could not copy the link. Open the full page to share this job.</p> : null}
         {entry.detailMeta ? <div className="mb-4">{entry.detailMeta}</div> : null}
         <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border/60 pb-4 text-sm 2xl:grid-cols-4">
           <DetailField
@@ -402,7 +426,7 @@ function JobFeedDetailPanel({
           <DetailField
             icon={<Building2 className="h-3.5 w-3.5" />}
             label="Status"
-            value={deadlineUrgency?.label ?? (job.hasApplied ? "Applied" : "Open")}
+            value={deadlineUrgency?.label ?? (hasApplied ? "Applied" : "Open")}
             valueClassName={deadlineUrgency?.color}
           />
         </div>

@@ -1,8 +1,7 @@
-// Coverage-gap report: companies whose visible jobs we only see through
+// Coverage-gap report: companies whose indexed jobs we only see through
 // aggregator boards while having NO healthy first-party source. Each row is
-// a proven hiring company (3+ aggregator-primary LIVE jobs) that a single
-// first-party discovery would upgrade wholesale — the highest-value
-// discovery targets. Read-only.
+// a hiring lead (3+ aggregator-only indexed LIVE jobs) that a working
+// first-party discovery could improve. Read-only.
 //
 // Usage:
 //   npm run source:report-coverage-gaps
@@ -16,6 +15,10 @@ import {
   COVERAGE_GAP_MIN_AGGREGATOR_JOBS,
   classifyCoverageGap,
 } from "../src/lib/ingestion/coverage-gap-policy";
+import {
+  buildHealthySourceCoverageSql,
+  SOURCE_COVERAGE_FRESHNESS_DAYS,
+} from "../src/lib/ingestion/source-coverage-queries";
 
 // Source families (lower(split_part("sourceName", ':', 1))) that reach us
 // through aggregator boards rather than the employer's own portal. Derived
@@ -51,51 +54,67 @@ type CandidateRow = {
   healthy_sources: bigint;
 };
 
-// One pass over the visible feed: bucket every LIVE job's primary source
-// mapping by companyKey into aggregator vs first-party counts, then attach
+// Internal inventory, not the filtered public-board count. Examine all active
+// mappings: a secondary employer source also provides first-party coverage.
+// Bucket jobs by companyKey into aggregator-only vs first-party counts, then attach
 // the company record (may not exist for a companyKey — still report) and
 // its healthy-source count. The >= floor is pushed into SQL to keep the
 // candidate set small; the final gap decision runs through
 // classifyCoverageGap so it stays unit-testable.
 async function fetchGapCandidates() {
-  return prisma.$queryRaw<CandidateRow[]>(Prisma.sql`
+  const now = new Date();
+  return prisma.$transaction(async (db) => {
+    await db.$executeRaw`SET TRANSACTION READ ONLY`;
+    await db.$executeRaw`SET LOCAL statement_timeout = '25s'`;
+    await db.$executeRaw`SET LOCAL lock_timeout = '1s'`;
+    return db.$queryRaw<CandidateRow[]>(Prisma.sql`
     WITH visible AS (
-      SELECT c."companyKey" AS company_key,
+      SELECT c."companyKey" AS company_key, c.id,
         LOWER(split_part(m."sourceName", ':', 1)) AS family
       FROM "JobFeedIndex" f
       JOIN "JobCanonical" c ON c.id = f."canonicalJobId"
       JOIN "JobSourceMapping" m ON m."canonicalJobId" = f."canonicalJobId"
-        AND m."isPrimary" = true
         AND m."removedAt" IS NULL
       WHERE f.status = 'LIVE'
         AND c."companyKey" <> ''
     ),
+    by_job AS (
+      SELECT company_key, id,
+        BOOL_OR(family = ANY(${AGGREGATOR_SOURCE_FAMILIES})) AS has_aggregator,
+        BOOL_OR(family <> ALL(${AGGREGATOR_SOURCE_FAMILIES})) AS has_first_party
+      FROM visible GROUP BY 1, 2
+    ),
     by_company AS (
       SELECT company_key,
-        COUNT(*) FILTER (WHERE family = ANY(${AGGREGATOR_SOURCE_FAMILIES})) AS aggregator_jobs,
-        COUNT(*) FILTER (WHERE family <> ALL(${AGGREGATOR_SOURCE_FAMILIES})) AS first_party_jobs,
-        COUNT(DISTINCT family) FILTER (WHERE family = ANY(${AGGREGATOR_SOURCE_FAMILIES})) AS aggregator_families
-      FROM visible
+        COUNT(*) FILTER (WHERE has_aggregator AND NOT has_first_party) AS aggregator_jobs,
+        COUNT(*) FILTER (WHERE has_first_party) AS first_party_jobs
+      FROM by_job
       GROUP BY 1
+    ),
+    families AS (
+      SELECT company_key, COUNT(DISTINCT family) AS aggregator_families
+      FROM visible WHERE family = ANY(${AGGREGATOR_SOURCE_FAMILIES}) GROUP BY 1
     )
     SELECT b.company_key,
       co.name AS company_name,
       co.domain,
       b.aggregator_jobs,
       b.first_party_jobs,
-      b.aggregator_families,
+      families.aggregator_families,
       COALESCE(hs.healthy_sources, 0)::bigint AS healthy_sources
     FROM by_company b
+    JOIN families USING (company_key)
     LEFT JOIN "Company" co ON co."companyKey" = b.company_key
     LEFT JOIN (
       SELECT "companyId", COUNT(*) AS healthy_sources
-      FROM "CompanySource"
-      WHERE status IN ('ACTIVE', 'PROVISIONED', 'DEGRADED')
+      FROM "CompanySource" cs
+      WHERE ${buildHealthySourceCoverageSql(now)}
       GROUP BY 1
     ) hs ON hs."companyId" = co.id
     WHERE b.aggregator_jobs >= ${COVERAGE_GAP_MIN_AGGREGATOR_JOBS}
     ORDER BY b.aggregator_jobs DESC, b.company_key ASC
-  `);
+    `);
+  }, { timeout: 28_000 });
 }
 
 function toNumber(value: unknown): number {
@@ -141,6 +160,9 @@ async function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     minAggregatorJobs: COVERAGE_GAP_MIN_AGGREGATOR_JOBS,
+    countsAreNonPublic: true,
+    diagnosticScope: "Indexed LIVE inventory with active source mappings, not JobFeedSummaryCache.liveJobCount.",
+    healthySourceMaxAgeDays: SOURCE_COVERAGE_FRESHNESS_DAYS,
     aggregatorSourceFamilies: AGGREGATOR_SOURCE_FAMILIES,
     candidateCompanies: candidates.length,
     gapCompanies: gaps.length,
@@ -156,7 +178,7 @@ async function main() {
   console.log(`Coverage gaps @ ${report.generatedAt}`);
   console.log(`Aggregator families: ${AGGREGATOR_SOURCE_FAMILIES.join(", ")}`);
   console.log(
-    `Candidates (>=${COVERAGE_GAP_MIN_AGGREGATOR_JOBS} aggregator-primary visible jobs): ${candidates.length} | coverage gaps: ${gaps.length} | showing top ${rows.length}`
+    `Candidates (>=${COVERAGE_GAP_MIN_AGGREGATOR_JOBS} aggregator-only indexed jobs; non-public): ${candidates.length} | coverage gaps: ${gaps.length} | showing top ${rows.length}`
   );
   console.log("");
   console.log(

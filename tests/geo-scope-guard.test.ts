@@ -175,6 +175,7 @@ test("NA towns named after foreign places stay American", async () => {
     ["Moscow, ID", "US"],
     ["Warsaw, IN", "US"],
     ["Greece, NY", "US"],
+    ["Brisbane, CA", "US"],
   ] as const) {
     assert.equal(isClearlyNonNorthAmericanLocation(location), false, location);
     assert.equal(inferRegion(location), expected, location);
@@ -190,6 +191,8 @@ test("homonym-free foreign cities beat colliding codes; homonym countries still 
     "Warsaw, Poland",
     "Mexico City, Mexico",
     "Lima, Peru",
+    "Brisbane, Queensland, AU",
+    "Brisbane, Australia",
   ]) {
     assert.equal(isClearlyNonNorthAmericanLocation(location), true, location);
     assert.equal(inferRegion(location), null, location);
