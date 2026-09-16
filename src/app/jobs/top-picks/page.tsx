@@ -432,7 +432,7 @@ export default async function JobsTopPicksPage({
 
         <JobsSectionTabs active="top-picks" />
 
-        <section className="surface-panel p-3.5 sm:p-6">
+        <section aria-label="Picks search" className="border-y border-border/60 py-4">
           <TopPicksStatusSummary
             canRefresh={
               result.status.canRefresh !== false &&

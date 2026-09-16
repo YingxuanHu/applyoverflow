@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 type JobsLoadingPopupProps = {
@@ -9,22 +13,26 @@ export function JobsLoadingPopup({
   description = "Updating the job list with your latest search and filters.",
   label = "Loading jobs",
 }: JobsLoadingPopupProps) {
-  return (
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(true), 250);
+    return () => window.clearTimeout(timer);
+  }, []);
+  if (!visible) return null;
+
+  // Portal keeps centering independent of the sidebar and transformed route shells.
+  return createPortal(
     <div
       aria-live="polite"
       aria-busy="true"
-      className="pointer-events-none fixed left-1/2 top-5 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 px-4 sm:top-6"
+      className="pointer-events-none fixed inset-x-0 top-16 z-50 flex justify-center px-4 sm:top-6"
       role="status"
     >
-      <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+      <div className="flex max-w-full items-center justify-center gap-2 rounded-lg border border-border/70 bg-popover px-3 py-2 text-sm font-medium text-popover-foreground shadow-sm">
         <LoadingSpinner className="h-4 w-4 shrink-0 text-primary" />
-        <span className="shrink-0">{label}</span>
-        <span aria-hidden="true" className="text-muted-foreground">
-          ·
-        </span>
-        <span className="hidden truncate text-muted-foreground sm:inline">{description}</span>
+        <span className="truncate">{label}</span>
         <span className="sr-only">{description}</span>
       </div>
-    </div>
+    </div>, document.body
   );
 }

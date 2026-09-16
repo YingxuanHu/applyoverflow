@@ -4,104 +4,38 @@ export default function JobsLoading() {
   return (
     <>
       <JobsLoadingPopup />
-      <div className="app-page space-y-6">
-        <header className="page-header">
-          <div className="space-y-2">
-            <div className="h-8 w-24 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
-            <div className="h-4 w-[32rem] max-w-full animate-pulse rounded bg-muted motion-reduce:animate-none" />
+      <div aria-hidden="true" className="app-page space-y-6 animate-pulse motion-reduce:animate-none">
+        <header className="page-header"><div className="h-8 w-24 rounded bg-muted" /></header>
+        <div className="flex gap-5"><div className="h-8 w-16 rounded bg-muted" /><div className="h-8 w-28 rounded bg-muted" /></div>
+        <div className="space-y-4 border-y border-border/60 py-4">
+          <div className="h-6 w-44 rounded bg-muted" />
+          <div className="flex gap-3">
+            <div className="h-10 min-w-0 flex-1 rounded-md bg-muted" />
+            <div className="h-10 w-20 rounded-md bg-muted" />
           </div>
-        </header>
-
-        <section className="surface-panel animate-pulse p-4 motion-reduce:animate-none sm:p-5">
-          <div className="space-y-3">
-            <div className="h-10 w-64 max-w-full rounded-xl bg-muted sm:h-12 sm:w-80" />
-            <div className="h-4 w-72 max-w-full rounded bg-muted" />
-            <div className="flex flex-wrap gap-3">
-              <div className="h-4 w-28 rounded bg-muted" />
-              <div className="h-4 w-32 rounded bg-muted" />
-            </div>
-            <div className="h-3 w-48 rounded bg-muted" />
-          </div>
-
-          <div className="mt-5 space-y-4 border-t border-border/60 pt-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="h-10 min-w-0 flex-1 rounded-xl bg-muted" />
-              <div className="h-10 w-24 rounded-xl bg-muted" />
-              <div className="h-10 w-28 rounded-xl bg-muted" />
-              <div className="h-10 w-36 rounded-xl bg-muted" />
-              <div className="h-10 w-20 rounded-xl bg-muted" />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  className="h-9 rounded-xl border border-border/60 bg-muted/70"
-                  key={index}
-                  style={{ width: `${88 + index * 18}px` }}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="surface-panel animate-pulse p-4 motion-reduce:animate-none sm:p-5">
-          <div className="space-y-3">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <JobRowSkeleton index={index} key={index} />
+          <div className="h-5 w-28 rounded bg-muted" />
+        </div>
+        <div className="flex gap-2"><div className="size-9 rounded bg-muted" /><div className="size-9 rounded bg-muted" /><div className="h-9 w-28 rounded bg-muted" /></div>
+        <div className="grid h-[70dvh] min-h-96 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
+          <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="space-y-3 p-5">
+                <div className="h-5 w-4/5 rounded bg-muted" />
+                <div className="h-4 w-2/5 rounded bg-muted" />
+                <div className="h-3 w-3/5 rounded bg-muted" />
+              </div>
             ))}
           </div>
-
-          <div className="mt-5 flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="h-4 w-28 rounded bg-muted" />
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-20 rounded-lg bg-muted" />
-              <div className="h-8 w-16 rounded-lg bg-muted" />
+          <div className="hidden space-y-6 overflow-hidden rounded-lg border border-border/60 p-6 lg:block">
+            <div className="h-7 w-4/5 rounded bg-muted" />
+            <div className="h-4 w-1/3 rounded bg-muted" />
+            <div className="h-16 rounded bg-muted/60" />
+            <div className="space-y-3 border-t border-border/60 pt-6">
+              {Array.from({ length: 12 }, (_, index) => <div key={index} className={`h-3 rounded bg-muted ${index % 4 === 3 ? "w-2/3" : "w-full"}`} />)}
             </div>
           </div>
-        </section>
+        </div>
       </div>
     </>
-  );
-}
-
-function JobRowSkeleton({ index }: { index: number }) {
-  const titleWidths = ["w-3/5", "w-2/3", "w-[58%]", "w-1/2"];
-  const metaWidths = ["w-72", "w-80", "w-64", "w-76"];
-  const footerWidths = ["w-44", "w-56", "w-48", "w-52"];
-
-  return (
-    <div className="rounded-2xl border border-border/70 bg-background/45 p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="flex items-center gap-2">
-            <div
-              className={`h-5 max-w-full rounded bg-muted ${titleWidths[index % titleWidths.length]}`}
-            />
-            <div className="h-4 w-20 rounded-full bg-muted" />
-          </div>
-
-          <div
-            className={`h-4 max-w-full rounded bg-muted ${metaWidths[index % metaWidths.length]}`}
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="h-3 w-20 rounded bg-muted" />
-            <div className="h-3 w-1 rounded-full bg-muted" />
-            <div className="h-3 w-24 rounded bg-muted" />
-            <div className="h-3 w-1 rounded-full bg-muted" />
-            <div className="h-3 w-16 rounded bg-muted" />
-          </div>
-
-          <div
-            className={`h-3 max-w-full rounded bg-muted ${footerWidths[index % footerWidths.length]}`}
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 self-start">
-          <div className="h-8 w-20 rounded-lg bg-muted" />
-          <div className="h-8 w-28 rounded-lg bg-muted" />
-        </div>
-      </div>
-    </div>
   );
 }

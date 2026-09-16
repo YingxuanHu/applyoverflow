@@ -338,17 +338,10 @@ export function TopPicksStatusSummary({
 
   if (isInitialLoad) {
     return (
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-wrap items-center gap-3">
         <div>
-          <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
+          <p className="text-base font-semibold text-foreground">
             Loading your picks
-          </p>
-          <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground sm:text-[15px]">
-            <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
-            Matching roles to your profile
-          </p>
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
-            Your ranked recommendations will appear automatically.
           </p>
         </div>
       </div>
@@ -356,9 +349,9 @@ export function TopPicksStatusSummary({
   }
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p className="text-[1.75rem] font-semibold tracking-tight text-foreground sm:text-[2.35rem]">
+        <p className="text-base font-semibold text-foreground">
           {rankedPickLabel}
         </p>
         {showInlineProfileHelp ? (
@@ -367,12 +360,13 @@ export function TopPicksStatusSummary({
           </p>
         ) : (
           <>
-          <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {refreshedLabel}
           </p>
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
-            {refreshHelp}
-          </p>
+          <details className="mt-1 text-xs text-muted-foreground">
+            <summary className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">Refresh details</summary>
+            <p className="mt-1 max-w-xl leading-5">{refreshHelp}</p>
+          </details>
           </>
         )}
       </div>

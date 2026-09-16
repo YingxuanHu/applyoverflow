@@ -23,7 +23,7 @@ async function main() {
   try {
     const now = new Date();
     const rows = Array.from({ length: 70 }, (_, index) => ({
-      id: `${token}-${index}`, title: `${token} Software Engineer`, company: "Count Fixture Labs",
+      id: `${token}-${index}`, title: `${token} Software Engineer`, company: `Count Fixture Labs ${index}`,
       location: "Toronto, Ontario, Canada", region: "CA" as const,
       status: "LIVE" as const, workMode: "REMOTE" as const,
       employmentType: "FULL_TIME" as const, roleFamily: "Software Engineering",
@@ -60,21 +60,22 @@ async function main() {
     await page.goto(`${root}/jobs?titleSearch=${token}`, { waitUntil: "domcontentloaded" });
     const list = page.getByRole("region", { name: "Jobs on this page" });
     await list.waitFor();
-    await page.getByText("Counting matches...", { exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Search results", exact: true }).waitFor();
+    assert.equal(await page.getByText("Counting matches...", { exact: true }).count(), 0);
     await waitForHeld();
     assert.equal(await list.getByRole("button").count(), 50, "rows render before count responds");
     await list.getByRole("button").nth(1).click();
     await page.locator('aside[aria-label^="Details for"]').waitFor();
-    assert.equal(held.length, 1, "one request supplies headline and both paginations");
+    assert.ok(held.length >= 1 && held.length <= 2, "one shared count fetch; development StrictMode may abort and replay it");
     assert.equal(await page.getByRole("navigation", { name: "Jobs top pagination" }).getByRole("link", { name: "Next" }).count(), 1);
     await mkdir("output/playwright", { recursive: true });
     await page.screenshot({ path: "output/playwright/search-count-pending.png", fullPage: true });
     mode = "fail";
-    await held.shift()!.fulfill({ status: 503, json: { error: "Busy" } });
-    await page.getByText("Total unavailable", { exact: true }).waitFor();
+    for (const route of held.splice(0)) await route.fulfill({ status: 503, json: { error: "Busy" } }).catch(() => {});
+    await page.getByText("Count unavailable", { exact: true }).waitFor();
     mode = "success";
     await page.getByRole("button", { name: "Retry matching total" }).click();
-    await page.getByText("70 matching jobs", { exact: true }).waitFor();
+    await page.getByText("70 matches", { exact: true }).waitFor();
     const top = page.getByRole("navigation", { name: "Jobs top pagination" });
     assert.equal(await top.getByRole("spinbutton", { name: "Jump to page" }).getAttribute("max"), "2");
 
@@ -82,17 +83,17 @@ async function main() {
     // never replace the current query's headline or redirect its pagination.
     mode = "hold";
     await page.goto(`${root}/jobs?titleSearch=${token}%20Software`, { waitUntil: "domcontentloaded" });
-    await page.getByText("Counting matches...", { exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Search results", exact: true }).waitFor();
     await waitForHeld();
-    const old = held.shift()!;
+    const old = held.splice(0);
     mode = "success";
     const search = page.getByRole("textbox", { name: "Search job titles by keyword" });
     await search.fill(`${token} Engineer`);
     await search.press("Enter");
     await page.waitForURL(/Engineer/);
-    await page.getByText("70 matching jobs", { exact: true }).waitFor();
-    await old.fulfill({ json: { total: 0 } }).catch(() => {});
-    assert.equal(await page.getByText("70 matching jobs", { exact: true }).count(), 1);
+    await page.getByText("70 matches", { exact: true }).waitFor();
+    for (const route of old) await route.fulfill({ json: { total: 0 } }).catch(() => {});
+    assert.equal(await page.getByText("70 matches", { exact: true }).count(), 1);
 
     await page.unroute("**/api/jobs/count?*");
     const countResponse = await page.evaluate(async (query) => {
@@ -107,18 +108,27 @@ async function main() {
     await list.waitFor();
     assert.equal(await list.getByRole("button").count(), 20);
     assert.equal(await top.getByRole("link", { name: "Next" }).count(), 0);
+    await top.getByRole("spinbutton", { name: "Jump to page" }).fill("1");
+    await top.getByRole("spinbutton", { name: "Jump to page" }).press("Enter");
+    await page.waitForURL((url) => url.searchParams.get("page") === "1");
+    await list.waitFor();
+    assert.equal(await list.getByRole("button").count(), 50, "keyboard page jump preserves the current filters");
+    await top.getByRole("spinbutton", { name: "Jump to page" }).fill("2");
+    await top.getByRole("button", { name: "Go to page" }).click();
+    await page.waitForURL(/page=2/);
+    await list.waitFor();
+    assert.equal(await list.getByRole("button").count(), 20, "submit arrow uses the same page-jump flow");
     mode = "hold";
     await page.route("**/api/jobs/count?*", (route) => { held.push(route); onHeld?.(); onHeld = undefined; });
     await page.goto(`${root}/jobs?titleSearch=${token}%20Software%20Engineer&page=9`, { waitUntil: "domcontentloaded" });
     await waitForHeld();
     await page.getByText("No jobs on this page", { exact: true }).waitFor();
-    await held.shift()!.fulfill({ json: { total: 70 } });
+    for (const route of held.splice(0)) await route.fulfill({ json: { total: 70 } }).catch(() => {});
     await page.waitForURL(/page=2/);
     await list.waitFor();
     assert.equal(await list.getByRole("button").count(), 20, "out-of-range navigation retains the original search");
-    await waitForHeld();
-    await held.shift()!.fulfill({ json: { total: 70 } });
-    await page.getByText("70 matching jobs", { exact: true }).waitFor();
+    await page.getByText("70 matches", { exact: true }).waitFor();
+    assert.equal(held.length, 0, "page correction reuses the resolved count");
     await page.unroute("**/api/jobs/count?*");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('aside h2').waitFor();

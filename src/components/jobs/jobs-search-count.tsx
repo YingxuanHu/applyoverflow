@@ -2,11 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { PaginationControls } from "@/components/navigation/pagination-controls";
 import { buildJobsSearchHref } from "@/lib/jobs/search-navigation";
 import { PAGE_SIZE } from "@/lib/constants";
-import { formatJobResultCount } from "@/lib/jobs/result-count";
 
 type CountState = { total: number | null; loading: boolean; retry: () => void };
 const CountContext = createContext<CountState>({ total: null, loading: false, retry: () => {} });
@@ -64,23 +63,17 @@ export function JobsSearchCountProvider({ children, initialTotal, pending, query
 export function JobsSearchCountHeadline({ scoped, liveJobCount }: { scoped: boolean; liveJobCount: number }) {
   const { total, loading, retry } = useContext(CountContext);
   const count = scoped ? total : liveJobCount;
-  const formatted = formatJobResultCount({ hasScopedResults: scoped, total, liveJobCount });
   return (
-    <div aria-live="polite" aria-atomic="true">
-      <p className="text-[1.75rem] font-semibold text-foreground sm:text-[2.5rem]">
-        {count === null ? formatted.label : `${formatted.label} ${scoped ? "matching" : "live"} ${count === 1 ? "job" : "jobs"}`}
-      </p>
-      {scoped && total === null ? (
-        <div className="mt-1 flex min-h-6 items-center gap-2 text-xs text-muted-foreground">
-          {loading ? <><LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />Counting matches...</> : <>
-            Total unavailable
+    <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite" aria-atomic="true">
+      <h2 className="text-base font-semibold text-foreground">{scoped ? "Search results" : "All jobs"}</h2>
+      <span className="text-sm tabular-nums text-muted-foreground">
+        {count === null ? (loading ? null : "Count unavailable") : `${count.toLocaleString()} ${scoped ? (count === 1 ? "match" : "matches") : (count === 1 ? "live job" : "live jobs")}`}
+      </span>
+      {scoped && total === null && !loading ? (
             <button type="button" aria-label="Retry matching total" title="Retry matching total" onClick={retry} className="inline-flex size-6 items-center justify-center rounded hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
               <RefreshCw aria-hidden="true" className="size-3.5" />
             </button>
-          </>}
-        </div>
       ) : null}
-      {scoped && (total === null || liveJobCount > total) ? <p className="mt-1 text-xs text-muted-foreground">From {liveJobCount.toLocaleString()} total live jobs in the pool</p> : null}
     </div>
   );
 }
