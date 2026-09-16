@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  Briefcase,
+  BriefcaseBusiness,
   Bell,
   FileCheck2,
   FileText,
@@ -38,7 +38,7 @@ const MOBILE_NAV_ITEMS: MobileNavItem[] = [
   {
     href: "/jobs",
     label: "Jobs",
-    icon: Briefcase,
+    icon: BriefcaseBusiness,
     isActive: (pathname) =>
       pathname === "/jobs" ||
       (pathname.startsWith("/jobs/") && !pathname.startsWith("/jobs/top-picks")),

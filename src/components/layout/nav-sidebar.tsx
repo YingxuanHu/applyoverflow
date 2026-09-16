@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  Briefcase,
+  BriefcaseBusiness,
   Bell,
   ChevronDown,
   FileCheck2,
@@ -87,7 +87,7 @@ export function NavSidebar() {
             activePathname={pathname}
             defaultOpen={isJobsActive}
             href="/jobs"
-            icon={Briefcase}
+            icon={BriefcaseBusiness}
             isActive={isJobsActive}
             label="Jobs"
             links={JOBS_LINKS}
