@@ -4,9 +4,9 @@ import Link, { useLinkStatus } from "next/link";
 import { LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 
-export function PaginationLink({ href, children }: { href: string; children: ReactNode }) {
+export function PaginationLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
   return (
-    <Link href={href} prefetch={true} scroll={false} className="relative inline-flex h-8 items-center gap-1 rounded-[10px] border border-input/80 bg-background px-2.5 text-sm text-foreground transition-colors hover:bg-muted">
+    <Link href={href} aria-label={label} title={label} prefetch={true} scroll={false} className="relative inline-flex size-9 items-center justify-center rounded-md text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
       <PageLinkContent>{children}</PageLinkContent>
     </Link>
   );
