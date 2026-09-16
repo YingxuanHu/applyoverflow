@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock, ExternalLink, MoreHorizontal } from "lucide-react";
+import { CalendarClock, CalendarPlus, ExternalLink, FileText, MoreHorizontal, Pencil, Tag as TagIcon, Trash2 } from "lucide-react";
 import {
   startTransition,
   useActionState,
@@ -20,7 +20,7 @@ import {
 } from "@/app/applications/[id]/actions";
 import { CompanyLogo } from "@/components/company-logo";
 import { resolveCompanyLogoDomain } from "@/lib/company-logo";
-import { ApplicationQuickActions } from "@/components/applications/application-quick-actions";
+import { ApplicationQuickActions, ApplicationReminderDialog } from "@/components/applications/application-quick-actions";
 import {
   applicationAttention,
   type ApplicationWorkItem,
@@ -99,6 +99,7 @@ export function ApplicationListCard({
   const fieldId = useId();
   const attention = applicationAttention(application, referenceNow, referenceDay);
   const [editing, setEditing] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
   const [companyDraft, setCompanyDraft] = useState(application.company);
   const [roleTitleDraft, setRoleTitleDraft] = useState(application.roleTitle);
   const [roleUrlDraft, setRoleUrlDraft] = useState(application.roleUrl ?? "");
@@ -322,11 +323,6 @@ export function ApplicationListCard({
                     >
                       {application.roleTitle}
                     </Link>
-                    {application.canonicalJob ? (
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        Feed-linked
-                      </span>
-                    ) : null}
                   </div>
                   <p
                     className="mobile-meta-line text-sm text-muted-foreground"
@@ -394,7 +390,7 @@ export function ApplicationListCard({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+        <div className="flex min-w-0 items-start justify-end gap-1">
           {!editing ? (
             <ApplicationQuickActions
               id={application.id}
@@ -402,48 +398,43 @@ export function ApplicationListCard({
               status={application.status}
             />
           ) : null}
-          <div className="flex max-w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            {application.canonicalJobId ? (
-              <Link
-                href={`/jobs/${application.canonicalJobId}`}
-                className="inline-flex h-8 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                title="Open job"
-              >
-                <span className="block truncate">Open job</span>
-              </Link>
-            ) : null}
-            {application.roleUrl ? (
-              <a
-                className="inline-flex h-8 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                href={application.roleUrl}
-                rel="noreferrer"
-                target="_blank"
-                title="Posting"
-              >
-                Posting <ExternalLink className="size-3" />
-              </a>
-            ) : null}
+          <div>
             {!editing ? (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  aria-label="Application actions"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 sm:border-0"
+                  aria-label={`Actions for ${application.roleTitle}`}
+                  title="Application actions"
+                  className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[140px]">
+                <DropdownMenuContent align="end" className="min-w-[200px]">
+                  <DropdownMenuItem onClick={() => setReminderOpen(true)}>
+                    <CalendarPlus aria-hidden="true" /> Schedule reminder
+                  </DropdownMenuItem>
+                  {application.canonicalJobId ? (
+                    <DropdownMenuItem render={<Link href={`/jobs/${application.canonicalJobId}`} />}>
+                      <FileText aria-hidden="true" /> Open job details
+                    </DropdownMenuItem>
+                  ) : null}
+                  {application.roleUrl ? (
+                    <DropdownMenuItem render={<a href={application.roleUrl} target="_blank" rel="noreferrer" />}>
+                      <ExternalLink aria-hidden="true" /> Original posting
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setEditing(true)}>
-                    Edit
+                    <Pencil aria-hidden="true" /> Edit application
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>
-                    Add tag
+                    <TagIcon aria-hidden="true" /> Add tag
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => setDeleteDialogOpen(true)}
                     variant="destructive"
                   >
-                    Delete
+                    <Trash2 aria-hidden="true" /> Delete application
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -451,6 +442,8 @@ export function ApplicationListCard({
           </div>
         </div>
       </div>
+
+      <ApplicationReminderDialog id={application.id} roleTitle={application.roleTitle} open={reminderOpen} onOpenChange={setReminderOpen} />
 
       {/* Add-tag dialog. Tiny modal with a single text input + Save. */}
       <ConfirmActionDialog

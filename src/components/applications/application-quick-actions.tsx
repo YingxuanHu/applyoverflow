@@ -44,7 +44,6 @@ export function ApplicationQuickActions({
     updateApplicationStatus,
     INITIAL_STATE,
   );
-  const [reminderOpen, setReminderOpen] = useState(false);
   const { notify } = useNotifications();
   useEffect(() => {
     if (state.error)
@@ -70,7 +69,7 @@ export function ApplicationQuickActions({
             disabled={pending}
             aria-busy={pending}
             className={cn(
-              "h-9 w-32 rounded-lg border border-input px-2 text-xs font-medium disabled:opacity-60",
+              "h-9 w-32 rounded-md border border-transparent px-2 text-xs font-medium hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60",
               trackedStatusClass(status),
             )}
             value={status === "PREPARING" ? "WISHLIST" : status}
@@ -93,32 +92,32 @@ export function ApplicationQuickActions({
         <span role="status" className="sr-only">
           {pending ? "Saving status" : ""}
         </span>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="outline"
-          title="Schedule reminder"
-          aria-label={`Schedule reminder for ${roleTitle}`}
-          onClick={() => setReminderOpen(true)}
-        >
-          <CalendarPlus className="size-4" />
-        </Button>
       </div>
-      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+    </>
+  );
+}
+
+export function ApplicationReminderDialog({ id, roleTitle, open, onOpenChange }: {
+  id: string;
+  roleTitle: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle>Schedule reminder</DialogTitle>
           <DialogDescription className="break-words pr-4">
             {roleTitle}
           </DialogDescription>
-          {reminderOpen ? (
+          {open ? (
             <ReminderForm
               applicationId={id}
-              onSaved={() => setReminderOpen(false)}
+              onSaved={() => onOpenChange(false)}
             />
           ) : null}
         </DialogContent>
       </Dialog>
-    </>
   );
 }
 
