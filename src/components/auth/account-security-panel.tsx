@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, ShieldCheck } from "lucide-react";
+import { ChevronDown, LoaderCircle, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LocalDateTime } from "@/components/ui/local-date-time";
@@ -248,12 +248,13 @@ export function AccountSecurityPanel({
   return (
     <div className="mt-3 grid gap-4 sm:mt-4">
       <div className="grid gap-2 md:hidden">
-        <details className="rounded-[14px] border border-border/60 bg-background/60" open>
+        <details className="group/security rounded-[14px] border border-border/60 bg-background/60" open>
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
             Sign-in method
             <span className="text-xs text-muted-foreground">
               {signInMethod ? getProviderLabel(signInMethod.providerId) : "Missing"}
             </span>
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-open/security:rotate-180" />
           </summary>
           <div className="border-t border-border/60 px-3.5 py-3">
             <p className="text-xs leading-5 text-muted-foreground">
@@ -274,12 +275,13 @@ export function AccountSecurityPanel({
           </div>
         </details>
 
-        <details className="rounded-[14px] border border-border/60 bg-background/60">
+        <details className="group/security rounded-[14px] border border-border/60 bg-background/60">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
             Change password
             <span className="text-xs text-muted-foreground">
               {hasPassword ? "Available" : "Google"}
             </span>
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-open/security:rotate-180" />
           </summary>
           <div className="border-t border-border/60 px-3.5 py-3">
             {hasPassword ? (
@@ -331,12 +333,13 @@ export function AccountSecurityPanel({
           </div>
         </details>
 
-        <details className="rounded-[14px] border border-border/60 bg-background/60">
+        <details className="group/security rounded-[14px] border border-border/60 bg-background/60">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
             Change email
             <span className="max-w-[11rem] truncate text-xs text-muted-foreground">
               {email}
             </span>
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-open/security:rotate-180" />
           </summary>
           <div className="border-t border-border/60 px-3.5 py-3">
             {hasPassword ? (
@@ -369,12 +372,13 @@ export function AccountSecurityPanel({
           </div>
         </details>
 
-        <details className="rounded-[14px] border border-border/60 bg-background/60">
+        <details className="group/security rounded-[14px] border border-border/60 bg-background/60">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
             Active sessions
             <span className="text-xs text-muted-foreground">
               {sessions.length} active
             </span>
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-open/security:rotate-180" />
           </summary>
           <div className="grid gap-2 border-t border-border/60 px-3.5 py-3">
             {currentSession ? (
@@ -421,7 +425,7 @@ export function AccountSecurityPanel({
       </div>
 
       <div className="hidden gap-4 md:grid">
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         <div className="rounded-lg border border-border/60 bg-background/60 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -455,14 +459,18 @@ export function AccountSecurityPanel({
         </div>
 
         {hasPassword ? (
+          <details className="group/security rounded-lg border border-border/60 bg-background/60">
+            <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              Change password
+              <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-open/security:rotate-180" />
+            </summary>
           <form
-            className="rounded-lg border border-border/60 bg-background/60 p-4"
+            className="border-t border-border/60 p-4"
             onSubmit={onChangePassword}
           >
             <PasswordManagerUsername email={email} name="username" />
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-foreground">Change password</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Changing your password signs out other devices.
                 </p>
@@ -516,6 +524,7 @@ export function AccountSecurityPanel({
               )}
             </Button>
           </form>
+          </details>
         ) : (
           <div className="rounded-lg border border-border/60 bg-background/60 p-4">
             <p className="text-sm font-medium text-foreground">Password</p>
@@ -528,8 +537,12 @@ export function AccountSecurityPanel({
       </div>
 
       {hasPassword ? (
-        <form className="rounded-lg border border-border/60 bg-background/60 p-4" onSubmit={onChangeEmail}>
-          <p className="text-sm font-medium text-foreground">Change email</p>
+        <details className="group/security rounded-lg border border-border/60 bg-background/60">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            Change email
+            <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-open/security:rotate-180" />
+          </summary>
+        <form className="border-t border-border/60 p-4" onSubmit={onChangeEmail}>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             Your current email stays active until the new address is verified.
           </p>
@@ -562,6 +575,7 @@ export function AccountSecurityPanel({
             )}
           </Button>
         </form>
+        </details>
       ) : (
         <div className="rounded-lg border border-border/60 bg-background/60 p-4">
           <p className="text-sm font-medium text-foreground">Email</p>

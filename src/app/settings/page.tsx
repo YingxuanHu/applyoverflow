@@ -126,7 +126,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Account */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="account">
+      <section className="scroll-mt-24 border-b border-border/70 pb-6" id="account">
         <header className="flex items-center gap-2">
           <UserIcon className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Account</h2>
@@ -138,7 +138,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Security */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="security">
+      <section className="scroll-mt-24 border-b border-border/70 pb-6" id="security">
         <header className="flex items-center gap-2">
           <KeyRound className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Security</h2>
@@ -156,7 +156,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Notifications */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="notifications">
+      <section className="scroll-mt-24 border-b border-border/70 pb-6" id="notifications">
         <header className="flex items-center gap-2">
           <Bell className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -171,12 +171,12 @@ export default async function SettingsPage() {
       </section>
 
       {/* Appearance */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="appearance">
+      <section className="scroll-mt-24 border-b border-border/70 pb-6" id="appearance">
         <header className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
         </header>
-        <div className="mt-3 flex flex-col gap-3 rounded-[14px] border border-border/60 bg-card px-3 py-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-foreground">Theme</p>
             <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
@@ -188,7 +188,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Privacy & Data */}
-      <section className="surface-panel scroll-mt-24 p-3.5 sm:p-6" id="data">
+      <section className="scroll-mt-24 border-b border-border/70 pb-6" id="data">
         <header className="flex items-center gap-2">
           <Download className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">
@@ -196,7 +196,7 @@ export default async function SettingsPage() {
           </h2>
         </header>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
+          <div className="py-2">
             <p className="text-sm font-medium text-foreground">
               Export your data
             </p>
@@ -206,7 +206,7 @@ export default async function SettingsPage() {
             </p>
             <ExportDataButton />
           </div>
-          <div className="rounded-[14px] border border-border/60 bg-card px-4 py-4">
+          <div className="py-2">
             <p className="text-sm font-medium text-foreground">
               Resumes &amp; documents
             </p>
@@ -226,7 +226,7 @@ export default async function SettingsPage() {
       </section>
 
       {/* Session */}
-      <section className="surface-panel p-3.5 sm:p-6">
+      <section className="border-b border-border/70 pb-6">
         <header className="flex items-center gap-2">
           <Link2 className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold text-foreground">Current device</h2>

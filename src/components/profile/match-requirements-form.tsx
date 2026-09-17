@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Save } from "lucide-react";
+import { ChevronDown, Save, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type MatchRequirements } from "@/lib/top-picks/requirements";
 
@@ -13,11 +13,26 @@ export function MatchRequirementsForm({
   const [value, setValue] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const activeCount = [
+    value.country !== "ANY",
+    value.minimumSalary !== null,
+    value.workModes.length > 0,
+    value.employmentTypes.length > 0,
+    value.sponsorshipRequired,
+    value.unknownPolicy === "exclude",
+  ].filter(Boolean).length;
   const field =
     "mt-1 h-10 w-full rounded-md border border-border bg-background px-3 text-sm";
   return (
+    <details className="group mt-5 border-t border-border/70">
+      <summary className="flex min-h-12 cursor-pointer list-none flex-wrap items-center gap-2 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <SlidersHorizontal aria-hidden="true" className="size-4 text-muted-foreground" />
+        Requirements for Picks for you
+        <span className="text-xs font-normal text-muted-foreground">{activeCount ? `${activeCount} active` : "Optional"}</span>
+        <ChevronDown aria-hidden="true" className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
     <form
-      className="space-y-4 border-t border-border py-5"
+      className="space-y-4 pb-2 pt-2"
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -37,9 +52,6 @@ export function MatchRequirementsForm({
         }
       }}
     >
-      <h2 className="text-base font-semibold">
-        Requirements for Picks for you
-      </h2>
       <fieldset disabled={busy} className="grid min-w-0 gap-4 sm:grid-cols-2">
         <label className="text-sm">
           Eligible country
@@ -180,5 +192,6 @@ export function MatchRequirementsForm({
         </p>
       </div>
     </form>
+    </details>
   );
 }

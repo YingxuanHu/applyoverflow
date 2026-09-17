@@ -103,7 +103,6 @@ export default async function ProfilePage() {
         </Button>
       </header>
 
-      <MatchRequirementsForm initial={parseRequirements(requirements?.value)} />
       <section className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}
@@ -165,6 +164,7 @@ export default async function ProfilePage() {
               location: profile?.location ?? "",
             }}
           />
+          <MatchRequirementsForm initial={parseRequirements(requirements?.value)} />
         </section>
 
         <section className="surface-panel p-3.5 sm:p-6" id="application-profile">
@@ -211,11 +211,11 @@ function SummaryTile({
 }) {
   return (
     <div className="rounded-[16px] border border-border/65 bg-card p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.025)] sm:p-4">
-      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground sm:gap-2">
+      <div className="flex min-w-0 flex-col items-start gap-1.5 text-muted-foreground sm:flex-row sm:items-center sm:gap-2">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-accent text-primary">
           {icon}
         </span>
-        <span className="hidden truncate text-xs font-medium uppercase tracking-wide sm:inline">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
       </div>
       <p className="mt-2 text-lg font-semibold text-foreground sm:mt-3 sm:text-2xl">{value}</p>
       {typeof progress === "number" ? (
