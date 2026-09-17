@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useRef, useState, type ReactNode } from "react";
-import { LoaderCircle, MoreHorizontal } from "lucide-react";
+import { LoaderCircle, Plus } from "lucide-react";
 
 import {
   deleteProfileCoverLetter,
@@ -13,7 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  ActionsMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { FileInput } from "@/components/ui/file-input";
@@ -74,7 +74,7 @@ function CoverLetterRow({ coverLetter }: { coverLetter: CoverLetterRecord }) {
     <div className="rounded-[14px] border border-border/65 bg-card px-3 py-2.5 sm:px-3.5 sm:py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className="truncate text-sm font-medium text-foreground">{coverLetter.title}</span>
+          <span className="block min-w-0 break-words text-sm font-medium text-foreground">{coverLetter.title}</span>
           <p className="mt-1 truncate text-xs text-muted-foreground">{coverLetter.originalFileName}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -82,9 +82,7 @@ function CoverLetterRow({ coverLetter }: { coverLetter: CoverLetterRecord }) {
             Download
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
-              <MoreHorizontal className="h-4 w-4" />
-            </DropdownMenuTrigger>
+            <ActionsMenuTrigger label={`Actions for ${coverLetter.title}`} />
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={() => setDeleteOpen(true)}
@@ -205,12 +203,6 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
         description="Uploaded cover letters you can attach from the application workspace."
         title="Cover letters"
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Uploaded by you
-          </h3>
-          <span className="text-xs text-muted-foreground">{uploadedCoverLetters.length}</span>
-        </div>
         {uploadedCoverLetters.length === 0 && !showAdd ? (
           <p className="py-2 text-sm italic text-muted-foreground">
             No uploaded cover letters yet.
@@ -231,18 +223,20 @@ export function CoverLetterManager({ coverLetters, storageConfigured }: CoverLet
             />
           </div>
         ) : (
-          <button
-            className="mt-2 rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-accent"
+          <Button
+            className="mt-2"
             onClick={() => setShowAdd(true)}
             type="button"
+            size="sm"
+            variant="outline"
           >
-            + Add cover letter
-          </button>
+            <Plus aria-hidden="true" />Add cover letter
+          </Button>
         )}
       </DocumentGroup>
 
       {aiCoverLetters.length > 0 ? (
-        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-3 sm:p-4">
+        <div className="border-t border-border/70 pt-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Generated cover letters
@@ -275,12 +269,12 @@ function DocumentGroup({
   title: string;
 }) {
   return (
-    <section className="grouped-panel p-3 sm:p-4">
+    <section>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             {title}
-          </h3>
+          </h2>
           <p className="mt-1 hidden text-sm leading-5 text-muted-foreground sm:block">{description}</p>
         </div>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>

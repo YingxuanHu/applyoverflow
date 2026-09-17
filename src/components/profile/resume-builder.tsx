@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useState } from "react";
 import {
   Archive,
   Check,
@@ -10,7 +10,6 @@ import {
   Download,
   FileText,
   ListPlus,
-  MoreHorizontal,
   Pencil,
   Plus,
   Sparkles,
@@ -42,7 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  ActionsMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -624,12 +623,7 @@ function EntryDetails({
           </p>
         </div>
         <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={`Actions for ${entry.title}`}
-            className="inline-flex size-7 items-center justify-center rounded-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </DropdownMenuTrigger>
+          <ActionsMenuTrigger label={`Actions for ${entry.title}`} />
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem className="cursor-pointer" onClick={() => setComposer("manual")}>
               <Pencil />
@@ -774,28 +768,42 @@ function ArchiveEntryDialog({ entry, open, onOpenChange }: {
   );
 }
 
-function BuildAction({ build, type }: { build: ResumeBuild; type: "archive" | "duplicate" }) {
-  const actionFn = type === "archive" ? archiveResumeBuild : duplicateResumeBuild;
-  const [state, action, pending] = useActionState(actionFn, emptyState());
-  useActionToast(state, {
-    successTitle: type === "archive" ? "Build archived" : "Build duplicated",
-    errorTitle: "Could not update build",
+function BuildActionsMenu({ build }: { build: ResumeBuild }) {
+  const [archiveState, archiveAction, archiving] = useActionState(archiveResumeBuild, emptyState());
+  const [duplicateState, duplicateAction, duplicating] = useActionState(duplicateResumeBuild, emptyState());
+  useActionToast(archiveState, {
+    successTitle: "Draft archived",
+    errorTitle: "Could not archive draft",
+  });
+  useActionToast(duplicateState, {
+    successTitle: "Draft duplicated",
+    errorTitle: "Could not duplicate draft",
   });
 
+  function dispatch(action: typeof archiveAction) {
+    const payload = new FormData();
+    payload.set("buildId", build.id);
+    startTransition(() => action(payload));
+  }
+
   return (
-    <form action={action}>
-      <ActionRefresh success={state.success} />
-      <input name="buildId" type="hidden" value={build.id} />
-      <Button
-        disabled={pending}
-        size="icon-xs"
-        title={type === "archive" ? "Archive build" : "Duplicate build"}
-        type="submit"
-        variant="ghost"
-      >
-        {type === "archive" ? <Archive /> : <Copy />}
-      </Button>
-    </form>
+    <>
+      <ActionRefresh success={archiveState.success} />
+      <ActionRefresh success={duplicateState.success} />
+      <DropdownMenu>
+        <ActionsMenuTrigger label={`Actions for ${build.name}`} disabled={archiving || duplicating} />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => dispatch(duplicateAction)} disabled={archiving || duplicating}>
+            <Copy aria-hidden="true" />Duplicate draft
+          </DropdownMenuItem>
+          {build.status === "DRAFT" ? (
+            <DropdownMenuItem onClick={() => dispatch(archiveAction)} disabled={archiving || duplicating}>
+              <Archive aria-hidden="true" />Archive draft
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -934,17 +942,10 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
       <header className="border-b border-border/70 pb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Sparkles className="h-4 w-4" />
-              <span className="text-xs font-semibold uppercase tracking-[0.14em]">Documents workspace</span>
-            </div>
-            <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">Resume builder</h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Build focused resumes from stable profile context. Importing copies new background information here; every edit and version stays in this workspace, and every draft records its own frozen selection.
-            </p>
+            <h1 className="page-title">Resume builder</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button render={<Link href="/profile" />} size="sm" variant="outline">
+            <Button render={<Link href="/profile" />} size="sm" variant="ghost">
               Edit application profile
             </Button>
             <ImportFromProfileButton hasEntries={entries.length > 0} />
@@ -1013,6 +1014,7 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
                               ) : null}
                             </div>
                             <Button
+                              aria-expanded={expanded}
                               onClick={() => setOpenEntryId(expanded ? null : entry.id)}
                               size="icon-xs"
                               title={expanded ? "Collapse entry" : "Review entry"}
@@ -1096,8 +1098,7 @@ export function ResumeBuilder({ entries, builds, savedJobs }: ResumeBuilderProps
                 <div className="flex shrink-0 flex-wrap items-center gap-1">
                   <GeneratePdfAction build={build} />
                   {build.outputDocument ? <Button render={<Link href={build.outputDocument.href} />} size="xs" variant="ghost"><Download />Download</Button> : null}
-                  <BuildAction build={build} type="duplicate" />
-                  {build.status === "DRAFT" ? <BuildAction build={build} type="archive" /> : null}
+                  <BuildActionsMenu build={build} />
                 </div>
               </div>
             ))}

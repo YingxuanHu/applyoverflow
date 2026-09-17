@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { LoaderCircle, MoreHorizontal } from "lucide-react";
+import { ChevronDown, LoaderCircle, Plus } from "lucide-react";
 
 import {
   deleteProfileResume,
@@ -19,7 +19,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  ActionsMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
@@ -214,7 +214,7 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
                 value={renameValue}
               />
             ) : (
-              <span className="truncate text-sm font-medium text-foreground">{resume.title}</span>
+              <span className="block min-w-0 break-words text-sm font-medium text-foreground">{resume.title}</span>
             )}
             {resume.isPrimary ? <Badge variant="secondary">Primary</Badge> : null}
           </div>
@@ -226,9 +226,7 @@ function ResumeRow({ resume }: { resume: ResumeRecord }) {
               Download
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
-                <MoreHorizontal className="h-4 w-4" />
-              </DropdownMenuTrigger>
+              <ActionsMenuTrigger label={`Actions for ${resume.title}`} />
               <DropdownMenuContent align="end">
                 {!resume.isPrimary ? (
                   <DropdownMenuItem className="cursor-pointer" onClick={() => dispatch(primaryAction)}>
@@ -371,7 +369,7 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
                 value={renameValue}
               />
             ) : (
-              <span className="truncate text-sm font-medium text-foreground">{template.title}</span>
+              <span className="block min-w-0 break-words text-sm font-medium text-foreground">{template.title}</span>
             )}
             {template.isPrimary ? <Badge variant="secondary">Primary</Badge> : null}
           </div>
@@ -383,9 +381,7 @@ function TemplateRow({ template }: { template: TemplateRecord }) {
               Download
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30">
-                <MoreHorizontal className="h-4 w-4" />
-              </DropdownMenuTrigger>
+              <ActionsMenuTrigger label={`Actions for ${template.title}`} />
               <DropdownMenuContent align="end">
                 {!template.isPrimary ? (
                   <DropdownMenuItem className="cursor-pointer" onClick={() => dispatch(primaryAction)}>
@@ -665,13 +661,6 @@ export function ResumeManager({
         description="Uploaded resume versions. Keep one primary, then sync any version back into the structured profile."
         title="Resumes"
       >
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Uploaded by you
-          </h3>
-          <span className="text-xs text-muted-foreground">{uploadedResumes.length}</span>
-        </div>
-
         {uploadedResumes.length === 0 && resumeFormKeys.length === 0 ? (
           <p className="py-2 text-sm italic text-muted-foreground">No resumes yet.</p>
         ) : (
@@ -696,20 +685,22 @@ export function ResumeManager({
           </div>
         ) : null}
 
-        <button
-          className="mt-2 rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-accent"
+        <Button
+          className="mt-2"
           onClick={addResumeForm}
           type="button"
+          size="sm"
+          variant="outline"
         >
-          + Add resume
-        </button>
+          <Plus aria-hidden="true" />Add resume
+        </Button>
       </DocumentGroup>
 
       {/* AI-generated group — appears only once the user has at least one
           tailored resume from the workspace. Kept visually distinct via the
           dashed border + label so it can't be confused with uploads. */}
       {aiResumes.length > 0 ? (
-        <div className="rounded-[16px] border border-dashed border-border/70 bg-muted/35 p-3 sm:p-4">
+        <div className="border-t border-border/70 pt-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Generated resumes
@@ -727,11 +718,12 @@ export function ResumeManager({
         </div>
       ) : null}
 
-      <DocumentGroup
-        count={templates.length}
-        description="Text-readable source files used when generating tailored resumes."
-        title="Resume templates"
-      >
+      <details className="group border-t border-border/70">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          Resume templates
+          <span className="text-xs font-normal text-muted-foreground">{templates.length}</span>
+          <ChevronDown aria-hidden="true" className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
         {templates.length === 0 && !showAddTemplate ? (
           <p className="py-2 text-sm italic text-muted-foreground">No templates yet.</p>
         ) : (
@@ -751,15 +743,17 @@ export function ResumeManager({
             />
           </div>
         ) : (
-          <button
-            className="mt-2 rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-accent"
+          <Button
+            className="mt-2"
             onClick={() => setShowAddTemplate(true)}
             type="button"
+            size="sm"
+            variant="outline"
           >
-            + Add template
-          </button>
+            <Plus aria-hidden="true" />Add template
+          </Button>
         )}
-      </DocumentGroup>
+      </details>
     </div>
   );
 }
@@ -776,12 +770,12 @@ function DocumentGroup({
   title: string;
 }) {
   return (
-    <section className="grouped-panel p-3 sm:p-4">
+    <section>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             {title}
-          </h3>
+          </h2>
           <p className="mt-1 hidden text-sm leading-5 text-muted-foreground sm:block">{description}</p>
         </div>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count}</span>

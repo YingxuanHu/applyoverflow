@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Columns2, FileText, Sparkles } from "lucide-react";
+import { Columns2, FileText } from "lucide-react";
 
 import { CoverLetterManager } from "@/components/profile/cover-letter-manager";
 import { ResumeManager } from "@/components/profile/resume-manager";
@@ -82,46 +82,21 @@ export default async function DocumentsPage() {
             Manage the resume versions, reusable content, and cover letters you use across applications.
           </p>
         </div>
-        <Button render={<Link href="/documents/compare" />} size="sm" variant="outline">
-          <Columns2 />
-          Compare documents
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button render={<Link href="/documents/compare" />} size="sm" variant="ghost">
+            <Columns2 />Compare documents
+          </Button>
+          <Button render={<Link href="/documents/resume-builder" />} size="sm">
+            <FileText />Resume builder
+          </Button>
+        </div>
       </header>
 
-      <section className="border-b border-border/70 pb-7" id="resume-builder">
-        <div className="border-l-2 border-primary/70 bg-primary/[0.04] px-4 py-5 sm:px-5">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3">
-              <Sparkles className="mt-1 h-5 w-5 shrink-0 text-primary" />
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Resume builder</p>
-                <h2 className="mt-1 text-xl font-semibold text-foreground">Build a tailored resume</h2>
-                <p className="mt-1 max-w-3xl text-sm text-foreground/75">
-                  Select profile-backed content, tailor the wording for a role, and generate a ready-to-send PDF.
-                </p>
-              </div>
-            </div>
-            <Button render={<Link href="/documents/resume-builder" />} size="sm">
-              Open resume builder
-            </Button>
-          </header>
-          <p className="mt-4 text-sm font-medium text-foreground/75">
-            {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
-          </p>
-        </div>
-      </section>
+      <p className="text-sm text-muted-foreground" id="resume-builder">
+        {resumeContentCount} reusable content {resumeContentCount === 1 ? "entry" : "entries"} · {resumeBuildCount} active {resumeBuildCount === 1 ? "draft" : "drafts"}
+      </p>
 
       <section id="resume-files">
-        <header className="flex items-start gap-2">
-          <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Resume files &amp; templates</h2>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Upload source resumes and templates. Resume uploads extract and merge profile entries, including education, while preserving your original file.
-            </p>
-          </div>
-        </header>
-        <div className="mt-4">
           <ResumeManager
             resumes={resumes.map((resume) => ({
               id: resume.id,
@@ -147,20 +122,9 @@ export default async function DocumentsPage() {
             }))}
             storageConfigured={storageReadiness.configured}
           />
-        </div>
       </section>
 
       <section className="border-t border-border/70 pt-6" id="cover-letter-library">
-        <header className="flex items-start gap-2">
-          <FileText className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Cover letter library</h2>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Keep reusable letters and role-specific drafts ready for applications.
-            </p>
-          </div>
-        </header>
-        <div className="mt-4">
           <CoverLetterManager
             coverLetters={coverLetters.map((coverLetter) => ({
               id: coverLetter.id,
@@ -174,7 +138,6 @@ export default async function DocumentsPage() {
             }))}
             storageConfigured={storageReadiness.configured}
           />
-        </div>
       </section>
     </div>
   );

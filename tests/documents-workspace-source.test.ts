@@ -17,13 +17,10 @@ test("documents have a dedicated workspace separate from the application profile
 
   assert.match(documentsPage, /<h1 className="page-title">Documents<\/h1>/);
   assert.match(documentsPage, /Resume builder/);
-  assert.match(documentsPage, /Build a tailored resume/);
-  assert.match(documentsPage, /border-b border-border\/70 pb-7/);
-  assert.doesNotMatch(documentsPage, /border-y border-border\/70 py-6/);
   assert.match(documentsPage, /href="\/documents\/resume-builder"/);
-  assert.match(documentsPage, /Resume files &amp; templates/);
+  assert.match(documentsPage, /<ResumeManager/);
   assert.doesNotMatch(documentsPage, /<ResumeBuilder/);
-  assert.match(documentsPage, /Cover letter library/);
+  assert.match(documentsPage, /<CoverLetterManager/);
   assert.match(documentsPage, /href="\/documents\/compare"/);
 
   assert.match(resumeBuilderPage, /<ResumeBuilder/);
