@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import type { TrackerSearchScope } from "@/lib/queries/tracker";
 
 type VisibleTrackerSearchScope = Exclude<TrackerSearchScope, "reminder">;
@@ -71,7 +72,7 @@ export function ApplicationsSearchField({
   }
 
   return (
-    <div className="grid min-w-0 gap-1.5 text-sm">
+    <div className="grid min-w-0 gap-1.5 text-sm min-[360px]:col-span-2 lg:col-span-1">
       <span className="control-label hidden sm:block">
         Search
       </span>
@@ -99,9 +100,9 @@ export function ApplicationsSearchField({
         <label className="sr-only" htmlFor="applications-search-scope">
           Search within
         </label>
-        <div className="relative w-32 shrink-0 border-r border-border/60">
+        <div className="relative w-28 shrink-0 border-r border-border/60 sm:w-32">
           <select
-            className="h-10 w-full appearance-none bg-transparent pl-3 pr-9 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
+            className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-10"
             id="applications-search-scope"
             onChange={(event) => handleScopeChange(event.target.value as SelectableTrackerSearchScope)}
             style={{ textAlignLast: "left" }}
@@ -117,16 +118,24 @@ export function ApplicationsSearchField({
         </div>
 
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label={PLACEHOLDER_BY_SCOPE[scope]}
-            className="h-10 rounded-none border-0 bg-transparent pl-9 pr-3 text-sm focus-visible:border-transparent focus-visible:ring-0"
+            className="h-10 rounded-none border-0 bg-transparent px-3 text-sm focus-visible:border-transparent focus-visible:ring-0"
             onChange={(event) => setDraftValue(event.target.value)}
             placeholder={PLACEHOLDER_BY_SCOPE[scope]}
             type="search"
             value={draftValue}
           />
         </div>
+        <Button
+          aria-label="Search applications"
+          title="Search applications"
+          type="submit"
+          variant="ghost"
+          className="size-10 shrink-0 rounded-none border-l border-border/60"
+        >
+          <Search aria-hidden="true" className="size-4" />
+        </Button>
       </div>
     </div>
   );

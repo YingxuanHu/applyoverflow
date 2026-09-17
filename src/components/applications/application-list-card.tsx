@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarClock, CalendarPlus, ExternalLink, FileText, MoreHorizontal, Pencil, Tag as TagIcon, Trash2 } from "lucide-react";
+import { CalendarClock, CalendarPlus, ExternalLink, FileText, Pencil, Tag as TagIcon, Trash2 } from "lucide-react";
 import {
   startTransition,
   useActionState,
@@ -32,7 +32,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  ActionsMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useNotifications } from "@/components/ui/notification-provider";
@@ -401,13 +401,7 @@ export function ApplicationListCard({
           <div>
             {!editing ? (
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  aria-label={`Actions for ${application.roleTitle}`}
-                  title="Application actions"
-                  className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </DropdownMenuTrigger>
+                <ActionsMenuTrigger label={`Actions for ${application.roleTitle}`} />
                 <DropdownMenuContent align="end" className="min-w-[200px]">
                   <DropdownMenuItem onClick={() => setReminderOpen(true)}>
                     <CalendarPlus aria-hidden="true" /> Schedule reminder

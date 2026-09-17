@@ -4,7 +4,7 @@ import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 
 import { cn } from "@/lib/utils"
-import { ChevronRightIcon, CheckIcon } from "lucide-react"
+import { ChevronRightIcon, CheckIcon, MoreHorizontal } from "lucide-react"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -16,6 +16,23 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
 
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
+}
+
+function ActionsMenuTrigger({
+  label,
+  className,
+  ...props
+}: Omit<MenuPrimitive.Trigger.Props, "children"> & { label: string }) {
+  return (
+    <DropdownMenuTrigger
+      aria-label={label}
+      title={label}
+      className={cn("inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-muted data-popup-open:text-foreground", className)}
+      {...props}
+    >
+      <MoreHorizontal aria-hidden="true" className="size-4" />
+    </DropdownMenuTrigger>
+  )
 }
 
 function DropdownMenuContent({
@@ -250,6 +267,7 @@ function DropdownMenuShortcut({
 }
 
 export {
+  ActionsMenuTrigger,
   DropdownMenu,
   DropdownMenuPortal,
   DropdownMenuTrigger,

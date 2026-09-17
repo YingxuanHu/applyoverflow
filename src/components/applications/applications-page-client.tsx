@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Form from "next/form";
 import {
   useEffect,
   useMemo,
@@ -8,7 +9,7 @@ import {
   type ComponentProps,
   type FormEvent,
 } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Bell, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { ApplicationFlowSection } from "@/components/applications/application-flow-section";
 import { type FlowSelection } from "@/components/applications/application-flow-chart";
@@ -17,7 +18,6 @@ import {
   ApplicationRemindersSummary,
   type ApplicationReminderGroup,
 } from "@/components/applications/application-reminders-summary";
-import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
 import { ApplicationsSearchField } from "@/components/applications/applications-search-field";
 import { Button } from "@/components/ui/button";
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
@@ -211,26 +211,29 @@ export function ApplicationsPageClient({
   return (
     <>
       <section className="min-w-0">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-foreground">
-              Your applications
+            <h2 className="text-sm font-medium text-foreground">
+              <span className="tabular-nums">{totalMatchingApplications}</span>
+              {totalMatchingApplications === totalApplicationCount ? ` application${totalApplicationCount === 1 ? "" : "s"}` : ` of ${totalApplicationCount} application${totalApplicationCount === 1 ? "" : "s"}`}
             </h2>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
-            <CountStat count={totalMatchingApplications} label="shown" />
-            <CountStat count={totalApplicationCount} label="total" />
-            <ApplicationsOverviewBar />
+            {filters.hasActiveFilters ? (
+              <Button render={<Link href="/applications?reset=1" />} size="sm" variant="ghost">
+                <X aria-hidden="true" />Clear filters
+              </Button>
+            ) : null}
             {reminderGroups.length > 0 ? (
               <Button
                 type="button"
                 size="sm"
-                variant="outline"
+                variant="ghost"
                 aria-expanded={showReminders}
                 aria-controls="tracker-reminders"
                 onClick={() => setShowReminders((value) => !value)}
               >
-                Reminders{" "}
+                <Bell aria-hidden="true" />Reminders{" "}
                 <span className="tabular-nums">
                   {reminderGroups.reduce(
                     (sum, group) => sum + group.reminders.length,
@@ -242,11 +245,11 @@ export function ApplicationsPageClient({
             <Button
               type="button"
               size="sm"
-              variant={showFlow ? "secondary" : "outline"}
+              variant={showFlow ? "secondary" : "ghost"}
               aria-expanded={showFlow}
               aria-controls="application-flow-panel"
               onClick={() => setShowFlow((value) => !value)}
-              className="h-8 rounded-full px-2.5 text-xs"
+              className="h-8 px-2.5 text-xs"
             >
               <ChevronDown
                 className={cn(
@@ -297,9 +300,9 @@ export function ApplicationsPageClient({
           </div>
         ) : null}
 
-        <form
-          method="GET"
-          className="toolbar-panel mt-3 grid min-w-0 items-end gap-2 sm:mt-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem_auto] xl:grid-cols-[minmax(24rem,1fr)_9rem_12.5rem_auto]"
+        <Form
+          action="/applications"
+          className="toolbar-panel mt-3 grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-2 sm:mt-4 sm:gap-3 lg:grid-cols-[minmax(18rem,1fr)_9rem_12rem]"
         >
           <ApplicationsSearchField
             initialScope={filters.selectedSearchScope}
@@ -314,7 +317,7 @@ export function ApplicationsPageClient({
               <select
                 name="status"
                 defaultValue={filters.status}
-                className="h-10 w-full min-w-0 appearance-none rounded-[14px] border border-input bg-card py-0 pl-3.5 pr-12 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
+                className="h-10 w-full min-w-0 appearance-none rounded-[14px] border border-input bg-card py-0 pl-3 pr-8 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
               >
                 <option value="ALL">All statuses</option>
                 <option value="WISHLIST">Wishlist</option>
@@ -327,7 +330,7 @@ export function ApplicationsPageClient({
                 <option value="DECLINED">Declined</option>
                 <option value="WITHDRAWN">Closed</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
 
@@ -339,46 +342,27 @@ export function ApplicationsPageClient({
               <select
                 name="sort"
                 defaultValue={filters.sort}
-                className="h-10 w-full min-w-0 appearance-none rounded-[14px] border border-input bg-card py-0 pl-3.5 pr-12 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
+                className="h-10 w-full min-w-0 appearance-none rounded-[14px] border border-input bg-card py-0 pl-3 pr-8 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"
               >
-                <option value="UPDATED_DESC">Updated (newest)</option>
-                <option value="UPDATED_ASC">Updated (oldest)</option>
-                <option value="DEADLINE_ASC">Deadline (earliest)</option>
-                <option value="DEADLINE_DESC">Deadline (latest)</option>
-                <option value="COMPANY_ASC">Company (A-Z)</option>
-                <option value="COMPANY_DESC">Company (Z-A)</option>
+                <option value="UPDATED_DESC">Newest updates</option>
+                <option value="UPDATED_ASC">Oldest updates</option>
+                <option value="DEADLINE_ASC">Deadline first</option>
+                <option value="DEADLINE_DESC">Deadline last</option>
+                <option value="COMPANY_ASC">Company A-Z</option>
+                <option value="COMPANY_DESC">Company Z-A</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
 
-          <div className="grid grid-cols-2 items-end gap-2 sm:col-span-2 lg:col-span-1 lg:flex lg:justify-end lg:gap-3 lg:pl-1">
-            {filters.selectedTags.length > 0 ? (
-              <input
-                type="hidden"
-                name="tags"
-                value={filters.selectedTags.join(",")}
-              />
-            ) : null}
-            <Button
-              className={`h-10 min-w-0 px-4 lg:min-w-24 ${
-                filters.hasActiveFilters ? "" : "col-span-2 lg:col-span-1"
-              }`}
-              type="submit"
-            >
-              Apply
-            </Button>
-            {filters.hasActiveFilters ? (
-              <Button
-                className="h-10 min-w-0 px-4 lg:min-w-20"
-                render={<Link href="/applications?reset=1" />}
-                variant="outline"
-              >
-                Clear
-              </Button>
-            ) : null}
-          </div>
-        </form>
+          {filters.selectedTags.length > 0 ? (
+            <input
+              type="hidden"
+              name="tags"
+              value={filters.selectedTags.join(",")}
+            />
+          ) : null}
+        </Form>
 
         {filters.activeSearchChips.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -513,17 +497,6 @@ function readStoredPage(storageKey: string) {
   } catch {
     return 1;
   }
-}
-
-function CountStat({ count, label }: { count: number; label: string }) {
-  return (
-    <p className="inline-flex min-w-0 items-baseline gap-1 rounded-full bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground sm:bg-transparent sm:px-0">
-      <span className="text-sm font-semibold leading-none text-foreground">
-        {count}
-      </span>
-      <span>{label}</span>
-    </p>
-  );
 }
 
 function PaginationControls({

@@ -7,6 +7,8 @@ import { normalizeUserTimeZone, USER_TIME_ZONE_COOKIE } from "@/lib/time-zone";
 
 import { type ApplicationReminderGroup } from "@/components/applications/application-reminders-summary";
 import { ApplicationsPageClient } from "@/components/applications/applications-page-client";
+import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
+import { Button } from "@/components/ui/button";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
 import { SearchParamMemory } from "@/components/navigation/search-param-memory";
 import type { TrackedApplicationStatus } from "@/generated/prisma/client";
@@ -350,7 +352,12 @@ export default async function ApplicationsPage({
             Track feed submissions and manual applications in one workflow.
           </p>
         </div>
-        <Link href="/applications/compare" className="inline-flex items-center gap-2 text-sm font-medium text-primary"><Columns3 className="h-4 w-4" />Compare saved jobs</Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button render={<Link href="/applications/compare" />} size="sm" variant="ghost">
+            <Columns3 aria-hidden="true" />Compare saved jobs
+          </Button>
+          <ApplicationsOverviewBar />
+        </div>
       </div>
 
       <ApplicationsPageClient

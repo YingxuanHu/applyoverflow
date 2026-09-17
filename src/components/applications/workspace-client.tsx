@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
-  MoreHorizontal,
   Pencil,
   Sparkles,
   Trash2,
@@ -48,6 +47,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  ActionsMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
@@ -791,12 +791,7 @@ function WorkspaceActionsMenu({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger
-          aria-label="Application actions"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </DropdownMenuTrigger>
+        <ActionsMenuTrigger label="Application actions" />
         <DropdownMenuContent align="end" className="min-w-[140px]">
           <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>Add tag</DropdownMenuItem>
@@ -1673,11 +1668,7 @@ function WorkspaceAISection({
       ) : (
         <div className="rounded-[16px] border border-dashed border-border bg-card p-4">
           <p className={WORKSPACE_FIELD_TITLE_CLASS}>Fit analysis</p>
-          <p className="mt-2 text-sm text-muted-foreground">AI features are not configured.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Add <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">OPENAI_API_KEY</code> to{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">.env</code> to unlock fit analysis and cover letter generation.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">AI preparation is currently unavailable.</p>
         </div>
       )}
       <div className="rounded-[16px] border border-border/60 bg-card">
