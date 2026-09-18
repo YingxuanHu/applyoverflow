@@ -4,6 +4,7 @@ import { SignInScreen } from "@/components/auth/sign-in-screen";
 import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import { getSafeSignInCallback } from "@/lib/auth-return-path";
+import { getPostSignInDestination } from "@/lib/queries/profile-setup";
 import { isLocalDevelopmentAuthEnabled, LOCAL_DEVELOPMENT_ADMIN } from "@/lib/local-development-auth";
 
 type SignInPageProps = {
@@ -23,7 +24,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const callbackUrl = getSafeSignInCallback(params.callbackUrl);
 
   if (sessionUser) {
-    redirect(callbackUrl);
+    redirect(await getPostSignInDestination(sessionUser.id, callbackUrl));
   }
 
   const localDevelopmentAccount = isLocalDevelopmentAuthEnabled();

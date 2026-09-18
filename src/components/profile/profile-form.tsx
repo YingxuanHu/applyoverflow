@@ -13,6 +13,7 @@ import {
   makeEmptyExperience,
   makeEmptyProject,
   makeEmptySkill,
+  normalizeContact,
   type ProfileContact,
   type ProfileEducation,
   type ProfileExperience,
@@ -97,7 +98,9 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
 }
 
 function countFilledContactFields(contact: ProfileContact) {
-  return Object.values(contact).filter((value) => value.trim().length > 0).length;
+  return Object.values(contact).filter(
+    (value) => typeof value === "string" && value.trim().length > 0
+  ).length;
 }
 
 function countFilledSkills(skills: ProfileSkill[]) {
@@ -265,6 +268,7 @@ function normalizeProjectsSnapshot(projects: ProfileProject[]) {
 
 function normalizeContactSnapshot(contact: ProfileContact) {
   return {
+    ...normalizeContact(contact),
     fullName: trimmed(contact.fullName),
     email: trimmed(contact.email),
     phone: trimmed(contact.phone),
@@ -566,6 +570,41 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={contact.portfolioUrl}
             />
           </div>
+          <details className="sm:col-span-2">
+            <summary className="cursor-pointer py-2 text-sm font-medium">
+              Mailing address (optional)
+            </summary>
+            <div className="grid gap-4 pt-3 sm:grid-cols-2">
+              {([
+                ["streetAddress", "Street address", 200],
+                ["addressLine2", "Apartment or unit", 120],
+                ["city", "City", 100],
+                ["region", "Province or state", 100],
+                ["postalCode", "Postal or ZIP code", 30],
+              ] as const).map(([key, label, maxLength]) => (
+                <label key={key} className="space-y-2 text-sm">
+                  <span>{label}</span>
+                  <Input
+                    value={contact[key] ?? ""}
+                    onChange={(event) => updateContact(key, event.target.value)}
+                    maxLength={maxLength}
+                  />
+                </label>
+              ))}
+              <label className="space-y-2 text-sm">
+                <span>Country</span>
+                <select
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3"
+                  value={contact.country ?? ""}
+                  onChange={(event) => updateContact("country", event.target.value)}
+                >
+                  <option value="">Not provided</option>
+                  <option value="CA">Canada</option>
+                  <option value="US">United States</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
       </ProfileSection>
 

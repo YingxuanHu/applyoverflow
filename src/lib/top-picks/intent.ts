@@ -84,6 +84,9 @@ export type TopPicksProfileReadiness = {
 };
 
 export type BuildUserJobIntentInput = {
+  targetTitles?: string[];
+  preferredLocation?: string | null;
+  preferredCountry?: "" | "CA" | "US";
   requirements?: MatchRequirements;
   userId: string;
   profileVersion: number;
@@ -589,10 +592,17 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
   const roles = inferRoleScores(textSignals);
   const seniority = inferSeniority(input, experienceSummary);
   const skills = buildSkillBuckets(input);
-  const location = parsePreferredLocation(input.location);
+  const location = parsePreferredLocation(input.preferredLocation ?? input.location);
+  if (input.preferredCountry) {
+    location.country = input.preferredCountry === "CA" ? "Canada" : "United States";
+  }
   const preferredWorkModes = expandPreferredWorkModes(input.preferredWorkMode);
-  const explicitTargetRoleCategories: string[] = [];
-  const explicitTargetTitles: string[] = [];
+  const explicitTargetTitles = unique(
+    (input.targetTitles ?? []).map((title) => cleanTitle(title) ?? ""), 5
+  );
+  const explicitTargetRoleCategories = inferRoleScores(
+    explicitTargetTitles.map((text) => ({ text, weight: 7, source: "title" as const }))
+  ).categories;
   const savedRoleCategories = savedJobs
     .map((job) => job.normalizedRoleCategory)
     .filter((value): value is string => Boolean(value));
@@ -682,7 +692,11 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
       ),
     },
     confidence: {
-      roleIntent: Math.max(roles.confidence, savedRoleCategories.length > 0 ? 0.72 : 0),
+      roleIntent: Math.max(
+        roles.confidence,
+        explicitTargetTitles.length > 0 ? 0.9 : 0,
+        savedRoleCategories.length > 0 ? 0.72 : 0
+      ),
       seniorityIntent: seniority.confidence,
       skillIntent: skills.confidence,
       locationIntent: location.city || location.region || location.country ? 0.85 : 0.2,
@@ -697,6 +711,9 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
 }
 
 export function getAllowedRoleCategories(intent: UserJobIntent) {
+  if (intent.explicitTargetRoleCategories.length) {
+    return uniqueCodes(intent.explicitTargetRoleCategories, 12);
+  }
   const directRoles = uniqueCodes(
     [
       ...intent.explicitTargetRoleCategories,

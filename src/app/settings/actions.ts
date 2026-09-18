@@ -114,10 +114,6 @@ export async function savePreferencesSettings(
       salaryMin,
       salaryMax,
       salaryCurrency: salaryCurrency ?? undefined,
-      location:
-        typeof formData.get("location") === "string"
-          ? String(formData.get("location"))
-          : undefined,
     });
     await invalidateTopPicksForUser(profileId);
     revalidatePaths(["/settings", "/profile", "/jobs", "/jobs/top-picks"]);

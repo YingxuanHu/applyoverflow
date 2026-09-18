@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 type GoogleAuthButtonProps = {
   callbackUrl?: string;
@@ -25,7 +26,7 @@ export function GoogleAuthButton({
 
     const result = await authClient.signIn.social({
       provider: "google",
-      callbackURL: callbackUrl,
+      callbackURL: `/sign-in?callbackUrl=${encodeURIComponent(getSafeSignInCallback(callbackUrl))}`,
       errorCallbackURL,
       disableRedirect: true,
     });

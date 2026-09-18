@@ -6,6 +6,7 @@ import {
 } from "@/generated/prisma/client";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
 import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
+import { JOB_GOALS_KEY, parseJobGoals } from "@/lib/profile-setup";
 import { loadScoringDescriptions } from "@/lib/top-picks/source-descriptions";
 import { mergeCandidateChannels, selectTopPicks } from "./selection";
 import { prisma } from "@/lib/db";
@@ -214,6 +215,11 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
 }
 
 async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, userId: string) {
+  const goalsRecord = await tx.userPreference.findUnique({
+    where: { userId_key: { userId, key: JOB_GOALS_KEY } },
+    select: { value: true },
+  });
+  const goals = parseJobGoals(goalsRecord?.value);
   const requirements = await tx.userPreference.findUnique({ where: { userId_key: { userId, key: REQUIREMENTS_KEY } }, select: { value: true } });
   const profile = await tx.userProfile.findUnique({
     where: { id: userId },
@@ -311,6 +317,9 @@ async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, 
   const projects = normalizeProjects(profile.projectsJson);
 
   const preliminaryIntent = buildUserJobIntent({
+    targetTitles: goals?.targetTitles,
+    preferredLocation: goals?.preferredLocation,
+    preferredCountry: goals?.country,
     requirements: parseRequirements(requirements?.value),
     userId: profile.id,
     profileVersion: existing?.profileVersion ?? 1,

@@ -81,10 +81,12 @@ export async function POST(request: NextRequest) {
       titleRaw: String(formData.get("title") ?? "").trim(),
       makePrimary: formData.get("makePrimary") === "on",
       allowAiParse: isAiFeatureAllowed(user.email),
+      reviewOnly: formData.get("reviewOnly") === "true",
+      setupRevision: Number(formData.get("setupRevision")),
     });
 
     revalidateProfileViews();
-    return successResponse({ message: result.message }, 201);
+    return successResponse(result, 201);
   } catch (error) {
     if (isUnauthorizedApiError(error)) return unauthorizedResponse();
     return errorResponse(

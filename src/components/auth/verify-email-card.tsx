@@ -6,9 +6,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 type VerifyEmailCardProps = {
   defaultEmail?: string;
+  callbackUrl?: string;
 };
 
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -18,7 +20,8 @@ type VerificationResponse = {
   message?: string;
 };
 
-export function VerifyEmailCard({ defaultEmail = "" }: VerifyEmailCardProps) {
+export function VerifyEmailCard({ defaultEmail = "", callbackUrl }: VerifyEmailCardProps) {
+  const destination = getSafeSignInCallback(callbackUrl);
   const [email, setEmail] = useState(defaultEmail);
   const [pending, setPending] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
@@ -61,7 +64,7 @@ export function VerifyEmailCard({ defaultEmail = "" }: VerifyEmailCardProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
-        callbackURL: "/sign-in?verified=true",
+        callbackURL: `/sign-in?verified=true&callbackUrl=${encodeURIComponent(destination)}`,
       }),
     });
     const result = (await response.json().catch(() => ({}))) as VerificationResponse;
@@ -137,7 +140,7 @@ export function VerifyEmailCard({ defaultEmail = "" }: VerifyEmailCardProps) {
         </Button>
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Already verified?{" "}
-          <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-in">
+          <Link className="text-foreground underline-offset-4 hover:underline" href={`/sign-in?callbackUrl=${encodeURIComponent(destination)}`}>
             Sign in
           </Link>
         </p>

@@ -18,6 +18,7 @@ const PROTECTED_ROUTE_PREFIXES = [
   "/settings",
   "/account",
   "/ops",
+  "/onboarding",
 ] as const;
 
 function isProtectedRoute(pathname: string) {
@@ -82,5 +83,6 @@ export const config = {
     "/settings/:path*",
     "/account/:path*",
     "/ops/:path*",
+    "/onboarding/:path*",
   ],
 };

@@ -13,6 +13,9 @@ import {
 } from "@/lib/resume-ingestion";
 import { supportedResumeAcceptValue } from "@/lib/resume-shared";
 import {
+  ONBOARDING_KEY, parseOnboardingState, setupProfileSchema,
+} from "@/lib/profile-setup";
+import {
   buildDocumentStorageKey,
   deleteFile,
   readStoredFile,
@@ -146,6 +149,8 @@ export async function importUploadedResumeForProfile(input: {
   makePrimary: boolean;
   /** When false, resume parsing skips OpenAI and uses the local heuristic parser. */
   allowAiParse: boolean;
+  reviewOnly?: boolean;
+  setupRevision?: number;
 }) {
   if (input.file.size === 0) {
     throw resumeUploadError(`Choose a supported resume file (${supportedResumeAcceptValue}).`);
@@ -163,7 +168,17 @@ export async function importUploadedResumeForProfile(input: {
   }
 
   const fileBuffer = Buffer.from(await input.file.arrayBuffer());
-  const existingProfile = await loadEditableProfileValues(input.user);
+  let existingProfile = await loadEditableProfileValues(input.user);
+  if (input.reviewOnly) {
+    const record = await prisma.userPreference.findUnique({
+      where: { userId_key: { userId: input.user.id, key: ONBOARDING_KEY } },
+    });
+    const state = parseOnboardingState(record?.value);
+    if (!state || state.status === "complete" || state.revision !== input.setupRevision) {
+      throw new Error("Setup changed. Reload before importing.");
+    }
+    if (state.draft) existingProfile = state.draft;
+  }
 
   const ingestion = await ingestResumeIntoProfile({
     existingProfile,
@@ -172,6 +187,9 @@ export async function importUploadedResumeForProfile(input: {
     mimeType,
     allowAi: input.allowAiParse,
   });
+  const reviewDraft = input.reviewOnly
+    ? setupProfileSchema.parse({ location: "", workAuthorization: "", ...ingestion.mergedProfile })
+    : undefined;
 
   const title = input.titleRaw || baseResumeTitle(input.file.name);
   const storageKey = buildDocumentStorageKey({
@@ -187,6 +205,22 @@ export async function importUploadedResumeForProfile(input: {
     await saveFile(storageKey, fileBuffer, { contentType: mimeType });
 
     await prisma.$transaction(async (tx) => {
+      if (input.reviewOnly) {
+        await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${input.user.id} FOR UPDATE`;
+        const record = await tx.userPreference.findUnique({
+          where: { userId_key: { userId: input.user.id, key: ONBOARDING_KEY } },
+        });
+        const state = parseOnboardingState(record?.value);
+        if (!record || !state || state.status === "complete" || state.revision !== input.setupRevision) {
+          throw new Error("Setup changed in another tab. Reload before importing.");
+        }
+        await tx.userPreference.update({
+          where: { id: record.id },
+          data: {
+            value: JSON.stringify({ ...state, step: 1, revision: state.revision + 1, draft: reviewDraft }),
+          },
+        });
+      }
       const existingResumeCount = await tx.document.count({
         where: {
           userId: input.user.id,
@@ -259,6 +293,7 @@ export async function importUploadedResumeForProfile(input: {
         importedAt,
       });
 
+      if (input.reviewOnly) return;
       const persistence = buildProfilePersistenceInput(ingestion.mergedProfile);
       await tx.userProfile.update({
         where: {
@@ -289,6 +324,7 @@ export async function importUploadedResumeForProfile(input: {
   }
 
   return {
+    ...(input.reviewOnly ? { draft: reviewDraft, revision: (input.setupRevision ?? 0) + 1 } : {}),
     message: `${buildResumeImportSuccessMessage(ingestion.importSummary)}${
       markedPrimary ? " Marked as primary." : ""
     }`,

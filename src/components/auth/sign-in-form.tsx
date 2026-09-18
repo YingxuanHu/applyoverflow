@@ -167,7 +167,7 @@ export function SignInForm({
             <Button
               className="h-11 w-full rounded-full"
               render={
-                <Link href={`/verify-email-required?email=${encodeURIComponent(verificationEmail)}`} />
+                <Link href={`/verify-email-required?email=${encodeURIComponent(verificationEmail)}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`} />
               }
               variant="outline"
             >
@@ -191,7 +191,7 @@ export function SignInForm({
           <noscript><p role="alert" className="text-sm text-destructive">JavaScript is required to sign in securely.</p></noscript>
           <p className="text-center text-sm text-muted-foreground">
             Need an account?{" "}
-            <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-up">
+            <Link className="text-foreground underline-offset-4 hover:underline" href={`/sign-up?callbackUrl=${encodeURIComponent(safeCallbackUrl)}`}>
               Create one
             </Link>
           </p>

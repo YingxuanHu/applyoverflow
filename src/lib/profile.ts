@@ -26,6 +26,12 @@ export type ProfileContact = {
   linkedInUrl: string;
   githubUrl: string;
   portfolioUrl: string;
+  streetAddress?: string;
+  addressLine2?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: "" | "CA" | "US";
 };
 
 export type ProfileProject = {
@@ -169,7 +175,7 @@ export function normalizeExperiences(value: unknown): ProfileExperience[] {
     const objectValue = item as Record<string, unknown>;
     const entry = {
       title: trimmedText(objectValue.title, 140),
-      time: trimmedText(objectValue.time, 100),
+      time: profileDateText(objectValue),
       company: trimmedText(objectValue.company, 140),
       location: trimmedText(objectValue.location, 140),
       description: trimmedText(objectValue.description, 3000),
@@ -236,7 +242,7 @@ export function normalizeEducations(value: unknown): ProfileEducation[] {
     const entry = {
       school: trimmedText(objectValue.school, 160),
       degree: trimmedText(objectValue.degree, 160),
-      time: trimmedText(objectValue.time, 100),
+      time: profileDateText(objectValue),
       location: trimmedText(objectValue.location, 140),
       description: trimmedText(objectValue.description, 3000),
     };
@@ -269,7 +275,26 @@ export function normalizeContact(value: unknown): ProfileContact {
     linkedInUrl: trimmedText(objectValue.linkedInUrl ?? objectValue.linkedinUrl, 280),
     githubUrl: trimmedText(objectValue.githubUrl, 280),
     portfolioUrl: trimmedText(objectValue.portfolioUrl, 280),
+    ...Object.fromEntries(
+      ([
+        ["streetAddress", 200], ["addressLine2", 120], ["city", 100],
+        ["region", 100], ["postalCode", 30],
+      ] as const)
+        .filter(([key]) => key in objectValue)
+        .map(([key, maxLength]) => [key, trimmedText(objectValue[key], maxLength)])
+    ),
+    ...("country" in objectValue ? {
+      country: objectValue.country === "CA" || objectValue.country === "US"
+        ? objectValue.country : "" as const,
+    } : {}),
   };
+}
+
+function profileDateText(value: Record<string, unknown>): string {
+  return trimmedText(value.time, 100) || [
+    trimmedText(value.startDate, 40),
+    value.isCurrent === true ? "Present" : trimmedText(value.endDate, 40),
+  ].filter(Boolean).join(" - ");
 }
 
 export function makeEmptySkill(): ProfileSkill {
@@ -396,6 +421,7 @@ export function buildProfileFormValues(
   const projects = normalizeProjects(profile?.projectsJson);
 
   const fallbackContact = {
+    ...contact,
     fullName: contact.fullName || user?.name || "",
     email: contact.email || user?.email || "",
     phone: contact.phone || profile?.phone?.trim() || "",

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { GoogleAuthButton } from "@/components/auth/google-auth-button";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
@@ -46,13 +47,13 @@ async function getSignUpStatus(email: string) {
   return (await response.json()) as SignUpStatusResponse;
 }
 
-async function requestVerificationEmail(email: string) {
+async function requestVerificationEmail(email: string, callbackUrl: string) {
   const response = await fetch("/api/auth/resend-verification", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       email,
-      callbackURL: "/sign-in?verified=true",
+      callbackURL: `/sign-in?verified=true&callbackUrl=${encodeURIComponent(callbackUrl)}`,
     }),
   });
   const body = (await response.json().catch(() => ({}))) as VerificationResponse;
@@ -64,7 +65,8 @@ async function requestVerificationEmail(email: string) {
   };
 }
 
-export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
+export function SignUpForm({ googleEnabled = false, callbackUrl = "/jobs" }: { googleEnabled?: boolean; callbackUrl?: string }) {
+  const destination = getSafeSignInCallback(callbackUrl);
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
       name,
       email,
       password,
-      callbackURL: "/sign-in?verified=true",
+      callbackURL: `/sign-in?verified=true&callbackUrl=${encodeURIComponent(destination)}`,
       emailNotificationsEnabled,
     } as Parameters<typeof authClient.signUp.email>[0]);
 
@@ -153,7 +155,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
 
     let verificationResult: Awaited<ReturnType<typeof requestVerificationEmail>>;
     try {
-      verificationResult = await requestVerificationEmail(email);
+      verificationResult = await requestVerificationEmail(email, destination);
     } catch {
       setExistingEmail(email);
       setExistingEmailVerified(false);
@@ -175,7 +177,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
       return;
     }
 
-    router.push(`/verify-email-required?email=${encodeURIComponent(email)}`);
+    router.push(`/verify-email-required?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(destination)}`);
     router.refresh();
   };
 
@@ -188,7 +190,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
     setError(null);
     setResendMessage(null);
 
-    const result = await requestVerificationEmail(existingEmail);
+    const result = await requestVerificationEmail(existingEmail, destination);
 
     if (!result.ok || !result.status) {
       setError(result.message ?? "Unable to send verification email right now. Try again later.");
@@ -308,7 +310,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   className="h-10 flex-1 rounded-full"
-                  render={<Link href={`/sign-in?email=${encodeURIComponent(accountCheckEmail)}`} />}
+                  render={<Link href={`/sign-in?email=${encodeURIComponent(accountCheckEmail)}&callbackUrl=${encodeURIComponent(destination)}`} />}
                   variant="outline"
                 >
                   Sign in
@@ -347,7 +349,7 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   className="h-10 flex-1 rounded-full"
-                  render={<Link href={`/sign-in?email=${encodeURIComponent(existingEmail)}`} />}
+                  render={<Link href={`/sign-in?email=${encodeURIComponent(existingEmail)}&callbackUrl=${encodeURIComponent(destination)}`} />}
                   variant="outline"
                 >
                   Sign in
@@ -401,12 +403,12 @@ export function SignUpForm({ googleEnabled = false }: { googleEnabled?: boolean 
               or
               <span className="h-px flex-1 bg-border" />
             </div>
-            <GoogleAuthButton mode="sign-up" />
+            <GoogleAuthButton mode="sign-up" callbackUrl={destination} />
           </div>
         ) : null}
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-in">
+          <Link className="text-foreground underline-offset-4 hover:underline" href={`/sign-in?callbackUrl=${encodeURIComponent(destination)}`}>
             Sign in
           </Link>
           {" "}or{" "}

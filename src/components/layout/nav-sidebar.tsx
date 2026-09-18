@@ -49,6 +49,7 @@ const AUTH_ROUTES = new Set([
   "/forgot-password",
   "/reset-password",
   "/verify-email-required",
+  "/onboarding",
 ]);
 
 export function NavSidebar() {

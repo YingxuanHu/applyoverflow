@@ -2,7 +2,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { VerifyEmailCard } from "@/components/auth/verify-email-card";
 
 type VerifyEmailRequiredPageProps = {
-  searchParams: Promise<{ email?: string }>;
+  searchParams: Promise<{ email?: string; callbackUrl?: string }>;
 };
 
 export default async function VerifyEmailRequiredPage({
@@ -15,7 +15,7 @@ export default async function VerifyEmailRequiredPage({
       contextTitle="Confirm the email for this workspace."
       contextDescription="Verification keeps your job feed, application tracker, documents, saved answers, and profile details tied to the right account."
     >
-      <VerifyEmailCard defaultEmail={params.email ?? ""} />
+      <VerifyEmailCard defaultEmail={params.email ?? ""} callbackUrl={params.callbackUrl} />
     </AuthShell>
   );
 }

@@ -728,7 +728,7 @@ function mergeOverview(
   }
 
   const contactFields: Array<{
-    key: keyof ProfileContact;
+    key: "fullName" | "email" | "phone" | "location" | "linkedInUrl" | "githubUrl" | "portfolioUrl";
     label: string;
     value: string;
   }> = [

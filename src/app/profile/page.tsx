@@ -10,6 +10,10 @@ import { prisma } from "@/lib/db";
 import { buildProfileFormValues } from "@/lib/profile";
 import { MatchRequirementsForm } from "@/components/profile/match-requirements-form";
 import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
+import { JobGoalsForm } from "@/components/profile/job-goals-form";
+import {
+  EMPTY_JOB_GOALS, JOB_GOALS_KEY, ONBOARDING_KEY, parseJobGoals, parseOnboardingState,
+} from "@/lib/profile-setup";
 
 type ProfileSummary = {
   headline: boolean;
@@ -55,6 +59,11 @@ export default async function ProfilePage() {
   }
 
   const profileId = await requireCurrentProfileId();
+  const setupPreferences = await prisma.userPreference.findMany({
+    where: { userId: profileId, key: { in: [JOB_GOALS_KEY, ONBOARDING_KEY] } },
+  });
+  const goals = parseJobGoals(setupPreferences.find((item) => item.key === JOB_GOALS_KEY)?.value);
+  const setup = parseOnboardingState(setupPreferences.find((item) => item.key === ONBOARDING_KEY)?.value);
   const requirements = await prisma.userPreference.findUnique({ where: { userId_key: { userId: profileId, key: REQUIREMENTS_KEY } }, select: { value: true } });
   const profile = await prisma.userProfile.findUnique({
     where: { id: profileId },
@@ -64,6 +73,7 @@ export default async function ProfilePage() {
       headline: true,
       summary: true,
       phone: true,
+      workAuthorization: true,
       linkedinUrl: true,
       githubUrl: true,
       portfolioUrl: true,
@@ -103,14 +113,22 @@ export default async function ProfilePage() {
         </Button>
       </header>
 
+      {setup && setup.status !== "complete" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-border py-4">
+          <p className="text-sm">Your profile setup is saved.</p>
+          <Button variant="outline" render={<Link href="/onboarding?from=%2Fprofile" />}>
+            Continue setup
+          </Button>
+        </div>
+      ) : null}
       <section className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
         <SummaryTile
           icon={<User2 className="h-4 w-4" />}
-          label="Profile complete"
+          label="Profile sections"
           value={`${completeness.pct}%`}
           hint={
             completeness.missing.length === 0
-              ? "Everything filled in."
+              ? "Details added. Review them before applying."
               : `Missing: ${completeness.missing.slice(0, 3).join(", ")}${
                   completeness.missing.length > 3 ? "…" : ""
                 }`
@@ -146,8 +164,11 @@ export default async function ProfilePage() {
             <h2 className="text-sm font-semibold text-foreground">Job preferences</h2>
           </header>
           <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-            Used for best-match ranking, salary-aware filtering defaults, and application materials.
+            Roles and locations for Picks for you, separate from your application details.
           </p>
+          <JobGoalsForm initial={goals ?? {
+            ...EMPTY_JOB_GOALS, preferredLocation: profile?.location ?? "",
+          }} />
           <PreferencesForm
             defaults={{
               preferredWorkMode: profile?.preferredWorkMode ?? "",
@@ -161,7 +182,6 @@ export default async function ProfilePage() {
                   ? String(profile.salaryMax)
                   : "",
               salaryCurrency: profile?.salaryCurrency ?? "USD",
-              location: profile?.location ?? "",
             }}
           />
           <MatchRequirementsForm initial={parseRequirements(requirements?.value)} />

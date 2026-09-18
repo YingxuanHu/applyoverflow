@@ -156,7 +156,6 @@ export function PreferencesForm({
     salaryMin: string;
     salaryMax: string;
     salaryCurrency: string;
-    location: string;
   };
 }) {
   const [state, formAction] = useActionState(
@@ -253,23 +252,6 @@ export function PreferencesForm({
               </option>
             ))}
           </select>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={SETTINGS_LABEL_CLASS} htmlFor="pref-location">
-            Location
-          </label>
-          <input
-            className={SETTINGS_INPUT_CLASS}
-            defaultValue={defaults.location}
-            id="pref-location"
-            maxLength={120}
-            name="location"
-            placeholder="Toronto, ON"
-            type="text"
-          />
         </div>
       </div>
 

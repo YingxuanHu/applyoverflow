@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { buildRuntimeTrustedOrigins } from "@/lib/runtime-origin";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
+import { INITIAL_ONBOARDING, ONBOARDING_KEY } from "@/lib/profile-setup";
 
 const APP_NAME = process.env.APP_NAME?.trim() || "ApplyOverflow";
 
@@ -75,7 +76,16 @@ export const auth = betterAuth({
     user: {
       create: {
         after: async (user) => {
-          await syncProfileForAuthUser(user);
+          const profile = await syncProfileForAuthUser(user);
+          await prisma.userPreference.upsert({
+            where: { userId_key: { userId: profile.id, key: ONBOARDING_KEY } },
+            create: {
+              userId: profile.id,
+              key: ONBOARDING_KEY,
+              value: JSON.stringify(INITIAL_ONBOARDING),
+            },
+            update: {},
+          });
         },
       },
       update: {
