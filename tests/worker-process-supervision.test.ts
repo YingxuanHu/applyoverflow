@@ -34,6 +34,30 @@ test("ingestion supervision targets actual TypeScript workers, not CLI wrappers"
   }
 });
 
+test("real worker memory guards allow measured runtime overhead and remain configurable", () => {
+  const env: NodeJS.ProcessEnv = { ...process.env, APPLYOVERFLOW_WORKER_GROUPS: "all" };
+  const guards = [
+    ["ingest-daemon", "INGEST_DAEMON_MAX_MEMORY_RESTART", "1024M"],
+    ["ingest-poll-worker", "INGEST_POLL_MAX_MEMORY_RESTART", "1024M"],
+    ["ingest-validation-worker", "INGEST_VALIDATION_MAX_MEMORY_RESTART", "768M"],
+    ["ingest-discovery-worker", "INGEST_DISCOVERY_MAX_MEMORY_RESTART", "768M"],
+  ];
+  for (const [, key] of guards) delete env[key];
+  const read = () => {
+    const result = spawnSync(process.execPath, ["-e",
+      'console.log(JSON.stringify(require("./ecosystem.config.cjs").apps.map(a=>[a.name,a.max_memory_restart])))',
+    ], { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return new Map<string, string>(JSON.parse(result.stdout));
+  };
+  const defaults = read();
+  for (const [name, key, expected] of guards) {
+    assert.equal(defaults.get(name), expected);
+    env[key] = "900M";
+  }
+  for (const [name] of guards) assert.equal(read().get(name), "900M");
+});
+
 test(
   "PM2 monitors the same PID that executes TypeScript and dotenv",
   { timeout: 25000 },

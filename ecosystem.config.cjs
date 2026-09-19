@@ -435,8 +435,9 @@ const steadyWorkerApps = [
         INGEST_BURST_URL_HEALTH_LIMIT:
           process.env.INGEST_BURST_URL_HEALTH_LIMIT || "5000",
       },
-      // Memory guard — restart if daemon leaks past 512MB
-      max_memory_restart: "512M",
+      // Actual-process supervision measures the full runtime, not a CLI parent.
+      // Normal scheduling bursts exceed 512 MiB; retain a configurable guard.
+      max_memory_restart: process.env.INGEST_DAEMON_MAX_MEMORY_RESTART || "1024M",
     },
     {
       __workerGroups: ["source-workers"],
@@ -796,7 +797,7 @@ const steadyWorkerApps = [
         DATABASE_POOL_MAX_RECOVERY_VALIDATION:
           process.env.DATABASE_POOL_MAX_RECOVERY_VALIDATION || "2",
       },
-      max_memory_restart: "512M",
+      max_memory_restart: process.env.INGEST_VALIDATION_MAX_MEMORY_RESTART || "768M",
     },
     {
       __workerGroups: ["source-workers"],
@@ -839,7 +840,7 @@ const steadyWorkerApps = [
         DATABASE_POOL_MAX_RECOVERY_DISCOVERY:
           process.env.DATABASE_POOL_MAX_RECOVERY_DISCOVERY || "3",
       },
-      max_memory_restart: "512M",
+      max_memory_restart: process.env.INGEST_DISCOVERY_MAX_MEMORY_RESTART || "768M",
     },
 ];
 
