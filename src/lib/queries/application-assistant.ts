@@ -2,7 +2,13 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { isSessionUsableByPolicy } from "@/lib/auth-session-policy";
-import { normalizeContact } from "@/lib/profile";
+import {
+  normalizeContact,
+  normalizeExperiences,
+  normalizeEducations,
+} from "@/lib/profile";
+import { historyDateText } from "@/lib/profile-history";
+import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
 import { buildApplicationProfileReference } from "@/lib/application-profile-reference";
 import { normalizeUrlIdentityKey } from "@/lib/ingestion/source-quality";
 import {
@@ -12,11 +18,14 @@ import {
   exchangeSchema,
   extensionRequestSchema,
   applicationContext,
+  sameApplication,
   mergeCapturedQuestions,
   parseAnswerLibrary,
   parseAssistantState,
   questionKind,
   reviewSaveSchema,
+  appliedConfirmationSchema,
+  historySelectionSchema,
 } from "@/lib/application-assistant";
 import { decideAnswerReuse } from "@/lib/application-answer-policy";
 
@@ -152,6 +161,64 @@ export async function getExtensionContact(userId: string) {
     linkedInUrl: contact.linkedInUrl,
     githubUrl: contact.githubUrl,
     portfolioUrl: contact.portfolioUrl,
+    streetAddress: contact.streetAddress ?? "",
+    addressLine2: contact.addressLine2 ?? "",
+    city: contact.city ?? "",
+    postalCode: contact.postalCode ?? "",
+  };
+}
+
+export async function getExtensionHistory(userId: string, selection?: unknown) {
+  const selected =
+    selection === undefined ? null : historySelectionSchema.parse(selection);
+  const profile = await prisma.userProfile.findUnique({
+    where: { authUserId: userId },
+    select: { experiencesJson: true, educationsJson: true, updatedAt: true },
+  });
+  if (!profile) throw new AssistantError("Complete your profile first.");
+  const revision = profile.updatedAt.toISOString();
+  const groups = {
+    experience: normalizeExperiences(profile.experiencesJson).slice(0, 50),
+    education: normalizeEducations(profile.educationsJson).slice(0, 50),
+  };
+  if (!selected)
+    return {
+      revision,
+      entries: Object.entries(groups).flatMap(([kind, entries]) =>
+        entries.map((entry, index) => ({
+          kind,
+          index,
+          label: [
+            "company" in entry
+              ? `${entry.title} - ${entry.company}`
+              : `${entry.school} - ${entry.degree}`,
+            historyDateText(entry),
+          ]
+            .filter(Boolean)
+            .join(" · ")
+            .slice(0, 250),
+        })),
+      ),
+    };
+  if (selected.revision !== revision)
+    throw new AssistantError(
+      "Your profile changed. Reload the entry list before filling.",
+      409,
+    );
+  const entry = groups[selected.kind][selected.index];
+  if (!entry) throw new AssistantError("Profile entry not found.", 404);
+  // Only the explicitly selected entry is exported, not the full profile or
+  // guessed legacy dates. Unknown months remain unknown.
+  return {
+    kind: selected.kind,
+    entry: {
+      ...("company" in entry
+        ? { title: entry.title, company: entry.company }
+        : { school: entry.school, degree: entry.degree }),
+      location: entry.location,
+      description: entry.description,
+      dates: entry.dates,
+    },
   };
 }
 
@@ -160,14 +227,49 @@ export async function captureApplicationQuestions(
   raw: unknown,
 ) {
   const input = captureSchema.parse(raw);
-  const context = applicationContext(input.url)!;
+  return saveExtensionApplication(userId, input);
+}
+
+export async function confirmExtensionApplication(
+  userId: string,
+  raw: unknown,
+) {
+  const input = appliedConfirmationSchema.parse(raw);
+  const result = await saveExtensionApplication(
+    userId,
+    { url: input.url, title: input.title, questions: [] },
+    input.company,
+  );
+  if (result.canonicalJobId) {
+    const profile = await prisma.userProfile.findUnique({
+      where: { authUserId: userId },
+      select: { id: true },
+    });
+    if (profile)
+      await enqueueDurableTopPicksRefresh({
+        userId: profile.id,
+        reason: "application_status_changed",
+        priorityScore: 60,
+      });
+  }
+  return result;
+}
+
+async function saveExtensionApplication(
+  userId: string,
+  input: ReturnType<typeof captureSchema.parse>,
+  confirmedCompany?: string,
+) {
+  const context = applicationContext(input.url, true)!;
   const urlKeys = [
     context.url,
     ...(context.provider === "greenhouse"
       ? [context.url.replace("job-boards.", "boards.")]
-      : [
-          `${context.url}/${context.provider === "lever" ? "apply" : "application"}`,
-        ]),
+      : context.provider === "lever" || context.provider === "ashby"
+        ? [
+            `${context.url}/${context.provider === "lever" ? "apply" : "application"}`,
+          ]
+        : []),
   ]
     .map((url) => normalizeUrlIdentityKey(url)!)
     .filter(Boolean);
@@ -187,12 +289,20 @@ export async function captureApplicationQuestions(
           userId,
           OR: [
             ...(knownJob ? [{ canonicalJobId: knownJob.id }] : []),
-            ...[".greenhouse.io/", ".lever.co/", "jobs.ashbyhq.com/"].flatMap(
-              (host) => [
-                { roleUrl: { contains: host } },
-                { canonicalJob: { applyUrl: { contains: host } } },
-              ],
-            ),
+            ...[
+              new URL(context.url).hostname,
+              ...(context.provider === "greenhouse"
+                ? [
+                    new URL(context.url).hostname.replace(
+                      "job-boards.",
+                      "boards.",
+                    ),
+                  ]
+                : []),
+            ].flatMap((host) => [
+              { roleUrl: { contains: host } },
+              { canonicalJob: { applyUrl: { contains: host } } },
+            ]),
           ],
         },
         select: {
@@ -202,12 +312,17 @@ export async function captureApplicationQuestions(
           assistantState: true,
           canonicalJob: { select: { applyUrl: true } },
         },
+        take: 2001,
       });
+      if (applications.length > 2000)
+        throw new AssistantError(
+          "Too many matching application records. Use the application workspace.",
+        );
       const existing = applications.find(
         (item) =>
           (knownJob && item.canonicalJobId === knownJob.id) ||
           [item.roleUrl, item.canonicalJob?.applyUrl].some(
-            (url) => url && applicationContext(url)?.url === context.url,
+            (url) => url && sameApplication(url, context.url),
           ),
       );
       if (existing) {
@@ -219,32 +334,55 @@ export async function captureApplicationQuestions(
         await tx.trackedApplication.update({
           where: { id: existing.id },
           data: {
-            assistantState: mergeCapturedQuestions(
-              parseAssistantState(current.assistantState),
-              input,
-            ),
+            ...(confirmedCompany && !current.canonicalJobId
+              ? { company: confirmedCompany, roleTitle: input.title }
+              : {}),
+            ...(!confirmedCompany
+              ? {
+                  assistantState: mergeCapturedQuestions(
+                    parseAssistantState(current.assistantState),
+                    input,
+                  ),
+                }
+              : {}),
+            ...(confirmedCompany &&
+            ["WISHLIST", "PREPARING"].includes(current.status)
+              ? {
+                  status: "APPLIED",
+                  events: {
+                    create: {
+                      type: "APPLIED",
+                      note: "User confirmed submission on the employer site through the extension.",
+                    },
+                  },
+                }
+              : {}),
           },
         });
-        return { id: existing.id };
+        return { id: existing.id, canonicalJobId: existing.canonicalJobId };
       }
       const created = await tx.trackedApplication.create({
         data: {
           userId,
           canonicalJobId: knownJob?.id,
-          company: knownJob?.company ?? context.tenant,
+          company: knownJob?.company ?? confirmedCompany ?? context.tenant,
           roleTitle: knownJob?.title ?? input.title,
           roleUrl: context.url,
-          status: "PREPARING",
-          assistantState: mergeCapturedQuestions(null, input),
+          status: confirmedCompany ? "APPLIED" : "PREPARING",
+          ...(!confirmedCompany
+            ? { assistantState: mergeCapturedQuestions(null, input) }
+            : {}),
           events: {
             create: {
-              type: "NOTE",
-              note: "Questions captured for review. Nothing submitted.",
+              type: confirmedCompany ? "APPLIED" : "NOTE",
+              note: confirmedCompany
+                ? "User confirmed submission on the employer site through the extension."
+                : "Questions captured for review. Nothing submitted.",
             },
           },
         },
       });
-      return { id: created.id };
+      return { id: created.id, canonicalJobId: created.canonicalJobId };
     });
   try {
     return await capture();

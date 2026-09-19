@@ -3,7 +3,16 @@ import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 
 const supportedOrigin = (url) => {
   try {
-    return SITE_ORIGINS.includes(`${new URL(url).origin}/*`);
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      SITE_ORIGINS.some((pattern) => {
+        const host = pattern.slice(8, -2);
+        return host.startsWith("*.")
+          ? parsed.hostname.endsWith(host.slice(1))
+          : parsed.hostname === host;
+      })
+    );
   } catch {
     return false;
   }
@@ -37,7 +46,9 @@ function syncDetection() {
         permissions.origins?.includes(origin),
       );
       const scripts = await chrome.scripting.getRegisteredContentScripts();
-      const existing = scripts.find((script) => script.id === "application-detection");
+      const existing = scripts.find(
+        (script) => script.id === "application-detection",
+      );
       if (existing && !origins.length)
         await chrome.scripting.unregisterContentScripts({
           ids: ["application-detection"],
@@ -49,11 +60,18 @@ function syncDetection() {
             matches: origins,
             js: ["adapter-runtime.js", "indicator.js"],
             runAt: "document_idle",
-            allFrames: false,
+            allFrames: true,
           },
         ]);
-      else if (origins.length && JSON.stringify([...existing.matches].sort()) !== JSON.stringify([...origins].sort()))
-        await chrome.scripting.updateContentScripts([{ id: "application-detection", matches: origins }]);
+      else if (
+        origins.length &&
+        (!existing.allFrames ||
+          JSON.stringify([...existing.matches].sort()) !==
+            JSON.stringify([...origins].sort()))
+      )
+        await chrome.scripting.updateContentScripts([
+          { id: "application-detection", matches: origins, allFrames: true },
+        ]);
       // Apply permission changes to existing tabs, not just the next navigation.
       for (const tab of await chrome.tabs.query({})) {
         await chrome.tabs
@@ -62,11 +80,13 @@ function syncDetection() {
         if (
           tab.url &&
           supportedOrigin(tab.url) &&
-          origins.includes(`${new URL(tab.url).origin}/*`)
+          (await chrome.permissions.contains({
+            origins: [`${new URL(tab.url).origin}/*`],
+          }))
         )
           await chrome.scripting
             .executeScript({
-              target: { tabId: tab.id },
+              target: { tabId: tab.id, allFrames: true },
               files: ["adapter-runtime.js", "indicator.js"],
             })
             .catch(() => {});
@@ -88,6 +108,17 @@ const encoded = (bytes) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 const random = () => encoded(crypto.getRandomValues(new Uint8Array(32)));
+async function clearAccountSession() {
+  const state = await chrome.storage.session.get(null);
+  await chrome.storage.session.remove(
+    Object.keys(state).filter(
+      (key) =>
+        key === "connection" ||
+        key === "appliedPreview" ||
+        key.startsWith("application:"),
+    ),
+  );
+}
 async function api(action, body, token) {
   const response = await fetch(`${APP_ORIGIN}/api/extension/v1/${action}`, {
     method: "POST",
@@ -101,8 +132,7 @@ async function api(action, body, token) {
     },
     body: JSON.stringify(body ?? {}),
   });
-  if (response.status === 401)
-    await chrome.storage.session.remove("connection");
+  if (response.status === 401) await clearAccountSession();
   const result = await response.json();
   if (!response.ok) {
     const error = new Error(result.error || "Request failed. Try again.");
@@ -142,11 +172,12 @@ async function connect() {
       code: url.searchParams.get("code"),
       verifier: pending.verifier,
     });
+    await clearAccountSession();
     await chrome.storage.session.set({ connection });
     return {
       connected: true,
       email: connection.email,
-      message: "Connected. Open a Greenhouse, Lever or Ashby application form.",
+      message: "Connected. Open an employer application form.",
     };
   } finally {
     await chrome.storage.session.remove("authorization");
@@ -154,7 +185,7 @@ async function connect() {
 }
 
 let working = false;
-async function handle(type, sender) {
+async function handle(type, sender, message = {}) {
   // Session storage is never exposed to content scripts or synced across devices.
   await chrome.storage.session.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
@@ -177,16 +208,30 @@ async function handle(type, sender) {
   }
   if (type === "status") {
     await registration;
-    const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-    const current = tab?.id && applicationContext(tab.url)
-      ? await inspect({ tabId: tab.id }).catch(() => null)
-      : null;
+    const tab = (
+      await chrome.tabs.query({ active: true, currentWindow: true })
+    )[0];
+    const current =
+      tab?.id && applicationContext(tab.url, true)
+        ? await inspect({ tabId: tab.id }).catch(() => null)
+        : null;
+    if (current)
+      await chrome.storage.session.set({
+        [`application:${tab.id}`]: {
+          url: current.result.url,
+          title: current.result.title,
+          expires: Date.now() + 30 * 60_000,
+        },
+      });
     return {
       connected,
       undoAvailable: current?.result.undoAvailable === true,
+      historyUndoAvailable: current?.result.historyUndoAvailable === true,
       email: connected ? connection.email : "",
       message: connected
-        ? "Ready on Greenhouse, Lever and Ashby forms."
+        ? current
+          ? "Review the employer form after filling."
+          : "Open an application form. Some fields need manual entry."
         : "Connect to your ApplyOverflow profile.",
     };
   }
@@ -196,7 +241,11 @@ async function handle(type, sender) {
         tabId: sender.tab.id,
         documentIds: [sender.documentId],
       });
-      if (!scan.result.available && !scan.result.resumeAvailable)
+      if (
+        !scan.result.available &&
+        !scan.result.resumeAvailable &&
+        !scan.result.historyAvailable
+      )
         throw new Error("No supported empty fields found.");
     }
     const result = await connect();
@@ -212,18 +261,107 @@ async function handle(type, sender) {
   if (type === "disconnect") {
     // Keep the local token if revocation fails so disconnect can be retried.
     await api("disconnect", {}, connection.token);
-    await chrome.storage.session.remove("connection");
+    await clearAccountSession();
     return { connected: false, message: "Disconnected." };
   }
-  if (!["fill", "review", "resume", "undo"].includes(type))
+  if (type === "history")
+    return {
+      connected,
+      history: await api("history", {}, connection.token),
+      message: "Choose one entry to share with the current form.",
+    };
+  if (
+    ![
+      "fill",
+      "review",
+      "resume",
+      "undo",
+      "fill-history",
+      "undo-history",
+      "applied-preview",
+      "applied",
+    ].includes(type)
+  )
     throw new Error("Unsupported action.");
   const tab = fromPage
     ? sender.tab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!tab?.id) throw new Error("Open the employer application tab first.");
-  if (!applicationContext(fromPage ? sender.url : tab.url))
+  if (type === "applied") {
+    const { appliedPreview } =
+      await chrome.storage.session.get("appliedPreview");
+    if (
+      !appliedPreview ||
+      appliedPreview.token !== message.token ||
+      appliedPreview.tabId !== tab.id ||
+      appliedPreview.expires < Date.now() ||
+      tab.url !== appliedPreview.pageUrl ||
+      message.confirmed !== true
+    )
+      throw new Error(
+        "The application confirmation expired. Review the job again.",
+      );
+    const result = await api(
+      "applied",
+      {
+        url: appliedPreview.url,
+        title: message.title,
+        company: message.company,
+        confirmed: true,
+      },
+      connection.token,
+    );
+    await chrome.storage.session.remove("appliedPreview");
+    await chrome.tabs.create({
+      url: `${APP_ORIGIN}/applications/${encodeURIComponent(result.id)}`,
+    });
+    return {
+      connected,
+      message:
+        "Application recorded. No employer form was submitted by the extension.",
+    };
+  }
+  if (type === "applied-preview") {
+    const current = applicationContext(tab.url, true)
+      ? await inspect({ tabId: tab.id }).catch(() => null)
+      : null;
+    const cached = (await chrome.storage.session.get(`application:${tab.id}`))[
+      `application:${tab.id}`
+    ];
+    const candidate =
+      current?.result ??
+      (cached?.expires > Date.now() &&
+      new URL(cached.url).origin === new URL(tab.url).origin
+        ? cached
+        : null);
+    if (!candidate)
+      throw new Error(
+        "Open the job application form first. You can also add an application in ApplyOverflow.",
+      );
+    const context = applicationContext(candidate.url, true);
+    if (!context)
+      throw new Error(
+        "This job link cannot be recorded safely. Add it in ApplyOverflow.",
+      );
+    const preview = {
+      url: context.url,
+      title: candidate.title,
+      company: context.tenant,
+      token: random(),
+      tabId: tab.id,
+      pageUrl: tab.url,
+      expires: Date.now() + 120_000,
+    };
+    await chrome.storage.session.set({ appliedPreview: preview });
+    return {
+      connected,
+      preview,
+      message: "Confirm only after the employer has accepted your submission.",
+    };
+  }
+  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage))
     throw new Error(
-      "Open a supported Greenhouse, Lever or Ashby application form. Other sites need manual entry.",
+      "Open a supported application form. For an embedded form, use its autofill hint; enable site access and reload if the hint is missing.",
     );
   const inspection = await inspect(
     fromPage
@@ -233,6 +371,31 @@ async function handle(type, sender) {
   );
   const scan = inspection.result;
   if (scan.error) throw new Error(scan.error);
+  await chrome.storage.session.set({
+    [`application:${tab.id}`]: {
+      url: scan.url,
+      title: scan.title,
+      expires: Date.now() + 30 * 60_000,
+    },
+  });
+  if (type === "fill-history" || type === "undo-history") {
+    const payload =
+      type === "fill-history"
+        ? await api("history-entry", message.selection, connection.token)
+        : {};
+    const { result } = await inspect(
+      { tabId: tab.id, documentIds: [inspection.documentId] },
+      [type, payload, scan.url],
+    );
+    return {
+      connected,
+      historyUndoAvailable: result.historyUndoAvailable === true,
+      message:
+        type === "fill-history"
+          ? `${result.filled} history fields filled · ${result.skipped} need review. Check dates and current-role settings.`
+          : `${result.undone} history fields cleared · ${result.kept} kept.`,
+    };
+  }
   if (type === "undo") {
     const { result } = await inspect(
       { tabId: tab.id, documentIds: [inspection.documentId] },
@@ -340,7 +503,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const popup = sender.url === chrome.runtime.getURL("popup.html");
   const page =
     sender.tab?.id &&
-    sender.frameId === 0 &&
+    Number.isInteger(sender.frameId) &&
+    sender.frameId >= 0 &&
     sender.documentId &&
     supportedOrigin(sender.url);
   if (
@@ -372,7 +536,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           error:
             "Site access was removed. Open the Chrome extension to enable it again.",
         };
-      return handle(message?.type, sender);
+      return handle(message?.type, sender, message);
     })
     .then(respond)
     .catch((error) =>
@@ -386,3 +550,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     });
   return true;
 });
+chrome.tabs.onRemoved.addListener(
+  (tabId) => void chrome.storage.session.remove(`application:${tabId}`),
+);

@@ -51,10 +51,11 @@ export default async function ExtensionConnectPage({
         </p>
       </header>
       <ul className="list-disc space-y-3 pl-5 text-sm leading-6">
-        <li>Share your confirmed name, email, phone, and profile links.</li>
+        <li>Share your confirmed name, address, email, phone, and profile links when you fill contact details.</li>
+        <li>Share one selected work or education entry when you choose Fill selected entry.</li>
         <li>
           Save job links and question labels to your application workspace when
-          you choose Review.
+          you choose Review. Record an application as applied only after your explicit confirmation.
         </li>
         <li>
           No access to passwords or application submission. Sharing a resume
@@ -66,6 +67,9 @@ export default async function ExtensionConnectPage({
         Disconnect at any time in Settings.
       </p>
       <ExtensionConsent request={input.data} />
+      <Link className="block text-sm text-primary underline" href="/extension/privacy" target="_blank" rel="noreferrer">
+        Extension data use
+      </Link>
       <Link className="text-sm text-muted-foreground underline" href="/jobs">
         Cancel
       </Link>

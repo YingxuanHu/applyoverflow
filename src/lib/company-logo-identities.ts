@@ -1,6 +1,12 @@
 // Audited identities, not name-to-domain guesses. A source URL must match too.
-// Evidence and review date: docs/audits/2026-09-14-company-logo-coverage.md.
+// Evidence: docs/audits/2026-09-14-company-logo-coverage.md and
+// docs/audits/2026-09-19-assistant-embedded-forms.md.
 export const COMPANY_LOGO_IDENTITIES = [
+  {
+    names: ["Mahindra Group"],
+    domain: "mahindra.com",
+    sources: ["jobs.mahindracareers.com/"],
+  },
   {
     names: ["The Florida Panthers", "Florida Panthers"],
     domain: "floridapanthers.com",

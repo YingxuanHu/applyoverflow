@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { zipSync } from "fflate";
 import { createInspector } from "../extensions/chrome/adapter.mjs";
+import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import {
   SITE_ORIGINS,
@@ -12,13 +13,16 @@ const release = JSON.parse(
 );
 
 const local = process.argv.find((arg) => arg.startsWith("--local="))?.slice(8);
+const store = process.argv.includes("--store");
+if (store && (local || process.argv.includes("--publish")))
+  throw new Error("Store builds cannot use localhost or replace the preview download.");
 const origin = local ? new URL(local).origin : "https://applyoverflow.com";
 if (local && (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || local !== origin))
   throw new Error(
     "Local preview requires an exact http://127.0.0.1:PORT origin.",
   );
 const destination = resolve(
-  `output/extension/${local ? "local" : "production"}`,
+  `output/extension/${store ? "store" : local ? "local" : "production"}`,
 );
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
@@ -37,7 +41,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/adapter-runtime.js`,
-  `globalThis.__applyOverflowInspect ??= (${createInspector.toString()})(${applicationContext.toString()});\n`,
+  `globalThis.__applyOverflowInspect ??= (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})());\n`,
 );
 await writeFile(
   `${destination}/indicator.js`,
@@ -48,9 +52,9 @@ await writeFile(
   JSON.stringify(
     {
       manifest_version: 3,
-      name: `ApplyOverflow Assistant${local ? " (local preview)" : " (preview)"}`,
+      name: `ApplyOverflow Assistant${store ? "" : local ? " (local preview)" : " (preview)"}`,
       version: release.version,
-      ...(!local ? { key: release.publicKey } : {}),
+      ...(!local && !store ? { key: release.publicKey } : {}),
       minimum_chrome_version: "120",
       description:
         "Fill confirmed contact details and review application questions. Never submits applications.",
@@ -80,5 +84,5 @@ if (process.argv.includes("--publish")) {
   await writeFile("public/downloads/applyoverflow-assistant.zip", archive);
 }
 console.log(
-  `Unpacked preview: ${destination}\nZIP: ${archivePath} (${archive.length} bytes)\n${local ? "Enable its Chrome extension ID" : `Preview ID: ${release.previewId}; enable this ID`} in APPLICATION_EXTENSION_IDS before connecting.`,
+  `Package: ${destination}\nZIP: ${archivePath} (${archive.length} bytes)\n${store ? "After uploading the draft, verify the Store-assigned ID and enable only that ID" : local ? "Enable its Chrome extension ID" : `Preview ID: ${release.previewId}; enable this ID`} in APPLICATION_EXTENSION_IDS before connecting.`,
 );

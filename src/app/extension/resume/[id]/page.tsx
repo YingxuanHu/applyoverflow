@@ -33,7 +33,7 @@ export default async function ExtensionResumePage({
         </p>
       </div>
     );
-  const context = applicationContext(choice.applicationUrl)!;
+  const context = applicationContext(choice.applicationUrl, true)!;
   return (
     <div className="app-page max-w-xl space-y-6 py-10">
       <header className="space-y-2">

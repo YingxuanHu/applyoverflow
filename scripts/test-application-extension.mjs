@@ -48,6 +48,29 @@ try {
     false,
   );
   assert.equal(JSON.stringify(scan).includes("416-555-0100"), false);
+  await page.evaluate(() => {
+    document.querySelector("form").insertAdjacentHTML("beforeend", `
+      <span id="country-label">Country of residence</span><button type="button" role="combobox" aria-labelledby="country-label">Existing private answer</button>
+      <span id="pronouns-label">Pronouns</span><div role="combobox" tabindex="0" aria-labelledby="pronouns-label">Private choice</div>
+      <label for="city-picker">Preferred office</label><button type="button" id="city-picker" aria-haspopup="listbox">Toronto</button>
+      <button type="button" aria-haspopup="listbox" aria-label="Disabled question" aria-disabled="true">Disabled</button>
+      <div role="combobox" aria-label="Hidden question" hidden></div>
+      <input type="button" aria-label="Not a question" value="Go">
+      <span id="self-label">Start date</span><button type="button" role="combobox" id="self-picker" aria-labelledby="self-label self-picker"><span id="selected-date">Private start date</span></button>
+      <span id="descendant-label">Office preference</span><button type="button" role="combobox" aria-labelledby="descendant-label selected-office"><span id="selected-office">Private office</span></button>
+      <span id="ambiguous-label">Ambiguous question</span><span id="external-selection">Private external selection</span><button type="button" role="combobox" aria-labelledby="ambiguous-label external-selection">Selected</button>
+      <span id="option-label">Availability</span><span role="option" id="selected-option">Private option</span><div role="combobox" aria-labelledby="option-label selected-option"></div>
+    `);
+  });
+  const widgets = await page.evaluate(source => (0, eval)(source)(), inspectorSource);
+  assert.ok(widgets.questions.includes("Country of residence"));
+  assert.ok(widgets.questions.includes("Pronouns"));
+  assert.ok(widgets.questions.includes("Preferred office"));
+  assert.ok(widgets.questions.includes("Start date"));
+  assert.ok(widgets.questions.includes("Office preference"));
+  assert.ok(widgets.questions.includes("Availability"));
+  for (const excluded of ["Existing private answer", "Private choice", "Toronto", "Disabled question", "Hidden question", "Not a question", "Private start date", "Private office", "Ambiguous question", "Private external selection", "Private option"])
+    assert.equal(JSON.stringify(widgets).includes(excluded), false, excluded);
   const started = Date.now();
   const result = await page.evaluate(
     async ({ source, contact, url }) => {
@@ -58,6 +81,7 @@ try {
   assert.equal(result.filled, 4);
   assert.equal(result.preserved, 1);
   assert.equal(result.missing, 0);
+  assert.equal(await page.locator('[aria-labelledby="country-label"]').innerText(), "Existing private answer");
   assert.equal(
     await page.locator('[name="phone"]').inputValue(),
     "416-555-0100",
@@ -120,7 +144,7 @@ try {
   assert.match(
     (await page.evaluate((source) => (0, eval)(source)(), inspectorSource))
       .error,
-    /supported Greenhouse/,
+    /single application form/,
   );
   await page.goto(fixtureUrl);
   const mismatch = await page.evaluate(

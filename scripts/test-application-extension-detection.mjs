@@ -99,7 +99,7 @@ try {
   popup.on("pageerror", (error) => console.log("popup error", error.message));
   await popup.goto(`chrome-extension://${id}/popup.html`);
   await popup
-    .getByText("Ready on Greenhouse, Lever and Ashby forms.")
+    .getByText("Open an application form. Some fields need manual entry.")
     .waitFor();
   console.log("Requesting site access through the popup");
   await popup.getByLabel("Show autofill on supported sites").check();

@@ -17,7 +17,10 @@ import {
   captureApplicationQuestions,
   exchangeExtensionCode,
   getExtensionContact,
+  getExtensionHistory,
+  confirmExtensionApplication,
 } from "@/lib/queries/application-assistant";
+import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -32,6 +35,9 @@ export async function POST(
       ![
         "token",
         "contact",
+        "history",
+        "history-entry",
+        "applied",
         "capture",
         "disconnect",
         "resume-request",
@@ -59,6 +65,18 @@ export async function POST(
       return json({ error: "Too many requests. Try again shortly." }, 429);
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
+    if (action === "history")
+      return json(await getExtensionHistory(identity.userId));
+    if (action === "history-entry")
+      return json(await getExtensionHistory(identity.userId, body.data));
+    if (action === "applied") {
+      const result = await confirmExtensionApplication(
+        identity.userId,
+        body.data,
+      );
+      revalidateTrackerOverviewViews();
+      return json(result);
+    }
     if (action.startsWith("resume")) {
       if (
         !consumeUserRateLimit(identity.userId, "extension:resume", {

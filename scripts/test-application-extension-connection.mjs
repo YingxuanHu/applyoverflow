@@ -7,6 +7,7 @@ import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
 const origin = process.env.ASSISTANT_TEST_ORIGIN ?? "http://127.0.0.1:3004";
 const login = process.env.ASSISTANT_TEST_EMAIL ?? "admin";
 const password = process.env.ASSISTANT_TEST_PASSWORD ?? "password";
+const embedded = process.env.EXTENSION_EMBEDDED_FIXTURE === "1";
 assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/);
 const extension = resolve("output/extension/local");
 const config = await readFile(`${extension}/config.mjs`, "utf8");
@@ -42,6 +43,11 @@ context.setDefaultNavigationTimeout(90_000);
 context.setDefaultTimeout(30_000);
 let connection;
 const api = context.request;
+context.on("response", response => {
+  const url = new URL(response.url());
+  if (url.pathname.startsWith("/api/extension/v1/"))
+    console.log("Extension API", url.pathname.split("/").pop(), response.status());
+});
 try {
   await api.post(`${origin}/api/auth/sign-out`, {
     headers: { Origin: origin },
@@ -123,7 +129,7 @@ try {
   });
   await authPage.getByRole("button", { name: "Allow connection" }).click();
   await popup
-    .getByText("Connected. Open a Greenhouse, Lever or Ashby application form.")
+    .getByText("Connected. Open an employer application form.")
     .waitFor({ timeout: 60_000 });
   console.log("Connected through Chrome identity");
   connection = await popup.evaluate(
@@ -149,26 +155,40 @@ try {
   if (process.env.EXTENSION_TEST_PROFILE) {
     // Previously approved test-profile host permission; never submit a real form.
     const fixture = fixtures[0];
+    const fixtureUrl = embedded
+      ? "https://job-boards.greenhouse.io/embed/job_app?for=ao-fixture&token=123"
+      : fixture.url;
     assert.ok(await worker.evaluate(async (origin) => chrome.permissions.contains({ origins: [origin] }), `${new URL(fixture.url).origin}/*`),
       "Approve supported-site access in this disposable profile with EXTENSION_HEADED=1 first");
     await context.route(
-      "https://job-boards.greenhouse.io/ao-fixture/**",
+      embedded ? "https://job-boards.greenhouse.io/embed/job_app?**" : "https://job-boards.greenhouse.io/ao-fixture/**",
       (route) =>
         route.fulfill({
           contentType: "text/html; charset=utf-8",
           body: fixtureHtml(fixture, { resume: true }),
         }),
     );
-    const form = await context.newPage();
-    form.on("pageerror", error => console.error("Synthetic form error", error.message));
-    await form.goto(fixture.url);
-    await form.bringToFront();
+    if (embedded) await context.route("https://employer.example/application", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Embedded fixture</title><label>Parent email<input id="parent-email" type="email"></label><iframe title="Application" style="width:95vw;height:900px" src="${fixtureUrl}"></iframe>`,
+    }));
+    const formPage = await context.newPage();
+    formPage.on("pageerror", error => console.error("Synthetic form error", error.message));
+    await formPage.goto(embedded ? "https://employer.example/application" : fixtureUrl);
+    if (embedded) await formPage.frameLocator('iframe[title="Application"]').locator("#email").waitFor();
+    const form = embedded ? formPage.frame({ url: fixtureUrl }) : formPage;
+    assert.ok(form, "The expected embedded document must be loaded");
+    await formPage.bringToFront();
     await form.getByRole("button", { name: "Autofill available" }).click();
     await form.getByRole("button", { name: "Fill contact details" }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     assert.ok(confirmed.email, "Local fixture profile needs a confirmed email");
     assert.equal(await form.locator("#email").inputValue(), confirmed.email);
     assert.equal(await form.locator('[name="consent"]').isChecked(), false);
+    if (embedded) {
+      assert.equal(await formPage.locator("#parent-email").inputValue(), "");
+      assert.equal(await formPage.locator("#applyoverflow-assistant").count(), 0);
+    }
     assert.equal(await form.evaluate(() => window.submissions), 0);
     console.log(
       "PASS: authenticated MV3 hint -> click -> real contact API -> isolated-world fill on a synthetic form",
@@ -208,7 +228,10 @@ try {
     await review.getByRole("button", { name: "Save answers", exact: true }).click();
     await review.getByRole("status").filter({ hasText: "Answers saved" }).waitFor();
     await review.close();
-    await form.bringToFront();
+    // The responsive review check resizes Chrome's shared native window. Restore
+    // it before pointer actions in the other tab's out-of-process iframe.
+    await formPage.setViewportSize({ width: 1280, height: 900 });
+    await formPage.bringToFront();
     console.log("PASS: real Undo/refill, authenticated profile reference, exact year copy, draft preservation and 320px layout");
     const openResume = async () => {
       const next = context.waitForEvent("page", { timeout: 60_000 }).then(
@@ -218,6 +241,7 @@ try {
       await form
         .getByRole("button", { name: "Choose resume", exact: true })
         .click();
+      await form.getByRole("status").filter({ hasText: "Choose and approve" }).waitFor({ timeout: 5000 });
       const result = await next;
       if (result.error) throw result.error;
       const chooser = result.page;
@@ -281,7 +305,8 @@ try {
     console.log(
       "PASS: real per-file Chrome identity consent, cancel without upload, explicit radio choice, single-use bytes API and exact resume attached; no submit/next",
     );
-    await form.close();
+    if (embedded) console.log("PASS: connection, contact fill, review and per-file resume consent target the embedded document; parent remains untouched");
+    await formPage.close();
     await popup.bringToFront();
   }
   await popup.getByRole("button", { name: "Disconnect", exact: true }).click();

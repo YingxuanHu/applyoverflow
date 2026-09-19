@@ -25,10 +25,10 @@ test("downloadable preview has a stable public Chrome identity", () => {
   ]);
 });
 test("automatic detection uses explicit ATS hosts, never arbitrary browsing access", () => {
-  assert.equal(SITE_ORIGINS.length, 7);
+  assert.equal(SITE_ORIGINS.length, 9);
   for (const origin of SITE_ORIGINS) {
-    assert.match(origin, /^https:\/\/[a-z.-]+\/\*$/);
-    assert.equal(origin.includes("*."), false);
+    assert.match(origin, /^https:\/\/(?:\*\.)?[a-z.-]+\/\*$/);
+    if (origin.includes("*.")) assert.ok(["https://*.myworkdayjobs.com/*", "https://*.icims.com/*"].includes(origin));
     assert.equal(origin.includes("localhost"), false);
   }
 });

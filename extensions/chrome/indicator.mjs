@@ -1,6 +1,6 @@
 // Serialized into a classic content script at build time; no module fetches.
 export function installIndicator() {
-  if (window !== window.top || globalThis.__applyOverflowIndicator) return;
+  if (globalThis.__applyOverflowIndicator) return;
   let host,
     root,
     view,
@@ -83,11 +83,15 @@ export function installIndicator() {
     if (!host?.isConnected) {
       host = document.createElement("div");
       host.id = "applyoverflow-assistant";
-      // Isolate appearance without covering the application or changing its layout.
-      host.style.cssText =
-        "all:initial;position:fixed;bottom:16px;right:16px;z-index:2147483646;display:block;max-width:calc(100vw - 32px)";
+      // A tall cross-origin iframe's bottom can be far below the parent viewport.
+      // Keep its entry point in normal flow, without covering employer fields.
+      const embedded = window !== window.top;
+      host.style.cssText = embedded
+        ? "all:initial;position:sticky;top:12px;z-index:2147483646;display:block;width:fit-content;max-width:calc(100% - 32px);margin:12px 16px 12px auto"
+        : "all:initial;position:fixed;bottom:16px;right:16px;z-index:2147483646;display:block;max-width:calc(100vw - 32px)";
       root = host.attachShadow({ mode: "open" });
-      document.documentElement.append(host);
+      if (embedded) document.body.prepend(host);
+      else document.documentElement.append(host);
       const style = document.createElement("style");
       style.textContent = `:host{color-scheme:light dark}*{box-sizing:border-box}section{font:13px/1.5 system-ui,sans-serif;letter-spacing:0;color:#202124;background:#fff;border:1px solid #dce0e6;border-radius:8px;box-shadow:0 3px 14px #0002;max-width:300px}header{display:flex;align-items:center;gap:8px;padding:6px}strong{font-size:13px;margin:0 8px}button{font:inherit;border:0;border-radius:5px;min-height:36px;padding:7px 10px;cursor:pointer;color:#fff;background:#087cf0}button:focus-visible{outline:2px solid #087cf0;outline-offset:2px}button:disabled{opacity:.55;cursor:wait}.secondary,.close{color:inherit;background:transparent}.close{margin-left:auto;font-size:18px;min-width:36px}.content{padding:0 12px 12px}.content button{width:100%;margin-top:6px}.content p{margin:6px 0;color:#656872;overflow-wrap:anywhere}.launcher{background:transparent;color:inherit;text-align:left}.dot{display:inline-block;background:#087cf0;width:8px;height:8px;border-radius:50%;margin-right:8px}@media(prefers-color-scheme:dark){section{background:#232325;color:#f5f5f7;border-color:#4b4b51}.content p{color:#b7bac2}}`;
       root.append(style);
@@ -223,7 +227,7 @@ export function installIndicator() {
     }
   }
   function schedule() {
-    if (stopped || timer || document.hidden) return;
+    if (stopped || !enabled || timer || document.hidden) return;
     timer = setTimeout(
       () => {
         timer = undefined;
@@ -244,7 +248,10 @@ export function installIndicator() {
     try {
       const result = await send("availability");
       if (!result?.enabled) {
-        stop();
+        // Retain the permission-change listener in already injected frames.
+        // There is no parent-site permission with which to reinject into them.
+        enabled = false;
+        remove();
         return;
       }
       enabled = true;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   allowedExtension,
   applicationContext,
+  sameApplication,
   captureSchema,
   extensionCallback,
   extensionRequestSchema,
@@ -11,6 +12,8 @@ import {
   parseAnswerLibrary,
   questionKind,
   reviewSaveSchema,
+  appliedConfirmationSchema,
+  historySelectionSchema,
 } from "../src/lib/application-assistant";
 
 test("extension allowlist fails closed and validates IDs", () => {
@@ -26,6 +29,112 @@ test("extension allowlist fails closed and validates IDs", () => {
       challenge: "a".repeat(43),
       state: "a".repeat(32),
       redirect: "https://evil.example",
+    }).success,
+    false,
+  );
+});
+
+test("Workday and iCIMS identities follow steps without crossing employers", () => {
+  const job =
+    "https://example.wd1.myworkdayjobs.com/en-US/External/job/Toronto/Analyst_R123";
+  assert.equal(
+    applicationContext(job)?.url,
+    applicationContext(`${job}/apply/myExperience`)?.url,
+  );
+  assert.equal(applicationContext(job)?.provider, "workday");
+  const noLocation = job.replace("/Toronto", "");
+  assert.equal(
+    sameApplication(
+      job,
+      job.replace("Toronto", "Toronto%2C-Ontario") + "/apply/myInformation",
+    ),
+    true,
+  );
+  assert.equal(sameApplication(job, noLocation + "/apply"), true);
+  assert.equal(
+    sameApplication(job, job.replace("Analyst_R123", "Analyst_R456")),
+    false,
+  );
+  assert.equal(
+    sameApplication(job, job.replace("example.", "another.")),
+    false,
+  );
+  for (const suffix of [
+    "/apply",
+    "/apply/myInformation",
+    "/apply/myExperience",
+  ]) {
+    assert.equal(
+      applicationContext(`${noLocation}${suffix}`)?.url,
+      applicationContext(noLocation)?.url,
+    );
+    assert.equal(
+      applicationContext(`${job}${suffix}`)?.url,
+      applicationContext(job)?.url,
+    );
+  }
+  assert.notEqual(
+    applicationContext(job)?.companyKey,
+    applicationContext(job.replace("example.", "other."))?.companyKey,
+  );
+  assert.equal(
+    applicationContext(
+      "https://careers-example.icims.com/jobs/123/analyst/job?mode=apply",
+    )?.url,
+    "https://careers-example.icims.com/jobs/123/job",
+  );
+  for (const url of [
+    "https://example.wd1.myworkdayjobs.com/en-US/External/login",
+    "https://careers-example.icims.com/connect",
+    "https://example.wd1.myworkdayjobs.com.evil.test/en-US/External/job/Toronto/Analyst_R123",
+  ])
+    assert.equal(applicationContext(url), null);
+});
+test("generic application URLs are explicit, public HTTPS and job scoped", () => {
+  const url = "https://careers.example.com/apply?id=123&utm_source=board";
+  assert.equal(applicationContext(url), null);
+  assert.equal(
+    applicationContext(url, true)?.url,
+    "https://careers.example.com/apply?id=123",
+  );
+  assert.notEqual(
+    applicationContext(url, true)?.companyKey,
+    applicationContext(url.replace("123", "456"), true)?.companyKey,
+  );
+  for (const bad of [
+    "http://careers.example.com/apply",
+    "https://127.0.0.1/apply",
+    "https://localhost/apply",
+    "https://a.local/apply",
+    "https://careers.example.com/login",
+    "https://careers.example.com/apply?token=secret",
+    "https://careers.example.com/apply?email=a",
+    "https://careers.example.com/apply#token",
+    "https://user:password@careers.example.com/apply",
+  ])
+    assert.equal(applicationContext(bad, true), null, bad);
+  const payload = {
+    url,
+    title: "Analyst",
+    company: "Example",
+    confirmed: true,
+  };
+  assert.equal(appliedConfirmationSchema.safeParse(payload).success, true);
+  assert.equal(
+    appliedConfirmationSchema.safeParse({ ...payload, confirmed: false })
+      .success,
+    false,
+  );
+  assert.equal(
+    appliedConfirmationSchema.safeParse({ ...payload, userId: "other" })
+      .success,
+    false,
+  );
+  assert.equal(
+    historySelectionSchema.safeParse({
+      kind: "experience",
+      index: 50,
+      revision: new Date().toISOString(),
     }).success,
     false,
   );
@@ -77,6 +186,51 @@ test("capture merges multi-step questions without overwriting answers", () => {
       url: "https://boards.greenhouse.io/acme/jobs/456",
     }).questions[0].answer,
     "",
+  );
+});
+
+test("Greenhouse embeds share identity with the direct job, never with a different tenant or region", () => {
+  for (const [host, region] of [
+    ["boards.greenhouse.io", "us"],
+    ["job-boards.eu.greenhouse.io", "eu"],
+  ]) {
+    const embed = `https://${host}/embed/job_app?for=acme&token=123&source=example`;
+    const direct = `https://job-boards.${region === "eu" ? "eu." : ""}greenhouse.io/acme/jobs/123`;
+    assert.deepEqual(applicationContext(embed), applicationContext(direct));
+    const initial = mergeCapturedQuestions(null, {
+      url: direct,
+      title: "Engineer",
+      questions: ["Why this role?"],
+    });
+    initial.questions[0].answer = "Reviewed";
+    assert.equal(
+      mergeCapturedQuestions(initial, {
+        url: embed,
+        title: "Engineer",
+        questions: [],
+      }).questions[0].answer,
+      "Reviewed",
+    );
+  }
+  for (const query of [
+    "for=acme",
+    "token=123",
+    "for=acme&token=123&token=456",
+    "for=acme&for=other&token=123",
+    "for=https%3A%2F%2Fevil.test&token=123",
+    "for=acme&token=-1",
+    "for=&token=123",
+    "for=acme&token=123abc",
+  ])
+    assert.equal(
+      applicationContext(`https://boards.greenhouse.io/embed/job_app?${query}`),
+      null,
+    );
+  assert.equal(
+    applicationContext(
+      "https://greenhouse.io.evil.test/embed/job_app?for=acme&token=123",
+    ),
+    null,
   );
 });
 

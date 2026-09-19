@@ -6,7 +6,7 @@ import { applicationContext } from "../extensions/chrome/sites.mjs";
 // Read-only smoke check. Never press Fill, Review, or any employer controls.
 const urls = process.argv.slice(2);
 assert.ok(
-  urls.length && urls.every(applicationContext),
+  urls.length && urls.every(url => applicationContext(url)),
   "Supply supported direct application URLs",
 );
 assert.ok(

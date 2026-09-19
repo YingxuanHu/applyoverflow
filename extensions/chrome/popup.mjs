@@ -3,7 +3,9 @@ import { SITE_ORIGINS } from "./sites.mjs";
 const status = document.getElementById("status");
 document.getElementById("profile").href = `${APP_ORIGIN}/profile`;
 document.getElementById("settings").href = `${APP_ORIGIN}/settings/extension`;
-async function run(type) {
+document.getElementById("privacy").href = `${APP_ORIGIN}/extension/privacy`;
+let history, preview;
+async function run(type, data = {}) {
   for (const button of document.querySelectorAll("button"))
     button.disabled = true;
   if (type !== "status")
@@ -14,18 +16,54 @@ async function run(type) {
           ? "Choose and approve a resume in ApplyOverflow..."
           : "Working...";
   try {
-    const result = await chrome.runtime.sendMessage({ type });
+    const result = await chrome.runtime.sendMessage({ type, ...data });
     if (!result)
       throw new Error(
         "Open ApplyOverflow from the Chrome toolbar and try again.",
       );
     if (result.reconnect) {
+      history = preview = undefined;
+      document.getElementById("history-entry").replaceChildren();
+      document.getElementById("history-picker").hidden = true;
+      document.getElementById("applied-confirmation").hidden = true;
       document.getElementById("connect").hidden = false;
       document.getElementById("actions").hidden = true;
       document.getElementById("disconnect").hidden = true;
       document.getElementById("account").hidden = true;
     }
     if (result.error) throw new Error(result.error);
+    if (result.history) {
+      history = result.history;
+      const select = document.getElementById("history-entry");
+      select.replaceChildren(
+        ...history.entries.map(
+          (entry, index) => new Option(entry.label, String(index)),
+        ),
+      );
+      document.getElementById("history-picker").hidden =
+        !history.entries.length;
+      if (!history.entries.length)
+        result.message = "Add work or education entries to your profile first.";
+    }
+    if (result.preview) {
+      preview = result.preview;
+      document.getElementById("applied-company").value = preview.company;
+      document.getElementById("applied-title").value = preview.title;
+      document.getElementById("applied-domain").textContent = new URL(
+        preview.url,
+      ).hostname;
+      document.getElementById("applied-check").checked = false;
+      document.getElementById("applied-confirmation").hidden = false;
+    }
+    if (type === "applied" || !result.connected) {
+      preview = undefined;
+      document.getElementById("applied-confirmation").hidden = true;
+    }
+    if (!result.connected) {
+      history = undefined;
+      document.getElementById("history-entry").replaceChildren();
+      document.getElementById("history-picker").hidden = true;
+    }
     if (result.email !== undefined) {
       document.getElementById("account").textContent = result.email;
       document.getElementById("account").hidden = !result.email;
@@ -36,6 +74,9 @@ async function run(type) {
     document.getElementById("disconnect").hidden = !result.connected;
     if (result.undoAvailable !== undefined)
       document.getElementById("undo").hidden = !result.undoAvailable;
+    if (result.historyUndoAvailable !== undefined)
+      document.getElementById("undo-history").hidden =
+        !result.historyUndoAvailable;
     status.textContent = result.message;
   } catch (error) {
     status.textContent = error.message || "Could not complete the action.";
@@ -44,9 +85,47 @@ async function run(type) {
       button.disabled = false;
   }
 }
-for (const type of ["connect", "fill", "review", "resume", "disconnect", "undo"])
+for (const type of [
+  "connect",
+  "fill",
+  "review",
+  "resume",
+  "disconnect",
+  "undo",
+  "history",
+  "undo-history",
+  "applied-preview",
+])
   document.getElementById(type).addEventListener("click", () => void run(type));
 void run("status");
+document.getElementById("fill-history").addEventListener("click", () => {
+  const entry =
+    history?.entries[Number(document.getElementById("history-entry").value)];
+  if (entry)
+    void run("fill-history", {
+      selection: {
+        kind: entry.kind,
+        index: entry.index,
+        revision: history.revision,
+      },
+    });
+});
+document
+  .getElementById("applied-confirmation")
+  .addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (preview && document.getElementById("applied-check").checked)
+      void run("applied", {
+        token: preview.token,
+        title: document.getElementById("applied-title").value,
+        company: document.getElementById("applied-company").value,
+        confirmed: true,
+      });
+  });
+document.getElementById("cancel-applied").addEventListener("click", () => {
+  preview = undefined;
+  document.getElementById("applied-confirmation").hidden = true;
+});
 const detection = document.getElementById("detection");
 async function updateAccess() {
   const permissions = await chrome.permissions.getAll();

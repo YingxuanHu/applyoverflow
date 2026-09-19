@@ -145,6 +145,16 @@ test("logo identities require exact company and source evidence, not an ATS slug
   );
 });
 
+test("Mahindra's verified careers host resolves without branding unrelated subsidiaries", () => {
+  assert.equal(resolveCompanyLogoDomain({
+    company: "Mahindra Group",
+    companyRecord: { name: "Mahindra Group", domain: "mahindra.com", careersUrl: "https://jobs.mahindracareers.com/" },
+  }), "mahindra.com");
+  for (const company of ["Tech Mahindra", "Kotak Mahindra Bank", "Unknown"])
+    assert.equal(resolveCompanyLogoDomain({ company, sourceUrls: ["https://jobs.mahindracareers.com/job/123"] }), null);
+  assert.equal(resolveCompanyLogoDomain({ company: "Mahindra Group", sourceUrls: ["https://jobs.mahindracareers.com.evil.test/job/123"] }), null);
+});
+
 test("company sites resolve careers subdomains but mismatched organizations remain unbranded", () => {
   assert.equal(
     resolveCompanyLogoDomain({

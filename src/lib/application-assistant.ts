@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { AnswerKind } from "@/lib/application-answer-policy";
-import { applicationContext } from "../../extensions/chrome/sites.mjs";
-export { applicationContext } from "../../extensions/chrome/sites.mjs";
+import {
+  applicationContext,
+  sameApplication,
+} from "../../extensions/chrome/sites.mjs";
+export {
+  applicationContext,
+  sameApplication,
+} from "../../extensions/chrome/sites.mjs";
 
 export const ANSWER_LIBRARY_KEY = "application-answer-library-v1";
 export const extensionRequestSchema = z
@@ -37,7 +43,7 @@ export function extensionCallback(clientId: string) {
   return `https://${clientId}.chromiumapp.org/callback`;
 }
 
-// Only direct, tenant-scoped Greenhouse job URLs, not arbitrary redirect targets.
+// Tenant-scoped Greenhouse job URLs, including unambiguous hosted embed URLs.
 export function greenhouseContext(raw: string) {
   const context = applicationContext(raw);
   if (context?.provider !== "greenhouse") return null;
@@ -79,9 +85,25 @@ export const captureSchema = z
     url: z
       .string()
       .max(2048)
-      .refine((value) => Boolean(applicationContext(value))),
+      .refine((value) => Boolean(applicationContext(value, true))),
     title: z.string().trim().min(1).max(180),
     questions: z.array(z.string().trim().min(1).max(500)).max(40),
+  })
+  .strict();
+
+export const appliedConfirmationSchema = captureSchema
+  .omit({ questions: true })
+  .extend({
+    company: z.string().trim().min(1).max(200),
+    confirmed: z.literal(true),
+  })
+  .strict();
+
+export const historySelectionSchema = z
+  .object({
+    kind: z.enum(["experience", "education"]),
+    index: z.number().int().min(0).max(49),
+    revision: z.string().datetime(),
   })
   .strict();
 
@@ -149,10 +171,12 @@ export function mergeCapturedQuestions(
   previous: AssistantState | null,
   input: z.infer<typeof captureSchema>,
 ): AssistantState {
-  const context = applicationContext(input.url);
+  const context = applicationContext(input.url, true);
   if (!context) throw new Error("Unsupported application URL");
   const existing =
-    previous?.sourceUrl === context.url ? previous.questions : [];
+    previous && sameApplication(previous.sourceUrl, context.url)
+      ? previous.questions
+      : [];
   const incoming = [...new Set(input.questions.map(questionKey))];
   // Preserve reviewed answers when another application step is captured.
   const questions = [...existing];

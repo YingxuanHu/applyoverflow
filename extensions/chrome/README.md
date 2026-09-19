@@ -1,12 +1,26 @@
 # Application Assistant Preview
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-Version 0.3 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages.
+Version 0.5 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
+plus recognized forms on those hosts embedded in an employer page. Greenhouse's
+`/embed/job_app` requires both a company identifier and a numeric job token.
 The popup has Connect, Fill contact details, Choose resume, and Review questions. An optional
 small on-page hint appears only when unambiguous empty contact or resume fields are found;
 there is no injected sidebar. New forms and SPA navigation are detected locally.
 Undo contact fill appears after filling. Application assistant in each tracked
 application also opens a copy-ready contact, work and education reference.
+
+Workday and iCIMS have conservative beta adapters for known, labelled contact
+fields and existing work/education groups. Generic HTTPS application forms can
+be inspected through the toolbar, without coming from ApplyOverflow or granting
+all-sites access. Generic contact fields require exact autocomplete semantics
+and matching labels; unsupported fields stay manual. This is not a claim of
+compatibility with every tenant or custom widget.
+
+History & tracking expands to two secondary actions: choose one saved work or
+education entry to fill an existing empty row; or use I applied to explicitly
+confirm a submission and record it in your private tracker. Nothing is submitted
+to an employer automatically. Neither feature depends on the public job board.
 
 ## Local Setup
 
@@ -32,10 +46,17 @@ use a local build with real production credentials. Backend origin selection is
 build-time only. Both builds produce ZIPs next to their unpacked folders.
 
 `npm run extension:build -- --publish` also writes the production ZIP to
-`public/downloads/applyoverflow-assistant.zip` (about 99 KiB, generated/ignored).
+`public/downloads/applyoverflow-assistant.zip` (about 108 KiB, generated/ignored).
 Normal app build/dev hooks generate it, and Settings > Application assistant
 includes the download and expandable unpacked-install instructions. The ZIP
 contains only runtime files, not source maps, secrets, or local configuration.
+
+`npm run extension:build -- --store` builds a separate Store-upload candidate at
+`output/extension/store.zip`. It omits the unpacked preview key and cannot use
+localhost or replace the preview download. This does not publish anything. See
+`docs/extension-web-store.md` for the listing draft, permission rationale and
+release gates. Data-use disclosure is served at `/extension/privacy` without
+sign-in and linked from consent, settings and the popup.
 
 The production preview includes a **public** manifest key for stable unpacked ID
 `jmkdjgbpikdhflpknomggmlccccgkbbp`. After reviewing the rollout, explicitly include
@@ -82,9 +103,32 @@ not a one-click consumer installation or an automatically updated store release.
   answers must be entered directly on the employer site. Remove saved answers in
   Settings > Application assistant. User data export includes review drafts and
   remembered answers; account deletion cascades to them and connections.
-- No education/employment repeater filling, generated AI answers,
-  cross-origin iframe injection, custom ATS domains, selects/comboboxes, or
-  next-step/submission automation in this preview. Unsupported pages fail closed.
+- Embedded forms require optional access to the exact supported ATS host. Use
+  the hint inside the form; the popup does not guess which iframe to fill.
+  Embedded hints start above the form so they are visible even in tall frames;
+  direct pages retain the floating bottom-corner hint.
+  Grant access and reload the employer page when enabling hints for the first
+  time. No permission to the parent employer site is requested. Each action is
+  bound to the originating frame document; replaced frames reject late fills.
+- Custom combobox/listbox question labels are available for web review, but
+  their answers are not filled. Selected text, self-referencing labels and
+  ambiguous multiple label references are excluded from capture.
+- History: select one saved entry; one empty row must be unambiguous or focused.
+  Populated rows and probable duplicates are preserved. Dates retain their exact
+  precision; native degree/month selects require one exact match. Reversible
+  ARIA history single-selects require an explicitly linked listbox, one exact
+  match and an enabled blank option for Undo. Ambiguous or irreversible custom
+  controls, multi-selects, current-role checkboxes, Add another and Next stay manual.
+  Undo history preserves user edits and expires after ten minutes. Profile
+  revision checks reject an entry selected before the profile changed.
+- Tracking: I applied requires editable company/title review and an explicit
+  confirmation. A recent application URL can be reused on a same-origin success
+  page for thirty minutes after inspection. Previews expire after two minutes;
+  disconnecting clears cached previews/URLs. No submission is inferred from
+  filling, and repeat confirmations do not duplicate or regress an application.
+- No generated answers, sensitive-choice filling, arbitrary cross-origin iframe
+  access, custom question answering, or next-step/submission automation. Custom
+  employer domains use the conservative toolbar fallback, not automatic hints.
 - The DOM adapter can confirm an immediate input value but not an ATS's eventual
   server-side acceptance. Users must review the employer form themselves.
 
@@ -112,7 +156,7 @@ synthetic employer pages, not real applications.
 Credentials live in trusted `chrome.storage.session`, never sync storage or the
 employer DOM. Only selected contact values enter the isolated script world. Fill
 is bound to the originally inspected tab/document and exact URL. Messages are
-accepted only from the extension's own popup or its top-frame supported-site
+accepted only from the extension's own popup or its supported-site frame
 content script, with host permission rechecked for each action. Content scripts
 never receive tokens or whole profile responses. Programmatic page clicks cannot
 invoke the hint's actions. Arbitrary web messages and remote executable code are
@@ -150,6 +194,21 @@ preserves fieldset context such as "Reference details: Email".
   expiry, and zero Next/Submit. The browser integration also verifies actual
   Undo/refill controls, worker-start registration recovery, profile copying,
   clipboard failure, retained question drafts and a 320px review layout.
+- `npm run extension:test:package`: production and Store ZIP integrity, fixed
+  origins, minimal permissions, distinct Store identity, and prohibited flags.
+- `EXTENSION_TEST_PROFILE=output/playwright/assistant-frames-profile npm run extension:test:frames`:
+  real MV3 cross-origin frame isolation, old-registration upgrade, trusted-click
+  enforcement, review privacy, replaced-document races, narrow layout and
+  permission removal/re-enable. Approve optional permissions once with
+  `EXTENSION_HEADED=1` in this disposable profile. Every HTTP request is mocked.
+- `npm run extension:test:expanded`: Workday/iCIMS/generic contact and selected
+  history fixtures, existing rows, precision, native selects, edited Undo,
+  ambiguous repeaters, reference fields, DOM/navigation races, mobile layout.
+- `EXTENSION_TEST_PROFILE=output/playwright/assistant-frames-profile npm run extension:test:history`:
+  actual MV3 runtime, selected-entry requests, Workday/iCIMS history/Undo,
+  same-origin success navigation, explicit confirmation, replay rejection and
+  account-cache clearing. API data is synthetic; real backend invariants are
+  covered by `tests/integration/application-assistant.ts`.
 - `DOTENV_CONFIG_PATH=.env.local NODE_PATH=./node_modules/next/dist/compiled NODE_OPTIONS=--conditions=react-server npx tsx -r dotenv/config tests/integration/extension-resume.ts`:
   temporary local users/files; ownership, PKCE, one-use race, revision, expiry,
   revocation, bounded reads and cascade cleanup.
@@ -169,6 +228,8 @@ preserves fieldset context such as "Reference details: Email".
   the real UI, pairs via Chrome identity, fills a synthetic form using the real
   contact API, exercises resume confirmation/cancellation and attachment with
   the real API, checks download/mobile layout, then revokes/signs out/deletes it.
+  Add `EXTENSION_EMBEDDED_FIXTURE=1` to run the same authenticated flow in a
+  cross-origin Greenhouse iframe, including per-file consent and exact bytes.
 - `node scripts/test-application-extension-toolbar.mjs`: interactive native-toolbar
   activeTab smoke test, without ATS host permissions. Open Extensions > ApplyOverflow
   > Fill contact details in the test browser. No real employer traffic.
@@ -183,6 +244,10 @@ For example, the resume batch was verified with
 `EXTENSION_HEADED=1 EXTENSION_TEST_PROFILE=output/playwright/assistant-resume-profile`
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
+
+Deploy the matching web/backend revision before distributing 0.5: earlier
+backends lack history/tracking endpoints and broader URL validation. Installed unpacked
+previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with
 consenting test profiles), controlled React/select/repeater fixtures,

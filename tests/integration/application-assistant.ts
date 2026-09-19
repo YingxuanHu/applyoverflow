@@ -15,6 +15,8 @@ import {
   getApplicationQuestionReview,
   getExtensionContact,
   hashSecret,
+  getExtensionHistory,
+  confirmExtensionApplication,
 } from "../../src/lib/queries/application-assistant";
 
 async function main() {
@@ -38,7 +40,9 @@ async function main() {
             familyName: "Name",
             workAuthorization: "secret",
           },
-          experiencesJson: [{ title: "Analyst", company: "Example", time: "2020 - 2022" }],
+          experiencesJson: [
+            { title: "Analyst", company: "Example", time: "2020 - 2022" },
+          ],
         },
       },
     },
@@ -87,6 +91,38 @@ async function main() {
       false,
     );
     assert.equal((await getExtensionContact(user.id)).givenName, "Test");
+    const history = await getExtensionHistory(user.id);
+    assert.ok(history.entries);
+    if (!history.entries) throw new Error("Missing entries");
+    assert.equal(history.entries.length, 1);
+    assert.equal(JSON.stringify(history).includes("secret"), false);
+    const selected = await getExtensionHistory(user.id, {
+      kind: "experience",
+      index: 0,
+      revision: history.revision,
+    });
+    assert.ok(selected.entry);
+    if (!selected.entry) throw new Error("Missing entry");
+    assert.equal(
+      selected.entry.dates,
+      undefined,
+      "legacy dates are not guessed",
+    );
+    await assert.rejects(() => getExtensionHistory(other.id));
+    await assert.rejects(() =>
+      getExtensionHistory(user.id, {
+        kind: "experience",
+        index: 0,
+        revision: "2020-01-01T00:00:00.000Z",
+      }),
+    );
+    await assert.rejects(() =>
+      getExtensionHistory(user.id, {
+        kind: "experience",
+        index: 49,
+        revision: history.revision,
+      }),
+    );
     await assert.rejects(() =>
       authenticateExtension(
         new Request("http://localhost", {
@@ -109,6 +145,79 @@ async function main() {
       where: { id },
     });
     assert.equal(record.status, "PREPARING");
+    const external = {
+      url: "https://careers.example.com/apply?job=123",
+      title: "External analyst",
+      company: "Example",
+      confirmed: true,
+    };
+    await assert.rejects(() =>
+      confirmExtensionApplication(user.id, { ...external, confirmed: false }),
+    );
+    const confirmations = await Promise.all([
+      confirmExtensionApplication(user.id, external),
+      confirmExtensionApplication(user.id, external),
+    ]);
+    assert.equal(confirmations[0].id, confirmations[1].id);
+    const tracked = await prisma.trackedApplication.findUniqueOrThrow({
+      where: { id: confirmations[0].id },
+      include: { events: true },
+    });
+    assert.equal(tracked.canonicalJobId, null);
+    assert.equal(tracked.status, "APPLIED");
+    assert.equal(
+      tracked.events.filter((event) => event.type === "APPLIED").length,
+      1,
+    );
+    await prisma.trackedApplication.update({
+      where: { id: tracked.id },
+      data: { status: "INTERVIEW" },
+    });
+    await confirmExtensionApplication(user.id, external);
+    assert.equal(
+      (
+        await prisma.trackedApplication.findUniqueOrThrow({
+          where: { id: tracked.id },
+        })
+      ).status,
+      "INTERVIEW",
+      "repeated confirmation must not regress progress",
+    );
+    const separateOwner = await confirmExtensionApplication(other.id, external);
+    assert.notEqual(separateOwner.id, tracked.id);
+    const preparing = await captureApplicationQuestions(user.id, {
+      url: external.url.replace("123", "456"),
+      title: "Another role",
+      questions: ["Why here?"],
+    });
+    await confirmExtensionApplication(user.id, {
+      ...external,
+      url: external.url.replace("123", "456"),
+    });
+    const confirmed = await prisma.trackedApplication.findUniqueOrThrow({
+      where: { id: preparing.id },
+    });
+    assert.equal(confirmed.status, "APPLIED");
+    assert.equal(confirmed.company, external.company);
+    assert.equal(confirmed.roleTitle, external.title);
+    assert.ok(confirmed.assistantState, "confirmation preserves review drafts");
+    const workday = {
+      url: "https://fixture.wd1.myworkdayjobs.com/en-US/External/job/Toronto/Analyst_R123",
+      title: "Analyst",
+      questions: ["Why this role?"],
+    };
+    const firstWorkday = await captureApplicationQuestions(user.id, workday);
+    const appliedWorkday = await confirmExtensionApplication(user.id, {
+      ...external,
+      url:
+        workday.url.replace("Toronto", "Toronto%2C-Ontario") +
+        "/apply/myExperience",
+    });
+    assert.equal(
+      appliedWorkday.id,
+      firstWorkday.id,
+      "Workday location rewrites do not duplicate applications",
+    );
     assert.equal(await getApplicationQuestionReview(other.id, id), null);
     const state = parseAssistantState(record.assistantState)!;
     await assert.rejects(() =>

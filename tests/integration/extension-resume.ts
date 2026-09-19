@@ -190,6 +190,21 @@ async function main() {
     );
     await assert.rejects(() => exchange(first.id, callback));
 
+    const embeddedUrl = "https://job-boards.greenhouse.io/embed/job_app?for=fixture&token=123";
+    const embedded = await requestExtensionResume(identity, {
+      url: embeddedUrl,
+      challenge: hashSecret(verifier),
+      state,
+    });
+    const embeddedCallback = await approve(embedded.id);
+    // Sharing is bound to the exact selected page, even if a direct URL would
+    // resolve to the same company/job identity for question capture.
+    await assert.rejects(() => exchange(embedded.id, embeddedCallback));
+    await assert.rejects(() => exchange(embedded.id, embeddedCallback, {
+      url: embeddedUrl.replace("for=fixture", "for=other"),
+    }));
+    assert.equal((await exchange(embedded.id, embeddedCallback, { url: embeddedUrl })).base64, pdf.toString("base64"));
+
     const changed = await request();
     const changedCallback = await approve(changed.id);
     await prisma.document.update({

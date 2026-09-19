@@ -23,6 +23,25 @@
         <button id="review" type="button" class="secondary">
           Review questions
         </button>
+        <details id="more-actions">
+          <summary>History &amp; tracking</summary>
+          <button id="history" type="button" class="secondary">Work &amp; education</button>
+          <div id="history-picker" hidden>
+            <label for="history-entry">Profile entry</label>
+            <select id="history-entry"></select>
+            <button id="fill-history" type="button" class="secondary">Fill selected entry</button>
+          </div>
+          <button id="undo-history" type="button" class="secondary" hidden>Undo history fill</button>
+          <button id="applied-preview" type="button" class="secondary">I applied</button>
+          <form id="applied-confirmation" hidden>
+            <label for="applied-company">Company</label><input id="applied-company" maxlength="200" required>
+            <label for="applied-title">Job title</label><input id="applied-title" maxlength="180" required>
+            <p id="applied-domain"></p>
+            <label class="site-access"><input id="applied-check" type="checkbox" required>I submitted this application</label>
+            <button type="submit" class="secondary">Add to applications</button>
+            <button id="cancel-applied" type="button" class="secondary">Cancel</button>
+          </form>
+        </details>
       </div>
       <button id="undo" type="button" class="secondary" hidden>Undo contact fill</button>
       <p id="status" role="status" aria-live="polite">Checking connection...</p>
@@ -30,11 +49,12 @@
         ><input id="detection" type="checkbox" />Show autofill on supported
         sites</label
       >
-      <p class="sites">Greenhouse, Lever and Ashby</p>
+      <p class="sites">Greenhouse, Lever, Ashby, Workday &amp; iCIMS. Other application sites: use the toolbar.</p>
     </main>
     <footer>
       <a id="profile" target="_blank" rel="noreferrer">Profile</a
       ><a id="settings" target="_blank" rel="noreferrer">Settings</a
+      ><a id="privacy" target="_blank" rel="noreferrer">Data use</a
       ><button id="disconnect" type="button" hidden>Disconnect</button>
     </footer>
     <script type="module" src="popup.mjs"></script>

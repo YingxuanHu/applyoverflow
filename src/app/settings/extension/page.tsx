@@ -69,17 +69,24 @@ export default async function ExtensionSettingsPage() {
               profile.
             </li>
             <li>
-              Turn on automatic hints to allow access to Greenhouse, Lever and
-              Ashby. You can leave this off and use the toolbar instead.
+              Turn on automatic hints to allow access to Greenhouse, Lever, Ashby,
+              Workday and iCIMS. You can leave this off and use the toolbar instead.
             </li>
           </ol>
           <p className="mt-3 text-muted-foreground">
             This is not a Chrome Web Store release. Contact fields and selected
             PDF/DOCX resumes up to 5 MB are supported. Each resume needs a
-            separate confirmation. Custom widgets, embedded forms and other
-            sites remain manual. Applications are never submitted automatically.
+            separate confirmation. Supported embedded forms use their own hint
+            after site access is enabled; reload the employer page if needed.
+            The toolbar can also fill clearly labelled contact fields on other
+            application sites and one selected work or education entry. Custom
+            widgets and ambiguous fields remain manual. Applications
+            are never submitted automatically.
           </p>
         </details>
+        <Link href="/extension/privacy" className="inline-block text-sm text-primary underline underline-offset-4">
+          Extension data use
+        </Link>
       </section>
       <section className="divide-y">
         <h2 className="py-4 text-base font-semibold">Connected extensions</h2>
