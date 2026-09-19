@@ -9,6 +9,8 @@
 // existing validation + promotion-planner pipeline (ownership scoring,
 // duplicate/conflict checks) — never promoted directly from a probe.
 
+import { fetchWithSourceHostGate, SourceHostRateLimitError } from "@/lib/ingestion/host-rate-limit";
+
 export type ProbeableAtsPlatform =
   | "greenhouse"
   | "lever"
@@ -444,7 +446,7 @@ async function probeOne(
   } catch (error) {
     return {
       ...base,
-      status: "error",
+      status: error instanceof SourceHostRateLimitError ? "blocked" : "error",
       jobCount: null,
       companyNameHint: null,
       detail: error instanceof Error ? error.message : String(error),
@@ -557,7 +559,10 @@ export async function probeAtsSlugsForCompany(input: {
 }): Promise<CompanySlugProbeSummary> {
   const slugCandidates = buildCompanySlugCandidates(input);
   const platforms = input.platforms ?? PROBEABLE_ATS_PLATFORMS;
-  const fetchImpl = input.fetchImpl ?? (fetch as unknown as FetchLike);
+  const fetchImpl: FetchLike = input.fetchImpl ?? ((url, init) =>
+    new URL(url).hostname === "www.workable.com"
+      ? fetchWithSourceHostGate(url, init)
+      : fetch(url, init));
   const timeoutMs = input.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const minJobCount = input.minJobCount ?? 1;
   const requestDelayMs = input.requestDelayMs ?? DEFAULT_REQUEST_DELAY_MS;

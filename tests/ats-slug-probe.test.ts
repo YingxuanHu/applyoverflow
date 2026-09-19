@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SourceHostRateLimitError } from "../src/lib/ingestion/host-rate-limit";
 
 import {
   SHARED_HOST_SLUG_BLOCKLIST,
@@ -106,6 +107,19 @@ test("empty boards below minJobCount are not reported as hits", async () => {
   });
 
   assert.deepEqual(summary.hits, []);
+});
+
+test("shared host cooldown benches further discovery slugs instead of retrying each company", async () => {
+  let calls = 0;
+  const summary = await probeAtsSlugsForCompany({
+    name: "Acme Example", domain: "acme.example", platforms: ["workable"], requestDelayMs: 0,
+    fetchImpl: async () => {
+      calls++;
+      throw new SourceHostRateLimitError("www.workable.com", new Date(Date.now() + 60000));
+    },
+  });
+  assert.equal(summary.blocked.length, 1);
+  assert.equal(calls, 1);
 });
 
 test("known ATS tenants are skipped before making outbound probe requests", async () => {

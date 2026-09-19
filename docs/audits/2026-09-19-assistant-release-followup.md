@@ -24,7 +24,7 @@ Deployment results must be recorded after the rollout, not inferred from tests.
 - Production Workable requests coordinate pacing and Retry-After cooldowns through
   shared PostgreSQL ResourceBudget rows, using the isolated `ingestion-host:`
   namespace. One request starts per second across workers; 429 hints defer all
-  tenants on that host. Short transactions never span the network request.
+  tenants on that host, including discovery slug probes. Short transactions never span the network request.
   `INGEST_SHARED_HOST_LIMITS=0` is the explicit rollback switch; local development
   can opt in with `1`. No new schema is required.
 - `INGEST_VERIFIED_STRUCTURED_SOURCE_IDS` is a comma-separated canary allowlist
@@ -35,7 +35,7 @@ Deployment results must be recorded after the rollout, not inferred from tests.
 
 ## Verification
 
-- 985 unit tests passed, including large-board continuation, shared throttling,
+- 986 unit tests passed, including large-board continuation, shared throttling,
   selective structured-source admission and actual PM2 process supervision.
 - TypeScript and changed-file ESLint passed.
 - Local database: ingestion-to-feed replay after fetch/row failures, checkpoint
