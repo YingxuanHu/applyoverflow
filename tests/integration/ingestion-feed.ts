@@ -22,9 +22,16 @@ async function main() {
   };
   const second = { ...job, sourceId: "two", title: "Customer Success Manager", applyUrl: `https://jobs.lever.co/${token}/two`, sourceUrl: `https://jobs.lever.co/${token}/two` };
   let response: SourceConnectorFetchResult = { jobs: [job, second], exhausted: true };
+  let seenCheckpoint: unknown;
+  let interruptFetch = false;
   const connector: SourceConnector = {
     key: `lever:${token}`, sourceName: `Lever:${token}`, sourceTier: "TIER_1", freshnessMode: "FULL_SNAPSHOT",
-    fetchJobs: async () => response,
+    fetchJobs: async (options) => {
+      seenCheckpoint = options.checkpoint;
+      await options.onCheckpoint?.({ offset: 999 });
+      if (interruptFetch) throw new Error("fixture fetch interrupted");
+      return response;
+    },
   };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("Fixture test must not fetch a real provider"); };
@@ -83,6 +90,21 @@ async function main() {
     await assert.rejects(ingestConnector(connector), /Invalid time value/);
     const partialProgress = await prisma.jobSourceMapping.findFirstOrThrow({ where: { sourceName: connector.sourceName, rawJob: { sourceId: "three" } } });
     assert.equal((await prisma.jobFeedIndex.findUniqueOrThrow({ where: { canonicalJobId: partialProgress.canonicalJobId } })).status, "LIVE", "later row failure must not hold back earlier usable jobs");
+    response = { jobs: [job], exhausted: false, checkpoint: { offset: 20 } };
+    await ingestConnector(connector);
+    interruptFetch = true;
+    await assert.rejects(ingestConnector(connector), /fixture fetch interrupted/);
+    assert.deepEqual(seenCheckpoint, { offset: 20 });
+    const interrupted = await prisma.ingestionRun.findFirstOrThrow({ where: { connectorKey: connector.key }, orderBy: { startedAt: "desc" } });
+    assert.deepEqual(JSON.parse(JSON.stringify(interrupted.runOptions)).checkpoint, { offset: 20 });
+    interruptFetch = false;
+    response = { jobs: [job, { ...job, sourceId: "broken", postedAt: new Date(NaN) }], exhausted: false, checkpoint: { offset: 40 } };
+    await assert.rejects(ingestConnector(connector), /Invalid time value/);
+    response = { jobs: [job], exhausted: true };
+    await ingestConnector(connector);
+    assert.deepEqual(seenCheckpoint, { offset: 20 }, "failed batches replay from the last durable position");
+    await ingestConnector(connector);
+    assert.equal(seenCheckpoint, null, "completed cycle returns to first page");
     console.log(`PASS: ingestion -> raw -> canonical -> feed; unchanged revival, field-only edits, partial/429 safety, closure (${Math.round(performance.now() - startedAt)}ms)`);
   } finally {
     globalThis.fetch = originalFetch;

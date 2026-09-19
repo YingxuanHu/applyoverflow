@@ -108,3 +108,22 @@ test("SmartRecruiters does not swallow cancellation or mismatched detail identit
   controller.abort(new Error("cancel fixture"));
   await assert.rejects(connector.fetchJobs({ now, signal: controller.signal }), /cancel fixture/);
 });
+
+test("large boards resume a bounded batch without revisiting or skipping offsets", async (t) => {
+  const rows = Array.from({ length: 215 }, (_, i) => listing(String(i), "Marketing Manager", "GB"));
+  const offsets: number[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string) => {
+    const offset = Number(new URL(input).searchParams.get("offset"));
+    offsets.push(offset);
+    return json({ content: rows.slice(offset, offset + 100), totalFound: rows.length });
+  });
+  const first = await connector.fetchJobs({ now });
+  const second = await connector.fetchJobs({ now, checkpoint: first.checkpoint });
+  const third = await connector.fetchJobs({ now, checkpoint: second.checkpoint });
+  assert.deepEqual(offsets, [0, 100, 200]);
+  assert.deepEqual(first.checkpoint, { offset: 100 });
+  assert.deepEqual(second.checkpoint, { offset: 200 });
+  assert.equal(third.checkpoint, null);
+  assert.equal(third.exhausted, true);
+  assert.equal(new Set([...first.jobs, ...second.jobs, ...third.jobs].map((job) => job.sourceId)).size, 215);
+});

@@ -237,7 +237,9 @@ export async function ingestConnector(
   try {
     let lastHeartbeatAt = Date.now();
     const persistCheckpoint = async (checkpoint: Prisma.InputJsonValue | null) => {
-      runOptionsState.checkpoint = checkpoint;
+      // Fetch progress is not durable ingestion progress. Resume only after the
+      // returned batch and its feed updates have completed successfully.
+      runOptionsState.fetchCheckpoint = checkpoint;
       runOptionsState.checkpointUpdatedAt = new Date().toISOString();
       runOptionsState.checkpointExhausted = false;
       await prisma.ingestionRun.update({
@@ -339,9 +341,9 @@ export async function ingestConnector(
     return summary;
   } catch (error) {
     summary.status = "FAILED";
-    runOptionsState.checkpoint = summary.checkpoint ?? runOptionsState.checkpoint ?? null;
+    runOptionsState.checkpoint = startingCheckpoint;
     runOptionsState.checkpointUpdatedAt = new Date().toISOString();
-    runOptionsState.checkpointExhausted = summary.checkpointExhausted ?? false;
+    runOptionsState.checkpointExhausted = false;
     runOptionsState.resultMetrics = buildRunResultMetrics(summary);
 
     await prisma.ingestionRun.update({

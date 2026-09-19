@@ -34,6 +34,7 @@ import { extractUrlsFromText } from "@/lib/ingestion/discovery/rippling";
 import { fetchGuarded } from "@/lib/ingestion/net/ssrf-guard";
 import { previewConnectorIngestion } from "@/lib/ingestion/pipeline";
 import type { SupportedConnectorName } from "@/lib/ingestion/registry";
+import type { SourceConnector, SourceConnectorJob } from "@/lib/ingestion/types";
 
 const TITLE_RE = /<title>([^<]+)<\/title>/i;
 const BING_RSS_ENDPOINT = "https://www.bing.com/search?format=rss&q=";
@@ -668,6 +669,19 @@ export async function previewSourceCandidates(
   });
 }
 
+export async function previewSourceConnector(connector: SourceConnector, limit?: number) {
+  let jobs: SourceConnectorJob[] = [];
+  const summary = await previewConnectorIngestion({
+    ...connector,
+    async fetchJobs(options) {
+      const result = await connector.fetchJobs(options);
+      jobs = result.jobs;
+      return result;
+    },
+  }, { limit });
+  return { jobs, summary };
+}
+
 export async function previewSourceCandidate(
   candidate: DiscoveredSourceCandidate,
   limit?: number
@@ -677,9 +691,8 @@ export async function previewSourceCandidate(
   }
 
   const connector = createConnectorForCandidate(candidate);
-  const [jobs, previewSummary, existingStats, pageTitle] = await Promise.all([
-    connector.fetchJobs({ now: new Date(), limit }).then((result) => result.jobs),
-    previewConnectorIngestion(connector, { limit }),
+  const [{ jobs, summary: previewSummary }, existingStats, pageTitle] = await Promise.all([
+    previewSourceConnector(connector, limit),
     getExistingSourceStats(candidate),
     fetchBoardTitle(candidate.boardUrl).catch(() => null),
   ]);
@@ -755,10 +768,7 @@ async function previewSuccessFactorsCandidate(
   }
 
   const connector = createConnectorForCandidate(candidate);
-  const [jobs, previewSummary] = await Promise.all([
-    connector.fetchJobs({ now: new Date(), limit }).then((result) => result.jobs),
-    previewConnectorIngestion(connector, { limit }),
-  ]);
+  const { jobs, summary: previewSummary } = await previewSourceConnector(connector, limit);
 
   return {
     input: candidate.input,

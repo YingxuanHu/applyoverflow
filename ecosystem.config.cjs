@@ -375,8 +375,11 @@ const steadyWorkerApps = [
     {
       __workerGroups: ["ingestion"],
       name: "ingest-daemon",
-      script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-daemon.ts --interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15} --force`,
+      // PM2 must monitor the worker itself, not tsx's low-memory CLI parent.
+      script: "scripts/ingest-daemon.ts",
+      interpreter: "node",
+      interpreter_args: "--import tsx --require dotenv/config",
+      args: `--interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15} --force`,
       cwd: __dirname,
       // Restart policy
       autorestart: true,
@@ -438,8 +441,10 @@ const steadyWorkerApps = [
     {
       __workerGroups: ["source-workers"],
       name: "ingest-poll-worker",
-      script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=poll --interval=${process.env.INGEST_POLL_WORKER_INTERVAL_SECONDS || 60}`,
+      script: "scripts/ingest-recovery-worker.ts",
+      interpreter: "node",
+      interpreter_args: "--import tsx --require dotenv/config",
+      args: `--role=poll --interval=${process.env.INGEST_POLL_WORKER_INTERVAL_SECONDS || 60}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -478,7 +483,9 @@ const steadyWorkerApps = [
         INGEST_BURST_URL_HEALTH_LIMIT:
           process.env.INGEST_BURST_URL_HEALTH_LIMIT || "5000",
       },
-      max_memory_restart: "512M",
+      // Measured steady RSS can exceed 512 MiB. This now bounds actual worker
+      // RSS; it is a restart threshold, not a host-wide memory reservation.
+      max_memory_restart: process.env.INGEST_POLL_MAX_MEMORY_RESTART || "1024M",
     },
     {
       __workerGroups: ["source-workers"],
@@ -753,8 +760,10 @@ const steadyWorkerApps = [
     {
       __workerGroups: ["source-workers"],
       name: "ingest-validation-worker",
-      script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=validation --interval=${process.env.INGEST_VALIDATION_WORKER_INTERVAL_SECONDS || 120}`,
+      script: "scripts/ingest-recovery-worker.ts",
+      interpreter: "node",
+      interpreter_args: "--import tsx --require dotenv/config",
+      args: `--role=validation --interval=${process.env.INGEST_VALIDATION_WORKER_INTERVAL_SECONDS || 120}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,
@@ -792,8 +801,10 @@ const steadyWorkerApps = [
     {
       __workerGroups: ["source-workers"],
       name: "ingest-discovery-worker",
-      script: "node_modules/.bin/tsx",
-      args: `-r dotenv/config scripts/ingest-recovery-worker.ts --role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 120}`,
+      script: "scripts/ingest-recovery-worker.ts",
+      interpreter: "node",
+      interpreter_args: "--import tsx --require dotenv/config",
+      args: `--role=discovery --interval=${process.env.INGEST_DISCOVERY_WORKER_INTERVAL_SECONDS || 120}`,
       cwd: __dirname,
       autorestart: true,
       max_restarts: 10,

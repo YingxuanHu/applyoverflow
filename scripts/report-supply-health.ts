@@ -358,7 +358,7 @@ async function zombieSources(db: Prisma.TransactionClient) {
 }
 
 async function recentIngestionOutcomes(db: Prisma.TransactionClient) {
-  return db.$queryRaw<Array<{ family: string; status: string; failureKind: string; runs: number; fetched: number; created: number; updated: number }>>(Prisma.sql`
+  return db.$queryRaw<Array<{ family: string; status: string; failureKind: string; runs: number; fetched: number; accepted: number; rejected: number; deduped: number; created: number; updated: number }>>(Prisma.sql`
     SELECT split_part("connectorKey", ':', 1) AS family, status::text,
       CASE
         WHEN status <> 'FAILED' THEN 'none'
@@ -371,6 +371,9 @@ async function recentIngestionOutcomes(db: Prisma.TransactionClient) {
       END AS "failureKind",
       count(*)::int AS runs,
       sum("fetchedCount")::int AS fetched,
+      sum("acceptedCount")::int AS accepted,
+      sum("rejectedCount")::int AS rejected,
+      sum("dedupedCount")::int AS deduped,
       sum("canonicalCreatedCount")::int AS created,
       sum("canonicalUpdatedCount")::int AS updated
     FROM "IngestionRun"
@@ -539,7 +542,12 @@ async function main() {
     generatedAt: new Date().toISOString(),
     complete: true,
     queryTimingsMs,
-    recentIngestion: { windowHours: 1, countsAreNonPublic: true, outcomes: sections.recentIngestion.data },
+    recentIngestion: {
+      windowHours: 1,
+      countsAreNonPublic: true,
+      interpretation: "Run counters, not unique public jobs. Accepted updates maintain freshness; low new/accepted alone is not a quality failure. Rejections include geography, role scope and quality gates.",
+      outcomes: sections.recentIngestion.data,
+    },
     sourceRecovery: { limit: 100, countsAreNonPublic: true, candidates: sections.recovery.data },
     publicBoard: {
       liveJobCount: visibleLive,

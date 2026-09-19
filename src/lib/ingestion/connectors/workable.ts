@@ -11,6 +11,7 @@ import {
   buildTimeoutSignal,
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
+import { fetchWithSourceHostGate } from "@/lib/ingestion/host-rate-limit";
 
 type WorkableConnectorOptions = {
   accountToken: string;
@@ -63,7 +64,7 @@ export function createWorkableConnector({
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
       throwIfAborted(options.signal);
-      const response = await fetch(
+      const response = await fetchWithSourceHostGate(
         `https://www.workable.com/api/accounts/${accountToken}`,
         {
           signal: buildTimeoutSignal(options.signal, 45_000),

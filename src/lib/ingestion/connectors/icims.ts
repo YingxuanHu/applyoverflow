@@ -41,6 +41,16 @@ type IcimsConnectorOptions = {
 
 // ─── JSON-LD JobPosting shape (partial — only fields we use) ──────────────────
 
+type JsonLdLocation = {
+  address?: {
+    streetAddress?: string;
+    addressLocality?: string;
+    addressRegion?: string;
+    addressCountry?: string | { name?: string };
+    postalCode?: string;
+  };
+};
+
 type JsonLdJobPosting = {
   "@type"?: string;
   title?: string;
@@ -55,15 +65,7 @@ type JsonLdJobPosting = {
     name?: string;
     sameAs?: string;
   };
-  jobLocation?: Array<{
-    address?: {
-      streetAddress?: string;
-      addressLocality?: string;
-      addressRegion?: string;
-      addressCountry?: string;
-      postalCode?: string;
-    };
-  }>;
+  jobLocation?: JsonLdLocation | JsonLdLocation[];
   baseSalary?: {
     currency?: string;
     value?: {
@@ -140,7 +142,8 @@ export async function validateIcimsPortal(portalSubdomain: string): Promise<{
       return { valid: false, jobCount: 0, error: "bot_blocked" };
     }
 
-    if (!html.includes("iCIMS_JobsTable") && !html.includes("iCIMS_JobListingRow")) {
+    const rows = parseSearchPage(html);
+    if (rows.length === 0) {
       // Might be a redirect to login or empty portal
       if (html.includes("Log In") && html.includes("password")) {
         return { valid: false, jobCount: 0, error: "login_required" };
@@ -148,7 +151,6 @@ export async function validateIcimsPortal(portalSubdomain: string): Promise<{
       return { valid: false, jobCount: 0, error: "no_job_table" };
     }
 
-    const rows = parseSearchPage(html);
     const pageCount = parsePageCount(html);
     const estimatedTotal = pageCount * ICIMS_SEARCH_PAGE_SIZE;
 
@@ -181,11 +183,12 @@ export function createIcimsConnector(
       fetchOptions: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
       // Phase 1: Paginate through search pages to collect listing stubs
-      const listings = await fetchAllListings({
+      const listingResult = await fetchAllListings({
         baseUrl,
         limit: fetchOptions.limit,
         signal: fetchOptions.signal,
       });
+      const listings = listingResult.rows;
 
       // Phase 2: Fetch detail pages in batches, extracting JSON-LD
       const jobs = await mapInBatches(
@@ -204,15 +207,23 @@ export function createIcimsConnector(
       const validJobs = jobs.filter(
         (job): job is SourceConnectorJob => job !== null
       );
+      throwIfAborted(fetchOptions.signal);
+      const detailFailureCount = listings.length - validJobs.length;
+      const error = listingResult.error ?? (detailFailureCount > 0
+        ? `iCIMS: ${detailFailureCount} job detail request(s) failed or were unreadable`
+        : null);
 
       return {
         jobs: validJobs,
+        exhausted: listingResult.exhausted && error === null,
         metadata: {
           portalSubdomain: token,
           companyName: resolvedCompanyName,
           fetchedAt: fetchOptions.now.toISOString(),
           listingCount: listings.length,
           detailSuccessCount: validJobs.length,
+          detailFailureCount,
+          ...(error ? { error, partial: validJobs.length > 0 } : {}),
         },
       };
     },
@@ -229,38 +240,63 @@ async function fetchAllListings({
   baseUrl: string;
   limit?: number;
   signal?: AbortSignal;
-}) {
+}): Promise<{ rows: IcimsListingRow[]; exhausted: boolean; error?: string }> {
   const allRows: IcimsListingRow[] = [];
+  const seen = new Set<string>();
   let page = 0;
 
   while (page < MAX_PAGES) {
     throwIfAborted(signal);
     const url = `${baseUrl}/jobs/search?pr=${page}&in_iframe=1`;
-    const response = await fetch(url, {
-      headers: buildHeaders(),
-      redirect: "follow",
-      signal: buildTimeoutSignal(signal, 20_000),
-    });
-
-    if (!response.ok) break;
-
-    const html = await response.text();
+    let html: string;
+    try {
+      const response = await fetch(url, {
+        headers: buildHeaders(),
+        redirect: "follow",
+        signal: buildTimeoutSignal(signal, 20_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      html = await response.text();
+    } catch (error) {
+      throwIfAborted(signal);
+      return {
+        rows: allRows,
+        exhausted: false,
+        error: `iCIMS listing page ${page + 1}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
     const rows = parseSearchPage(html);
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      // An unavailable/challenged page is not evidence that previous jobs closed.
+      const confirmedEmpty = page === 0 && /iCIMS/i.test(html) &&
+        /(?:there are (?:currently )?no (?:jobs|positions)|no (?:jobs|positions) (?:are currently available|were found|found|available|match))/i.test(stripHtml(html));
+      return {
+        rows: allRows,
+        exhausted: confirmedEmpty,
+        ...(confirmedEmpty ? {} : { error: `iCIMS listing page ${page + 1}: unrecognized or empty results` }),
+      };
+    }
 
-    allRows.push(...rows);
+    const newRows = rows.filter((row) => !seen.has(row.jobId));
+    if (newRows.length === 0) {
+      return { rows: allRows, exhausted: false, error: "iCIMS pagination repeated a page" };
+    }
+    for (const row of newRows) {
+      seen.add(row.jobId);
+      allRows.push(row);
+    }
 
     if (typeof limit === "number" && allRows.length >= limit) {
-      return allRows.slice(0, limit);
+      return { rows: allRows.slice(0, limit), exhausted: false };
     }
 
     // Check if there's a next page
     const pageCount = parsePageCount(html);
     page++;
-    if (page >= pageCount) break;
+    if (page >= pageCount) return { rows: allRows, exhausted: true };
   }
 
-  return allRows;
+  return { rows: allRows, exhausted: false, error: "iCIMS pagination reached the safety cap" };
 }
 
 /**
@@ -385,7 +421,7 @@ function parsePageCount(html: string): number {
   if (pageMatch) return Number.parseInt(pageMatch[1], 10);
 
   // Look for pagination links: pr=N
-  const prMatches = [...html.matchAll(/[?&]pr=(\d+)/g)];
+  const prMatches = [...html.matchAll(/(?:\?|&(?:amp;)?)pr=(\d+)/g)];
   if (prMatches.length > 0) {
     const maxPr = Math.max(...prMatches.map((m) => Number.parseInt(m[1], 10)));
     return maxPr + 1;
@@ -432,8 +468,8 @@ async function fetchAndBuildJob({
       });
     }
 
-    // Fallback: build from listing data + page content
-    return buildJobFromHtml({
+    // Do not turn a login/challenge/error page into an apparently valid job.
+    const fallback = buildJobFromHtml({
       jobId: listing.jobId,
       detailPath: listing.detailPath,
       baseUrl,
@@ -441,7 +477,9 @@ async function fetchAndBuildJob({
       fallbackCompanyName,
       listingRow: listing,
     });
+    return fallback.description ? fallback : null;
   } catch {
+    throwIfAborted(signal);
     return null;
   }
 }
@@ -559,22 +597,29 @@ function buildJobFromHtml({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildLocationFromJsonLd(jsonLd: JsonLdJobPosting): string {
-  const locations = jsonLd.jobLocation ?? [];
+  const locations = Array.isArray(jsonLd.jobLocation)
+    ? jsonLd.jobLocation
+    : jsonLd.jobLocation ? [jsonLd.jobLocation] : [];
   if (locations.length === 0) {
     if (jsonLd.jobLocationType === "TELECOMMUTE") return "Remote";
     return "Unknown";
   }
 
   const parts = locations.map((loc) => {
-    const addr = loc.address;
+    const addr = loc?.address;
     if (!addr) return "Unknown";
 
-    return [addr.addressLocality, addr.addressRegion, addr.addressCountry]
-      .filter(Boolean)
+    const country = typeof addr.addressCountry === "string"
+      ? addr.addressCountry
+      : addr.addressCountry?.name;
+    return [addr.addressLocality, addr.addressRegion, country]
+      .filter((part): part is string => typeof part === "string" &&
+        Boolean(part.trim()) && !/^(?:unavailable|unknown|n\/a|null)$/i.test(part.trim()))
+      .map((part) => part.trim())
       .join(", ");
   });
 
-  const locationString = parts.filter((p) => p !== "Unknown").join("; ");
+  const locationString = [...new Set(parts.filter((p) => p && p !== "Unknown"))].join("; ");
 
   if (jsonLd.jobLocationType === "TELECOMMUTE" && locationString) {
     return `Remote – ${locationString}`;

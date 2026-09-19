@@ -173,7 +173,6 @@ export function createWorkdayConnector(
   const sourceToken = buildWorkdaySourceToken(target);
   const resolvedCompanyName =
     options.companyName ?? buildCompanyName(target.tenant);
-  const fetchCache = new Map<string, Promise<SourceConnectorFetchResult>>();
 
   return {
     key: `workday:${sourceToken}`,
@@ -184,14 +183,7 @@ export function createWorkdayConnector(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
       const log = options.log ?? console.error;
-      const cacheKey = JSON.stringify({
-        limit: options.limit ?? "all",
-        checkpoint: options.checkpoint ?? null,
-      });
-      const existing = fetchCache.get(cacheKey);
-      if (existing) return existing;
-
-      const request = fetchWorkdayJobs({
+      return fetchWorkdayJobs({
         target,
         fallbackCompanyName: resolvedCompanyName,
         now: options.now,
@@ -200,9 +192,8 @@ export function createWorkdayConnector(
         log,
         checkpoint: parseWorkdayCheckpoint(options.checkpoint),
         onCheckpoint: options.onCheckpoint,
+        maxRuntimeMs: options.maxRuntimeMs,
       });
-      fetchCache.set(cacheKey, request);
-      return request;
     },
   };
 }
@@ -216,6 +207,7 @@ async function fetchWorkdayJobs({
   log,
   checkpoint,
   onCheckpoint,
+  maxRuntimeMs,
 }: {
   target: WorkdaySourceTarget;
   fallbackCompanyName: string;
@@ -225,11 +217,15 @@ async function fetchWorkdayJobs({
   log: (message: string) => void;
   checkpoint?: WorkdayCheckpoint | null;
   onCheckpoint?: (checkpoint: Prisma.InputJsonValue | null) => Promise<void> | void;
+  maxRuntimeMs?: number;
 }): Promise<SourceConnectorFetchResult> {
   const jobs: SourceConnectorJob[] = [];
   let offset = checkpoint?.offset ?? 0;
   let total: number | null = null;
   let exhausted = false;
+  const fetchStartedAt = Date.now();
+  const fetchBudgetMs = maxRuntimeMs ? Math.max(1, maxRuntimeMs * 0.5) : Infinity;
+  let pagesFetched = 0;
   const session = await bootstrapWorkdaySession(target, signal);
 
   while (true) {
@@ -280,6 +276,7 @@ async function fetchWorkdayJobs({
         })
     );
     jobs.push(...pageJobs);
+    pagesFetched++;
     // Workday can include a malformed row in an otherwise full page. Pagination
     // must follow the upstream page size, not only rows we can normalize; using
     // the filtered count made a 20-row page look like a final 19-row page and
@@ -295,7 +292,8 @@ async function fetchWorkdayJobs({
       break;
     }
 
-    if (typeof limit === "number" && jobs.length >= limit) {
+    if ((typeof limit === "number" && jobs.length >= limit) ||
+        pagesFetched >= 5 || Date.now() - fetchStartedAt >= fetchBudgetMs) {
       await onCheckpoint?.({ offset } satisfies WorkdayCheckpoint);
       break;
     }

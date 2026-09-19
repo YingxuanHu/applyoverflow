@@ -88,16 +88,25 @@ export function createSmartRecruitersConnector({
     async fetchJobs(
       options: SourceConnectorFetchOptions
     ): Promise<SourceConnectorFetchResult> {
+      const rawCheckpoint = options.checkpoint as { offset?: unknown } | null;
+      const startOffset = typeof rawCheckpoint?.offset === "number" &&
+        Number.isSafeInteger(rawCheckpoint.offset) && rawCheckpoint.offset >= 0
+        ? rawCheckpoint.offset : 0;
+      const fetchStartedAt = Date.now();
       const snapshot = await fetchAllListings({
         companyIdentifier,
-        limit: options.limit,
+        limit: Math.min(options.limit ?? 100, 100),
+        startOffset,
         signal: options.signal,
       });
 
       const jobs: SourceConnectorFetchResult["jobs"] = [];
       let error = snapshot.error;
       let failedDetailCount = 0;
+      let processedCount = 0;
       for (let index = 0; index < snapshot.listings.length; index += DETAIL_BATCH_SIZE) {
+        if (index > 0 && options.maxRuntimeMs &&
+            Date.now() - fetchStartedAt >= options.maxRuntimeMs * 0.5) break;
         throwIfAborted(options.signal);
         const batch = snapshot.listings.slice(index, index + DETAIL_BATCH_SIZE);
         const results = await Promise.allSettled(batch.map((listing) => buildSourceJob({
@@ -119,12 +128,17 @@ export function createSmartRecruitersConnector({
                 ![404, 410].includes(result.reason.status)) stopDetails = true;
           }
         }
+        processedCount += batch.length;
         if (stopDetails) break;
       }
 
+      const exhausted = snapshot.exhausted && error === null &&
+        processedCount === snapshot.listings.length;
+
       return {
         jobs,
-        exhausted: snapshot.exhausted && error === null,
+        exhausted,
+        checkpoint: exhausted ? null : { offset: error ? startOffset : startOffset + processedCount },
         metadata: {
           companyIdentifier,
           companyName: resolvedCompanyName,
@@ -143,14 +157,16 @@ async function fetchAllListings({
   companyIdentifier,
   limit,
   signal,
+  startOffset,
 }: {
   companyIdentifier: string;
   limit?: number;
   signal?: AbortSignal;
+  startOffset: number;
 }) {
   const listings: SmartRecruitersListing[] = [];
   const seenIds = new Set<string>();
-  let offset = 0;
+  let offset = startOffset;
   let exhausted = false;
   let error: string | null = null;
 
@@ -186,7 +202,7 @@ async function fetchAllListings({
         if (!listing || typeof listing.id !== "string" || typeof listing.name !== "string") {
           throw new Error("SmartRecruiters returned an invalid posting");
         }
-        if (seenIds.has(listing.id)) continue;
+        if (seenIds.has(listing.id)) throw new Error("SmartRecruiters pagination made no progress: duplicate posting");
         seenIds.add(listing.id);
         listings.push(listing);
       }

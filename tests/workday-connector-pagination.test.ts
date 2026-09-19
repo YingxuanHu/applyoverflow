@@ -60,3 +60,25 @@ test("Workday continues after a malformed row in a full listing page", async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Workday checkpoints bounded large boards and refreshes reused connectors", async (t) => {
+  const offsets: number[] = [];
+  t.mock.method(globalThis, "fetch", async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (init?.method === "POST") {
+      const { offset } = JSON.parse(String(init.body));
+      offsets.push(offset);
+      return Response.json({ total: 120, jobPostings: Array.from({ length: 20 }, (_, i) => listingJob(offset + i)) });
+    }
+    return new Response("<html></html>", { status: String(input).endsWith("/jobs") ? 200 : 404 });
+  });
+  const connector = createWorkdayConnector({ sourceToken: "example.wd1.myworkdayjobs.com|acme|jobs" });
+  const options = { now: new Date(), log: () => undefined };
+  const first = await connector.fetchJobs(options);
+  assert.equal(first.jobs.length, 100);
+  assert.deepEqual(first.checkpoint, { offset: 100 });
+  const last = await connector.fetchJobs({ ...options, checkpoint: first.checkpoint });
+  assert.equal(last.exhausted, true);
+  assert.equal(last.jobs.length, 20);
+  await connector.fetchJobs({ ...options, limit: 1 });
+  assert.equal(offsets.at(-1), 0, "a new cycle issues a fresh request");
+});

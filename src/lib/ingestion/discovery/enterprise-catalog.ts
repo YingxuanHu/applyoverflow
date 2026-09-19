@@ -22,6 +22,7 @@ export type EnterpriseCompanyRecord = {
 };
 
 export const ENTERPRISE_DISCOVERY_COMPANIES: EnterpriseCompanyRecord[] = [
+  { name: "Cadmus", tenants: ["cadmus", "careers-cadmusgroup"], domains: ["cadmusgroup.com"], seedPageUrls: ["https://careers-cadmusgroup.icims.com/jobs/search"], ats: "unknown", sectors: ["consulting", "research", "public sector", "environmental policy", "technology"] },
   { name: "TD Bank", tenants: ["td", "tdbank"], domains: ["td.com"], seedPageUrls: ["https://careers.td.com/"], ats: "workday", sectors: ["finance", "banking"], canadaCities: ["Toronto"], canadaHq: true },
   { name: "RBC", tenants: ["rbc", "royalbank"], domains: ["rbc.com"], seedPageUrls: ["https://jobs.rbc.com/ca/en"], ats: "workday", sectors: ["finance", "banking"], canadaCities: ["Toronto", "Montreal"], canadaHq: true },
   { name: "BMO", tenants: ["bmo"], domains: ["bmo.com"], seedPageUrls: ["https://jobs.bmo.com/ca/en"], ats: "workday", sectors: ["finance", "banking"], canadaCities: ["Toronto", "Montreal"], canadaHq: true },

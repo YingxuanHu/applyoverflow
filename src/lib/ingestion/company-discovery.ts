@@ -54,6 +54,7 @@ import {
   shouldExemptFromGrowthPenalties,
 } from "@/lib/ingestion/retention-poll-policy";
 import { shouldProbeOnRediscovery } from "@/lib/ingestion/rediscovery-probe-policy";
+import { isApprovedStructuredPollSource } from "@/lib/ingestion/structured-poll-policy";
 import {
   probeAtsSlugsForCompany,
   type AtsSlugProbeResult,
@@ -3266,7 +3267,8 @@ export async function enqueueCompanySourcePollTasks(options: {
       zeroGrowthPollDefer,
     };
   }).filter(({ hostMetrics, source, frontierCandidate }) => {
-    if (SKIP_GENERIC_COMPANY_SITE_POLLS && source.connectorName === "company-site") {
+    if (SKIP_GENERIC_COMPANY_SITE_POLLS && source.connectorName === "company-site" &&
+        !isApprovedStructuredPollSource(source, now)) {
       return false;
     }
 
@@ -3750,12 +3752,15 @@ async function selectRuntimeAdmittedConnectorPollTasks(input: {
   const sources = sourceIds.length
     ? await prisma.companySource.findMany({
         where: { id: { in: sourceIds } },
-        select: { id: true, connectorName: true },
+        select: { id: true, connectorName: true, sourceType: true, extractionRoute: true,
+          validationState: true, lastValidatedAt: true },
       })
     : [];
   const connectorBySourceId = new Map(
     sources.map((source) => [source.id, source.connectorName] as const)
   );
+  const approvedStructuredIds = new Set(sources.filter((source) =>
+    isApprovedStructuredPollSource(source, input.now)).map((source) => source.id));
 
   const batchConnectorCounts = new Map<string, number>();
   const admittedTasks: SourceTask[] = [];
@@ -3773,7 +3778,8 @@ async function selectRuntimeAdmittedConnectorPollTasks(input: {
       continue;
     }
 
-    if (SKIP_GENERIC_COMPANY_SITE_POLLS && connectorName === "company-site") {
+    if (SKIP_GENERIC_COMPANY_SITE_POLLS && connectorName === "company-site" &&
+        !approvedStructuredIds.has(task.companySourceId ?? "")) {
       skippedGenericCompanySiteTaskIds.push(task.id);
       continue;
     }
