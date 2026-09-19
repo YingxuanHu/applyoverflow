@@ -1,6 +1,6 @@
 # Application Assistant and New-User Onboarding
 
-Status: first foundation batch implemented locally; extension not yet implemented or deployed.
+Status: foundation and a limited Greenhouse/Lever/Ashby extension/review preview implemented locally; not deployed or published.
 Date: 2026-09-18.
 Repository baseline: `fbf9d2b4f74ccf48680aa732cabad420c59c8e87`.
 
@@ -9,11 +9,52 @@ Repository baseline: `fbf9d2b4f74ccf48680aa732cabad420c59c8e87`.
 - Only newly created accounts receive a versioned onboarding marker. Existing accounts are not enrolled or redirected. Pending users retain their intended destination through sign-up, verification, and sign-in; deferred users can resume from Profile.
 - Three compact steps: optional resume upload/manual entry, editable contact/history review, and desired roles/location. Additional address fields, education, projects, and summary stay expandable. Progress is saved on step navigation and Finish later, not continuously on each keystroke.
 - Onboarding imports use the existing resume/document pipeline but save extracted facts to a review draft. The confirmed profile is updated only on completion. Revision checks reject stale tabs and simultaneous imports; failed transactional imports remove their uploaded object.
-- Profile compatibility readers share the same runtime types. Optional mailing addresses survive edits; legacy date text is preserved. This is not yet the structured-date/stable-entry-ID contract proposed below.
+- Profile compatibility readers share the same runtime types. Optional mailing addresses survive edits; legacy date text is preserved. The later history batch adds optional structured dates; stable entry IDs remain open.
 - Job interests are separate from residence/contact details and now enter the existing Picks for you intent model. Existing users without explicit preferences retain prior inference behavior.
 - A tested, pure answer-reuse policy requires approval and matching context. Company relationships/referrals, authorization, and narratives remain review-only; sensitive questions are never automatically reused. This policy is groundwork, not an exposed answer library or autofill engine.
 
-No extension authentication, DOM filling, application answer-review workspace, AI narrative generation, per-field provenance, structured authorization editor, or production rollout is included in this batch. Existing application and submission workflows are unchanged.
+The first foundation batch did not include extension integration. The next local
+batch adds an allowlisted Chrome connection, conservative Greenhouse contact
+filling, question capture into the existing tracker, web answer review, and
+explicit employer-scoped remembered suggestions. See
+[preview setup and boundaries](../../extensions/chrome/README.md). AI narrative
+generation, per-field provenance, structured authorization editors,
+complex ATS adapters, and production rollout remain open.
+Existing submission behavior is unchanged; filling/capture never means submitted.
+
+The detection/distribution batch adds opt-in automatic hints, shared site identity,
+Lever and Ashby contact adapters, native-toolbar verification, and downloadable
+preview packaging. The three live read-only checks and synthetic fill tests are
+documented in [extension detection verification](../audits/2026-09-18-extension-detection.md).
+This does not yet satisfy the broader 30-fixture private-beta release gate below.
+
+The resume batch adds explicit web-based PDF/DOCX selection and single-use file
+delivery to known empty resume fields. The file is read from existing storage,
+not duplicated. The extension never chooses a default, overwrites an attachment,
+or invokes an ATS's separate resume-autofill widget. Each handoff is bound to the
+original document/tab, application URL, file revision and connection. Employer
+upload completion still needs human review. See
+[resume attachment verification](../audits/2026-09-18-extension-resume.md).
+
+The history/regression batch adds a shared work/education date editor to Profile
+and onboarding. Year-only precision and current entries are explicit, legacy
+text stays editable, and repeated roles with different date ranges are no longer
+merged on resume import. No history fields are sent to an employer yet. It also
+fixes profile-save resets, early onboarding interactions, a production-build
+session error, and the application-review server/client serialization boundary.
+See [history and overall regression verification](../audits/2026-09-18-profile-history-and-regression.md).
+
+The reliability follow-up keeps extension controls stable during background form
+scans, with mouse/keyboard regression coverage for lost review clicks. It also
+fixes Unicode truncation in search indexing and adds bounded overdue-poll
+fairness. See [reliability verification](../audits/2026-09-18-reliability-follow-up.md).
+
+The production-audit follow-up adds conservative contact undo and a web-only
+contact/work/education reference with per-field copying. It does not yet fill
+history repeaters or infer missing dates. It also restores missing detection
+registration on worker startup, preserves custom-question section context, and
+fixes two salary-extraction defects observed in the live job board. See
+[production workflow audit](../audits/2026-09-18-production-workflows-and-assistant.md).
 
 Verification: see [foundation verification](../audits/2026-09-18-onboarding-foundation.md). Test only synthetic resumes/accounts; no employer submissions.
 

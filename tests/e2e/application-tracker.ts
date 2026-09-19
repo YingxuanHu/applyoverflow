@@ -182,9 +182,10 @@ export async function verifyApplicationTracker(
     await views.getByRole("button", { name: /^All results/ }).click();
     await first
       .getByRole("button", {
-        name: "Schedule reminder for Tracker Test Role 1",
+        name: "Actions for Tracker Test Role 1",
       })
       .click();
+    await page.getByRole("menuitem", { name: "Schedule reminder", exact: true }).click();
     const dialog = page.getByRole("dialog", {
       name: "Schedule reminder",
       exact: true,
@@ -229,9 +230,10 @@ export async function verifyApplicationTracker(
     });
     await first
       .getByRole("button", {
-        name: "Schedule reminder for Tracker Test Role 1",
+        name: "Actions for Tracker Test Role 1",
       })
       .click();
+    await page.getByRole("menuitem", { name: "Schedule reminder", exact: true }).click();
     await page.screenshot({
       path: "output/playwright/application-reminder-mobile.png",
       fullPage: true,

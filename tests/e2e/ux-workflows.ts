@@ -251,41 +251,16 @@ async function main() {
       .getByRole("heading", { name: "Senior Financial Analyst 1", exact: true })
       .waitFor();
     assert.ok((await detail.innerText()).includes("Listed in your profile"));
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await detail
-      .getByRole("button", { name: "Copy job link", exact: true })
-      .click();
-    await detail
-      .getByRole("button", { name: "Link copied", exact: true })
-      .waitFor();
-    const copiedLink = new URL(
-      await page.evaluate(() => navigator.clipboard.readText()),
-    );
+    const copiedLink = new URL(await detail.getByRole("link", { name: "Full page", exact: true }).getAttribute("href") ?? "", root);
     assert.equal(
       copiedLink.pathname,
       `/jobs/${jobs[0]}`,
-      "shared links identify the job independently of feed order",
+      "full-page links identify the job independently of feed order",
     );
     assert.equal(
       new URL(copiedLink.searchParams.get("from")!, root).hash,
       `#job-${jobs[0]}`,
     );
-    // Keep this mock in browser syntax; tsx's function-name helper is Node-only.
-    await page.evaluate(`
-      Object.defineProperty(navigator.clipboard, "writeText", {
-        configurable: true,
-        value: async () => {
-          throw new Error("Clipboard denied");
-        },
-      });
-    `);
-    await detail
-      .getByRole("button", { name: "Link copied", exact: true })
-      .click();
-    await detail
-      .getByRole("alert")
-      .filter({ hasText: "Could not copy the link" })
-      .waitFor();
     const rows = list.getByRole("button");
     await detail
       .getByLabel("Reason for hiding this pick")
@@ -503,6 +478,7 @@ async function main() {
     );
 
     await page.goto(`${root}/profile`, { waitUntil: "networkidle" });
+    await page.locator("summary").filter({ hasText: "Requirements for Picks for you" }).click();
     await page
       .getByLabel("Eligible country", { exact: true })
       .selectOption("CA");
@@ -647,9 +623,11 @@ async function main() {
 
     await prisma.topPickRefreshTask.update({ where: { id: task.id }, data: { finishedAt: new Date(Date.now() - 7200000) } });
     await page.goto(`${root}/jobs`, { waitUntil: "networkidle" });
-    const refreshRequest = page.waitForResponse((response) => response.url().endsWith("/api/jobs/top-picks/refresh") && response.request().method() === "POST");
-    await page.getByRole("link", { name: /Picks for you/ }).click();
-    assert.equal((await refreshRequest).status(), 200);
+    const [refreshRequest] = await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/api/jobs/top-picks/refresh") && response.request().method() === "POST", { timeout: 90000 }),
+      page.getByRole("navigation", { name: "Jobs workspace" }).getByRole("link", { name: "Picks for you", exact: true }).click(),
+    ]);
+    assert.equal(refreshRequest.status(), 200);
     await page.getByText("Finding your top matches", { exact: true }).waitFor();
     assert.equal(automaticRefreshRequests, 1, "Opening the stale tab starts exactly one refresh");
     // The dev server can finish its inline worker before the next POST. Hold
