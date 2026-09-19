@@ -1,0 +1,301 @@
+// Serialized into a classic content script at build time; no module fetches.
+export function installIndicator() {
+  if (window !== window.top || globalThis.__applyOverflowIndicator) return;
+  let host,
+    root,
+    view,
+    timer,
+    busy = false,
+    stopped = false,
+    expanded = false;
+  let lastUrl = location.href,
+    dismissedUrl = "",
+    connection = false;
+  let enabled = false,
+    lastScan = 0,
+    notice = "",
+    noticeUntil = 0;
+  const inspect = globalThis.__applyOverflowInspect;
+  const send = (type) => chrome.runtime.sendMessage({ type });
+  const remove = () => {
+    host?.remove();
+    host = root = view = undefined;
+  };
+  function stop() {
+    stopped = true;
+    clearTimeout(timer);
+    clearInterval(navigation);
+    observer.disconnect();
+    remove();
+    document.removeEventListener("input", schedule, true);
+    document.removeEventListener("change", schedule, true);
+    document.removeEventListener("visibilitychange", resume);
+    window.removeEventListener("popstate", resume);
+    chrome.runtime.onMessage.removeListener(onMessage);
+    delete globalThis.__applyOverflowIndicator;
+  }
+  globalThis.__applyOverflowIndicator = { stop };
+  function button(label, action, secondary = false) {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.textContent = label;
+    if (secondary) element.className = "secondary";
+    element.disabled = busy;
+    element.addEventListener("click", (event) => {
+      if (event.isTrusted) action();
+    });
+    return element;
+  }
+  async function run(type) {
+    if (busy) return;
+    busy = true;
+    notice =
+      type === "connect"
+        ? "Connect in the ApplyOverflow window..."
+        : type === "resume"
+          ? "Choose and approve a resume in ApplyOverflow..."
+          : "Working...";
+    noticeUntil = Date.now() + 120_000;
+    await scan();
+    const atUrl = location.href;
+    try {
+      const response = await send(type);
+      if (location.href !== atUrl) return;
+      if (!response)
+        throw new Error(
+          "Reload the extension in Chrome, then refresh this application page.",
+        );
+      if (response.reconnect || response.connected === false)
+        connection = false;
+      if (response.error) throw new Error(response.error);
+      connection = response.connected;
+      notice = response.message;
+    } catch (error) {
+      notice = error.message || "Open the extension from Chrome to retry.";
+    } finally {
+      busy = false;
+      noticeUntil = Date.now() + 15_000;
+      await scan();
+      setTimeout(schedule, 15_100);
+    }
+  }
+  function render(result) {
+    if (!host?.isConnected) {
+      host = document.createElement("div");
+      host.id = "applyoverflow-assistant";
+      // Isolate appearance without covering the application or changing its layout.
+      host.style.cssText =
+        "all:initial;position:fixed;bottom:16px;right:16px;z-index:2147483646;display:block;max-width:calc(100vw - 32px)";
+      root = host.attachShadow({ mode: "open" });
+      document.documentElement.append(host);
+      const style = document.createElement("style");
+      style.textContent = `:host{color-scheme:light dark}*{box-sizing:border-box}section{font:13px/1.5 system-ui,sans-serif;letter-spacing:0;color:#202124;background:#fff;border:1px solid #dce0e6;border-radius:8px;box-shadow:0 3px 14px #0002;max-width:300px}header{display:flex;align-items:center;gap:8px;padding:6px}strong{font-size:13px;margin:0 8px}button{font:inherit;border:0;border-radius:5px;min-height:36px;padding:7px 10px;cursor:pointer;color:#fff;background:#087cf0}button:focus-visible{outline:2px solid #087cf0;outline-offset:2px}button:disabled{opacity:.55;cursor:wait}.secondary,.close{color:inherit;background:transparent}.close{margin-left:auto;font-size:18px;min-width:36px}.content{padding:0 12px 12px}.content button{width:100%;margin-top:6px}.content p{margin:6px 0;color:#656872;overflow-wrap:anywhere}.launcher{background:transparent;color:inherit;text-align:left}.dot{display:inline-block;background:#087cf0;width:8px;height:8px;border-radius:50%;margin-right:8px}@media(prefers-color-scheme:dark){section{background:#232325;color:#f5f5f7;border-color:#4b4b51}.content p{color:#b7bac2}}`;
+      root.append(style);
+      const section = document.createElement("section");
+      section.setAttribute("aria-label", "ApplyOverflow application assistant");
+      const header = document.createElement("header");
+      const brand = document.createElement("strong");
+      brand.textContent = "ApplyOverflow";
+      header.append(brand);
+      const launcher = button("Autofill available", () => {
+        expanded = true;
+        void scan();
+      });
+      launcher.className = "launcher";
+      launcher.setAttribute("aria-expanded", "false");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.setAttribute("aria-hidden", "true");
+      launcher.prepend(dot);
+      header.append(launcher);
+      const close = button("\u00d7", () => {
+        dismissedUrl = location.href;
+        remove();
+      });
+      close.className = "close";
+      close.disabled = false;
+      close.title = "Dismiss for this page";
+      close.setAttribute("aria-label", close.title);
+      header.append(close);
+      section.append(header);
+      const content = document.createElement("div");
+      content.className = "content";
+      const summary = document.createElement("p");
+      const connect = button(
+        "Connect to ApplyOverflow",
+        () => void run("connect"),
+      );
+      const fill = button("Fill contact details", () => void run("fill"));
+      const resume = button("Choose resume", () => void run("resume"));
+      const review = button("Review questions", () => void run("review"), true);
+      const undo = button("Undo contact fill", () => void run("undo"), true);
+      const status = document.createElement("p");
+      status.setAttribute("role", "status");
+      content.append(summary, connect, fill, resume, review, undo, status);
+      section.append(content);
+      root.append(section);
+      view = {
+        brand,
+        launcher,
+        content,
+        summary,
+        connect,
+        fill,
+        resume,
+        review,
+        undo,
+        status,
+      };
+    }
+    // Preserve DOM identity across scans: replacing a pressed button can swallow
+    // the click between pointer-down/up (or Space-down/up for keyboard users).
+    const focus = root.activeElement;
+    view.brand.hidden = !expanded;
+    view.launcher.hidden = expanded;
+    view.content.hidden = !expanded;
+    view.summary.textContent = result.available
+      ? `${result.available} empty contact ${result.available === 1 ? "field" : "fields"}. Other questions stay manual.`
+      : result.resumeAvailable
+        ? "Resume attachment available."
+        : "";
+    view.summary.hidden = !view.summary.textContent;
+    view.connect.hidden = connection;
+    view.fill.hidden = !connection || !result.available;
+    view.resume.hidden = !connection || !result.resumeAvailable;
+    view.resume.classList.toggle("secondary", !!result.available);
+    view.review.hidden = !connection || !result.questions.length;
+    view.undo.hidden = !result.undoAvailable;
+    view.status.hidden = !notice || Date.now() >= noticeUntil;
+    if (view.status.textContent !== notice) view.status.textContent = notice;
+    for (const action of [
+      view.launcher,
+      view.connect,
+      view.fill,
+      view.resume,
+      view.review,
+      view.undo,
+    ])
+      action.disabled = busy;
+    if (expanded && focus?.hidden)
+      [...view.content.querySelectorAll("button")]
+        .find((action) => !action.hidden && !action.disabled)
+        ?.focus({ preventScroll: true });
+  }
+  let signature = "";
+  async function scan() {
+    if (
+      stopped ||
+      !enabled ||
+      document.hidden ||
+      dismissedUrl === location.href
+    )
+      return;
+    lastScan = performance.now();
+    const atUrl = location.href;
+    const result = await inspect();
+    if (stopped || atUrl !== location.href) return;
+    if (
+      result.error ||
+      (!result.available &&
+        !result.resumeAvailable &&
+        !result.undoAvailable &&
+        !busy &&
+        Date.now() >= noticeUntil)
+    ) {
+      remove();
+      signature = "";
+      return;
+    }
+    const next = JSON.stringify([
+      result.available,
+      result.resumeAvailable,
+      result.undoAvailable,
+      result.questions.length,
+      expanded,
+      busy,
+      connection,
+      notice,
+      Date.now() < noticeUntil,
+    ]);
+    if (next !== signature || !host?.isConnected) {
+      signature = next;
+      render(result);
+    }
+  }
+  function schedule() {
+    if (stopped || timer || document.hidden) return;
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        void scan();
+      },
+      Math.max(80, 200 - (performance.now() - lastScan)),
+    );
+  }
+  async function resume() {
+    if (stopped || document.hidden) return;
+    if (lastUrl !== location.href) {
+      lastUrl = location.href;
+      notice = "";
+      noticeUntil = 0;
+      expanded = false;
+      remove();
+    }
+    try {
+      const result = await send("availability");
+      if (!result?.enabled) {
+        stop();
+        return;
+      }
+      enabled = true;
+      connection = result.connected;
+      schedule();
+    } catch {
+      stop();
+    }
+  }
+  const observer = new MutationObserver((records) => {
+    if (
+      records.some(
+        (record) =>
+          record.target !== host &&
+          !host?.contains(record.target) &&
+          (record.type === "attributes" ||
+            [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node.nodeType === 1 && node !== host,
+            )),
+      )
+    )
+      schedule();
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [
+      "hidden",
+      "inert",
+      "aria-hidden",
+      "disabled",
+      "readonly",
+      "class",
+      "style",
+      "id",
+      "name",
+      "type",
+    ],
+  });
+  document.addEventListener("input", schedule, true);
+  document.addEventListener("change", schedule, true);
+  document.addEventListener("visibilitychange", resume);
+  window.addEventListener("popstate", resume);
+  // SPA pushState does not emit popstate. Compare URLs only, never poll the DOM.
+  const navigation = setInterval(() => {
+    if (location.href !== lastUrl) void resume();
+  }, 500);
+  function onMessage(message) {
+    if (message?.type === "permissions-changed") void resume();
+  }
+  chrome.runtime.onMessage.addListener(onMessage);
+  void resume();
+}

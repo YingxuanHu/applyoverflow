@@ -27,9 +27,12 @@ export default async function TrackedApplicationPage({
 
   return (
     <div className="app-page space-y-4">
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Link className="text-sm text-muted-foreground hover:text-foreground" href="/applications">
           &larr; Back to applications
+        </Link>
+        <Link className="text-sm text-primary" href={`/applications/${id}/review`}>
+          Application assistant
         </Link>
       </div>
 

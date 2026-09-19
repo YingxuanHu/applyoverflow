@@ -13,6 +13,8 @@
 # testing
 /coverage
 /output/playwright/
+/output/extension/
+/public/downloads/applyoverflow-assistant.zip
 /output/pdf-smoke/
 /.playwright-cli/
 

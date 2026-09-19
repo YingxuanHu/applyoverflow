@@ -153,6 +153,13 @@ export default async function SettingsPage() {
           email={user.email}
           sessions={security.sessions}
         />
+        <Link
+          className="mt-4 inline-flex items-center gap-2 text-sm text-primary"
+          href="/settings/extension"
+        >
+          <Link2 className="h-4 w-4" />
+          Application assistant &amp; remembered answers
+        </Link>
       </section>
 
       {/* Notifications */}

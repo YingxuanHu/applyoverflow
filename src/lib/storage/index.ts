@@ -240,6 +240,60 @@ export async function readStoredFile(storageKey: string): Promise<Buffer | null>
   return downloadRemoteFile(storageKey);
 }
 
+/** Bounded in-memory transfer; no temporary file or second persistent copy. */
+export async function readStoredFileBounded(
+  storageKey: string,
+  maxBytes: number
+): Promise<Buffer | null> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new Error("Invalid file limit");
+  }
+  const collect = async (stream: AsyncIterable<Uint8Array>) => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of stream) {
+      size += chunk.byteLength;
+      if (size > maxBytes) throw new Error("Stored file exceeds transfer limit");
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  };
+  const { open } = await loadFsPromises();
+  let handle;
+  try {
+    handle = await open(resolvePath(storageKey), "r");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (handle) {
+    try {
+      if ((await handle.stat()).size > maxBytes) {
+        throw new Error("Stored file exceeds transfer limit");
+      }
+      return await collect(handle.createReadStream({ end: maxBytes, autoClose: false }));
+    } finally {
+      await handle.close();
+    }
+  }
+  if (!getStorageReadiness().configured) return null;
+  const { client, bucket } = getStorageClient();
+  try {
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: storageKey,
+        Range: `bytes=0-${maxBytes}`,
+      }),
+      { abortSignal: AbortSignal.timeout(15_000) }
+    );
+    if (!response.Body) return null;
+    return await collect(response.Body as AsyncIterable<Uint8Array>);
+  } catch (error) {
+    if (isMissingStorageObjectError(error)) return null;
+    throw error;
+  }
+}
+
 /**
  * Delete a stored file.
  *
