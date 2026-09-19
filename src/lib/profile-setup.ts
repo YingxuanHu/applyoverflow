@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getSafeSignInCallback } from "./auth-return-path";
+import { historyDatesSchema } from "./profile-history";
 
 export const ONBOARDING_KEY = "profile-onboarding-v1";
 export const JOB_GOALS_KEY = "job-goals-v1";
@@ -37,6 +38,8 @@ export const setupProfileSchema = z
     contact: z
       .object({
         fullName: text(160),
+        givenName: text(100).optional(),
+        familyName: text(100).optional(),
         email: text(160),
         phone: text(80),
         location: text(140),
@@ -58,6 +61,7 @@ export const setupProfileSchema = z
           title: text(140),
           company: text(140),
           time: text(100),
+          dates: historyDatesSchema.optional(),
           location: text(140),
           description: text(3000),
         }),
@@ -69,6 +73,7 @@ export const setupProfileSchema = z
           school: text(160),
           degree: text(160),
           time: text(100),
+          dates: historyDatesSchema.optional(),
           location: text(140),
           description: text(3000),
         }),

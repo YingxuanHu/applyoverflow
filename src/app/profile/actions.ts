@@ -10,6 +10,7 @@ import {
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
+import { historyValidationError } from "@/lib/profile-history";
 import {
   buildProfileTextCopies,
   normalizeContact,
@@ -195,8 +196,12 @@ export async function saveProfile(
   const legacyEducationText = String(formData.get("educationText") ?? "").trim();
   const contact = normalizeContact(parseJsonPayload(formData.get("contactJson")));
   const skills = normalizeSkills(parseJsonPayload(formData.get("skillsJson")));
-  const educations = normalizeEducations(parseJsonPayload(formData.get("educationsJson")));
-  const experiences = normalizeExperiences(parseJsonPayload(formData.get("experiencesJson")));
+  const rawEducations = parseJsonPayload(formData.get("educationsJson"));
+  const rawExperiences = parseJsonPayload(formData.get("experiencesJson"));
+  const historyError = historyValidationError(rawExperiences) || historyValidationError(rawEducations);
+  if (historyError) return { error: historyError, success: null };
+  const educations = normalizeEducations(rawEducations);
+  const experiences = normalizeExperiences(rawExperiences);
   const projects = normalizeProjects(parseJsonPayload(formData.get("projectsJson")));
 
   if (headline.length > 200) {

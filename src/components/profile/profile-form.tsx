@@ -1,6 +1,8 @@
 "use client";
 
-import { type ReactNode, startTransition, useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { HistoryDatesFields } from "./history-dates-fields";
+
+import { type ReactNode, startTransition, useActionState, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 
 import { saveProfile } from "@/app/profile/actions";
@@ -164,6 +166,8 @@ function ProfileSection({
     <section className="border-t border-border/60 py-3 first:border-t-0 first:pt-0 sm:py-4">
       <div className="flex items-start justify-between gap-3 sm:gap-4">
         <button
+          aria-expanded={isOpen}
+          aria-controls={`profile-section-${id}`}
           className="min-w-0 flex-1 text-left"
           onClick={() => setActiveSection(isOpen ? null : id)}
           type="button"
@@ -178,6 +182,8 @@ function ProfileSection({
           </div>
         </button>
         <button
+          aria-expanded={isOpen}
+          aria-controls={`profile-section-${id}`}
           className="rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
           onClick={() => setActiveSection(isOpen ? null : id)}
           type="button"
@@ -186,7 +192,7 @@ function ProfileSection({
         </button>
       </div>
 
-      <div className={isOpen ? "mt-3 sm:mt-4" : "hidden"}>{children}</div>
+      <div id={`profile-section-${id}`} className={isOpen ? "mt-3 sm:mt-4" : "hidden"}>{children}</div>
     </section>
   );
 }
@@ -214,6 +220,7 @@ function normalizeExperiencesSnapshot(experiences: ProfileExperience[]) {
     .map((entry) => ({
       title: trimmed(entry.title),
       time: trimmed(entry.time),
+      dates: entry.dates,
       company: trimmed(entry.company),
       location: trimmed(entry.location),
       description: entry.description.trim(),
@@ -234,6 +241,7 @@ function normalizeEducationsSnapshot(educations: ProfileEducation[]) {
       school: trimmed(entry.school),
       degree: trimmed(entry.degree),
       time: trimmed(entry.time),
+      dates: entry.dates,
       location: trimmed(entry.location),
       description: entry.description.trim(),
     }))
@@ -301,7 +309,12 @@ function serializeProfileSnapshot(input: {
   });
 }
 
+const subscribeToHydration = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
+
 export function ProfileForm({ initialValues }: ProfileFormProps) {
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientReady, serverReady);
   const initialState = { error: null, success: null };
   const [state, formAction, isPending] = useActionState(saveProfile, initialState);
   const { notify } = useNotifications();
@@ -442,7 +455,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   }
 
   return (
-    <div className="mt-3 sm:mt-5">
+    <fieldset disabled={!hydrated || isPending} className="mt-3 min-w-0 sm:mt-5">
       <input type="hidden" name="contactJson" value={contactJson} />
       <input type="hidden" name="skillsJson" value={skillsJson} />
       <input type="hidden" name="educationsJson" value={educationsJson} />
@@ -572,10 +585,12 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
           </div>
           <details className="sm:col-span-2">
             <summary className="cursor-pointer py-2 text-sm font-medium">
-              Mailing address (optional)
+              Application details (optional)
             </summary>
             <div className="grid gap-4 pt-3 sm:grid-cols-2">
               {([
+                ["givenName", "Given name", 100],
+                ["familyName", "Family name", 100],
                 ["streetAddress", "Street address", 200],
                 ["addressLine2", "Apartment or unit", 120],
                 ["city", "City", 100],
@@ -703,16 +718,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <FieldLabel htmlFor={`experience-time-${index}`}>Time</FieldLabel>
-                  <Input
-                    id={`experience-time-${index}`}
-                    onChange={(event) => updateExperience(index, "time", event.target.value)}
-                    placeholder="MM-YYYY - MM-YYYY"
-                    type="text"
-                    value={entry.time}
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <FieldLabel htmlFor={`experience-company-${index}`}>Company</FieldLabel>
                   <Input
                     id={`experience-company-${index}`}
@@ -732,6 +737,10 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                     value={entry.location}
                   />
                 </div>
+              </div>
+              <div className="mt-3">
+                <HistoryDatesFields value={entry} currentLabel="I currently work here"
+                  onChange={(dates) => setExperiences((current) => current.map((item, i) => i === index ? { ...item, dates: undefined, ...dates } : item))} />
               </div>
               <div className="mt-3 space-y-1.5">
                 <FieldLabel htmlFor={`experience-description-${index}`}>Description</FieldLabel>
@@ -804,16 +813,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <FieldLabel htmlFor={`education-time-${index}`}>Time</FieldLabel>
-                  <Input
-                    id={`education-time-${index}`}
-                    onChange={(event) => updateEducation(index, "time", event.target.value)}
-                    placeholder="MM-YYYY - MM-YYYY"
-                    type="text"
-                    value={entry.time}
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <FieldLabel htmlFor={`education-location-${index}`}>Location</FieldLabel>
                   <Input
                     id={`education-location-${index}`}
@@ -823,6 +822,10 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                     value={entry.location}
                   />
                 </div>
+              </div>
+              <div className="mt-3">
+                <HistoryDatesFields value={entry} currentLabel="I currently study here"
+                  onChange={(dates) => setEducations((current) => current.map((item, i) => i === index ? { ...item, dates: undefined, ...dates } : item))} />
               </div>
               <div className="mt-3 space-y-1.5">
                 <FieldLabel htmlFor={`education-description-${index}`}>Description</FieldLabel>
@@ -952,6 +955,6 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         </p>
         {state.error ? <p className="text-xs text-destructive">{state.error}</p> : null}
       </div>
-    </div>
+    </fieldset>
   );
 }

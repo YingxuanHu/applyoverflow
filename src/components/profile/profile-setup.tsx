@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { JobGoalsFields } from "./job-goals-form";
+import { HistoryDatesFields } from "./history-dates-fields";
+import { historyValidationError, type ProfileHistory } from "@/lib/profile-history";
 import {
   makeEmptyEducation,
   makeEmptyExperience,
@@ -32,6 +34,9 @@ import {
 } from "@/lib/profile-setup";
 
 const STEPS = ["Resume", "Your details", "Job interests"];
+const subscribeToHydration = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
 const ADDRESS_FIELDS = [
   ["streetAddress", "Street address", "address-line1"],
   ["addressLine2", "Apartment or unit", "address-line2"],
@@ -58,6 +63,7 @@ export function ProfileSetup({
   profileChanged: boolean;
 }) {
   const router = useRouter();
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientReady, serverReady);
   const [step, setStep] = useState(initialState.step);
   const [draft, setDraft] = useState(initialState.draft ?? initialProfile);
   const [goals, setGoals] = useState(initialState.goals ?? initialGoals);
@@ -83,6 +89,11 @@ export function ProfileSetup({
     nextStep = step,
   ) {
     if (busy.current) return;
+    const historyError = historyValidationError(draft.experiences) || historyValidationError(draft.educations);
+    if (historyError) {
+      setError(historyError);
+      return;
+    }
     busy.current = true;
     setPending(true);
     setError("");
@@ -178,7 +189,7 @@ export function ProfileSetup({
         <Button
           variant="ghost"
           size="sm"
-          disabled={pending}
+          disabled={!hydrated || pending}
           onClick={() => persist("defer")}
         >
           Finish later
@@ -236,7 +247,7 @@ export function ProfileSetup({
         }}
       >
         <fieldset
-          disabled={pending}
+          disabled={!hydrated || pending}
           className="min-w-0 space-y-5 disabled:opacity-70"
         >
           {step === 0 ? (
@@ -377,6 +388,7 @@ export function ProfileSetup({
               </details>
               <HistorySection
                 title="Work experience"
+                currentLabel="I currently work here"
                 items={draft.experiences}
                 fields={[
                   ["title", "Job title"],
@@ -390,6 +402,7 @@ export function ProfileSetup({
               />
               <HistorySection
                 title="Education"
+                currentLabel="I currently study here"
                 items={draft.educations}
                 fields={[
                   ["school", "School"],
@@ -474,7 +487,7 @@ export function ProfileSetup({
               <Button
                 type="button"
                 variant="ghost"
-                disabled={pending}
+                disabled={!hydrated || pending}
                 onClick={() => persist("save", step - 1)}
               >
                 <ArrowLeft />
@@ -497,7 +510,7 @@ export function ProfileSetup({
             </p>
           </div>
           {step > 0 ? (
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={!hydrated || pending}>
               {step === 2 ? "Finish setup" : "Confirm details"}
               <ArrowRight />
             </Button>
@@ -517,18 +530,20 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function HistorySection<T extends Record<string, string>>({
+function HistorySection<T extends ProfileHistory>({
   title,
   items,
   fields,
   onChange,
   empty,
+  currentLabel,
 }: {
   title: string;
   items: T[];
   fields: [keyof T & string, string][];
   onChange: (items: T[]) => void;
   empty: () => T;
+  currentLabel?: string;
 }) {
   return (
     <details className="border-t border-border py-4">
@@ -552,12 +567,16 @@ function HistorySection<T extends Record<string, string>>({
             {fields.map(([key, label]) => (
               <div
                 key={key}
-                className={key === "description" ? "sm:col-span-2" : ""}
+                className={key === "description" || (key === "time" && currentLabel) ? "sm:col-span-2" : ""}
               >
+                {key === "time" && currentLabel ? (
+                  <HistoryDatesFields value={item} currentLabel={currentLabel}
+                    onChange={(dates) => onChange(items.map((entry, i) => i === index ? { ...entry, dates: undefined, ...dates } : entry))} />
+                ) : (
                 <Field label={label}>
                   {key === "description" ? (
                     <Textarea
-                      value={item[key]}
+                      value={String(item[key] ?? "")}
                       maxLength={3000}
                       rows={3}
                       onChange={(event) =>
@@ -572,7 +591,7 @@ function HistorySection<T extends Record<string, string>>({
                     />
                   ) : (
                     <Input
-                      value={item[key]}
+                      value={String(item[key] ?? "")}
                       maxLength={
                         key === "time"
                           ? 100
@@ -594,6 +613,7 @@ function HistorySection<T extends Record<string, string>>({
                     />
                   )}
                 </Field>
+                )}
               </div>
             ))}
             <Button

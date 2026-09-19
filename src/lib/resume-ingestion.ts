@@ -1,4 +1,5 @@
 import "server-only";
+import { historyPeriodsMatch } from "@/lib/profile-history";
 
 import { toFile } from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
@@ -874,8 +875,9 @@ function mergeProjects(
 
 function mergeExperience(existing: ProfileExperience, incoming: ProfileExperience): ProfileExperience {
   return {
+    ...existing,
     title: mergeField(existing.title, incoming.title),
-    time: mergeField(existing.time, incoming.time),
+    time: existing.dates ? existing.time : mergeField(existing.time, incoming.time),
     company: mergeField(existing.company, incoming.company),
     location: mergeField(existing.location, incoming.location),
     description: mergeLongText(existing.description, incoming.description),
@@ -884,9 +886,10 @@ function mergeExperience(existing: ProfileExperience, incoming: ProfileExperienc
 
 function mergeEducation(existing: ProfileEducation, incoming: ProfileEducation): ProfileEducation {
   return {
+    ...existing,
     school: mergeField(existing.school, incoming.school),
     degree: mergeField(existing.degree, incoming.degree),
-    time: mergeField(existing.time, incoming.time),
+    time: existing.dates ? existing.time : mergeField(existing.time, incoming.time),
     location: mergeField(existing.location, incoming.location),
     description: mergeLongText(existing.description, incoming.description),
   };
@@ -938,17 +941,13 @@ function splitDescriptionLines(value: string) {
 function isSameExperience(left: ProfileExperience, right: ProfileExperience) {
   const sameCompany = sameComparable(left.company, right.company);
   const sameTitle = sameComparable(left.title, right.title);
-  const sameTime = sameComparable(left.time, right.time);
-
-  return (sameCompany && sameTitle && sameTime) || (sameCompany && sameTitle);
+  return sameCompany && sameTitle && historyPeriodsMatch(left, right);
 }
 
 function isSameEducation(left: ProfileEducation, right: ProfileEducation) {
   const sameSchool = sameComparable(left.school, right.school);
   const sameDegree = sameComparable(left.degree, right.degree);
-  const sameTime = sameComparable(left.time, right.time);
-
-  return (sameSchool && sameDegree && sameTime) || (sameSchool && sameDegree);
+  return sameSchool && sameDegree && historyPeriodsMatch(left, right);
 }
 
 function isSameProject(left: ProfileProject, right: ProfileProject) {

@@ -65,8 +65,10 @@ async function getPolicySession(requestHeaders: Headers) {
 }
 
 const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+  // Next.js uses headers() to opt out of prerendering. Do not turn that
+  // framework signal into an unauthenticated session in the catch below.
+  const requestHeaders = await headers();
   try {
-    const requestHeaders = await headers();
     const policySession = await getPolicySession(requestHeaders);
 
     if (

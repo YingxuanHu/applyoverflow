@@ -5,6 +5,8 @@ import { once } from "node:events";
 import { prisma } from "../../src/lib/db";
 import { isLocalDevelopmentDatabaseUrl } from "../../src/lib/local-development-auth";
 import { importUploadedResumeForProfile } from "../../src/lib/profile-resume-service";
+import { ingestResumeIntoProfile } from "../../src/lib/resume-ingestion";
+import { buildProfileFormValues } from "../../src/lib/profile";
 import {
   INITIAL_ONBOARDING,
   ONBOARDING_KEY,
@@ -71,6 +73,14 @@ async function main() {
     });
   const storageKeys: string[] = [];
   try {
+    const history = buildProfileFormValues({
+      experiencesJson: [{ title: "Financial Analyst", company: "Example Corp", time: "2016 - 2018", dates: { start: "2016", end: "2018", current: false }, description: "Earlier role" }],
+    });
+    const imported = await ingestResumeIntoProfile({ existingProfile: history, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
+    assert.equal(imported.mergedProfile.experiences.length, 2, "a later stint at the same employer remains separate");
+    assert.deepEqual(imported.mergedProfile.experiences[0].dates, history.experiences[0].dates, "import preserves user-entered dates");
+    const repeated = await ingestResumeIntoProfile({ existingProfile: imported.mergedProfile, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
+    assert.equal(repeated.mergedProfile.experiences.length, 2, "repeated import does not create a third stint");
     await assert.rejects(
       upload(0),
       /Setup changed/,

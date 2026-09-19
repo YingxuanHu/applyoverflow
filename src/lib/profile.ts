@@ -1,8 +1,10 @@
+import { historyDateText, readHistoryDates, type ProfileHistory } from "./profile-history";
+
 export type ProfileSkill = {
   name: string;
 };
 
-export type ProfileExperience = {
+export type ProfileExperience = ProfileHistory & {
   title: string;
   time: string;
   company: string;
@@ -10,7 +12,7 @@ export type ProfileExperience = {
   description: string;
 };
 
-export type ProfileEducation = {
+export type ProfileEducation = ProfileHistory & {
   school: string;
   degree: string;
   time: string;
@@ -20,6 +22,8 @@ export type ProfileEducation = {
 
 export type ProfileContact = {
   fullName: string;
+  givenName?: string;
+  familyName?: string;
   email: string;
   phone: string;
   location: string;
@@ -176,6 +180,7 @@ export function normalizeExperiences(value: unknown): ProfileExperience[] {
     const entry = {
       title: trimmedText(objectValue.title, 140),
       time: profileDateText(objectValue),
+      ...(readHistoryDates(objectValue.dates) ? { dates: readHistoryDates(objectValue.dates) } : {}),
       company: trimmedText(objectValue.company, 140),
       location: trimmedText(objectValue.location, 140),
       description: trimmedText(objectValue.description, 3000),
@@ -243,6 +248,7 @@ export function normalizeEducations(value: unknown): ProfileEducation[] {
       school: trimmedText(objectValue.school, 160),
       degree: trimmedText(objectValue.degree, 160),
       time: profileDateText(objectValue),
+      ...(readHistoryDates(objectValue.dates) ? { dates: readHistoryDates(objectValue.dates) } : {}),
       location: trimmedText(objectValue.location, 140),
       description: trimmedText(objectValue.description, 3000),
     };
@@ -277,6 +283,7 @@ export function normalizeContact(value: unknown): ProfileContact {
     portfolioUrl: trimmedText(objectValue.portfolioUrl, 280),
     ...Object.fromEntries(
       ([
+        ["givenName", 100], ["familyName", 100],
         ["streetAddress", 200], ["addressLine2", 120], ["city", 100],
         ["region", 100], ["postalCode", 30],
       ] as const)
@@ -291,6 +298,8 @@ export function normalizeContact(value: unknown): ProfileContact {
 }
 
 function profileDateText(value: Record<string, unknown>): string {
+  const dates = readHistoryDates(value.dates);
+  if (dates) return historyDateText({ time: "", dates });
   return trimmedText(value.time, 100) || [
     trimmedText(value.startDate, 40),
     value.isCurrent === true ? "Present" : trimmedText(value.endDate, 40),
@@ -361,7 +370,7 @@ export function buildProfileTextCopies(input: {
       .map((entry) =>
         [
           joinNonEmpty([entry.title, entry.company]),
-          joinNonEmpty([entry.time, entry.location]),
+          joinNonEmpty([historyDateText(entry), entry.location]),
           formatEntryDescription(entry.description),
         ]
           .filter(Boolean)
@@ -377,7 +386,7 @@ export function buildProfileTextCopies(input: {
         .map((entry) =>
           [
             joinNonEmpty([entry.school, entry.degree]),
-            joinNonEmpty([entry.time, entry.location]),
+            joinNonEmpty([historyDateText(entry), entry.location]),
             formatEntryDescription(entry.description),
           ]
             .filter(Boolean)

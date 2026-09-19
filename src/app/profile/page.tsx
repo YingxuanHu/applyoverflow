@@ -95,7 +95,6 @@ export default async function ProfilePage() {
   });
 
   const initialValues = buildProfileFormValues(profile, sessionUser);
-  const profileFormKey = profile?.updatedAt?.toISOString() ?? "blank-profile";
   const completeness = buildCompleteness(initialValues);
 
   return (
@@ -198,7 +197,6 @@ export default async function ProfilePage() {
             </div>
           </header>
           <ProfileForm
-            key={profileFormKey}
             initialValues={{
               headline: initialValues.headline,
               summary: initialValues.summary,

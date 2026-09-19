@@ -6,7 +6,7 @@ import {
   UnauthorizedError,
 } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
-import { buildProfileTextCopies, normalizeContact } from "@/lib/profile";
+import { buildProfileTextCopies, normalizeContact, normalizeExperiences, normalizeEducations } from "@/lib/profile";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import {
   ONBOARDING_KEY,
@@ -78,17 +78,21 @@ export async function saveSetup(payload: unknown) {
               "Your profile changed while setup was open. Reload to review your latest profile before finishing.",
           };
         const contact = normalizeContact(input.draft.contact);
+        const history = {
+          experiences: normalizeExperiences(input.draft.experiences),
+          educations: normalizeEducations(input.draft.educations),
+        };
         await tx.userProfile.update({
           where: { id: user.id },
           data: {
             headline: input.draft.headline || null,
             summary: input.draft.summary || null,
-            ...buildProfileTextCopies(input.draft),
+            ...buildProfileTextCopies({ ...input.draft, ...history }),
             ...contactToProfileColumnUpdates(contact),
             contactJson: contact,
             skillsJson: input.draft.skills,
-            experiencesJson: input.draft.experiences,
-            educationsJson: input.draft.educations,
+            experiencesJson: history.experiences,
+            educationsJson: history.educations,
             projectsJson: input.draft.projects,
           },
         });
