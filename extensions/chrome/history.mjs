@@ -157,13 +157,14 @@ export function createHistoryInspector() {
       );
     const emptyGroup = ({ group, fields }) =>
       fields.every(({ field }) => !read(field).trim()) &&
-      ![...group.querySelectorAll("input,textarea,select")].some(
+      ![...group.querySelectorAll('input,textarea,select,button[aria-haspopup="listbox"]')].some(
         (field) =>
           visible(field) &&
+          (custom(field) ? read(field).trim() :
           !["hidden", "button", "submit", "reset"].includes(field.type) &&
           (["checkbox", "radio"].includes(field.type)
             ? field.checked
-            : field.value.trim()),
+            : field.value.trim())),
       );
     const available = groups.some(emptyGroup);
     const validUndo = (entry) =>

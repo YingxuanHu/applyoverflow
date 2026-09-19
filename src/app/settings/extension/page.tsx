@@ -79,7 +79,7 @@ export default async function ExtensionSettingsPage() {
             separate confirmation. Supported embedded forms use their own hint
             after site access is enabled; reload the employer page if needed.
             The toolbar can also fill clearly labelled contact fields on other
-            application sites and one selected work or education entry. Custom
+            application sites and one selected work or education entry. Unsupported
             widgets and ambiguous fields remain manual. Applications
             are never submitted automatically.
           </p>

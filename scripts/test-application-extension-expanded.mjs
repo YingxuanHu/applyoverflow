@@ -276,6 +276,10 @@ try {
     assert.equal(await page.locator("#degree").textContent(), "Select One", mutation);
   }
   await load("generic", customEducation);
+  await page.locator("#education").evaluate((group) => group.insertAdjacentHTML("beforeend", '<label>Field of study<button type="button" aria-haspopup="listbox" value="existing">Already selected</button></label>'));
+  assert.match((await inspect("fill-history", degreePayload)).error, /empty work/);
+  assert.equal(await page.locator("#school").inputValue(), "", "a populated custom field makes this an existing row");
+  await load("generic", customEducation);
   await inspect("fill-history", degreePayload);
   await page.locator("#degree").click();
   await page.getByRole("option", { name: "Master of Science", exact: true }).click();
