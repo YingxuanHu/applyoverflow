@@ -153,7 +153,8 @@ export function buildSearchText(input: {
     input.location,
     input.roleFamily,
     input.shortSummary,
-    input.description.slice(0, 4_000),
+    // A cutoff inside an emoji leaves a lone surrogate that PostgreSQL JSON rejects.
+    input.description.slice(0, 4_000).replace(/[\uD800-\uDBFF]$/, ""),
   ]
     .filter(Boolean)
     .join("\n");

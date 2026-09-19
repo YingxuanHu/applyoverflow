@@ -139,6 +139,15 @@ export function shouldExemptFromGrowthPenalties(
 export const RETENTION_CLAIM_STALENESS_HOURS =
   RETENTION_EVIDENCE_WINDOW_HOURS / 2;
 
+// Daily fairness is separate from the seven-day evidence-retention quota.
+// Reserve a fifth of remaining slots for due tasks that priority traffic keeps
+// outbidding, without increasing the batch size or bypassing source cooldowns.
+export const OVERDUE_POLL_CLAIM_HOURS = 24;
+export function computeOverduePollClaimLimit(remaining: number): number {
+  if (!Number.isFinite(remaining) || remaining < 1) return 0;
+  return Math.max(1, Math.floor(remaining * 0.2));
+}
+
 const DEFAULT_RETENTION_CLAIM_SHARE = 0.4;
 
 function readRetentionClaimShare() {

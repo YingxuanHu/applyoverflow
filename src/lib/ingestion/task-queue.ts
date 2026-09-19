@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { ReconcileGate } from "@/lib/ingestion/readiness-reconcile-gate";
 import {
   RETENTION_CLAIM_STALENESS_HOURS,
+  OVERDUE_POLL_CLAIM_HOURS,
+  computeOverduePollClaimLimit,
   computeRetentionClaimSplit,
 } from "@/lib/ingestion/retention-poll-policy";
 import {
@@ -705,6 +707,39 @@ export async function enqueueUniqueSourceTask(input: {
   return enqueueSourceTask(input);
 }
 
+export function buildOverdueConnectorPollClaimQuery(
+  limit: number,
+  now: Date,
+  excludedConnectorNames: string[] = [],
+) {
+  const excluded = excludedConnectorNames.length
+    ? Prisma.sql`AND cs."connectorName" NOT IN (${Prisma.join(excludedConnectorNames)})`
+    : Prisma.empty;
+  const cutoff = new Date(now.getTime() - OVERDUE_POLL_CLAIM_HOURS * 60 * 60 * 1000);
+  return Prisma.sql`
+    WITH overdue_tasks AS (
+      SELECT st.id
+      FROM "SourceTask" st
+      JOIN "CompanySource" cs ON cs.id = st."companySourceId"
+      WHERE st.kind = 'CONNECTOR_POLL'::"SourceTaskKind"
+        AND st.status = 'PENDING'::"SourceTaskStatus"
+        AND st."notBeforeAt" <= ${cutoff}
+        AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+        AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
+        ${excluded}
+      ORDER BY st."notBeforeAt" ASC, st."priorityScore" DESC, st.id ASC
+      LIMIT ${limit}
+      FOR UPDATE OF st SKIP LOCKED
+    )
+    UPDATE "SourceTask" st
+    SET status = 'RUNNING'::"SourceTaskStatus", "startedAt" = ${now},
+        "attemptCount" = st."attemptCount" + 1
+    FROM overdue_tasks
+    WHERE st.id = overdue_tasks.id
+    RETURNING st.id
+  `;
+}
+
 export async function claimSourceTasks(
   kind: SourceTaskKind,
   limit: number,
@@ -823,7 +858,16 @@ export async function claimSourceTasks(
     `);
   }
 
-  const generalLimit = Math.max(0, limit - retentionClaimed.length);
+  const remaining = Math.max(0, limit - retentionClaimed.length);
+  const overdueLimit = kind === "CONNECTOR_POLL" && !filters.companySourceIds
+    ? computeOverduePollClaimLimit(remaining)
+    : 0;
+  const overdueClaimed = overdueLimit > 0
+    ? await prisma.$queryRaw<Array<{ id: string }>>(
+        buildOverdueConnectorPollClaimQuery(overdueLimit, now, excludedConnectorNames)
+      )
+    : [];
+  const generalLimit = Math.max(0, remaining - overdueClaimed.length);
 
   // URL_HEALTH drains oldest-first instead of priority-first. Unlike
   // CONNECTOR_POLL, its priorityScore spread is not meaningful: every enqueue
@@ -866,7 +910,7 @@ export async function claimSourceTasks(
   `)
       : [];
 
-  const claimCandidates = [...retentionClaimed, ...generalClaimed];
+  const claimCandidates = [...retentionClaimed, ...overdueClaimed, ...generalClaimed];
 
   if (claimCandidates.length === 0) {
     return [];

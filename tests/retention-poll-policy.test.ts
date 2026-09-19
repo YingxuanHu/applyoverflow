@@ -5,12 +5,21 @@ import {
   RETENTION_CLAIM_STALENESS_HOURS,
   RETENTION_EVIDENCE_WINDOW_HOURS,
   computeRetentionClaimSplit,
+  computeOverduePollClaimLimit,
   computeRetentionPriorityBoost,
   computeRetentionUrgency,
   shouldExemptFromGrowthPenalties,
 } from "@/lib/ingestion/retention-poll-policy";
 
 const NOW = new Date("2026-07-09T12:00:00.000Z");
+
+test("overdue quota preserves capacity for priority traffic without growing the batch", () => {
+  assert.equal(computeOverduePollClaimLimit(72), 14);
+  assert.equal(computeOverduePollClaimLimit(5), 1);
+  assert.equal(computeOverduePollClaimLimit(2), 1);
+  assert.equal(computeOverduePollClaimLimit(1), 1);
+  for (const value of [0, -1, NaN, Infinity]) assert.equal(computeOverduePollClaimLimit(value), 0);
+});
 
 function hoursAgo(hours: number) {
   return new Date(NOW.getTime() - hours * 60 * 60 * 1000);

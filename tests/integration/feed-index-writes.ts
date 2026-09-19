@@ -12,14 +12,18 @@ async function main() {
   assert.ok(!process.env.DATABASE_URL_DO_PRIVATE);
   const id = `indexwrite-${randomUUID()}`;
   try {
+    const broken = JSON.stringify({ description: ("x".repeat(3999) + "\uD83D\uDCB6").slice(0, 4000) });
+    await assert.rejects(() => prisma.$queryRaw`SELECT ${broken}::jsonb`, /invalid input syntax for type json/);
     const job = await prisma.jobCanonical.create({ data: {
       id, title: "Software Engineer", company: "Fixture Labs", location: "Toronto, Ontario, Canada", region: "CA",
       workMode: "REMOTE", employmentType: "FULL_TIME", roleFamily: "Engineering", applyUrl: `https://example.test/jobs/${id}`,
-      description: "Build services and write automated tests. Work with product managers to design reliable software. Review code and maintain documentation. " + randomBytes(12000).toString("hex"),
+      description: "Build services and write automated tests. Work with product managers to design reliable software. Review code and maintain documentation. ".padEnd(3999, "x") + "\uD83D\uDCB6" + randomBytes(12000).toString("hex"),
       shortSummary: "Build reliable services.", postedAt: new Date(), lastSourceSeenAt: new Date(), status: "LIVE", availabilityScore: 100,
     } });
     await upsertJobFeedIndex(id);
     const projection = await prisma.jobFeedIndex.findUniqueOrThrow({ where: { canonicalJobId: id } });
+    assert.equal(projection.searchText.isWellFormed(), true, "truncation must remain valid PostgreSQL JSON");
+    assert.equal((await prisma.jobCanonical.findUniqueOrThrow({ where: { id } })).description, job.description, "indexing must not rewrite source text");
     const table = await prisma.$queryRaw<Array<{ name: string }>>`SELECT reltoastrelid::regclass::text AS name FROM pg_class WHERE oid = '"JobFeedIndex"'::regclass`;
     assert.match(table[0].name, /^pg_toast\.pg_toast_[0-9]+$/);
     const toastIds = () => prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT DISTINCT chunk_id::text AS id FROM ${Prisma.raw(table[0].name)} ORDER BY id`);
