@@ -594,6 +594,39 @@ test("salary extraction preserves status, source, period, and annualized values"
   );
 });
 
+test("salary extraction separates bilingual endpoints and benefit payment periods", () => {
+  const extract = (description: string) => extractSalaryV2({
+    salaryMin: null, salaryMax: null, salaryCurrency: null, description, regionHint: "CA",
+  });
+  const bilingual = extract("Salary Range: 90,000/90 000 - 140,000/140 000 Job Category: IT - Application Development");
+  assert.equal(bilingual.min, 90_000);
+  assert.equal(bilingual.max, 140_000);
+  assert.equal(bilingual.period, "year");
+  assert.match(bilingual.rawText!, /90,000\/90 000/);
+  for (const description of [
+    "Pay Range $116,025—$143,325 USD Benefits Monthly stipends for cell phone use and commuting costs",
+    "Monthly stipends for commuting, plus annual salary: $116,025—$143,325 USD",
+    "<p>Pay Range</p><p>$116,025—$143,325 USD</p><h3>Benefits</h3><ul><li>401(k) with company match</li><li>Monthly stipends for commuting</li></ul>",
+  ]) {
+    const result = extract(description);
+    assert.equal(result.period, "year", description);
+    assert.equal(result.annualizedMin, 116_025);
+    assert.equal(result.annualizedMax, 143_325);
+  }
+  for (const description of ["Monthly salary: CAD 8,000 - 10,000", "Salary: CAD 8,000 - 10,000 per month"]) {
+    const result = extract(description);
+    assert.equal(result.period, "month", description);
+    assert.equal(result.annualizedMax, 120_000);
+  }
+  assert.equal(extract("<p>Annual salary</p><p>CAD 120,000</p>").annualizedMin, 120_000);
+  for (const [amount, unit, expected] of [
+    ["$45 - $55", "hr", "hour"], ["$45 - $55", "hour", "hour"],
+    ["$500 - $600", "day", "day"], ["$2500 - $3000", "week", "week"],
+    ["$8000 - $10000", "month", "month"], ["$90000 - $120000", "yr", "year"],
+  ]) assert.equal(extract(`Pay: ${amount}/${unit}`).period, expected);
+  assert.notEqual(extract("Salary: $8,000 - $100,000 per year").status, "present");
+});
+
 test("work mode extraction uses candidate confidence and handles conflicts", () => {
   const fetchedAt = new Date("2026-06-01T12:00:00.000Z");
   const cases: Array<{

@@ -23,11 +23,11 @@ const ANNUAL_SALARY_FLOOR = 10_000;
 const ANNUAL_SALARY_CEILING = 5_000_000;
 
 const PERIOD_HINTS: Array<{ period: NonNullable<SalaryPeriod>; pattern: RegExp; multiplier: number }> = [
-  { period: "hour", pattern: /\b(per\s+hour|\/\s*hour|hourly|per\s+hr|\/\s*hr)\b/i, multiplier: 2080 },
-  { period: "day", pattern: /\b(per\s+day|\/\s*day|daily)\b/i, multiplier: 260 },
-  { period: "week", pattern: /\b(per\s+week|\/\s*week|weekly)\b/i, multiplier: 52 },
-  { period: "month", pattern: /\b(per\s+month|\/\s*month|monthly)\b/i, multiplier: 12 },
-  { period: "year", pattern: /\b(per\s+year|\/\s*year|annually|annual|yearly|base salary range)\b/i, multiplier: 1 },
+  { period: "hour", pattern: /(?:\b(?:per\s+hour|hourly|per\s+hr)|\/\s*(?:hour|hr))\b/i, multiplier: 2080 },
+  { period: "day", pattern: /(?:\b(?:per\s+day|daily)|\/\s*day)\b/i, multiplier: 260 },
+  { period: "week", pattern: /(?:\b(?:per\s+week|weekly)|\/\s*week)\b/i, multiplier: 52 },
+  { period: "month", pattern: /(?:\b(?:per\s+month|monthly)|\/\s*month)\b/i, multiplier: 12 },
+  { period: "year", pattern: /(?:\b(?:per\s+year|annually|annual|yearly|base salary range)|\/\s*(?:year|yr))\b/i, multiplier: 1 },
 ];
 
 export function extractSalaryV2(input: {
@@ -102,18 +102,27 @@ function parseSalarySnippet(
   }
 ): SalaryExtractionV2 | null {
   if (!snippet || BAD_CONTEXT_RE.test(snippet)) return null;
+  const rawText = snippet;
+  // Some bilingual postings repeat each amount with French thousands spacing.
+  // Collapse only numerically identical translations, not currency conversions.
+  snippet = snippet.replace(/(\d[\d,]*)\s*\/\s*(\d{1,3}(?:[ \u00a0\u202f]\d{3})+)\b/g, (all, left: string, right: string) =>
+    Number(left.replace(/,/g, "")) === Number(right.replace(/\s/g, "")) ? left : all,
+  );
   const hasKeyword = SALARY_KEYWORD_RE.test(snippet);
-  const hasRange = RANGE_RE.test(snippet) || RANGE_WITH_PERIOD_RE.test(snippet);
+  const range = snippet.match(RANGE_RE) ?? snippet.match(RANGE_WITH_PERIOD_RE);
+  const hasRange = Boolean(range);
   if (!hasKeyword && !hasRange) return null;
 
-  let amounts = [...snippet.matchAll(MONEY_RE)].map((match) => ({
+  const amountText = range?.[0] ?? snippet;
+  const moneyMatches = [...amountText.matchAll(MONEY_RE)];
+  let amounts = moneyMatches.map((match) => ({
     amount: parseAmountToken(match[3] ?? "", match[4] ?? ""),
     currency: inferCurrencyFromToken(match[1], match[2]),
   }));
   MONEY_RE.lastIndex = 0;
   if (amounts.length < 2 && hasRange && (hasKeyword || MONEY_RE.test(snippet))) {
     MONEY_RE.lastIndex = 0;
-    amounts = [...snippet.matchAll(PLAIN_AMOUNT_RE)]
+    amounts = [...amountText.matchAll(PLAIN_AMOUNT_RE)]
       .filter((match) => !isYearLikeToken(match[0]))
       .slice(0, 2)
       .map((match) => {
@@ -128,18 +137,19 @@ function parseSalarySnippet(
   const numericAmounts = amounts.map((entry) => entry.amount).filter((value): value is number => value != null);
   if (numericAmounts.length === 0) return null;
 
-  const period = detectSalaryPeriod(snippet);
+  const amountStart = range?.index ?? moneyMatches[0]?.index ?? 0;
+  const amountEnd = range
+    ? amountStart + range[0].length
+    : (moneyMatches.at(-1)?.index ?? 0) + (moneyMatches.at(-1)?.[0].length ?? 0);
+  const period = detectSalaryPeriod(snippet, amountStart, amountEnd);
   const multiplier = periodToMultiplier(period);
   const annualized = numericAmounts.map((amount) => Math.round(amount * multiplier));
-  const plausible = annualized.filter(
-    (amount) => amount >= ANNUAL_SALARY_FLOOR && amount <= ANNUAL_SALARY_CEILING
-  );
-  if (plausible.length === 0) return null;
+  if (annualized.some((amount) => amount < ANNUAL_SALARY_FLOOR || amount > ANNUAL_SALARY_CEILING)) return null;
 
   const min = numericAmounts[0] ?? null;
   const max = numericAmounts[1] ?? numericAmounts[0] ?? null;
-  const annualizedMin = plausible[0] ?? null;
-  const annualizedMax = plausible[1] ?? plausible[0] ?? null;
+  const annualizedMin = annualized[0] ?? null;
+  const annualizedMax = annualized[1] ?? annualized[0] ?? null;
   if (!min || !max || !annualizedMin || !annualizedMax || annualizedMax < annualizedMin) {
     return null;
   }
@@ -160,7 +170,7 @@ function parseSalarySnippet(
     period: period ?? "year",
     annualizedMin,
     annualizedMax,
-    rawText: snippet,
+    rawText,
     source: "description_regex",
     status: "present",
     confidence: clamp01(0.58 + (hasKeyword ? 0.18 : 0) + (hasRange ? 0.14 : 0) + (period ? 0.08 : 0)),
@@ -171,14 +181,17 @@ function parseSalarySnippet(
 
 function collectSalarySnippets(raw: string) {
   const normalized = raw
+    .replace(/<\/(?:p|div|li|h[1-6])\s*>|<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[^\S\r\n]+/g, " ")
     .trim();
   const sentences = normalized.split(/(?<=[.!?])\s+|\n+/).map((part) => part.trim()).filter(Boolean);
   const snippets = new Set<string>();
-  for (const sentence of sentences) {
+  for (const [index, sentence] of sentences.entries()) {
     if (SALARY_KEYWORD_RE.test(sentence) || RANGE_RE.test(sentence)) {
       snippets.add(sentence.slice(0, 500));
+      if (sentence.length <= 80 && !/\d/.test(sentence) && sentences[index + 1])
+        snippets.add(`${sentence} ${sentences[index + 1]}`.slice(0, 500));
     }
   }
   if (snippets.size === 0 && (SALARY_KEYWORD_RE.test(normalized) || RANGE_RE.test(normalized))) {
@@ -187,9 +200,19 @@ function collectSalarySnippets(raw: string) {
   return [...snippets];
 }
 
-function detectSalaryPeriod(snippet: string): SalaryPeriod {
+function detectSalaryPeriod(snippet: string, start: number, end: number): SalaryPeriod {
+  const amount = snippet.slice(start, end);
+  const before = snippet.slice(Math.max(0, start - 80), start);
+  const after = snippet.slice(end, end + 80);
+  // Only the amount or an adjacent pay clause can supply its period. Benefits
+  // such as monthly stipends or weekly lunches are not salary evidence.
+  const bridge = /^(?:\s|[:(),/]|\b(?:USD|CAD|EUR|GBP|base|salary|pay|compensation|range|rate|of|is|between|from|in|paid)\b)*$/i;
   for (const hint of PERIOD_HINTS) {
-    if (hint.pattern.test(snippet)) return hint.period;
+    if (hint.pattern.test(amount)) return hint.period;
+    const prefix = before.match(hint.pattern);
+    const suffix = after.match(hint.pattern);
+    if (prefix && bridge.test(before.slice((prefix.index ?? 0) + prefix[0].length))) return hint.period;
+    if (suffix && bridge.test(after.slice(0, suffix.index))) return hint.period;
   }
   return null;
 }
