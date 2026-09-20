@@ -519,6 +519,7 @@ export default async function JobsTopPicksPage({
               }
               hasNextPage={result.hasNextPage}
               placement="top"
+              separator={false}
               searchParams={resolvedSearchParams}
               totalPages={totalPages}
             />

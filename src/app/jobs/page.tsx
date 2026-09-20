@@ -16,6 +16,7 @@ import {
   JobsTextFilterField,
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
+import { JobsBoardActivity } from "@/components/jobs/jobs-board-activity";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { JobsSavedFiltersControl } from "@/components/jobs/jobs-saved-filters-control";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
@@ -37,7 +38,6 @@ import {
   NORMALIZED_INDUSTRY_OPTIONS,
   NORMALIZED_ROLE_CATEGORY_OPTIONS,
 } from "@/lib/job-metadata";
-import { formatPostedAge } from "@/lib/job-display";
 import {
   normalizeJobsStateQuery,
   JOBS_SEARCH_STATE_STORAGE_KEY,
@@ -206,21 +206,13 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       <JobsSectionTabs active="jobs" />
 
       <section aria-label="Job search" className="border-y border-border/60 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <JobsBoardActivity
+            addedToday={jobsResult.summary.addedTodayCount}
+            closedToday={jobsResult.summary.expiredTodayCount + jobsResult.summary.removedTodayCount}
+            updatedAt={ingestionStatus.lastUpdatedAt}
+          >
             <JobsSearchCountHeadline scoped={hasScopedResults} liveJobCount={jobsResult.summary.liveJobCount} />
-            <details className="group min-w-0 text-xs text-muted-foreground sm:text-right">
-              <summary className="flex min-h-7 cursor-pointer list-none items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:justify-end [&::-webkit-details-marker]:hidden">
-                Board activity <ChevronDown aria-hidden="true" className="size-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5">
-                <dt>Live jobs</dt><dd className="tabular-nums">{jobsResult.summary.liveJobCount.toLocaleString()}</dd>
-                <dt>New today</dt><dd className="tabular-nums">{jobsResult.summary.addedTodayCount.toLocaleString()}</dd>
-                <dt>Closed today</dt><dd className="tabular-nums">{(jobsResult.summary.expiredTodayCount + jobsResult.summary.removedTodayCount).toLocaleString()}</dd>
-                <dt>Active connectors</dt><dd className="tabular-nums">{ingestionStatus.activeSourceCount.toLocaleString()}</dd>
-                {ingestionStatus.lastUpdatedAt ? <><dt>Updated</dt><dd>{formatPostedAge(ingestionStatus.lastUpdatedAt)}</dd></> : null}
-              </dl>
-            </details>
-          </div>
+          </JobsBoardActivity>
 
           <div className="mt-3 space-y-3">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -405,6 +397,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               hasNextPage={jobsResult.hasNextPage}
               pageError={pageJumpError}
               placement="top"
+              separator={false}
               searchParams={resolvedSearchParams}
             />
           ) : null}

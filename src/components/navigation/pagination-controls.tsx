@@ -13,6 +13,7 @@ type PaginationControlsProps = {
   hasNextPage: boolean;
   pageError?: string | null;
   placement?: "top" | "bottom";
+  separator?: boolean;
   searchParams: SearchParamsRecord;
   totalPages: number | null;
 };
@@ -25,6 +26,7 @@ export function PaginationControls({
   hasNextPage,
   pageError,
   placement = "bottom",
+  separator = true,
   searchParams,
   totalPages,
 }: PaginationControlsProps) {
@@ -35,13 +37,13 @@ export function PaginationControls({
   const pageInputId = `${ariaLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${placement}-page`;
   const containerClassName =
     placement === "top"
-      ? "mt-2 flex flex-wrap items-center gap-3 border-t border-border/60 pt-2 pb-1"
-      : "mt-5 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4";
+      ? "mt-2 flex flex-wrap items-center gap-3 pt-2 pb-1"
+      : "mt-5 flex flex-wrap items-center gap-3 pt-4";
 
   return (
     <nav
       aria-label={ariaLabel}
-      className={containerClassName}
+      className={`${containerClassName}${separator ? " border-t border-border/60" : ""}`}
     >
       <div className="flex shrink-0 items-center gap-1">
         <PageLink label="Previous page" disabled={!hasPrevious} href={getPageHref(previousPage)}>
