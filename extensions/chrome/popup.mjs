@@ -7,6 +7,55 @@ document.getElementById("privacy").href = `${APP_ORIGIN}/extension/privacy`;
 let history, preview;
 let activeAction = null;
 let refreshTimer;
+function showFields(fields) {
+  const pending = fields.filter(field => field.state === "needed");
+  document.getElementById("fill-progress").hidden = false;
+  document.getElementById("progress-heading").textContent = pending.length ? `${pending.length} to review` : "Supported fields complete";
+  const container = document.getElementById("remaining-fields");
+  container.replaceChildren();
+  for (const field of pending) {
+    const disclosure = document.createElement("details"); disclosure.className = "pending-field";
+    const summary = document.createElement("summary"); summary.textContent = `${field.title || field.label}${field.required ? " *" : ""}`;
+    disclosure.append(summary);
+    const row = document.createElement("form");
+    row.className = "answer-row";
+    const label = document.createElement("label");
+    label.className = "answer-label";
+    label.textContent = `${field.label}${field.required ? " *" : ""}`;
+    const jump = document.createElement("button");
+    jump.type = "button"; jump.className = "field-link"; jump.textContent = "Show on page";
+    jump.addEventListener("click", () => void run("autofill-focus", { id: field.id, label: field.label }));
+    row.append(label);
+    if (field.canAnswer) {
+      const control = document.createElement(field.options?.length ? "select" : field.profileKey ? "input" : "textarea");
+      control.id = `answer-${field.id}`; label.htmlFor = control.id;
+      control.required = true;
+      if (control instanceof HTMLSelectElement) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
+      else if (control instanceof HTMLTextAreaElement) { control.rows = 2; control.maxLength = 3000; }
+      else { control.type = field.profileKey === "email" ? "email" : field.profileKey === "phone" ? "tel" : /Url$/.test(field.profileKey) ? "url" : "text"; control.maxLength = 500; }
+      row.append(control);
+      const remember = document.createElement("input"); remember.type = "checkbox";
+      if (field.canRemember) {
+        const rememberLabel = document.createElement("label"); rememberLabel.className = "remember-answer";
+        rememberLabel.append(remember, document.createTextNode(field.profileKey ? "Save to my profile" : "Reuse for this question at this employer"));
+        row.append(rememberLabel);
+      }
+      const submit = document.createElement("button"); submit.type = "submit"; submit.className = "secondary"; submit.textContent = "Fill answer";
+      row.append(submit);
+      row.addEventListener("submit", event => {
+        event.preventDefault();
+        void run("autofill-answer", { id: field.id, label: field.label, answer: control.value, remember: remember.checked });
+      });
+    } else {
+      const reason = document.createElement("p"); reason.className = "sites";
+      reason.textContent = field.reason || "Complete this field on the employer form."; row.append(reason);
+    }
+    row.append(jump); disclosure.append(row); container.append(disclosure);
+  }
+  document.getElementById("completed-list").replaceChildren(...fields.filter(field => field.state !== "needed").map(field => {
+    const item = document.createElement("li"); item.textContent = `${field.label}: ${field.state === "filled" ? "Filled" : "Kept"}`; return item;
+  }));
+}
 async function run(type, data = {}) {
   clearTimeout(refreshTimer);
   for (const button of document.querySelectorAll("button"))
@@ -37,6 +86,7 @@ async function run(type, data = {}) {
       document.getElementById("account").hidden = true;
     }
     if (result.error) throw new Error(result.error);
+    if (result.fields) showFields(result.fields);
     if (result.history) {
       history = result.history;
       const select = document.getElementById("history-entry");
@@ -80,14 +130,15 @@ async function run(type, data = {}) {
     if (result.pageMessage !== undefined) {
       document.getElementById("page-status").textContent = result.pageMessage;
       document.getElementById("page-status").hidden = false;
-      if (result.form?.historyAvailable)
-        document.getElementById("more-actions").open = true;
     }
     document.getElementById("connect").hidden = result.connected;
     document.getElementById("actions").hidden = !result.connected;
     document.getElementById("disconnect").hidden = !result.connected;
     if (result.undoAvailable !== undefined)
       document.getElementById("undo").hidden = !result.undoAvailable;
+    if (result.autofillUndoAvailable !== undefined)
+      document.getElementById("autofill-undo").hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
+    if (!result.connected) document.getElementById("fill-progress").hidden = true;
     if (result.historyUndoAvailable !== undefined)
       document.getElementById("undo-history").hidden =
         !result.historyUndoAvailable;
@@ -105,6 +156,7 @@ async function run(type, data = {}) {
 for (const type of [
   "connect",
   "fill",
+  "autofill-undo",
   "review",
   "resume",
   "disconnect",
@@ -113,7 +165,7 @@ for (const type of [
   "undo-history",
   "applied-preview",
 ])
-  document.getElementById(type).addEventListener("click", () => void run(type));
+  document.getElementById(type).addEventListener("click", () => void run(type === "fill" ? "autofill" : type));
 void run("status");
 document.getElementById("fill-history").addEventListener("click", () => {
   const entry =

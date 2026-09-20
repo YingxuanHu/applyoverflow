@@ -224,7 +224,7 @@ export function buildProfilePersistenceInput(profile: EditableProfileValues) {
     educations: profile.educations,
     projects: profile.projects,
   });
-  const hasContact = Object.values(profile.contact).some((value) => value.trim().length > 0);
+  const hasContact = Object.values(profile.contact).some((value) => typeof value === "string" && value.trim().length > 0);
 
   return {
     headline: profile.headline.trim() || null,

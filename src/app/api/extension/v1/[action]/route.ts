@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   exchangeExtensionResume,
   requestExtensionResume,
+  getDefaultExtensionResume,
 } from "@/lib/queries/extension-resume";
 import {
   AssistantError,
@@ -21,6 +22,7 @@ import {
   confirmExtensionApplication,
 } from "@/lib/queries/application-assistant";
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
+import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -43,6 +45,9 @@ export async function POST(
         "resume-request",
         "resume",
         "resume-cancel",
+        "resume-default",
+        "autofill-plan",
+        "autofill-answer",
       ].includes(action)
     )
       return json({ error: "Not found" }, 404);
@@ -65,6 +70,10 @@ export async function POST(
       return json({ error: "Too many requests. Try again shortly." }, 429);
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
+    if (action === "autofill-plan")
+      return json(await getAutofillPlan(identity.userId, body.data));
+    if (action === "autofill-answer")
+      return json(await rememberAutofillAnswer(identity.userId, body.data));
     if (action === "history")
       return json(await getExtensionHistory(identity.userId));
     if (action === "history-entry")
@@ -90,6 +99,8 @@ export async function POST(
         );
       if (action === "resume-request")
         return json(await requestExtensionResume(identity, body.data));
+      if (action === "resume-default")
+        return json(await getDefaultExtensionResume(identity, body.data));
       if (action === "resume")
         return json(await exchangeExtensionResume(identity, body.data));
       const { id } = z

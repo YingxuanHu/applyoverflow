@@ -30,18 +30,19 @@ export default function ExtensionPrivacyPage() {
         </h2>
         <p>
           Connecting requires sign-in and your approval. The connection can read
-          your confirmed name, address, email, phone and professional links. Filling
+          your confirmed name, address, email, phone, preferred name, pronouns and professional links. Filling
           happens only after you choose it; existing answers, passwords, legal
           consent and demographic choices are not filled automatically.
         </p>
         <p>
-          Work and education filling requires selecting one saved entry in the
-          extension. Only that entry is shared with the form. Unknown dates and
-          custom dropdowns remain manual; no history rows are added automatically.
+          Autofill shares up to ten work entries and ten education entries to fill
+          existing empty rows. You can also select a single entry in More actions.
+          Unknown dates and unsupported controls remain manual; no history rows are added automatically.
         </p>
         <p>
-          Resume sharing requires a separate choice and confirmation for each
-          application. No resume is selected by default. Only the chosen file is
+          Resume sharing is off by default. You can explicitly enable sharing your
+          default resume with Autofill in Profile, or choose and approve a file for each
+          application. Only the chosen file is
           transferred to the selected form. Employers may save entered fields or
           begin uploading a selected file immediately, before you submit. Undo
           cannot retract information an employer has already received.
@@ -76,6 +77,12 @@ export default function ExtensionPrivacyPage() {
           answers already entered on the employer form. Answers you save in
           ApplyOverflow are stored with your account. Remembering an answer is a
           separate choice, scoped to the same employer and question.
+          Autofill sends the application URL and up to 40 question labels to find
+          matching saved answers. Only answers explicitly enabled for reuse are filled,
+          and they require review again when your profile changes. Answers entered in
+          the popup stay on the form unless you choose to save them to your profile
+          or remember that exact question for the same employer. Legal, work-authorization
+          and demographic questions other than your explicitly supplied pronouns remain manual.
         </p>
         <p>
           I applied asks you to review the job link, company and title and confirm

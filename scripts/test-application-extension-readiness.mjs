@@ -34,11 +34,12 @@ try {
   await page.evaluate(`(${installIndicator.toString()})()`);
   await page.getByRole("button", { name: "Application help available" }).click();
   await page.getByRole("button", { name: "Connect to ApplyOverflow" }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Fill contact details" }).isVisible(), false);
+  assert.equal(await page.getByRole("button", { name: "Autofill" }).isVisible(), false);
   await page.evaluate(() => {
     window.access.connected = true;
     window.listeners.forEach((fn) => fn({ type: "connection-changed" }));
   });
+  await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Review questions" }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Connect to ApplyOverflow" }).isVisible(), false);
   assert.deepEqual(await page.evaluate(() => window.messages), ["availability", "availability"]);
@@ -100,11 +101,12 @@ try {
   await popup.getByText("Toolbar only", { exact: true }).waitFor();
   await popup.getByText("6 empty contact fields · 4 questions", { exact: true }).waitFor();
   assert.deepEqual(await popup.evaluate(() => window.calls), ["status"]);
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Supported sites enabled", { exact: true }).waitFor();
   await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
   await popup.getByText("Connected", { exact: true }).waitFor();
-  await popup.getByRole("button", { name: "Fill contact details" }).waitFor();
+  await popup.getByRole("button", { name: "Autofill" }).waitFor();
   assert.deepEqual(await popup.evaluate(() => window.calls), ["status", "detection-updated", "connect"]);
   await mkdir("output/playwright", { recursive: true });
   await popup.screenshot({ path: "output/playwright/extension-readiness.png" });

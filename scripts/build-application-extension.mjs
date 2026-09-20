@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
+import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import {
   SITE_ORIGINS,
@@ -57,7 +58,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/adapter-runtime.js`,
-  `globalThis.__applyOverflowInspect ??= (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})());\n`,
+  `globalThis.__applyOverflowInspect ??= (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})());\n`,
 );
 await writeFile(
   `${destination}/indicator.js`,

@@ -1,6 +1,6 @@
 # Chrome Web Store Release Preparation
 
-Candidate: 0.5.2 (local patch; Store draft remains 0.5.0). This is an implementation checklist and listing draft, not a
+Candidate: 0.6.0 (local patch; Store draft remains 0.5.0). This is an implementation checklist and listing draft, not a
 claim that the extension is published or approved.
 
 ## Draft Created September 20, 2026
@@ -27,6 +27,14 @@ claim that the extension is published or approved.
   The new Store ID's optional-site permission check still needs human approval.
 
 ## 0.5.2 Compatibility Follow-Up
+
+The 0.6.0 candidate supersedes the contact-only flow with one Autofill action.
+Before Store submission, update the listing and re-review privacy certifications:
+Autofill shares confirmed profile facts (including optional preferred name and
+pronouns), bounded history, and exact employer/question answers explicitly enabled
+for reuse. Default resume sharing is a separate Profile opt-in. Legal, sensitive
+and work-authorization questions remain manual; nothing is submitted. Previous
+0.5.x listing text below is historical and must not be submitted unchanged.
 
 - The owner approved using their profile for testing and reported signing back
   into TD. Native Chrome control subsequently returned no accessibility controls

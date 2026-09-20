@@ -139,3 +139,14 @@ select, #applied-confirmation > input { width:100%; min-height:36px; padding:6px
     color: #adaeb6;
   }
 }
+textarea { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, #898992); border-radius: 6px; width: 100%; padding: 8px; resize: vertical; }
+.answer-row > input { font: inherit; width: 100%; min-height: 38px; border: 1px solid #898992; border-radius: 6px; background: transparent; color: inherit; padding: 8px; }
+.answer-row > label.answer-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.answer-row { margin-block: 12px; padding-block: 8px; border-bottom: 1px solid #8884; }
+.answer-row > label:first-child { display: block; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
+.remember-answer { display: flex; gap: 7px; align-items: flex-start; margin-block: 8px; font-size: 12px; }
+.remember-answer input { width: auto; flex: none; margin-top: 3px; }
+button.field-link { width: auto; background: transparent; color: inherit; border: none; padding: 4px 0; text-decoration: underline; min-height: 32px; }
+#progress-heading { font-size: 14px; margin: 14px 0 6px; }
+#completed-list { padding-left: 18px; overflow-wrap: anywhere; }
+.setup { margin-top: 14px; }

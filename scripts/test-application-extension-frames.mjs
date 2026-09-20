@@ -54,7 +54,7 @@ try {
     if (!["http:", "https:"].includes(url.protocol)) return route.continue();
     if (url.pathname.startsWith("/api/extension/v1/")) {
       const action = url.pathname.split("/").pop();
-      if (action === "contact") {
+      if (action === "autofill-plan") {
         calls++;
         if (delay) await new Promise((r) => setTimeout(r, delay));
       }
@@ -62,7 +62,7 @@ try {
       return route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(
-          action === "contact" ? contact : { id: "frame-review" },
+          action === "autofill-plan" ? { contact, answers: [], history: [], revision: "2026-09-20T00:00:00.000Z", includeResume: false } : { id: "frame-review" },
         ),
       });
     }
@@ -94,6 +94,7 @@ try {
     }),
   );
   await popup.goto(`chrome-extension://${id}/popup.html`);
+  await popup.getByText("Connection & site access", { exact: true }).click();
   if (
     !(await popup.getByLabel("Show autofill on supported sites").isChecked())
   ) {
@@ -151,12 +152,12 @@ try {
     .click();
   assert.equal(calls, 0, "Detection does not fetch profile facts");
   await frame
-    .getByRole("button", { name: "Fill contact details", exact: true })
+    .getByRole("button", { name: "Autofill", exact: true })
     .evaluate((b) => b.click());
   await page.waitForTimeout(250);
   assert.equal(calls, 0, "Untrusted frame click must not fetch profile facts");
   await frame
-    .getByRole("button", { name: "Fill contact details", exact: true })
+    .getByRole("button", { name: "Autofill", exact: true })
     .click();
   await frame.getByRole("status").filter({ hasText: "4 filled" }).waitFor();
   assert.equal(await frame.locator("#email").inputValue(), contact.email);
@@ -186,10 +187,11 @@ try {
     assert.equal(await frame.locator(field).first().inputValue(), "");
   assert.equal(await frame.locator('[name="consent"]').isChecked(), false);
   assert.equal(await frame.locator('[name="visa"]').isChecked(), false);
+  await frame.getByText("More actions", { exact: true }).click();
   await frame
-    .getByRole("button", { name: "Undo contact fill", exact: true })
+    .getByRole("button", { name: "Undo Autofill", exact: true })
     .click();
-  await frame.getByRole("status").filter({ hasText: "4 cleared" }).waitFor();
+  await frame.getByRole("status").filter({ hasText: "4 fields cleared" }).waitFor();
   assert.equal(await frame.locator("#email").inputValue(), "");
   const opened = context.waitForEvent("page").then(
     (page) => ({ page }),
@@ -219,7 +221,7 @@ try {
   assert.equal(JSON.stringify(captures).includes("Already written"), false);
   await page.setViewportSize({ width: 390, height: 844 });
   await frame
-    .getByRole("button", { name: "Fill contact details", exact: true })
+    .getByRole("button", { name: "Autofill", exact: true })
     .scrollIntoViewIfNeeded();
   await page.screenshot({
     path: "output/playwright/assistant-embedded-mobile.png",
@@ -235,10 +237,10 @@ try {
     const doc = document.querySelector('iframe[title="Application 0"]');
     return !!doc;
   });
-  assert.equal(await frame.getByRole("button", { name: "Fill contact details", exact: true }).isEnabled(), true);
+  assert.equal(await frame.getByRole("button", { name: "Autofill", exact: true }).isEnabled(), true);
   delay = 700;
   await frame
-    .getByRole("button", { name: "Fill contact details", exact: true })
+    .getByRole("button", { name: "Autofill", exact: true })
     .click();
   await page.waitForTimeout(150);
   await page

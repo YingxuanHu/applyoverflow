@@ -55,6 +55,7 @@ async function main() {
       data: {
         userId: profile.id,
         type: "RESUME",
+        isPrimary: true,
         title: "Browser test resume",
         originalFileName: "Jordan Resume.pdf",
         filename: "resume.pdf",

@@ -233,7 +233,7 @@ export async function saveProfile(
     legacyEducationText,
   });
   const skillsJson = skills.length > 0 ? skills : Prisma.DbNull;
-  const hasContact = Object.values(contact).some((value) => value.length > 0);
+  const hasContact = Object.values(contact).some((value) => typeof value === "string" ? value.length > 0 : value === true);
   const contactJson = hasContact ? contact : Prisma.DbNull;
   const educationsJson = educations.length > 0 ? educations : Prisma.DbNull;
   const experiencesJson = experiences.length > 0 ? experiences : Prisma.DbNull;

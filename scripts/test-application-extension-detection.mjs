@@ -52,7 +52,7 @@ try {
     if (!["https:", "http:"].includes(url.protocol)) return route.continue();
     if (url.pathname.startsWith("/api/extension/v1/")) {
       const action = url.pathname.split("/").pop();
-      if (action === "contact") {
+      if (action === "autofill-plan") {
         contactCalls++;
         if (responseDelay)
           await new Promise((resolve) => setTimeout(resolve, responseDelay));
@@ -61,7 +61,7 @@ try {
       return route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(
-          action === "contact" ? contact : { id: "fixture-review" },
+          action === "autofill-plan" ? { contact, answers: [], history: [], revision: "2026-09-20T00:00:00.000Z", includeResume: false } : { id: "fixture-review" },
         ),
       });
     }
@@ -108,6 +108,7 @@ try {
     .getByText("Open an application form. Some fields need manual entry.")
     .waitFor();
   console.log("Requesting site access through the popup");
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
   console.log("Site access granted");
@@ -128,12 +129,12 @@ try {
     await page.keyboard.press("Enter");
     assert.equal(
       await page
-        .getByRole("button", { name: "Fill contact details" })
+        .getByRole("button", { name: "Autofill" })
         .evaluate((button) => button.getRootNode().activeElement === button),
       true,
     );
     const start = Date.now();
-    await page.getByRole("button", { name: "Fill contact details" }).click();
+    await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
       .filter({ hasText: `${fixture.count} filled` })
@@ -153,9 +154,9 @@ try {
       [0, 0],
     );
     assert.equal(
-      await page.getByRole("button", { name: "Fill contact details" }).count(),
-      0,
-      "Completed contact actions are hidden while review stays available",
+      await page.getByRole("button", { name: "Autofill" }).count(),
+      1,
+      "Autofill stays available for remaining questions and dynamic fields",
     );
     const firstField =
       fixture.provider === "greenhouse"
@@ -164,11 +165,12 @@ try {
           ? '[name="name"]'
           : "#_systemfield_name";
     await page.locator(firstField).fill("");
-    await page.getByRole("button", { name: "Fill contact details" }).click();
+    await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
-      .filter({ hasText: `1 filled \u00b7 ${fixture.count - 1} kept` })
+      .filter({ hasText: `${fixture.count} filled` })
       .waitFor();
+    await page.getByText("More actions", { exact: true }).click();
     const reviewButton = page.getByRole("button", { name: "Review questions" });
     const buttonHandle = await reviewButton.elementHandle();
     const box = await reviewButton.boundingBox();
@@ -251,13 +253,13 @@ try {
   // Synthetic page events cannot trigger privileged extension actions.
   const before = contactCalls;
   await page
-    .getByRole("button", { name: "Fill contact details" })
+    .getByRole("button", { name: "Autofill" })
     .evaluate((button) => button.click());
   await page.waitForTimeout(200);
   assert.equal(contactCalls, before);
   // Slow contact response must never fill a different job after SPA navigation.
   responseDelay = 600;
-  await page.getByRole("button", { name: "Fill contact details" }).click();
+  await page.getByRole("button", { name: "Autofill" }).click();
   await page.waitForTimeout(150);
   await page.evaluate(() => {
     history.pushState(
@@ -289,8 +291,8 @@ try {
   const beforeQuestions = contactCalls;
   await page.goto(fixtures[0].url + "?unsupported=1");
   await page.getByRole("button", { name: "Application help available" }).click();
-  await page.getByRole("button", { name: "Review questions" }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Fill contact details" }).isVisible(), false);
+  await page.getByRole("button", { name: "Finish remaining fields" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Autofill", exact: true }).isVisible(), true);
   assert.equal(contactCalls, beforeQuestions, "question-only detection must not fetch profile facts");
   await page.goto("https://unrelated.example/application");
   await page.waitForTimeout(400);

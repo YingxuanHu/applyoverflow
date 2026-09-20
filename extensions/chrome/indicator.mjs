@@ -130,13 +130,17 @@ export function installIndicator() {
         "Connect to ApplyOverflow",
         () => void run("connect"),
       );
-      const fill = button("Fill contact details", () => void run("fill"));
+      const fill = button("Autofill", () => void run("autofill"));
       const resume = button("Choose resume", () => void run("resume"));
+      const finish = button("Finish remaining fields", () => void run("open-popup"), true);
       const review = button("Review questions", () => void run("review"), true);
-      const undo = button("Undo contact fill", () => void run("undo"), true);
+      const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
       const status = document.createElement("p");
       status.setAttribute("role", "status");
-      content.append(summary, connect, fill, resume, review, undo, status);
+      const more = document.createElement("details");
+      const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
+      more.append(moreLabel, resume, review, undo);
+      content.append(summary, connect, fill, finish, more, status);
       section.append(content);
       root.append(section);
       view = {
@@ -149,6 +153,7 @@ export function installIndicator() {
         fill,
         resume,
         review,
+        finish,
         undo,
         status,
       };
@@ -164,7 +169,7 @@ export function installIndicator() {
         ? "Autofill available"
         : "Application help available";
     view.summary.textContent = result.available
-      ? `${result.available} empty contact ${result.available === 1 ? "field" : "fields"}. Other questions stay manual.`
+      ? "Fill from your ApplyOverflow profile. Existing answers stay unchanged."
       : result.resumeAvailable
         ? "Resume attachment available."
         : result.historyAvailable
@@ -174,11 +179,12 @@ export function installIndicator() {
             : "";
     view.summary.hidden = !view.summary.textContent;
     view.connect.hidden = connection;
-    view.fill.hidden = !connection || !result.available;
+    view.fill.hidden = !connection || !(result.available || result.questions.length || result.historyAvailable || result.resumeAvailable);
     view.resume.hidden = !connection || !result.resumeAvailable;
     view.resume.classList.toggle("secondary", !!result.available);
     view.review.hidden = !connection || !result.questions.length;
-    view.undo.hidden = !result.undoAvailable;
+    view.finish.hidden = !connection;
+    view.undo.hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
     view.status.hidden = !notice || Date.now() >= noticeUntil;
     if (view.status.textContent !== notice) view.status.textContent = notice;
     for (const action of [
@@ -187,6 +193,7 @@ export function installIndicator() {
       view.fill,
       view.resume,
       view.review,
+      view.finish,
       view.undo,
     ])
       action.disabled = busy;
@@ -213,6 +220,7 @@ export function installIndicator() {
       (!result.available &&
         !result.resumeAvailable &&
         !result.undoAvailable &&
+        !result.autofillUndoAvailable &&
         !result.historyAvailable &&
         !result.historyUndoAvailable &&
         !result.questions.length &&
@@ -229,6 +237,7 @@ export function installIndicator() {
       result.undoAvailable,
       result.historyAvailable,
       result.historyUndoAvailable,
+      result.autofillUndoAvailable,
       result.questions.length,
       expanded,
       busy,

@@ -3,9 +3,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { isSessionUsableByPolicy } from "@/lib/auth-session-policy";
 import {
-  normalizeContact,
   normalizeExperiences,
   normalizeEducations,
+  buildProfileFormValues,
 } from "@/lib/profile";
 import { historyDateText } from "@/lib/profile-history";
 import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
@@ -146,11 +146,15 @@ export async function authenticateExtension(request: Request) {
 export async function getExtensionContact(userId: string) {
   const profile = await prisma.userProfile.findUnique({
     where: { authUserId: userId },
-    select: { contactJson: true },
+    select: {
+      contactJson: true, phone: true, location: true,
+      linkedinUrl: true, githubUrl: true, portfolioUrl: true,
+      authUser: { select: { name: true, email: true } },
+    },
   });
   if (!profile)
     throw new AssistantError("Complete your profile in ApplyOverflow first.");
-  const contact = normalizeContact(profile.contactJson);
+  const contact = buildProfileFormValues(profile, profile.authUser ?? undefined).contact;
   // Never export work authorization, demographics, resume contents, or the whole profile.
   return {
     fullName: contact.fullName,
@@ -165,6 +169,10 @@ export async function getExtensionContact(userId: string) {
     addressLine2: contact.addressLine2 ?? "",
     city: contact.city ?? "",
     postalCode: contact.postalCode ?? "",
+    region: contact.region ?? "",
+    country: contact.country ?? "",
+    preferredName: contact.preferredName ?? "",
+    pronouns: contact.pronouns ?? "",
   };
 }
 

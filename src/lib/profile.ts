@@ -24,6 +24,9 @@ export type ProfileContact = {
   fullName: string;
   givenName?: string;
   familyName?: string;
+  preferredName?: string;
+  pronouns?: string;
+  autofillResume?: boolean;
   email: string;
   phone: string;
   location: string;
@@ -284,6 +287,7 @@ export function normalizeContact(value: unknown): ProfileContact {
     ...Object.fromEntries(
       ([
         ["givenName", 100], ["familyName", 100],
+        ["preferredName", 100], ["pronouns", 80],
         ["streetAddress", 200], ["addressLine2", 120], ["city", 100],
         ["region", 100], ["postalCode", 30],
       ] as const)
@@ -294,6 +298,7 @@ export function normalizeContact(value: unknown): ProfileContact {
       country: objectValue.country === "CA" || objectValue.country === "US"
         ? objectValue.country : "" as const,
     } : {}),
+    ...("autofillResume" in objectValue ? { autofillResume: objectValue.autofillResume === true } : {}),
   };
 }
 

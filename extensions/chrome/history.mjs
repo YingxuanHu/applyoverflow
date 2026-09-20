@@ -229,7 +229,7 @@ export function createHistoryInspector() {
       group.contains(document.activeElement),
     );
     const target =
-      empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
+      payload.automatic ? empty[0] : empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
     if (!target)
       return {
         error:

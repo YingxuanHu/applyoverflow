@@ -98,6 +98,7 @@ try {
   });
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${id}/popup.html`);
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByText("Connect to your ApplyOverflow profile.").waitFor();
   if (process.env.EXTENSION_TEST_PROFILE && await popup.locator("#detection").isChecked()) {
     assert.ok((await worker.evaluate(() => chrome.scripting.getRegisteredContentScripts())).some(script => script.id === "application-detection"),
@@ -195,7 +196,7 @@ try {
     assert.ok(form, "The expected embedded document must be loaded");
     await formPage.bringToFront();
     await form.getByRole("button", { name: "Autofill available" }).click();
-    await form.getByRole("button", { name: "Fill contact details" }).click();
+    await form.getByRole("button", { name: "Autofill" }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     assert.ok(confirmed.email, "Local fixture profile needs a confirmed email");
     assert.equal(await form.locator("#email").inputValue(), confirmed.email);
@@ -208,10 +209,11 @@ try {
     console.log(
       "PASS: authenticated MV3 hint -> click -> real contact API -> isolated-world fill on a synthetic form",
     );
-    await form.getByRole("button", { name: "Undo contact fill", exact: true }).click();
+    await form.getByText("More actions", { exact: true }).click();
+    await form.getByRole("button", { name: "Undo Autofill", exact: true }).click();
     await form.getByRole("status").filter({ hasText: "cleared" }).waitFor();
     assert.equal(await form.locator("#email").inputValue(), "");
-    await form.getByRole("button", { name: "Fill contact details", exact: true }).click();
+    await form.getByRole("button", { name: "Autofill", exact: true }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     const reviewOpened = context.waitForEvent("page");
     await form.getByRole("button", { name: "Review questions", exact: true }).click();
@@ -321,6 +323,22 @@ try {
       "PASS: real per-file Chrome identity consent, cancel without upload, explicit radio choice, single-use bytes API and exact resume attached; no submit/next",
     );
     if (embedded) console.log("PASS: connection, contact fill, review and per-file resume consent target the embedded document; parent remains untouched");
+    await app.goto(`${origin}/profile`);
+    await app.getByRole("textbox", { name: "Preferred name (optional)", exact: true }).fill("Jo");
+    await app.getByRole("textbox", { name: "Pronouns (optional)", exact: true }).fill("they/them");
+    await app.getByRole("checkbox", { name: /Include my default resume when I click Autofill/ }).check();
+    await app.getByRole("button", { name: "Save profile", exact: true }).click();
+    await app.getByText("Profile saved.", { exact: true }).waitFor();
+    await formPage.reload();
+    await formPage.bringToFront();
+    const freshForm = embedded ? formPage.frame({ url: fixtureUrl }) : formPage;
+    await freshForm.getByRole("button", { name: "Autofill available" }).click();
+    await freshForm.getByRole("button", { name: "Autofill", exact: true }).click();
+    await freshForm.getByRole("status").filter({ hasText: "Default resume selected" }).waitFor({ timeout: 60_000 });
+    assert.equal(await freshForm.locator("#email").inputValue(), confirmed.email);
+    assert.equal(await freshForm.locator("#resume").evaluate(field => field.files[0]?.name), "Jordan Resume.pdf");
+    assert.equal(await freshForm.evaluate(() => window.submissions + window.steps), 0);
+    console.log("PASS: profile preference saved, then one-click contact + default resume through the authenticated API");
     await formPage.close();
     await popup.bringToFront();
   }

@@ -1,9 +1,10 @@
 import { applicationContext } from "./sites.mjs";
 import { createHistoryInspector } from "./history.mjs";
+import { createAutofillInspector } from "./autofill.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
-export function createInspector(resolveContext, history) {
+export function createInspector(resolveContext, history, autofill) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
   let undoEntries = [],
@@ -39,6 +40,7 @@ export function createInspector(resolveContext, history) {
       "family name": "familyName",
       surname: "familyName",
       "full name": "fullName",
+      name: "fullName",
       email: "email",
       "email address": "email",
       "e-mail": "email",
@@ -50,10 +52,23 @@ export function createInspector(resolveContext, history) {
       telephone: "phone",
       "address line 1": "streetAddress",
       "street address": "streetAddress",
+      "address 1": "streetAddress",
       "address line 2": "addressLine2",
+      "address 2": "addressLine2",
       city: "city",
+      "city/town": "city",
       "postal code": "postalCode",
+      province: "region",
+      state: "region",
+      "state/province": "region",
+      "province or state": "region",
+      country: "country",
+      "country/region": "country",
+      "preferred name": "preferredName",
+      pronouns: "pronouns",
       "zip code": "postalCode",
+      "zip/postal code": "postalCode",
+      "postal/zip code": "postalCode",
       linkedin: "linkedInUrl",
       "linkedin profile": "linkedInUrl",
       "linkedin url": "linkedInUrl",
@@ -377,8 +392,11 @@ export function createInspector(resolveContext, history) {
         .closest("fieldset")
         ?.querySelector("legend")
         ?.textContent?.trim();
+      const greenhousePhone = context.provider === "greenhouse" && group === "Phone" &&
+        field.id === "phone" && key === "phone";
       if (
         group &&
+        !greenhousePhone &&
         !/^(personal (information|details)|contact (information|details)|your (information|details))$/i.test(
           group,
         )
@@ -406,13 +424,28 @@ export function createInspector(resolveContext, history) {
         field.id !== identityIds[key]
       )
         key = undefined;
+      // Supplement provider-specific IDs with explicit standard semantics, but
+      // never reinterpret reference/history fields or duplicate identity labels.
+      let profileKey = key;
+      const semantic = { "given-name": "givenName", "family-name": "familyName", name: "fullName",
+        "address-level1": "region", country: "country", "country-name": "country",
+        email: "email", tel: "phone", "street-address": "streetAddress", "address-line1": "streetAddress",
+        "address-line2": "addressLine2", "address-level2": "city", "postal-code": "postalCode" };
+      const candidate = aliases[normalized];
+      if (!profileKey && candidate && !/reference|referr|emergency|supervisor|employ|education/i.test(group || "")) {
+        const token = (field.getAttribute("autocomplete") || "").trim().toLowerCase();
+        if (semantic[token] === candidate ||
+          (context.provider !== "generic" && ["region", "country", "preferredName", "pronouns"].includes(candidate))) profileKey = candidate;
+      }
+      // A telephone's country code is not the applicant's address country.
+      if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = undefined;
       if (
         field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
         )
       )
         key = undefined;
-      return { field, label, key };
+      return { field, label, key, profileKey, identityLabel: Boolean(aliases[normalized]) };
     };
     const entries = fields.map(contactEntry);
     const isContactField = ({ field, key }) =>
@@ -518,6 +551,24 @@ export function createInspector(resolveContext, history) {
       );
       if (["fill-history", "undo-history"].includes(mode)) return historyResult;
       Object.assign(result, historyResult);
+    }
+    if (autofill) {
+      const details = await autofill(mode, contact, entries, forms[0], labelFor, visible);
+      if (details.error) return details;
+      Object.assign(result, details);
+      if (mode === "autofill" && history) {
+        result.historyFilled = 0;
+        result.historyNeedsReview = 0;
+        for (const entry of (contact.history || []).slice(0, 20)) {
+          if (location.href !== expectedUrl || !forms[0].isConnected) break;
+          const filled = await history("fill-history", { ...entry, automatic: true }, forms[0], labelFor, visible);
+          result.historyFilled += filled.filled || 0;
+          result.historyNeedsReview += filled.skipped || 0;
+        }
+        Object.assign(result, await history("inspect", {}, forms[0], labelFor, visible));
+        Object.assign(result, await autofill("inspect", {}, entries, forms[0], labelFor, visible));
+      }
+      if (mode.startsWith("autofill")) return result;
     }
     if (mode === "undo") {
       const restored = [];
@@ -744,4 +795,5 @@ export function createInspector(resolveContext, history) {
 export const inspectApplication = createInspector(
   applicationContext,
   createHistoryInspector(),
+  createAutofillInspector(),
 );

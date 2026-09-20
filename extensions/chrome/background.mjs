@@ -36,6 +36,16 @@ async function inspect(target, args = []) {
   return result;
 }
 
+async function inspectActive(tab, args = []) {
+  const key = `autofill:${tab.id}`;
+  const saved = (await chrome.storage.session.get(key))[key];
+  if (saved?.expires > Date.now() && (!saved.pageUrl || saved.pageUrl === tab.url)) {
+    try { return await inspect({ tabId: tab.id, documentIds: [saved.documentId] }, args); }
+    catch { await chrome.storage.session.remove(key); }
+  }
+  return inspect({ tabId: tab.id }, args);
+}
+
 let registration = Promise.resolve();
 function syncDetection() {
   registration = registration
@@ -124,7 +134,7 @@ async function clearAccountSession() {
       (key) =>
         key === "connection" ||
         key === "appliedPreview" ||
-        key.startsWith("application:"),
+        key.startsWith("application:") || key.startsWith("autofill:"),
     ),
   );
   await notifyConnectionChanged();
@@ -226,6 +236,11 @@ async function handle(type, sender, message = {}) {
     connection?.token && Date.parse(connection.expiresAt) > Date.now(),
   );
   const fromPage = sender.url !== chrome.runtime.getURL("popup.html");
+  if (type === "open-popup") {
+    try { await chrome.action.openPopup(); }
+    catch { return { connected, message: "Open ApplyOverflow from the Chrome toolbar to finish remaining fields." }; }
+    return { connected, message: "Continue in the extension popup." };
+  }
   if (type === "availability")
     return {
       enabled: await chrome.permissions.contains({
@@ -243,13 +258,14 @@ async function handle(type, sender, message = {}) {
       await chrome.tabs.query({ active: true, currentWindow: true })
     )[0];
     let current, inspectionError;
-    if (tab?.id && applicationContext(tab.url, true)) {
+    const saved = tab?.id ? (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`] : null;
+    if (tab?.id && (applicationContext(tab.url, true) || (saved?.expires > Date.now() && (!saved.pageUrl || saved.pageUrl === tab.url)))) {
       let inspectionTimer;
       try {
         // This scan is read-only. A busy renderer must not disable Connect or
         // conceal the independently known account state indefinitely.
         current = await Promise.race([
-          inspect({ tabId: tab.id }),
+          inspectActive(tab),
           new Promise((_, reject) => {
             inspectionTimer = setTimeout(() => reject(new Error(
               "This page is taking too long to respond. Reopen the extension when it finishes loading.",
@@ -272,9 +288,11 @@ async function handle(type, sender, message = {}) {
       });
     return {
       connected,
+      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? { fields: current.result.fields } : {}),
       activeAction: working,
       undoAvailable: current?.result.undoAvailable === true,
       historyUndoAvailable: current?.result.historyUndoAvailable === true,
+      autofillUndoAvailable: current?.result.autofillUndoAvailable === true,
       email: connected ? connection.email : "",
       form: current
         ? {
@@ -338,6 +356,10 @@ async function handle(type, sender, message = {}) {
   if (
     ![
       "fill",
+      "autofill",
+      "autofill-answer",
+      "autofill-focus",
+      "autofill-undo",
       "review",
       "resume",
       "undo",
@@ -424,18 +446,91 @@ async function handle(type, sender, message = {}) {
       message: "Confirm only after the employer has accepted your submission.",
     };
   }
-  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage))
+  const savedFrame = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage) &&
+    !(!fromPage && savedFrame?.expires > Date.now() && (!savedFrame.pageUrl || savedFrame.pageUrl === tab.url)))
     throw new Error(
       "Open a supported application form. For an embedded form, use its autofill hint; enable site access and reload if the hint is missing.",
     );
-  const inspection = await inspect(
-    fromPage
-      ? { tabId: tab.id, documentIds: [sender.documentId] }
-      : { tabId: tab.id },
-    type === "resume" ? ["prepare-resume"] : [],
-  );
+  const inspection = fromPage
+    ? await inspect({ tabId: tab.id, documentIds: [sender.documentId] }, type === "resume" ? ["prepare-resume"] : [])
+    : await inspectActive(tab, type === "resume" ? ["prepare-resume"] : []);
   const scan = inspection.result;
   if (scan.error) throw new Error(scan.error);
+  const target = { tabId: tab.id, documentIds: [inspection.documentId] };
+  const report = (result, note = "") => {
+    const fields = result.fields || [];
+    const filled = fields.filter(field => field.state === "filled").length;
+    const kept = fields.filter(field => field.state === "kept").length;
+    const needed = fields.filter(field => field.state === "needed").length;
+    return { connected: true, fields,
+      autofillUndoAvailable: result.autofillUndoAvailable === true,
+      historyUndoAvailable: result.historyUndoAvailable === true,
+      message: `${filled} filled · ${kept} kept · ${needed} to review.${note} Nothing submitted.`,
+    };
+  };
+  if (type === "autofill") {
+    const plan = await api("autofill-plan", {
+      url: scan.url, questions: scan.questions, history: scan.historyAvailable === true,
+    }, connection.token);
+    // Pin both frame document and URL across every asynchronous network step.
+    const written = await inspect(target, ["autofill", plan, scan.url]);
+    let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (scan.resumeAvailable) {
+      if (plan.includeResume) {
+        try {
+          const ready = await inspect(target, ["prepare-resume", {}, scan.url]);
+          const file = await api("resume-default", { url: scan.url }, connection.token);
+          const attached = await inspect(target, ["attach-resume", { ...file, resumeToken: ready.result.resumeToken }, scan.url]);
+          note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
+        } catch (error) {
+          if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Some fields were filled, but the connection expired before resume sharing. Reconnect to continue." };
+          note += ` Resume: ${error.message}`;
+        }
+      } else note += " Resume not shared. Choose a resume or enable default sharing in Profile.";
+    }
+    const final = await inspect(target, ["inspect", {}, scan.url]);
+    const response = report(final.result, note);
+    response.revision = plan.revision;
+    // Save only document identity/revision. Profile and answer values stay transient.
+    await chrome.storage.session.set({ [`autofill:${tab.id}`]: {
+      url: scan.url, documentId: inspection.documentId, revision: plan.revision,
+      pageUrl: tab.url,
+      expires: Date.now() + 10 * 60_000,
+    } });
+    return response;
+  }
+  if (["autofill-answer", "autofill-focus"].includes(type)) {
+    const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+    if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
+      throw new Error("Click Autofill to check the current application step first.");
+    if (typeof message.id !== "string" || typeof message.label !== "string" ||
+      (type === "autofill-answer" && (typeof message.answer !== "string" || message.answer.length > 3000)))
+      throw new Error("Check your answer and try again.");
+    const written = await inspect(target, [type, { id: message.id, label: message.label, answer: message.answer }, scan.url]);
+    let note = "";
+    if (type === "autofill-answer" && message.remember === true && written.result.answered?.canRemember) {
+      try {
+        const field = written.result.answered;
+        let answer = message.answer.trim();
+        if (field.profileKey === "country") answer = ({ canada: "CA", "united states": "US", "united states of america": "US" })[answer.toLowerCase()] || answer.toUpperCase();
+        const result = await api("autofill-answer", { url: scan.url, label: field.label,
+          answer, ...(field.profileKey ? { profileKey: field.profileKey } : {}), revision: saved.revision }, connection.token);
+        await chrome.storage.session.set({ [`autofill:${tab.id}`]: { ...saved, revision: result.revision } });
+        note = field.profileKey ? " Saved to Profile." : " Saved for this exact question at this employer.";
+      } catch (error) {
+        if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Answer filled but not remembered. Reconnect to continue." };
+        note = ` Filled, but not remembered: ${error.message}`;
+      }
+    }
+    return report(written.result, note);
+  }
+  if (type === "autofill-undo") {
+    const written = await inspect(target, [type, {}, scan.url]);
+    const history = await inspect(target, ["undo-history", {}, scan.url]);
+    const final = await inspect(target, ["inspect", {}, scan.url]);
+    return { ...report(final.result), message: `${written.result.undone + (history.result.undone || 0)} fields cleared. Unsupported widgets, resumes and employer autosaves cannot be undone here.` };
+  }
   await chrome.storage.session.set({
     [`application:${tab.id}`]: {
       url: scan.url,
@@ -583,7 +678,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "review", "resume", "undo"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )
@@ -624,5 +719,5 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return true;
 });
 chrome.tabs.onRemoved.addListener(
-  (tabId) => void chrome.storage.session.remove(`application:${tabId}`),
+  (tabId) => void chrome.storage.session.remove([`application:${tabId}`, `autofill:${tabId}`]),
 );

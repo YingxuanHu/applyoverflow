@@ -163,6 +163,7 @@ export const librarySchema = z
       answer: z.string().max(3000),
       kind: z.enum(["custom", "company_relationship", "referral"]),
       profileRevision: z.string(),
+      autofillConfirmed: z.boolean().optional(),
     }),
   )
   .max(60);

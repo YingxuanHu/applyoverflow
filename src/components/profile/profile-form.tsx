@@ -583,14 +583,14 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={contact.portfolioUrl}
             />
           </div>
-          <details className="sm:col-span-2">
-            <summary className="cursor-pointer py-2 text-sm font-medium">
-              Application details (optional)
-            </summary>
+          <section className="sm:col-span-2 border-t border-border pt-4" aria-label="Autofill details">
+            <h3 className="text-sm font-semibold">Autofill details</h3>
             <div className="grid gap-4 pt-3 sm:grid-cols-2">
               {([
                 ["givenName", "Given name", 100],
                 ["familyName", "Family name", 100],
+                ["preferredName", "Preferred name (optional)", 100],
+                ["pronouns", "Pronouns (optional)", 80],
                 ["streetAddress", "Street address", 200],
                 ["addressLine2", "Apartment or unit", 120],
                 ["city", "City", 100],
@@ -618,8 +618,13 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                   <option value="US">United States</option>
                 </select>
               </label>
+              <label className="flex items-start gap-3 text-sm sm:col-span-2">
+                <input type="checkbox" className="mt-1 size-4 shrink-0" checked={contact.autofillResume === true}
+                  onChange={(event) => setContact((previous) => ({ ...previous, autofillResume: event.target.checked }))} />
+                <span>Include my default resume when I click Autofill<span className="mt-1 block text-xs text-muted-foreground">The employer may receive the file immediately. Manage your default resume in Documents.</span></span>
+              </label>
             </div>
-          </details>
+          </section>
         </div>
       </ProfileSection>
 
