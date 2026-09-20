@@ -58,6 +58,13 @@ localhost or replace the preview download. This does not publish anything. See
 release gates. Data-use disclosure is served at `/extension/privacy` without
 sign-in and linked from consent, settings and the popup.
 
+The Store draft is assigned `mhkkioknljkgnhgnhcamilkgbadjnmil` (not published).
+`npm run extension:build -- --store-test` creates an isolated unpacked identity
+test in `output/extension/store-test`, using the dashboard public key recorded
+in `store-release.json`. The builder verifies the key-derived ID. Package tests
+verify that its runtime files match the Store upload exactly; only the manifest
+public key differs. This mode cannot publish or replace the production preview.
+
 The production preview includes a **public** manifest key for stable unpacked ID
 `jmkdjgbpikdhflpknomggmlccccgkbbp`. After reviewing the rollout, explicitly include
 this ID in `APPLICATION_EXTENSION_IDS`; it is not enabled by this change. No

@@ -46,8 +46,35 @@ are containment, not proof that all long-term allocation growth has been solved.
 
 - Workday: attempted dedicated account registration/sign-in through the Colliers
   UI; neither completed. No successful employer session or history test claimed.
-- iCIMS: Cadmus permits reaching the Basic Information account form with the
-  dedicated audit email. Full authenticated history testing remains unverified.
-- Chrome Store: publisher dashboard requires sign-in. The owner must complete
-  publisher registration/agreement/payment and approve the final Store identity.
+- iCIMS: registration reached a CAPTCHA. A later retry reported the email in use,
+  but normal sign-in rejected the test credentials. No authenticated history
+  certification or successful registration is claimed; no employer application
+  was submitted. Do not retry without a verified dedicated account.
+- Chrome Store: owner activated the publisher account and uploaded the candidate.
+  Draft ID `mhkkioknljkgnhgnhcamilkgbadjnmil` is verified against its public key and
+  narrowly enabled in production alongside the preview ID. Store publication
+  still requires owner privacy certifications, a verified publisher contact
+  email and reviewer access. Icon and real settings screenshot are uploaded.
+  Store-ID consent, history selection, stale-revision rejection, resume consent,
+  one-time PDF exchange and revoke passed against production; its optional-host
+  prompt timed out awaiting owner approval. Do not claim Store-ID embedded-form
+  acceptance from the successful preview-ID test.
 - Previously withheld salary repairs remain withheld where source evidence expired.
+
+## Deployment Observation
+
+- Worker runtime 1887b2b deployed through the verified prebuilt release helper.
+  Its actual Linux candidate passed 23 transport/rate-limit/memory tests; the
+  rollout repeated 16 guarded-transport tests. All 63 migrations were applied
+  already; no new migration ran. PostgreSQL and Caddy were not restarted.
+- Web remains at 53f8551 and healthy. It was subsequently recreated from the same
+  image only to load the exact Store extension allowlist.
+- At 00:34:53 UTC, `JobFeedSummaryCache.liveJobCount` was 499,542. Workable's 65
+  pending polls were all deferred until its unchanged 20:44:00 UTC cooldown;
+  none were running. This is the filtered public board metric, not lifecycle LIVE.
+- The daemon completed its first cycle and repaired 2,378 feed-index entries,
+  then began catch-up. No daemon restart in the initial observation; this short
+  window does not establish long-term memory stability.
+- Root: 127/150 GiB used, 18 GiB available (88%). Attached volume: 49/148 GiB,
+  92 GiB available (35%). Release context lives on the attached volume and the
+  worker-only patch reuses the existing runtime layers.

@@ -3,6 +3,26 @@
 Candidate: 0.5.0. This is an implementation checklist and listing draft, not a
 claim that the extension is published or approved.
 
+## Draft Created September 20, 2026
+
+- Store-assigned ID: `mhkkioknljkgnhgnhcamilkgbadjnmil`.
+- The publisher account is active and 0.5.0 is uploaded as a draft, not submitted.
+- Listing description, category, language, homepage and technical privacy
+  disclosures are saved. The existing brand icon and a real 1280x800 settings
+  screenshot are uploaded. Owner certifications, a verified publisher contact
+  email and reviewer access still require completion before submission.
+  No legal certification was accepted.
+- The dashboard public key is recorded in `extensions/chrome/store-release.json`.
+  `npm run extension:build -- --store-test` verifies its derived ID and makes an
+  isolated unpacked candidate. It never overwrites the consumer preview download.
+- Production's exact allowlist contains this ID and the existing preview ID.
+  Do not link to a consumer Store installation until Google approves the listing.
+- Real Chrome Store-ID consent, selected-history/stale-version checks, resume
+  approval, exact PDF bytes, one-time redemption and revocation passed against
+  production. The resume callback was intercepted for this Store-ID check;
+  actual MV3 attachment/Undo passed with the byte-identical preview runtime.
+  The new Store ID's optional-site permission check still needs human approval.
+
 ## Package and Identity
 
 1. Run the verification commands in `extensions/chrome/README.md` and build the

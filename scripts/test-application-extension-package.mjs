@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
@@ -7,6 +8,7 @@ import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
 for (const [args, name] of [
   [[], "production"],
   [["--store"], "store"],
+  [["--store-test"], "store-test"],
 ]) {
   execFileSync(process.execPath, [
     "scripts/build-application-extension.mjs",
@@ -47,10 +49,24 @@ for (const [args, name] of [
   assert.equal("key" in manifest, name !== "store");
   assert.equal(
     manifest.name,
-    name === "store"
+    name.startsWith("store")
       ? "ApplyOverflow Assistant"
       : "ApplyOverflow Assistant (preview)",
   );
+  if (name === "store-test") {
+    const id = createHash("sha256")
+      .update(Buffer.from(manifest.key, "base64"))
+      .digest("hex")
+      .slice(0, 32)
+      .replace(/[0-9a-f]/g, (char) => String.fromCharCode(97 + parseInt(char, 16)));
+    assert.equal(id, "mhkkioknljkgnhgnhcamilkgbadjnmil");
+    const upload = unzipSync(await readFile("output/extension/store.zip"));
+    const withoutKey = { ...manifest };
+    delete withoutKey.key;
+    assert.deepEqual(withoutKey, JSON.parse(strFromU8(upload["manifest.json"])));
+    for (const file of Object.keys(files).filter((file) => file !== "manifest.json"))
+      assert.deepEqual(files[file], upload[file], `${file} differs from the uploaded Store package`);
+  }
   assert.equal(
     strFromU8(files["config.mjs"]),
     'export const APP_ORIGIN = "https://applyoverflow.com";\n',
@@ -62,6 +78,9 @@ for (const [args, name] of [
 for (const flags of [
   ["--store", "--publish"],
   ["--store", "--local=http://127.0.0.1:3004"],
+  ["--store-test", "--publish"],
+  ["--store-test", "--local=http://127.0.0.1:3004"],
+  ["--store", "--store-test"],
 ])
   assert.notEqual(
     spawnSync(process.execPath, [

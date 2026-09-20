@@ -1,5 +1,6 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
@@ -14,15 +15,30 @@ const release = JSON.parse(
 
 const local = process.argv.find((arg) => arg.startsWith("--local="))?.slice(8);
 const store = process.argv.includes("--store");
-if (store && (local || process.argv.includes("--publish")))
+const storeTest = process.argv.includes("--store-test");
+if ((store || storeTest) && (local || process.argv.includes("--publish")))
   throw new Error("Store builds cannot use localhost or replace the preview download.");
+if (store && storeTest)
+  throw new Error("Choose a Store upload or a Store identity test, not both.");
+const storeRelease = storeTest
+  ? JSON.parse(await readFile("extensions/chrome/store-release.json", "utf8"))
+  : null;
+if (storeRelease) {
+  const id = createHash("sha256")
+    .update(Buffer.from(storeRelease.publicKey, "base64"))
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/[0-9a-f]/g, (char) => String.fromCharCode(97 + parseInt(char, 16)));
+  if (id !== storeRelease.id)
+    throw new Error("Store public key does not match the dashboard extension ID.");
+}
 const origin = local ? new URL(local).origin : "https://applyoverflow.com";
 if (local && (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || local !== origin))
   throw new Error(
     "Local preview requires an exact http://127.0.0.1:PORT origin.",
   );
 const destination = resolve(
-  `output/extension/${store ? "store" : local ? "local" : "production"}`,
+  `output/extension/${storeTest ? "store-test" : store ? "store" : local ? "local" : "production"}`,
 );
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
@@ -52,9 +68,9 @@ await writeFile(
   JSON.stringify(
     {
       manifest_version: 3,
-      name: `ApplyOverflow Assistant${store ? "" : local ? " (local preview)" : " (preview)"}`,
+      name: `ApplyOverflow Assistant${store || storeTest ? "" : local ? " (local preview)" : " (preview)"}`,
       version: release.version,
-      ...(!local && !store ? { key: release.publicKey } : {}),
+      ...(storeTest ? { key: storeRelease.publicKey } : !local && !store ? { key: release.publicKey } : {}),
       minimum_chrome_version: "120",
       description:
         "Fill confirmed contact details and review application questions. Never submits applications.",
@@ -84,5 +100,5 @@ if (process.argv.includes("--publish")) {
   await writeFile("public/downloads/applyoverflow-assistant.zip", archive);
 }
 console.log(
-  `Package: ${destination}\nZIP: ${archivePath} (${archive.length} bytes)\n${store ? "After uploading the draft, verify the Store-assigned ID and enable only that ID" : local ? "Enable its Chrome extension ID" : `Preview ID: ${release.previewId}; enable this ID`} in APPLICATION_EXTENSION_IDS before connecting.`,
+  `Package: ${destination}\nZIP: ${archivePath} (${archive.length} bytes)\n${storeTest ? `Store identity test only: ${storeRelease.id}; enable only this verified ID` : store ? "After uploading the draft, verify the Store-assigned ID and enable only that ID" : local ? "Enable its Chrome extension ID" : `Preview ID: ${release.previewId}; enable this ID`} in APPLICATION_EXTENSION_IDS before connecting.`,
 );
