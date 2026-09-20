@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/db";
+import { shouldYieldForWorkerMemory } from "@/lib/ingestion/worker-memory";
+import { SourceHostRateLimitError } from "@/lib/ingestion/host-rate-limit";
 import {
   computeAdaptiveBudgetMs,
   shouldEnterLowYieldCooldown,
@@ -40,6 +42,7 @@ export type ScheduledIngestionResult = {
       // Adaptive cooldown: connector has been aborting on budget with
       // negligible yield, so it's parked for several cadence multiples.
       | "low_yield_cooldown"
+      | "shared_host_cooldown"
       | "deferred_for_company_source_backlog";
     nextEligibleAt: string | null;
     lastRunStartedAt: string | null;
@@ -368,6 +371,7 @@ export async function runScheduledIngestion(options: {
   const skippedConnectors: ScheduledIngestionResult["skippedConnectors"] = [];
 
   for (const definition of scheduledDefinitions) {
+    if (shouldYieldForWorkerMemory("scheduled connectors")) break;
     if (
       typeof options.maxConnectorRuns === "number" &&
       executedRuns.length >= options.maxConnectorRuns
@@ -511,6 +515,14 @@ export async function runScheduledIngestion(options: {
 
       executedRuns.push(summary);
     } catch (error) {
+      if (error instanceof SourceHostRateLimitError) {
+        skippedConnectors.push({
+          connectorKey: definition.connector.key, sourceName: definition.connector.sourceName,
+          reason: "shared_host_cooldown", nextEligibleAt: error.retryAt.toISOString(),
+          lastRunStartedAt: null, origin: "legacy_registry",
+        });
+        continue;
+      }
       console.error(
         `[scheduler] Connector ${definition.connector.key} failed:`,
         error instanceof Error ? error.message : error
@@ -523,7 +535,7 @@ export async function runScheduledIngestion(options: {
   // The full reconcile processes all 300k+ jobs with N+1 queries — far too slow
   // for a daemon cycle.  bulkSyncCanonicalStatuses does a single SQL UPDATE for
   // status and then runs the full per-job logic for only the at-risk cohort.
-  const lifecycle = options.skipLifecycle
+  const lifecycle = options.skipLifecycle || shouldYieldForWorkerMemory("scheduled lifecycle")
     ? await countCanonicalStatusSnapshot()
     : await bulkSyncCanonicalStatuses({
         now,

@@ -1297,7 +1297,9 @@ function resolveOptionalOracleCloudScheduledConnectors() {
 }
 
 function resolveOptionalJobBankScheduledConnectors() {
-  if (!isSourceFamilyEnabled("jobbank")) return [];
+  // Historical anonymized snapshots are not evidence of currently open jobs.
+  // Keep explicit archive tooling available, but use jobbank-live for refresh.
+  if (process.env.JOBBANK_ARCHIVE_SCHEDULE_ENABLED !== "true" || !isSourceFamilyEnabled("jobbank")) return [];
   // Job Bank CSV is updated monthly — run once per day (1440 min)
   return [
     {

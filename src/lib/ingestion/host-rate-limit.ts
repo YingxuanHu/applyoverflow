@@ -1,5 +1,27 @@
 import { sleepWithAbort, throwIfAborted } from "@/lib/ingestion/runtime-control";
 
+export function sharedSourceHostLimitsEnabled() {
+  return process.env.INGEST_SHARED_HOST_LIMITS === "1" ||
+    (process.env.NODE_ENV === "production" && process.env.INGEST_SHARED_HOST_LIMITS !== "0");
+}
+
+// The board URL is apply.workable.com, but all tenants share this API host.
+export const SHARED_CONNECTOR_HOSTS: Readonly<Record<string, string>> = {
+  workable: "www.workable.com",
+};
+
+export async function assertSourceHostReady(connectorName: string) {
+  const host = SHARED_CONNECTOR_HOSTS[connectorName.toLowerCase()];
+  if (!host || !sharedSourceHostLimitsEnabled()) return;
+  const { prisma } = await import("@/lib/db");
+  const [budget] = await prisma.$queryRaw<Array<{ resetAt: Date }>>`
+    SELECT "resetAt" FROM "ResourceBudget"
+    WHERE "key" = ${`ingestion-host:${host}`} AND "used" = 2
+      AND "resetAt" > clock_timestamp()
+  `;
+  if (budget) throw new SourceHostRateLimitError(host, budget.resetAt);
+}
+
 export class SourceHostRateLimitError extends Error {
   constructor(public readonly host: string, public readonly retryAt: Date) {
     super(`429 shared source-host cooldown for ${host}; retry after ${retryAt.toISOString()}`);
@@ -58,8 +80,7 @@ export const databaseSourceHostGate: SourceHostGate = {
 export async function fetchWithSourceHostGate(
   url: string, init: RequestInit = {}, gate?: SourceHostGate,
 ): Promise<Response> {
-  const enabled = process.env.INGEST_SHARED_HOST_LIMITS === "1" ||
-    (process.env.NODE_ENV === "production" && process.env.INGEST_SHARED_HOST_LIMITS !== "0");
+  const enabled = sharedSourceHostLimitsEnabled();
   const activeGate = gate ?? (enabled ? databaseSourceHostGate : null);
   if (!activeGate) return fetch(url, init);
   const host = new URL(url).hostname.toLowerCase();
@@ -74,7 +95,11 @@ export async function fetchWithSourceHostGate(
   throwIfAborted(signal);
   const response = await fetch(url, init);
   if (response.status === 429) {
-    await activeGate.defer(host, retryAfterMs(response.headers.get("retry-after")));
+    const durationMs = retryAfterMs(response.headers.get("retry-after"));
+    await activeGate.defer(host, durationMs);
+    await response.body?.cancel();
+    const slot = await activeGate.reserve(host);
+    throw new SourceHostRateLimitError(host, slot.retryAt ?? new Date(Date.now() + durationMs));
   }
   return response;
 }

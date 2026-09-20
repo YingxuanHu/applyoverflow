@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { SHARED_CONNECTOR_HOSTS, sharedSourceHostLimitsEnabled, SourceHostRateLimitError } from "@/lib/ingestion/host-rate-limit";
 import { ReconcileGate } from "@/lib/ingestion/readiness-reconcile-gate";
 import {
   RETENTION_CLAIM_STALENESS_HOURS,
@@ -111,6 +112,49 @@ const CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL = Prisma.sql`
   AND cs."pollState" <> 'QUARANTINED'
   AND cs."pollState" <> 'DISABLED'
 `;
+
+// All claim lanes (general, overdue, and retention) must honor provider clocks.
+function sharedHostReadySql() {
+  if (!sharedSourceHostLimitsEnabled()) return Prisma.sql`TRUE`;
+  return Prisma.sql`NOT EXISTS (
+    SELECT 1 FROM "ResourceBudget" hb
+    WHERE hb."used" = 2 AND hb."resetAt" > clock_timestamp()
+      AND (${Prisma.join(Object.entries(SHARED_CONNECTOR_HOSTS).map(([connector, host]) =>
+        Prisma.sql`(cs."connectorName" = ${connector} AND hb."key" = ${`ingestion-host:${host}`})`
+      ), " OR ")})
+  )`;
+}
+
+export async function deferSharedHostPollTasks() {
+  if (!sharedSourceHostLimitsEnabled()) return 0;
+  let deferred = 0;
+  for (const [connector, host] of Object.entries(SHARED_CONNECTOR_HOSTS)) {
+    deferred += await prisma.$executeRaw`
+      UPDATE "SourceTask" st
+      SET "notBeforeAt" = hb."resetAt",
+        "lastError" = 'Deferred until the shared provider cooldown expires.'
+      FROM "CompanySource" cs, "ResourceBudget" hb
+      WHERE st."companySourceId" = cs."id" AND cs."connectorName" = ${connector}
+        AND st."kind" = 'CONNECTOR_POLL' AND st."status" = 'PENDING'
+        AND hb."key" = ${`ingestion-host:${host}`} AND hb."used" = 2
+        AND hb."resetAt" > clock_timestamp() AND st."notBeforeAt" < hb."resetAt"
+    `;
+  }
+  return deferred;
+}
+
+export async function deferRateLimitedSourceTask(task: SourceTask, error: unknown) {
+  if (!(error instanceof SourceHostRateLimitError)) return false;
+  // Release only our own lease; this is scheduling, not a source failure.
+  await prisma.sourceTask.updateMany({
+    where: { id: task.id, status: "RUNNING", startedAt: task.startedAt, attemptCount: task.attemptCount },
+    data: { status: "PENDING", startedAt: null, finishedAt: null,
+      notBeforeAt: new Date(Math.max(task.notBeforeAt.getTime(), error.retryAt.getTime())),
+      attemptCount: { decrement: 1 }, lastError: error.message },
+  });
+  await deferSharedHostPollTasks();
+  return true;
+}
 
 const REDISCOVERY_ELIGIBLE_SOURCE_SQL = Prisma.sql`
   cs."status" <> 'DISABLED'
@@ -303,6 +347,7 @@ export async function reconcileConnectorPollTaskReadiness(
   now: Date = new Date(),
   options: { force?: boolean } = {}
 ) {
+  await deferSharedHostPollTasks();
   if (
     !readinessReconcileGate.shouldRun("connector-poll", {
       force: options.force,
@@ -631,6 +676,7 @@ export async function countDueSourceTasks(
         st."companySourceId" IS NULL
         OR (
           ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+          AND ${sharedHostReadySql()}
           AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
         )
       )
@@ -725,6 +771,7 @@ export function buildOverdueConnectorPollClaimQuery(
         AND st.status = 'PENDING'::"SourceTaskStatus"
         AND st."notBeforeAt" <= ${cutoff}
         AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+        AND ${sharedHostReadySql()}
         AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
         ${excluded}
       ORDER BY st."notBeforeAt" ASC, st."priorityScore" DESC, st.id ASC
@@ -793,6 +840,7 @@ export async function claimSourceTasks(
             WHERE
               cs."id" = st."companySourceId"
               AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+              AND ${sharedHostReadySql()}
               AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
           )
         )
@@ -840,6 +888,7 @@ export async function claimSourceTasks(
           AND st."notBeforeAt" <= ${now}
           ${excludedConnectorFilter}
           AND ${CONNECTOR_POLL_ELIGIBLE_SOURCE_SQL}
+          AND ${sharedHostReadySql()}
           AND (cs."cooldownUntil" IS NULL OR cs."cooldownUntil" <= ${now})
           AND cs."retainedLiveJobCount" > 0
           AND COALESCE(cs."lastSuccessfulPollAt", cs."createdAt") <= ${staleCutoff}

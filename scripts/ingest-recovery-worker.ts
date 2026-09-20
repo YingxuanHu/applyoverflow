@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { shouldYieldForWorkerMemory } from "../src/lib/ingestion/worker-memory";
 
 import process from "node:process";
 import {
@@ -255,6 +256,8 @@ async function main() {
         error instanceof Error ? (error.stack ?? error.message) : error
       );
     }
+
+    if (shouldYieldForWorkerMemory(`recovery-${args.role}: cycle complete; exiting for supervisor restart`)) break;
 
     const backlog = await getRelevantBacklog(args.role, new Date()).catch((e: unknown) => {
       console.error(`[recovery-worker] backlog query failed:`, e instanceof Error ? e.message : e);

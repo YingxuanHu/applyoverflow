@@ -13,6 +13,7 @@ import {
 } from "@/lib/ingestion/connectors";
 import { createConnectorForCandidate } from "@/lib/ingestion/discovery/sources";
 import type { SourceConnectorFetchResult } from "@/lib/ingestion/types";
+import { SourceHostRateLimitError } from "@/lib/ingestion/host-rate-limit";
 
 const HARD_INVALID_STATUSES = new Set([404, 410]);
 const BLOCKED_STATUSES = new Set([401, 403, 429]);
@@ -348,6 +349,7 @@ function classifyThrownError(
   source: ValidatableCompanySource,
   error: unknown
 ): SourceValidationResult {
+  if (error instanceof SourceHostRateLimitError) throw error;
   const message = error instanceof Error ? error.message : String(error);
   const httpStatus = parseHttpStatus(message);
 

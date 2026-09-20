@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assertSourceHostReady } from "@/lib/ingestion/host-rate-limit";
 import { buildEligibilityDraft } from "@/lib/ingestion/classify";
 import {
   APPLY_LINK_VALIDATION_STATUS,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/ingestion/source-quality";
 import {
   createRuntimeBudgetExceededError,
+  withRuntimeDeadline,
   throwIfAborted,
 } from "@/lib/ingestion/runtime-control";
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
@@ -206,6 +208,9 @@ export async function ingestConnector(
   connector: SourceConnector,
   options: IngestConnectorOptions = {}
 ): Promise<IngestionSummary> {
+  // A provider-wide wait is not a failed company poll. Check before creating
+  // a run; the HTTP gate still handles cooldowns racing with this preflight.
+  await assertSourceHostReady(connector.key.split(":", 1)[0]);
   const startedAt = options.now ?? new Date();
   const runMode = options.runMode ?? "MANUAL";
   const startingCheckpoint = await loadResumeCheckpoint(connector.key);
@@ -785,25 +790,7 @@ async function performConnectorIngestion(
   });
   const fetchResult =
     typeof maxRuntimeMs === "number" && maxRuntimeMs > 0
-      ? await Promise.race([
-          fetchResultPromise,
-          new Promise<never>((_, reject) => {
-            const timer = setTimeout(() => {
-              reject(
-                createRuntimeBudgetExceededError(
-                  maxRuntimeMs,
-                  connector.sourceName
-                )
-              );
-            }, maxRuntimeMs);
-            timer.unref?.();
-            signal?.addEventListener(
-              "abort",
-              () => clearTimeout(timer),
-              { once: true }
-            );
-          }),
-        ])
+      ? await withRuntimeDeadline(fetchResultPromise, maxRuntimeMs, connector.sourceName, signal)
       : await fetchResultPromise;
   const fetchExhausted = fetchResult.exhausted ?? fetchResult.checkpoint == null;
   // Connectors return `metadata.error` (without throwing) when the upstream

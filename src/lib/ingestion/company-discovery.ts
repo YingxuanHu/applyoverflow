@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/db";
+import { shouldYieldForWorkerMemory } from "@/lib/ingestion/worker-memory";
+import { assertSourceHostReady, SourceHostRateLimitError } from "@/lib/ingestion/host-rate-limit";
+import { deferRateLimitedSourceTask } from "@/lib/ingestion/task-queue";
 import {
   createCompanySiteConnector,
   createOfficialCompanyConnector,
@@ -3712,6 +3715,7 @@ export async function runSourceValidationQueue(options: {
         successCount += 1;
         await finishSourceTask(task.id, "SUCCESS", { finishedAt: now });
       } catch (error) {
+        if (await deferRateLimitedSourceTask(task, error)) continue;
         failedCount += 1;
         await handleCompanySourceValidationFailure(task.companySourceId, now, error);
         await finishSourceTask(task.id, "FAILED", {
@@ -3889,6 +3893,7 @@ export async function runCompanySourcePollQueue(options: {
   await recoverCompanySourceStaleRuns(options.now ?? new Date());
 
   while (processedCount < maxTasks) {
+    if (shouldYieldForWorkerMemory("source-poll queue")) break;
     const elapsed = Date.now() - queueStart;
     if (Date.now() - lastStaleRunRecoveryAt >= COMPANY_SOURCE_STALE_RUN_RECOVERY_INTERVAL_MS) {
       await recoverCompanySourceStaleRuns(new Date());
@@ -4050,6 +4055,7 @@ export async function runCompanySourcePollQueue(options: {
           successCount += 1;
           await finishSourceTask(task.id, "SUCCESS", { finishedAt: new Date() });
         } catch (error) {
+          if (await deferRateLimitedSourceTask(task, error)) continue;
           failedCount += 1;
           const taskFailedAt = new Date();
           let cooldownUntil: Date | null = null;
@@ -4147,6 +4153,7 @@ export async function runCompanySourcePollSlice(options: {
 
   async function worker() {
     while (true) {
+      if (shouldYieldForWorkerMemory("source-poll slice")) return;
       // `claimSourceTasks` leases the full slice upfront. Do not let a few
       // slow endpoints make the whole process exceed its supervisor timeout:
       // stop admitting work near the deadline, then release the untouched
@@ -4177,6 +4184,7 @@ export async function runCompanySourcePollSlice(options: {
         successCount += 1;
         await finishSourceTask(task.id, "SUCCESS", { finishedAt: new Date() });
     } catch (error) {
+      if (await deferRateLimitedSourceTask(task, error)) continue;
       failedCount += 1;
       const taskFailedAt = new Date();
       let cooldownUntil: Date | null = null;
@@ -5046,6 +5054,8 @@ async function runSourceValidation(companySourceId: string, now: Date) {
     throw new Error(`Company source ${companySourceId} not found.`);
   }
 
+  await assertSourceHostReady(source.connectorName);
+
   await prisma.companySource.update({
     where: { id: source.id },
     data: {
@@ -5054,7 +5064,18 @@ async function runSourceValidation(companySourceId: string, now: Date) {
     },
   });
 
-  const result = await validateCompanySource(source, now);
+  let result;
+  try {
+    result = await validateCompanySource(source, now);
+  } catch (error) {
+    if (error instanceof SourceHostRateLimitError) {
+      await prisma.companySource.updateMany({
+        where: { id: source.id, validationState: "VALIDATING" },
+        data: { validationState: source.validationState, validationMessage: source.validationMessage },
+      });
+    }
+    throw error;
+  }
   const nextFailureCount =
     result.kind === "VALIDATED" ? 0 : source.consecutiveFailures + 1;
   const nextValidationAttemptCount = source.validationAttemptCount + 1;
@@ -5217,6 +5238,8 @@ async function pollCompanySource(
     sourceType: source.sourceType,
     maxRuntimeMs,
   });
+
+  await assertSourceHostReady(source.connectorName);
 
   await prisma.companySource.update({
     where: { id: source.id },

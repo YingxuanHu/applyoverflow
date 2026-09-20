@@ -378,8 +378,8 @@ const steadyWorkerApps = [
       // PM2 must monitor the worker itself, not tsx's low-memory CLI parent.
       script: "scripts/ingest-daemon.ts",
       interpreter: "node",
-      interpreter_args: "--import tsx --require dotenv/config",
-      args: `--interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15} --force`,
+      interpreter_args: "--max-old-space-size=512 --import tsx --require dotenv/config",
+      args: `--interval=${process.env.INGEST_DAEMON_INTERVAL_MINUTES || 15}`,
       cwd: __dirname,
       // Restart policy
       autorestart: true,
@@ -396,6 +396,7 @@ const steadyWorkerApps = [
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "daemon",
+        INGEST_WORKER_SOFT_RSS_MB: process.env.INGEST_WORKER_SOFT_RSS_MB || "800",
         DATABASE_POOL_MAX_DAEMON:
           process.env.DATABASE_POOL_MAX_DAEMON || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:
@@ -444,7 +445,7 @@ const steadyWorkerApps = [
       name: "ingest-poll-worker",
       script: "scripts/ingest-recovery-worker.ts",
       interpreter: "node",
-      interpreter_args: "--import tsx --require dotenv/config",
+      interpreter_args: "--max-old-space-size=512 --import tsx --require dotenv/config",
       args: `--role=poll --interval=${process.env.INGEST_POLL_WORKER_INTERVAL_SECONDS || 60}`,
       cwd: __dirname,
       autorestart: true,
@@ -459,6 +460,7 @@ const steadyWorkerApps = [
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_PROCESS_ROLE: "recovery_poll",
+        INGEST_WORKER_SOFT_RSS_MB: process.env.INGEST_WORKER_SOFT_RSS_MB || "800",
         DATABASE_POOL_MAX_RECOVERY_POLL:
           process.env.DATABASE_POOL_MAX_RECOVERY_POLL || "3",
         DATABASE_POOL_CONNECTION_TIMEOUT_MS:

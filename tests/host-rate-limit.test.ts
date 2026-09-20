@@ -19,7 +19,7 @@ test("a host's 429 prevents a different tenant from sending a request", async (t
     async defer(host, duration) { hosts.push(host); retryAt = new Date(Date.now() + duration); },
   };
   const request = t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 429, headers: { "retry-after": "120" } }));
-  await fetchWithSourceHostGate("https://www.workable.com/api/accounts/one", {}, gate);
+  await assert.rejects(fetchWithSourceHostGate("https://www.workable.com/api/accounts/one", {}, gate), SourceHostRateLimitError);
   await assert.rejects(fetchWithSourceHostGate("https://www.workable.com/api/accounts/two", {}, gate), SourceHostRateLimitError);
   assert.equal(request.mock.callCount(), 1);
   assert.ok(hosts.every((host) => host === "www.workable.com"));

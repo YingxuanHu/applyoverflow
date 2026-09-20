@@ -101,3 +101,25 @@ export async function sleepWithAbort(
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+export async function withRuntimeDeadline<T>(
+  work: Promise<T>, timeoutMs: number, label: string, signal?: AbortSignal,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(toRuntimeAbortError(signal?.reason));
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+        timer = setTimeout(() => reject(createRuntimeBudgetExceededError(timeoutMs, label)), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}

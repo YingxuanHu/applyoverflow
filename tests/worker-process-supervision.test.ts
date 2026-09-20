@@ -28,9 +28,17 @@ test("ingestion supervision targets actual TypeScript workers, not CLI wrappers"
     assert.ok(app, name);
     assert.match(app.script, /^scripts\/ingest-.*\.ts$/);
     assert.equal(app.interpreter, "node");
-    assert.equal(app.interpreter_args, "--import tsx --require dotenv/config");
+    assert.ok(app.interpreter_args?.endsWith("--import tsx --require dotenv/config"));
     assert.ok(app.max_memory_restart);
     assert.doesNotMatch(app.args, /tsx|dotenv/);
+  }
+});
+
+test("busy worker heaps are bounded and supervisor restarts respect cadence", () => {
+  for (const name of ["ingest-daemon", "ingest-poll-worker"]) {
+    const app = apps.find((item) => item.name === name)!;
+    assert.match(app.interpreter_args!, /--max-old-space-size=512/);
+    assert.doesNotMatch(app.args, /--force/);
   }
 });
 

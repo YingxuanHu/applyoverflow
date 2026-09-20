@@ -15,6 +15,7 @@
  * Leave it running in a terminal. Ctrl+C to stop gracefully.
  */
 import "dotenv/config";
+import { shouldYieldForWorkerMemory } from "../src/lib/ingestion/worker-memory";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -558,6 +559,7 @@ async function main() {
             urlHealthLimit: profile.urlHealthLimit,
           })
       );
+      if (shouldYieldForWorkerMemory("daemon: queues drained; exiting for supervisor restart")) break;
       const atsTenantSync = await withTransientDatabaseRetry(
         "sync ATS tenant discovery store",
         () =>
@@ -594,6 +596,7 @@ async function main() {
           })
       );
 
+      if (shouldYieldForWorkerMemory("daemon: connectors drained; exiting for supervisor restart")) break;
       const executedCount = result.executedRuns.length;
       const skippedCount = result.skippedConnectors.length;
       totalExecuted += executedCount;
