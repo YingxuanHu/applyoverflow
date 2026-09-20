@@ -8,6 +8,7 @@ export const SITE_ORIGINS = [
   "https://jobs.ashbyhq.com/*",
   "https://*.myworkdayjobs.com/*",
   "https://*.icims.com/*",
+  "https://apply.workable.com/*",
 ];
 
 // Shared by the server, worker and isolated scanner. Tenant and region are part
@@ -17,6 +18,20 @@ export function applicationContext(raw, allowGeneric = false) {
     const url = new URL(raw);
     if (url.protocol !== "https:" || url.username || url.password || url.port)
       return null;
+    if (url.hostname === "apply.workable.com") {
+      const match = /^\/([a-zA-Z0-9_-]+)\/j\/([a-f0-9]{10})(?:\/apply)?\/?$/i.exec(
+        url.pathname,
+      );
+      if (
+        !match || url.hash || [...url.searchParams.keys()].some(key =>
+          /token|session|secret|password|email|auth|code|signature/i.test(key))
+      ) return null;
+      const tenant = match[1].toLowerCase();
+      return {
+        provider: "workable", tenant, companyKey: `workable:${tenant}`,
+        url: `https://apply.workable.com/${tenant}/j/${match[2].toUpperCase()}/`,
+      };
+    }
     const workday = /^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/.exec(
       url.hostname,
     );

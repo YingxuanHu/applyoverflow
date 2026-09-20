@@ -80,6 +80,49 @@ try {
       type,
       ...data,
     });
+  await worker.evaluate(() => {
+    globalThis.originalAuth = chrome.identity.launchWebAuthFlow;
+    chrome.identity.launchWebAuthFlow = () => new Promise((resolve) => { globalThis.finishAuth = resolve; });
+  });
+  const pendingConnection = send("connect");
+  await popup.waitForFunction(async () => (await chrome.runtime.sendMessage({ type: "status" })).activeAction === "connect");
+  const duplicate = await send("connect");
+  assert.equal(duplicate.activeAction, "connect");
+  assert.match(duplicate.error, /Complete or close/);
+  await worker.evaluate(async () => {
+    const { authorization } = await chrome.storage.session.get("authorization");
+    globalThis.finishAuth(`${chrome.identity.getRedirectURL("callback")}?error=access_denied&state=${authorization.state}`);
+  });
+  assert.match((await pendingConnection).error, /cancelled/);
+  assert.equal((await send("status")).activeAction, null);
+  assert.equal((await send("status")).connected, true, "cancelled reconnect must preserve the previous connection");
+  await worker.evaluate(() => {
+    globalThis.originalTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn, ms, ...args) => globalThis.originalTimeout(fn, ms === 300000 ? 50 : ms, ...args);
+  });
+  assert.match((await send("connect")).error, /Approval timed out/);
+  assert.equal((await send("status")).activeAction, null);
+  assert.equal(await worker.evaluate(async () => Boolean((await chrome.storage.session.get("authorization")).authorization)), false);
+  await worker.evaluate(() => {
+    globalThis.finishAuth(`${chrome.identity.getRedirectURL("callback")}?code=late&state=late`);
+    globalThis.setTimeout = globalThis.originalTimeout;
+    chrome.identity.launchWebAuthFlow = globalThis.originalAuth;
+  });
+  assert.equal((await send("status")).connected, true);
+  assert.equal(calls.filter(c => c.action === "token").length, 0, "late identity results must never exchange a token");
+  console.log("PASS: real worker pending-action state, duplicate suppression, cancellation recovery and ignored late authorization");
+  // A suspended employer tab must not hold the popup or a reconnect hostage.
+  await worker.evaluate(() => {
+    globalThis.originalTabSend = chrome.tabs.sendMessage;
+    chrome.tabs.sendMessage = () => new Promise(() => {});
+  });
+  const readinessStarted = Date.now();
+  assert.equal((await send("detection-updated")).connected, true);
+  assert.ok(Date.now() - readinessStarted < 3000, "unresponsive tabs must not block setup");
+  await worker.evaluate(() => {
+    chrome.tabs.sendMessage = globalThis.originalTabSend;
+    delete globalThis.originalTabSend;
+  });
   const page = await context.newPage();
   for (const url of [
     "https://fixture.wd1.myworkdayjobs.com/en-US/External/job/Analyst_R123/apply/myExperience",
@@ -87,6 +130,17 @@ try {
   ]) {
     await page.goto(url);
     await page.bringToFront();
+    await worker.evaluate(() => {
+      globalThis.originalExecuteScript = chrome.scripting.executeScript;
+      chrome.scripting.executeScript = () => new Promise(() => {});
+    });
+    const slowPage = await send("status");
+    assert.equal(slowPage.connected, true, "page responsiveness is not account connectivity");
+    assert.match(slowPage.pageMessage, /taking too long/);
+    await worker.evaluate(() => {
+      chrome.scripting.executeScript = globalThis.originalExecuteScript;
+      delete globalThis.originalExecuteScript;
+    });
     const status = await send("status");
     assert.equal(status.connected, true);
     assert.equal(
@@ -122,7 +176,7 @@ try {
       ).error,
       /expired/,
     );
-    const created = context.waitForEvent("page");
+    const created = context.waitForEvent("page", { timeout: 60_000 });
     const result = await send("applied", {
       token: preview.preview.token,
       title: "Analyst",

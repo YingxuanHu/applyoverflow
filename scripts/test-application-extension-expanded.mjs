@@ -108,6 +108,32 @@ try {
     ).filled,
     7,
   );
+  // Authenticated TD My Information exposes email as text, not an input.
+  await page.locator('[id="emailAddress--emailAddress"]').evaluate((input) => {
+    const email = document.createElement("p");
+    email.textContent = "signed-in@example.test";
+    input.replaceWith(email);
+  });
+  assert.equal((await inspect()).preserved, 0);
+  await inspect("undo");
+  const authenticated = await inspect();
+  assert.equal(authenticated.available, 6, "static email must not hide the contact form");
+  assert.equal(JSON.stringify(authenticated).includes("signed-in@example.test"), false);
+  assert.equal((await inspect("fill", {
+    givenName: "Jordan", familyName: "Example", streetAddress: "123 Example",
+    city: "Toronto", postalCode: "M5V 1A1", phone: "4165550100",
+  })).filled, 6);
+  await page.locator('[data-automation-id="applyFlowPage"]').evaluate((form) => {
+    form.innerHTML = '<h3>Application Questions</h3><label>Describe a relevant project<textarea>Keep my answer</textarea></label>';
+  });
+  assert.equal((await inspect()).available, 0);
+  assert.deepEqual((await inspect()).questions, ["Describe a relevant project"]);
+  assert.match((await inspect("fill", { givenName: "Jordan" })).error, /No supported contact fields/);
+  assert.equal(await page.locator("textarea").inputValue(), "Keep my answer");
+  await page.locator('[data-automation-id="applyFlowPage"]').evaluate((form) => {
+    form.insertAdjacentHTML("beforeend", '<label>Password<input type="password"></label>');
+  });
+  assert.match((await inspect()).error, /single application/, "sign-in is still excluded");
   await load("generic");
   await page
     .locator("#first")

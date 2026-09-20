@@ -34,6 +34,11 @@ main {
   color: #656872;
   font-size: 12px;
 }
+.readiness { margin: 0 0 12px; }
+.readiness > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.readiness dt { color: #73767e; }
+.readiness dd { margin: 0; text-align: right; }
+#page-status { margin: 0 0 12px; line-height: 1.5; overflow-wrap: anywhere; }
 button {
   font: inherit;
   cursor: pointer;

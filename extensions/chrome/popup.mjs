@@ -5,7 +5,10 @@ document.getElementById("profile").href = `${APP_ORIGIN}/profile`;
 document.getElementById("settings").href = `${APP_ORIGIN}/settings/extension`;
 document.getElementById("privacy").href = `${APP_ORIGIN}/extension/privacy`;
 let history, preview;
+let activeAction = null;
+let refreshTimer;
 async function run(type, data = {}) {
+  clearTimeout(refreshTimer);
   for (const button of document.querySelectorAll("button"))
     button.disabled = true;
   if (type !== "status")
@@ -21,7 +24,9 @@ async function run(type, data = {}) {
       throw new Error(
         "Open ApplyOverflow from the Chrome toolbar and try again.",
       );
+    activeAction = result.activeAction ?? null;
     if (result.reconnect) {
+      document.getElementById("connection-state").textContent = "Reconnect needed";
       history = preview = undefined;
       document.getElementById("history-entry").replaceChildren();
       document.getElementById("history-picker").hidden = true;
@@ -69,6 +74,15 @@ async function run(type, data = {}) {
       document.getElementById("account").hidden = !result.email;
     }
     if (!result.connected) document.getElementById("account").hidden = true;
+    document.getElementById("connection-state").textContent = result.connected
+      ? "Connected"
+      : "Not connected";
+    if (result.pageMessage !== undefined) {
+      document.getElementById("page-status").textContent = result.pageMessage;
+      document.getElementById("page-status").hidden = false;
+      if (result.form?.historyAvailable)
+        document.getElementById("more-actions").open = true;
+    }
     document.getElementById("connect").hidden = result.connected;
     document.getElementById("actions").hidden = !result.connected;
     document.getElementById("disconnect").hidden = !result.connected;
@@ -82,7 +96,10 @@ async function run(type, data = {}) {
     status.textContent = error.message || "Could not complete the action.";
   } finally {
     for (const button of document.querySelectorAll("button"))
-      button.disabled = false;
+      button.disabled = Boolean(activeAction);
+    // A popup can close while Chrome opens consent. A reopened popup must
+    // reflect that operation and recover when its window is closed.
+    if (activeAction) refreshTimer = setTimeout(() => void run("status"), 1500);
   }
 }
 for (const type of [
@@ -134,6 +151,14 @@ async function updateAccess() {
   ).length;
   detection.checked = count === SITE_ORIGINS.length;
   detection.indeterminate = count > 0 && count < SITE_ORIGINS.length;
+  document.getElementById("access-state").textContent = !count
+    ? "Toolbar only"
+    : detection.checked
+      ? "Supported sites enabled"
+      : "Some sites enabled";
+  document.getElementById("access-help").textContent = count
+    ? "Greenhouse, Lever, Ashby, Workday, iCIMS & Workable. Other application sites: use the toolbar."
+    : "Automatic hints are off until site access is granted. Filling always requires your click.";
 }
 detection.addEventListener("change", async () => {
   const enable = detection.checked;

@@ -43,6 +43,14 @@ export function extensionCallback(clientId: string) {
   return `https://${clientId}.chromiumapp.org/callback`;
 }
 
+export function extensionCancelCallback(request: { clientId: string; state: string }) {
+  extensionRequestSchema.shape.state.parse(request.state);
+  const callback = new URL(extensionCallback(request.clientId));
+  callback.searchParams.set("error", "access_denied");
+  callback.searchParams.set("state", request.state);
+  return callback.href;
+}
+
 // Tenant-scoped Greenhouse job URLs, including unambiguous hosted embed URLs.
 export function greenhouseContext(raw: string) {
   const context = applicationContext(raw);

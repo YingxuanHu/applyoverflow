@@ -1,12 +1,20 @@
 # Application Assistant Preview
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-Version 0.5 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
+Version 0.5.2 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
 The popup has Connect, Fill contact details, Choose resume, and Review questions. An optional
-small on-page hint appears only when unambiguous empty contact or resume fields are found;
+small on-page hint appears when contact, resume, history or reviewable question fields are found;
 there is no injected sidebar. New forms and SPA navigation are detected locally.
+Question-only steps say "Application help available", not "Autofill available".
+The popup reports profile connection and site access separately, with a local
+field summary or inspection error. Connecting/disconnecting updates existing
+on-page hints without a refresh. No profile is fetched just to detect fields.
+Cancel on the connection page returns to Chrome instead of navigating away.
+Reopening the popup during approval shows the active operation and recovers when
+it ends. Abandoned approval waits expire after five minutes without processing
+a late callback; close the old sign-in window before reconnecting.
 Undo contact fill appears after filling. Application assistant in each tracked
 application also opens a copy-ready contact, work and education reference.
 
@@ -16,6 +24,17 @@ be inspected through the toolbar, without coming from ApplyOverflow or granting
 all-sites access. Generic contact fields require exact autocomplete semantics
 and matching labels; unsupported fields stay manual. This is not a claim of
 compatibility with every tenant or custom widget.
+
+Workable has a beta adapter for verified first name, last name and email fields
+on `apply.workable.com/<company>/j/<job>/apply/`. Its compound phone/country,
+address lookup and file-upload widgets remain manual. Existing users must grant
+the new optional Workable origin for automatic hints; previously approved ATS
+origins continue working without that grant. The toolbar remains available.
+Generic forms support standard section-prefixed autocomplete tokens and
+multiline street addresses when the label and semantics agree. Reference,
+billing/shipping and custom-answer controls remain excluded. Missing profile
+facts are named after filling, not silently guessed. Each write and Undo is
+revalidated against the current DOM so rerenders cannot redirect later writes.
 
 History & tracking expands to two secondary actions: choose one saved work or
 education entry to fill an existing empty row; or use I applied to explicitly
@@ -210,7 +229,18 @@ preserves fieldset context such as "Reference details: Email".
   `EXTENSION_HEADED=1` in this disposable profile. Every HTTP request is mocked.
 - `npm run extension:test:expanded`: Workday/iCIMS/generic contact and selected
   history fixtures, existing rows, precision, native selects, edited Undo,
-  ambiguous repeaters, reference fields, DOM/navigation races, mobile layout.
+  ambiguous repeaters, reference fields, DOM/navigation races, mobile layout,
+  signed-in Workday static-email and question-only application steps.
+- `npm run extension:test:compatibility`: intercepted generic/Workable fixtures,
+  section/recipient autocomplete, multiline addresses, explicit missing facts,
+  incorrect identifiers and field mutations during Fill/Undo. Includes bounded
+  detection/fill benchmarks; results exclude network latency and do not establish
+  real employer acceptance or performance relative to another extension.
+- `npm run extension:test:readiness`: popup setup states and question/history-only
+  hints, connection changes without reload, permission removal, no unsolicited
+  profile requests, and a 320px screenshot. Uses mocked Chrome APIs, so it does
+  not replace the real MV3 permission/connection tests below.
+  Also covers reopening during approval and automatic recovery after cancellation.
 - `EXTENSION_TEST_PROFILE=output/playwright/assistant-frames-profile npm run extension:test:history`:
   actual MV3 runtime, selected-entry requests, Workday/iCIMS history/Undo,
   same-origin success navigation, explicit confirmation, replay rejection and

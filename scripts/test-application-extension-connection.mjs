@@ -50,6 +50,7 @@ context.on("response", response => {
 });
 try {
   await api.post(`${origin}/api/auth/sign-out`, {
+    timeout: 90_000,
     headers: { Origin: origin },
     data: {},
   });
@@ -69,7 +70,7 @@ try {
     .getByRole("textbox", { name: "Password", exact: true })
     .fill(password);
   await app.getByRole("button", { name: "Sign in", exact: true }).click();
-  await app.waitForURL("**/settings/extension", { timeout: 90_000 });
+  await app.waitForURL("**/settings/extension", { timeout: 90_000, waitUntil: "domcontentloaded" });
   await app.getByRole("button", { name: "Download ZIP" }).waitFor();
   const downloaded = app.waitForEvent("download");
   await app.getByRole("button", { name: "Download ZIP" }).click();
@@ -117,6 +118,20 @@ try {
   await popup.screenshot({
     path: "output/playwright/assistant-popup-disconnected.png",
   });
+  const cancelledPagePromise = context.waitForEvent("page", { timeout: 60_000 });
+  await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
+  const cancelledPage = await cancelledPagePromise;
+  await cancelledPage.getByRole("button", { name: "Allow connection" }).waitFor({ timeout: 60_000 });
+  const reopenedPopup = await context.newPage();
+  await reopenedPopup.goto(`chrome-extension://${id}/popup.html`);
+  await reopenedPopup.getByText(/Connection in progress/).waitFor();
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isDisabled(), true);
+  await cancelledPage.getByRole("link", { name: "Cancel", exact: true }).click();
+  await popup.getByText("Connection cancelled.", { exact: true }).waitFor();
+  await reopenedPopup.getByText("Connect to your ApplyOverflow profile.", { exact: true }).waitFor();
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isEnabled(), true);
+  await reopenedPopup.close();
+  console.log("PASS: real web cancellation closes Chrome identity, reopened popup recovers and reconnect remains available");
   const authPagePromise = context.waitForEvent("page", { timeout: 60_000 });
   await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
   const authPage = await authPagePromise;

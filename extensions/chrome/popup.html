@@ -14,6 +14,11 @@
     </header>
     <main>
       <p id="account" hidden></p>
+      <dl class="readiness" aria-label="Autofill setup">
+        <div><dt>Profile</dt><dd id="connection-state">Checking...</dd></div>
+        <div><dt>Site access</dt><dd id="access-state">Checking...</dd></div>
+      </dl>
+      <p id="page-status" hidden></p>
       <button id="connect" type="button">Connect to ApplyOverflow</button>
       <div id="actions" hidden>
         <button id="fill" type="button">Fill contact details</button>
@@ -49,7 +54,7 @@
         ><input id="detection" type="checkbox" />Show autofill on supported
         sites</label
       >
-      <p class="sites">Greenhouse, Lever, Ashby, Workday &amp; iCIMS. Other application sites: use the toolbar.</p>
+      <p class="sites" id="access-help">Greenhouse, Lever, Ashby, Workday, iCIMS &amp; Workable. Other application sites: use the toolbar.</p>
     </main>
     <footer>
       <a id="profile" target="_blank" rel="noreferrer">Profile</a

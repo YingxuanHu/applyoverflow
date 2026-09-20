@@ -1,6 +1,6 @@
 export const SITE_ORIGINS: string[];
 export function applicationContext(raw: string, allowGeneric?: boolean): {
-  provider: "greenhouse" | "lever" | "ashby" | "workday" | "icims" | "generic";
+  provider: "greenhouse" | "lever" | "ashby" | "workday" | "icims" | "workable" | "generic";
   tenant: string;
   companyKey: string;
   jobKey?: string;

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ExtensionConsent } from "@/components/applications/extension-consent";
 import {
   allowedExtension,
+  extensionCancelCallback,
   extensionRequestSchema,
 } from "@/lib/application-assistant";
 import {
@@ -70,9 +71,9 @@ export default async function ExtensionConnectPage({
       <Link className="block text-sm text-primary underline" href="/extension/privacy" target="_blank" rel="noreferrer">
         Extension data use
       </Link>
-      <Link className="text-sm text-muted-foreground underline" href="/jobs">
+      <a className="text-sm text-muted-foreground underline" href={extensionCancelCallback(input.data)}>
         Cancel
-      </Link>
+      </a>
     </div>
   );
 }

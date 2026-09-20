@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
 import { chromium } from "playwright";
 import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
 import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
@@ -7,6 +8,11 @@ import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
 // Real MV3 worker, permissions, registered scripts and click-to-fill. All page
 // and API traffic is synthetic here; identity/API integration has a separate test.
 const extension = resolve("output/extension/local");
+if (process.env.EXTENSION_TEST_PROFILE) {
+  const profile = resolve(process.env.EXTENSION_TEST_PROFILE);
+  assert.ok(profile.startsWith(`${resolve("output/playwright")}/`), "Use a disposable profile, never personal Chrome data");
+  await rm(resolve(profile, "Default/Service Worker"), { recursive: true, force: true });
+}
 const context = await chromium.launchPersistentContext(
   process.env.EXTENSION_TEST_PROFILE ?? "",
   {
@@ -188,7 +194,7 @@ try {
       "background scans must not replace the pressed review button",
     );
     const [review] = await Promise.all([
-      context.waitForEvent("page"),
+      context.waitForEvent("page", { timeout: 60_000 }),
       keyboardReview ? page.keyboard.up("Space") : page.mouse.up(),
     ]);
     await review.waitForLoadState();
@@ -280,14 +286,15 @@ try {
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
   await page.bringToFront();
-  for (const url of [
-    fixtures[0].url + "?unsupported=1",
-    "https://unrelated.example/application",
-  ]) {
-    await page.goto(url);
-    await page.waitForTimeout(400);
-    assert.equal(await page.locator("#applyoverflow-assistant").count(), 0);
-  }
+  const beforeQuestions = contactCalls;
+  await page.goto(fixtures[0].url + "?unsupported=1");
+  await page.getByRole("button", { name: "Application help available" }).click();
+  await page.getByRole("button", { name: "Review questions" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Fill contact details" }).isVisible(), false);
+  assert.equal(contactCalls, beforeQuestions, "question-only detection must not fetch profile facts");
+  await page.goto("https://unrelated.example/application");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator("#applyoverflow-assistant").count(), 0);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(

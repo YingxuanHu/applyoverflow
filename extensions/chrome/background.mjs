@@ -74,7 +74,9 @@ function syncDetection() {
         ]);
       // Apply permission changes to existing tabs, not just the next navigation.
       for (const tab of await chrome.tabs.query({})) {
-        await chrome.tabs
+        // Background/frozen renderers may never reply. Registration and popup
+        // readiness must not wait for best-effort UI notifications or injection.
+        void chrome.tabs
           .sendMessage(tab.id, { type: "permissions-changed" })
           .catch(() => {});
         if (
@@ -84,7 +86,7 @@ function syncDetection() {
             origins: [`${new URL(tab.url).origin}/*`],
           }))
         )
-          await chrome.scripting
+          void chrome.scripting
             .executeScript({
               target: { tabId: tab.id, allFrames: true },
               files: ["adapter-runtime.js", "indicator.js"],
@@ -108,6 +110,13 @@ const encoded = (bytes) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 const random = () => encoded(crypto.getRandomValues(new Uint8Array(32)));
+async function notifyConnectionChanged() {
+  // No profile data or token crosses this channel; each frame rechecks access.
+  for (const tab of await chrome.tabs.query({}))
+    void chrome.tabs
+      .sendMessage(tab.id, { type: "connection-changed" })
+      .catch(() => {});
+}
 async function clearAccountSession() {
   const state = await chrome.storage.session.get(null);
   await chrome.storage.session.remove(
@@ -118,6 +127,7 @@ async function clearAccountSession() {
         key.startsWith("application:"),
     ),
   );
+  await notifyConnectionChanged();
 }
 async function api(action, body, token) {
   const response = await fetch(`${APP_ORIGIN}/api/extension/v1/${action}`, {
@@ -142,6 +152,24 @@ async function api(action, body, token) {
   return result;
 }
 
+async function authorize(url) {
+  let timer;
+  try {
+    // Chrome's timeout option only applies to non-interactive flows. Stop
+    // awaiting abandoned windows; a late callback must never exchange a token.
+    return await Promise.race([
+      chrome.identity.launchWebAuthFlow({ interactive: true, url }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          "Approval timed out. Close the ApplyOverflow sign-in window, then try again.",
+        )), 5 * 60_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function connect() {
   const verifier = random();
   const state = random();
@@ -152,10 +180,7 @@ async function connect() {
   const callback = chrome.identity.getRedirectURL("callback");
   await chrome.storage.session.set({ authorization: { verifier, state } });
   try {
-    const finalUrl = await chrome.identity.launchWebAuthFlow({
-      interactive: true,
-      url: `${APP_ORIGIN}/extension/connect?${new URLSearchParams({ clientId, challenge, state })}`,
-    });
+    const finalUrl = await authorize(`${APP_ORIGIN}/extension/connect?${new URLSearchParams({ clientId, challenge, state })}`);
     const url = new URL(finalUrl);
     const expected = new URL(callback);
     const pending = (await chrome.storage.session.get("authorization"))
@@ -174,6 +199,7 @@ async function connect() {
     });
     await clearAccountSession();
     await chrome.storage.session.set({ connection });
+    await notifyConnectionChanged();
     return {
       connected: true,
       email: connection.email,
@@ -184,7 +210,12 @@ async function connect() {
   }
 }
 
-let working = false;
+let working = null;
+function workingMessage() {
+  if (working === "connect") return "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue.";
+  if (working === "resume") return "Resume approval in progress. Complete or close the resume selection window to continue.";
+  return "Finishing the previous action. Please wait.";
+}
 async function handle(type, sender, message = {}) {
   // Session storage is never exposed to content scripts or synced across devices.
   await chrome.storage.session.setAccessLevel({
@@ -211,10 +242,26 @@ async function handle(type, sender, message = {}) {
     const tab = (
       await chrome.tabs.query({ active: true, currentWindow: true })
     )[0];
-    const current =
-      tab?.id && applicationContext(tab.url, true)
-        ? await inspect({ tabId: tab.id }).catch(() => null)
-        : null;
+    let current, inspectionError;
+    if (tab?.id && applicationContext(tab.url, true)) {
+      let inspectionTimer;
+      try {
+        // This scan is read-only. A busy renderer must not disable Connect or
+        // conceal the independently known account state indefinitely.
+        current = await Promise.race([
+          inspect({ tabId: tab.id }),
+          new Promise((_, reject) => {
+            inspectionTimer = setTimeout(() => reject(new Error(
+              "This page is taking too long to respond. Reopen the extension when it finishes loading.",
+            )), 2500);
+          }),
+        ]);
+      } catch (error) {
+        inspectionError = error.message;
+      } finally {
+        clearTimeout(inspectionTimer);
+      }
+    }
     if (current)
       await chrome.storage.session.set({
         [`application:${tab.id}`]: {
@@ -225,10 +272,27 @@ async function handle(type, sender, message = {}) {
       });
     return {
       connected,
+      activeAction: working,
       undoAvailable: current?.result.undoAvailable === true,
       historyUndoAvailable: current?.result.historyUndoAvailable === true,
       email: connected ? connection.email : "",
-      message: connected
+      form: current
+        ? {
+            contactFields: current.result.available,
+            resumeAvailable: current.result.resumeAvailable,
+            historyAvailable: current.result.historyAvailable === true,
+            questions: current.result.questions.length,
+          }
+        : null,
+      pageMessage: current
+        ? [
+            current.result.available && `${current.result.available} empty contact fields`,
+            current.result.historyAvailable && "work & education",
+            current.result.resumeAvailable && "resume upload",
+            current.result.questions.length && `${current.result.questions.length} questions`,
+          ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
+        : inspectionError || "Open an employer application form to check available fields.",
+      message: working ? workingMessage() : connected
         ? current
           ? "Review the employer form after filling."
           : "Open an application form. Some fields need manual entry."
@@ -244,7 +308,8 @@ async function handle(type, sender, message = {}) {
       if (
         !scan.result.available &&
         !scan.result.resumeAvailable &&
-        !scan.result.historyAvailable
+        !scan.result.historyAvailable &&
+        !scan.result.questions.length
       )
         throw new Error("No supported empty fields found.");
     }
@@ -419,10 +484,7 @@ async function handle(type, sender, message = {}) {
       connection.token,
     );
     try {
-      const finalUrl = await chrome.identity.launchWebAuthFlow({
-        interactive: true,
-        url: `${APP_ORIGIN}/extension/resume/${encodeURIComponent(request.id)}`,
-      });
+      const finalUrl = await authorize(`${APP_ORIGIN}/extension/resume/${encodeURIComponent(request.id)}`);
       const callback = new URL(finalUrl);
       const expected = new URL(chrome.identity.getRedirectURL("callback"));
       if (
@@ -476,10 +538,21 @@ async function handle(type, sender, message = {}) {
     );
     const counts = written.result;
     if (counts.error) throw new Error(counts.error);
+    const names = {
+      givenName: "given name", familyName: "family name", fullName: "full name",
+      email: "email", phone: "phone", linkedInUrl: "LinkedIn",
+      githubUrl: "GitHub", portfolioUrl: "portfolio", streetAddress: "street address",
+      addressLine2: "address line 2", city: "city", postalCode: "postal code",
+    };
+    const missing = [...new Set(counts.missingFields || [])]
+      .filter(key => Object.hasOwn(names, key)).map(key => names[key]);
+    const profileHint = missing.length
+      ? ` Complete ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? " and other missing details" : ""} in your ApplyOverflow profile.`
+      : "";
     return {
       connected: true,
       undoAvailable: counts.undoAvailable,
-      message: `${counts.filled} filled · ${counts.preserved} kept · ${counts.missing} missing or unverified. Review the employer form before submitting.`,
+      message: `${counts.filled} filled · ${counts.preserved} kept · ${counts.missing} missing or unverified.${profileHint} Review the employer form before submitting.`,
     };
   }
   const result = await api(
@@ -519,10 +592,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     message?.type,
   );
   if (working && !readOnly) {
-    respond({ error: "An action is already running." });
+    respond({ error: workingMessage(), activeAction: working });
     return false;
   }
-  if (!readOnly) working = true;
+  if (!readOnly) working = message?.type;
   Promise.resolve()
     .then(async () => {
       if (
@@ -546,7 +619,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       }),
     )
     .finally(() => {
-      if (!readOnly) working = false;
+      if (!readOnly) working = null;
     });
   return true;
 });

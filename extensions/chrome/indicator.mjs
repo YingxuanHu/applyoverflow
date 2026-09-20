@@ -111,6 +111,7 @@ export function installIndicator() {
       dot.className = "dot";
       dot.setAttribute("aria-hidden", "true");
       launcher.prepend(dot);
+      const launcherLabel = launcher.lastChild;
       header.append(launcher);
       const close = button("\u00d7", () => {
         dismissedUrl = location.href;
@@ -141,6 +142,7 @@ export function installIndicator() {
       view = {
         brand,
         launcher,
+        launcherLabel,
         content,
         summary,
         connect,
@@ -157,11 +159,19 @@ export function installIndicator() {
     view.brand.hidden = !expanded;
     view.launcher.hidden = expanded;
     view.content.hidden = !expanded;
+    view.launcherLabel.textContent =
+      result.available || result.resumeAvailable
+        ? "Autofill available"
+        : "Application help available";
     view.summary.textContent = result.available
       ? `${result.available} empty contact ${result.available === 1 ? "field" : "fields"}. Other questions stay manual.`
       : result.resumeAvailable
         ? "Resume attachment available."
-        : "";
+        : result.historyAvailable
+          ? "Work and education fields detected. Choose a profile entry in the Chrome toolbar."
+          : result.questions.length
+            ? "Application questions ready to review."
+            : "";
     view.summary.hidden = !view.summary.textContent;
     view.connect.hidden = connection;
     view.fill.hidden = !connection || !result.available;
@@ -203,6 +213,9 @@ export function installIndicator() {
       (!result.available &&
         !result.resumeAvailable &&
         !result.undoAvailable &&
+        !result.historyAvailable &&
+        !result.historyUndoAvailable &&
+        !result.questions.length &&
         !busy &&
         Date.now() >= noticeUntil)
     ) {
@@ -214,6 +227,8 @@ export function installIndicator() {
       result.available,
       result.resumeAvailable,
       result.undoAvailable,
+      result.historyAvailable,
+      result.historyUndoAvailable,
       result.questions.length,
       expanded,
       busy,
@@ -301,7 +316,8 @@ export function installIndicator() {
     if (location.href !== lastUrl) void resume();
   }, 500);
   function onMessage(message) {
-    if (message?.type === "permissions-changed") void resume();
+    if (["permissions-changed", "connection-changed"].includes(message?.type))
+      void resume();
   }
   chrome.runtime.onMessage.addListener(onMessage);
   void resume();

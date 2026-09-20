@@ -6,6 +6,7 @@ import {
   sameApplication,
   captureSchema,
   extensionCallback,
+  extensionCancelCallback,
   extensionRequestSchema,
   greenhouseContext,
   mergeCapturedQuestions,
@@ -32,6 +33,18 @@ test("extension allowlist fails closed and validates IDs", () => {
     }).success,
     false,
   );
+});
+
+test("consent cancellation returns to the exact extension with state and no code", () => {
+  const request = { clientId: "a".repeat(32), state: "b".repeat(43) };
+  const url = new URL(extensionCancelCallback(request));
+  assert.equal(url.origin, `https://${request.clientId}.chromiumapp.org`);
+  assert.equal(url.pathname, "/callback");
+  assert.equal(url.searchParams.get("state"), request.state);
+  assert.equal(url.searchParams.get("error"), "access_denied");
+  assert.equal(url.searchParams.has("code"), false);
+  assert.throws(() => extensionCancelCallback({ ...request, clientId: "evil.example" }));
+  assert.throws(() => extensionCancelCallback({ ...request, state: "bad state" }));
 });
 
 test("Workday and iCIMS identities follow steps without crossing employers", () => {
@@ -89,6 +102,17 @@ test("Workday and iCIMS identities follow steps without crossing employers", () 
     "https://example.wd1.myworkdayjobs.com.evil.test/en-US/External/job/Toronto/Analyst_R123",
   ])
     assert.equal(applicationContext(url), null);
+});
+test("Workable identities retain the tenant and job across application steps", () => {
+  const job = "https://apply.workable.com/fixture/j/CFA264B77A/";
+  assert.equal(applicationContext(job)?.provider, "workable");
+  assert.equal(sameApplication(job, `${job}apply/?utm_source=test`), true);
+  assert.equal(sameApplication(job, job.replace("fixture", "another")), false);
+  assert.equal(sameApplication(job, job.replace("CFA264B77A", "AAA264B77A")), false);
+  for (const url of ["https://apply.workable.com/j/CFA264B77A", `${job}login`,
+    `${job}?token=private`, "https://apply.workable.com/fixture/gdpr_policy",
+    "https://apply.workable.com/fixture/", `${job}?email=private`, `${job}#token=private`])
+    assert.equal(applicationContext(url, true), null, url);
 });
 test("generic application URLs are explicit, public HTTPS and job scoped", () => {
   const url = "https://careers.example.com/apply?id=123&utm_source=board";

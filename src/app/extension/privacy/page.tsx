@@ -18,7 +18,7 @@ export default function ExtensionPrivacyPage() {
         <h1 className="text-2xl font-semibold">
           Application assistant data use
         </h1>
-        <p className="text-muted-foreground">Updated September 19, 2026</p>
+        <p className="text-muted-foreground">Updated September 20, 2026</p>
         <p>
           This notice describes the ApplyOverflow Chrome extension and its
           application-review workflow.
@@ -51,7 +51,7 @@ export default function ExtensionPrivacyPage() {
         <h2 className="text-base font-semibold">What stays in your browser</h2>
         <p>
           Optional site access lets the extension inspect recognized Greenhouse,
-          Lever, Ashby, Workday and iCIMS forms for supported fields. On other
+          Lever, Ashby, Workday, iCIMS and Workable forms for supported fields. On other
           sites, inspection starts only when you open the toolbar. This inspection does not
           fetch your profile or send form contents to ApplyOverflow. In an
           embedded form, inspection is limited to the permitted ATS frame, not
