@@ -55,7 +55,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-focused space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings</h1>

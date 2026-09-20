@@ -39,10 +39,10 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
   const namedSections = sections.map((section, index) => ({ ...section, index })).filter((section) => section.heading);
 
   return (
-    <div className="max-w-[78ch] min-w-0 break-words text-[15px] leading-7 text-foreground/85 [overflow-wrap:anywhere]" data-job-description>
+    <div className="max-w-[76ch] min-w-0 break-words text-base leading-7 text-foreground/85 [overflow-wrap:anywhere]" data-job-description>
       {!isCompleteEnough ? <p className="mb-5 border-l-2 border-border pl-3 text-sm leading-6 text-muted-foreground">{sections.length ? "This source excerpt may be incomplete. Check the original posting for the full requirements." : "The source description is not available yet. Check the original posting for the full requirements."}</p> : null}
       {qualifications.length ? <section aria-label="Qualification evidence" className="mb-6 border-y border-border/60 py-4">
-        <h3 className="mb-3 text-sm font-semibold text-foreground">Qualification evidence</h3>
+        <h3 className="mb-3 text-base font-semibold text-foreground">Qualification evidence</h3>
         <dl className="space-y-3">
           {qualifications.slice(0, 8).map((fact) => <div key={`${fact.category}:${fact.skill}`} className="text-sm leading-6">
             <dt className="flex flex-wrap items-baseline gap-x-2 font-medium">{fact.skill}<span className="text-xs font-normal text-muted-foreground">{fact.category === "preferred" ? "Preferred" : "Requirements section"}{profileSkills.length ? profileCapabilities.has(fact.skill) ? " · Listed in your profile" : " · Not listed in your profile" : ""}</span></dt>
@@ -52,11 +52,11 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
       </section> : null}
       {highlights.length ? (
         <section aria-label="At a glance" className="mb-6 border-y border-border/60 py-4">
-          <h3 className="mb-3 text-sm font-semibold text-foreground">At a glance</h3>
+          <h3 className="mb-3 text-base font-semibold text-foreground">At a glance</h3>
           <dl className="space-y-3">
             {highlights.map((highlight) => (
               <div key={highlight.sectionIndex} className="grid gap-1 sm:grid-cols-[minmax(7rem,1fr)_3fr] sm:gap-4">
-                <dt className="text-xs font-medium leading-6 text-muted-foreground">
+                <dt className="text-sm font-medium leading-6 text-muted-foreground">
                   <a href={`#${sectionId(highlight.sectionIndex)}`} onClick={(event) => jump(event, highlight.sectionIndex)} className="underline decoration-border underline-offset-4 hover:text-primary">{highlight.label}</a>
                 </dt>
                 <dd className="text-sm leading-6"><InlineDescriptionText text={highlight.text} /></dd>
@@ -66,7 +66,7 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
         </section>
       ) : null}
       {namedSections.length > 1 ? (
-        <nav aria-label="Description sections" className="mb-6 flex flex-wrap gap-x-4 gap-y-2 border-b border-border/60 pb-4 text-xs leading-5">
+        <nav aria-label="Description sections" className="mb-6 flex flex-wrap gap-x-4 gap-y-2 border-b border-border/60 pb-4 text-sm leading-6">
           {namedSections.map((section) => (
             <a key={section.index} href={`#${sectionId(section.index)}`} onClick={(event) => jump(event, section.index)} className="text-muted-foreground underline decoration-border underline-offset-4 hover:text-primary">{section.heading}</a>
           ))}
@@ -75,7 +75,7 @@ export function JobDescriptionContent({ description, profileSkills = [] }: { des
       <div className="space-y-7">
         {sections.map((section, index) => (
           <section key={index} className="space-y-3" aria-labelledby={section.heading ? sectionId(index) : undefined}>
-            {section.heading ? <h3 id={sectionId(index)} tabIndex={-1} className="scroll-mt-24 text-base font-semibold leading-6 text-foreground focus-visible:outline-2 focus-visible:outline-primary">{section.heading}</h3> : null}
+            {section.heading ? <h3 id={sectionId(index)} tabIndex={-1} className="scroll-mt-24 text-lg font-semibold leading-7 text-foreground focus-visible:outline-2 focus-visible:outline-primary">{section.heading}</h3> : null}
             {section.blocks.map((block, blockIndex) => {
               if (block.kind === "paragraph") {
                 const fact = descriptionMetadata(block.text);

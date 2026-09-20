@@ -2,7 +2,6 @@ import { buildJobsSearchHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles } from "lucide-react";
 
 import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chips";
 import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
@@ -411,28 +410,20 @@ export default async function JobsTopPicksPage({
       refreshEnabled={shouldRefreshTopPicks}
       storageKey={`page:${userId}:${result.status.profileVersion ?? "new"}:${result.status.lastComputedAt ?? "none"}`}
     >
-      <div className="app-page space-y-5">
+      <div className="app-page app-page-workspace space-y-6">
         <ScrollPositionMemory
           defaultScrollTop="top"
           restoreSavedPosition={false}
           storageKeyPrefix="autoapplication.top-picks.scroll"
         />
-        <header className="page-header">
+        <header className="page-header items-center justify-start gap-x-10 gap-y-3">
           <div>
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              <h1 className="page-title">Top picks for you</h1>
-            </div>
-            <p className="page-description">
-              Ranked from your profile, preferences, skills, location, salary
-              target, and recent job activity.
-            </p>
+            <h1 className="page-title">Jobs</h1>
           </div>
+          <JobsSectionTabs active="top-picks" />
         </header>
 
-        <JobsSectionTabs active="top-picks" />
-
-        <section aria-label="Picks search" className="border-y border-border/60 py-4">
+        <section aria-label="Picks search" className="border-b border-border/60 pb-4">
           <TopPicksStatusSummary
             canRefresh={
               result.status.canRefresh !== false &&

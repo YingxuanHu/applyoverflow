@@ -355,7 +355,7 @@ export function JobsSearchForm({
           </label>
           <div className="relative w-[6.8rem] shrink-0 border-r border-border/60 sm:w-32">
             <select
-              className="h-10 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-10 text-foreground outline-none sm:pl-4 sm:pr-8"
+              className="h-11 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-11 text-foreground outline-none sm:pl-4 sm:pr-8"
               id="jobs-search-scope"
               onChange={(event) => handleScopeChange(event.target.value as SearchMode)}
               style={{ textAlignLast: "left" }}
@@ -378,7 +378,7 @@ export function JobsSearchForm({
             )}
             <Input
               aria-label={PLACEHOLDER_BY_SCOPE[scope]}
-              className="h-10 rounded-none border-0 bg-transparent pl-9 pr-16 text-sm focus-visible:border-transparent focus-visible:ring-0 sm:pr-[4.25rem]"
+              className="h-11 rounded-none border-0 bg-transparent pl-9 pr-16 text-base focus-visible:border-transparent focus-visible:ring-0 sm:pr-[4.25rem] md:text-base"
               maxLength={scope === "ai" ? MAX_AI_SEARCH_LENGTH : 120}
               onChange={(event) => {
                 cancelAiSearch();
@@ -447,7 +447,7 @@ export function JobsSearchForm({
             render={
               <Button
                 aria-label={scope === "ai" ? "Run AI job search" : "Search jobs"}
-                className="h-10 w-10 rounded-[14px] p-0"
+                className="h-11 w-11 rounded-[14px] p-0"
                 disabled={isPending}
                 type="submit"
               >

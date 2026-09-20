@@ -19,6 +19,7 @@
     "start": "tsx -r dotenv/config scripts/run-app-stack.ts --mode=start",
     "start:web": "next start",
     "test:unit": "node --import tsx --test tests/*.test.ts",
+    "test:workspace:layout": "node scripts/test-workspace-layout.mjs",
     "test:jobs:activity": "DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local node --import tsx -r dotenv/config scripts/test-jobs-board-activity.mjs",
     "extension:build": "node scripts/build-application-extension.mjs",
     "extension:test": "node scripts/test-application-extension.mjs",

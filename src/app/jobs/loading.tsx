@@ -4,10 +4,9 @@ export default function JobsLoading() {
   return (
     <>
       <JobsLoadingPopup />
-      <div aria-hidden="true" className="app-page space-y-6 animate-pulse motion-reduce:animate-none">
-        <header className="page-header"><div className="h-8 w-24 rounded bg-muted" /></header>
-        <div className="flex gap-5"><div className="h-8 w-16 rounded bg-muted" /><div className="h-8 w-28 rounded bg-muted" /></div>
-        <div className="space-y-4 border-y border-border/60 py-4">
+      <div aria-hidden="true" className="app-page app-page-workspace space-y-6 animate-pulse motion-reduce:animate-none">
+        <header className="page-header items-center justify-start gap-x-10"><div className="h-8 w-24 rounded bg-muted" /><div className="flex gap-5"><div className="h-8 w-16 rounded bg-muted" /><div className="h-8 w-28 rounded bg-muted" /></div></header>
+        <div className="space-y-4 border-b border-border/60 pb-4">
           <div className="h-6 w-44 rounded bg-muted" />
           <div className="flex gap-3">
             <div className="h-10 min-w-0 flex-1 rounded-md bg-muted" />
@@ -16,7 +15,7 @@ export default function JobsLoading() {
           <div className="h-5 w-28 rounded bg-muted" />
         </div>
         <div className="flex gap-2"><div className="size-9 rounded bg-muted" /><div className="size-9 rounded bg-muted" /><div className="h-9 w-28 rounded bg-muted" /></div>
-        <div className="grid h-[70dvh] min-h-96 gap-4 lg:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)]">
+        <div className="job-workspace min-h-96">
           <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60">
             {Array.from({ length: 6 }, (_, index) => (
               <div key={index} className="space-y-3 p-5">

@@ -178,7 +178,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   return (
     <JobsSearchCountProvider key={jobCountCacheKey(filters, viewerProfileId, currentProfile.feedStateVersion)} initialTotal={jobsResult.total} pending={jobsResult.countPending ?? false} query={navigationKey} page={currentPage} pageSize={jobsResult.pageSize}>
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-workspace space-y-6">
       <UserTimeZoneCookie
         cookieName={USER_TIME_ZONE_COOKIE}
         currentTimeZone={userTimeZone}
@@ -197,15 +197,14 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
-      <header className="page-header">
+      <header className="page-header items-center justify-start gap-x-10 gap-y-3">
         <div>
           <h1 className="page-title">Jobs</h1>
         </div>
+        <JobsSectionTabs active="jobs" />
       </header>
 
-      <JobsSectionTabs active="jobs" />
-
-      <section aria-label="Job search" className="border-y border-border/60 py-4">
+      <section aria-label="Job search" className="border-b border-border/60 pb-4">
           <JobsBoardActivity
             addedToday={jobsResult.summary.addedTodayCount}
             closedToday={jobsResult.summary.expiredTodayCount + jobsResult.summary.removedTodayCount}
@@ -336,7 +335,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     </JobsFilterPanel>
 
                   <details className="group static self-start sm:relative lg:self-auto" name="jobs-toolbar-dropdown">
-                    <summary className="inline-flex h-10 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
+                    <summary className="inline-flex h-11 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
                       <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                       Sort
                       <span className="truncate text-muted-foreground">{currentSortLabel}</span>

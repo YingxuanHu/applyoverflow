@@ -1,6 +1,6 @@
 export default function ResumeBuilderLoading() {
   return (
-    <div className="app-page" aria-busy="true" aria-label="Loading resume builder">
+    <div className="app-page app-page-workspace" aria-busy="true" aria-label="Loading resume builder">
       <div className="animate-pulse space-y-6">
         <div className="h-7 w-52 rounded bg-muted" />
         <div className="h-16 max-w-2xl rounded bg-muted" />

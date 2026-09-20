@@ -9,7 +9,7 @@ import { formatDisplayLabel } from "@/lib/job-display";
 export default async function ComparePage({ searchParams }: { searchParams: Promise<{ job?: string | string[] }> }) {
   const { job } = await searchParams;
   const data = await getJobComparison(job);
-  return <div className="app-page space-y-5">
+  return <div className="app-page app-page-workspace space-y-6">
     <Link href="/applications?status=WISHLIST" className="inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft className="h-4 w-4" />Wishlist</Link>
     <h1 className="page-title">Compare saved jobs</h1>
     {data.options.length === 0 ? <p className="text-muted-foreground">No saved jobs yet. <Link className="text-primary" href="/jobs">Browse jobs</Link></p> : <JobComparisonPicker key={data.jobs.map((job) => job.id).join(":")} options={data.options} selected={data.jobs.map((job) => job.id)} />}

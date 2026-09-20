@@ -76,7 +76,7 @@ export default async function NotificationsPage() {
   const hasReadNotifications = notifications.some((notification) => notification.readAt);
 
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-focused space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">Notifications</h1>
