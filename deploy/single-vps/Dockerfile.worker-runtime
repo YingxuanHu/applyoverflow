@@ -1,0 +1,15 @@
+# Runtime-only patches: BASE_IMAGE must be a verified, immutable runner image.
+# Use the main Dockerfile if dependencies, Prisma, assets or build settings change.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+ARG BUILD_SHA
+ENV BUILD_SHA=$BUILD_SHA
+LABEL org.opencontainers.image.revision=$BUILD_SHA \
+      org.opencontainers.image.base.name=$BASE_IMAGE
+COPY src ./src
+COPY scripts ./scripts
+COPY tests ./tests
+COPY ecosystem.config.cjs ./ecosystem.config.cjs
+# Deliberately not a web image: its precompiled Next output is unchanged.
+CMD ["./node_modules/.bin/pm2-runtime", "ecosystem.config.cjs"]

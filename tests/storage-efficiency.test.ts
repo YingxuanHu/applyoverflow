@@ -265,18 +265,18 @@ test("deployment can direct builds and pruning to an attached-volume builder", (
 test("prebuilt deployment verifies revision/platform, keeps smoke tests and migrations, and never builds on the VPS", () => {
   const source = read("deploy/single-vps/rebuild.sh");
   const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
-  const run = (revision = "test-release", platform = "linux/amd64") => spawnSync("bash", ["-s"], {
+  const run = (revision = "test-release", platform = "linux/amd64", services = "app") => spawnSync("bash", ["-s"], {
     cwd: root, encoding: "utf8", timeout: 5000,
     input: `docker() {
       case "$*" in
-        *"config --images"*) printf 'single-vps-app\\nsingle-vps-worker-maintenance\\n';;
+        *"config --images"*) printf 'single-vps-app\\nsingle-vps-worker-maintenance\\nsingle-vps-worker-source-workers\\n';;
         *"image inspect"*"Architecture"*) printf '%s\\n' "$TEST_PLATFORM";;
         *"image inspect"*"revision"*) printf '%s\\n' "$TEST_REVISION";;
         *) printf 'DOCKER %s\\n' "$*";;
       esac
     }\ndf() { :; }\n${remote}`,
     env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
-      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "", TEST_REVISION: revision, TEST_PLATFORM: platform,
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: services, SERVICES: services, LEGACY_SERVICES: "", TEST_REVISION: revision, TEST_PLATFORM: platform,
       DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
   });
   const result = run();
@@ -287,6 +287,10 @@ test("prebuilt deployment verifies revision/platform, keeps smoke tests and migr
   assert.match(result.stdout, /prisma migrate deploy/);
   assert.match(result.stdout, /up -d --no-deps --no-build/);
   assert.doesNotMatch(result.stdout, /DOCKER.*(?:build app|build worker|builder prune|buildx)/);
+  const workerOnly = run("test-release", "linux/amd64", "worker-source-workers");
+  assert.equal(workerOnly.status, 0, workerOnly.stderr);
+  assert.match(workerOnly.stdout, /up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 worker-source-workers/);
+  assert.doesNotMatch(workerOnly.stdout, /test-release-web|pdf-runtime-smoke|single-vps-app:latest/);
   for (const rejected of [run("wrong-revision"), run("test-release", "linux/arm64")]) {
     assert.equal(rejected.status, 1);
     assert.doesNotMatch(rejected.stdout, /image tag|prisma migrate deploy|up -d/);

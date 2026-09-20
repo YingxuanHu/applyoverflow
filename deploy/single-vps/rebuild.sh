@@ -77,7 +77,11 @@ docker network inspect applyoverflow-edge >/dev/null 2>&1 || docker network crea
 
 if [[ -n "$PREBUILT_SHA" ]]; then
   EXPECTED_IMAGES="$("${COMPOSE[@]}" config --images)"
-  for variant in web worker; do
+  PREBUILT_VARIANTS=(worker)
+  if [[ " $BUILD_SERVICES " == *" app "* ]]; then
+    PREBUILT_VARIANTS+=(web)
+  fi
+  for variant in "${PREBUILT_VARIANTS[@]}"; do
     IMAGE="applyoverflow-release:$PREBUILT_SHA-$variant"
     REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")"
     PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")"
@@ -119,7 +123,9 @@ echo "Restarting: $SERVICES"
 if [[ -n "$PREBUILT_SHA" ]]; then
   # Compose's verified runtime tags keep these layers. Drop only the temporary
   # transport aliases so future safe cleanup is not pinned by every release.
-  docker image rm "applyoverflow-release:$PREBUILT_SHA-web" "applyoverflow-release:$PREBUILT_SHA-worker"
+  for variant in "${PREBUILT_VARIANTS[@]}"; do
+    docker image rm "applyoverflow-release:$PREBUILT_SHA-$variant"
+  done
 fi
 
 if [[ -n "$LEGACY_SERVICES" ]]; then
