@@ -32,7 +32,9 @@ export default function ExtensionPrivacyPage() {
           Connecting requires sign-in and your approval. The connection can read
           your confirmed name, address, email, phone, preferred name, pronouns and professional links. Filling
           happens only after you choose it; existing answers, passwords, legal
-          consent and demographic choices are not filled automatically.
+          consent and signatures stay unchanged. Optional demographic and work-eligibility
+          answers are shared only after you enter them and separately enable their use in Profile.
+          Only supported questions with an exact matching choice are filled; ambiguous choices stay manual.
         </p>
         <p>
           Autofill shares up to ten work entries and ten education entries to fill
@@ -72,17 +74,18 @@ export default function ExtensionPrivacyPage() {
       <section className="space-y-3">
         <h2 className="text-base font-semibold">What ApplyOverflow receives</h2>
         <p>
-          Choosing Review sends the application URL, title and up to 40 visible
-          question labels to your application workspace. It does not send the
+          The optional application-review workspace receives the application URL,
+          title and up to 40 visible question labels. It does not receive the
           answers already entered on the employer form. Answers you save in
           ApplyOverflow are stored with your account. Remembering an answer is a
           separate choice, scoped to the same employer and question.
           Autofill sends the application URL and up to 40 question labels to find
           matching saved answers. Only answers explicitly enabled for reuse are filled,
           and they require review again when your profile changes. Answers entered in
-          the popup stay on the form unless you choose to save them to your profile
-          or remember that exact question for the same employer. Legal, work-authorization
-          and demographic questions other than your explicitly supplied pronouns remain manual.
+          the popup or on-page assistant stay on the form unless you choose to save them to your profile
+          or remember that exact question for the same employer. Optional demographic
+          answers are not included in ranking or AI-generated materials. Legal agreements,
+          signatures and unsupported sensitive fields remain manual.
         </p>
         <p>
           I applied asks you to review the job link, company and title and confirm

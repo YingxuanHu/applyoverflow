@@ -90,6 +90,24 @@ try {
   assert.equal(await page.locator("fieldset select").inputValue(), "", "phone country is not inferred from residence or reusable custom answers");
   assert.equal(await page.locator('select[autocomplete="country"]').inputValue(), "can");
   console.log("PASS live Greenhouse phone grouping and separate phone-country semantics");
+  await inspect("autofill", { contact: { phoneCountry: "CA" } });
+  assert.equal(await page.locator("fieldset select").inputValue(), "can", "explicit phone country may select Canada +1");
+  await load("greenhouse", '<label>Preferred First Name<input></label><label>Address<input></label>');
+  result = await inspect("autofill", { contact: { fullAddress: "123 Test St, Toronto, ON, M1A 1A1, Canada", preferredName: "Jo" } });
+  assert.equal(await page.getByLabel("Address", { exact: true }).inputValue(), "123 Test St, Toronto, ON, M1A 1A1, Canada");
+  assert.equal(result.fields.find(field => field.profileKey === "fullAddress").canRemember, false, "full address is derived, not a parallel profile value");
+  assert.equal(await page.getByLabel("Preferred First Name", { exact: true }).inputValue(), "", "duplicate preferred-name fields need review");
+  await load("greenhouse", '<fieldset><legend>Gender identity</legend><label><input type="radio" name="gender" value="woman">Woman</label><label><input type="radio" name="gender" value="man">Man</label></fieldset><label>Disability Status<select><option value="">Select</option><option>No, I do not have a disability and have not had one in the past</option><option>Yes, I have a disability, or have had one in the past</option></select></label>');
+  await inspect("autofill", plan);
+  assert.equal(await page.locator('[name="gender"]:checked').count(), 0, "no inferred sensitive answers");
+  result = await inspect("autofill", { commonAnswers: [{ label: "Gender identity", answer: "Woman" }, { label: "Disability Status", answer: "No, I do not have a disability and have not had one in the past" }] });
+  assert.equal(await page.locator('[name="gender"]:checked').inputValue(), "woman");
+  assert.equal(result.fields.find(field => field.label === "Gender identity").state, "filled");
+  await inspect("autofill", { commonAnswers: [{ label: "Gender identity", answer: "Man" }] });
+  assert.equal(await page.locator('[name="gender"]:checked').inputValue(), "woman", "never replace an existing radio choice");
+  assert.equal(await page.locator('select').last().inputValue(), "No, I do not have a disability and have not had one in the past");
+  assert.equal(await page.getByLabel("I agree").isChecked(), false);
+  console.log("PASS explicit phone country, full address, voluntary radio/select answers and no inferred sensitive values");
   await load("greenhouse");
   await page.locator('select[autocomplete="address-level1"]').evaluate(select => {
     select.outerHTML = '<button id="region" type="button" role="combobox" aria-label="Province" aria-controls="regions" aria-expanded="false">Select one</button><div id="regions" role="listbox" hidden><div role="option">Ontario</div><div role="option">California</div></div>';
@@ -97,6 +115,12 @@ try {
     button.onclick = () => { list.hidden = !list.hidden; button.setAttribute("aria-expanded", String(!list.hidden)); };
     list.onclick = e => { button.textContent = e.target.textContent; button.setAttribute("aria-expanded", "false"); list.hidden = true; };
   });
+  const region = (await inspect()).fields.find(field => field.profileKey === "region");
+  const choices = await inspect("autofill-options", { id: region.id, label: region.label });
+  assert.deepEqual(choices.fields.find(field => field.id === region.id).options, ["Ontario", "California"]);
+  assert.equal(await page.locator("#region").textContent(), "Select one", "loading choices must not select a value");
+  assert.equal(await page.locator("#regions").isVisible(), false, "loading choices closes a menu it opened");
+  assert.deepEqual((await inspect()).fields.find(field => field.id === region.id).options, ["Ontario", "California"]);
   await inspect("autofill", plan);
   assert.equal(await page.locator("#region").textContent(), "Ontario");
   assert.equal(await page.locator("#regions").isVisible(), false);
@@ -153,14 +177,14 @@ try {
   await popup.route("https://extension.fixture/*", async route => {
     const file = new URL(route.request().url()).pathname.slice(1);
     await route.fulfill({ contentType: file.endsWith("mjs") ? "text/javascript" : file.endsWith("css") ? "text/css" : file.endsWith("png") ? "image/png" : "text/html",
-      body: file === "config.mjs" ? 'export const APP_ORIGIN="http://127.0.0.1:3004"' :
+      body: file === "config.mjs" ? 'export const APP_ORIGIN="http://127.0.0.1:3004";export const BUILD_ID="fixture";' :
         await readFile(file === "icon.png" ? "public/brand/applyoverflow-favicon.png" : `extensions/chrome/${file}`) });
   });
   await popup.addInitScript(report => {
     window.calls = [];
     window.chrome = { permissions: { getAll: async () => ({ origins: [] }) }, runtime: { sendMessage: async message => {
       window.calls.push(message);
-      return { connected: true, email: "jordan@example.test", message: `${report.fields.filter(field => field.state === "filled").length} filled · ${report.fields.filter(field => field.state === "needed").length} to review. Nothing submitted.`, ...(message.type !== "status" ? { fields: report.fields } : {}) };
+      return { buildId: "fixture", connected: true, email: "jordan@example.test", message: `${report.fields.filter(field => field.state === "filled").length} filled · ${report.fields.filter(field => field.state === "needed").length} to review. Nothing submitted.`, ...(message.type !== "status" ? { fields: report.fields } : {}) };
     } } };
   }, result);
   await popup.goto("https://extension.fixture/popup.html");
@@ -168,9 +192,19 @@ try {
   await popup.locator("#fill-progress").waitFor();
   await popup.locator(".pending-field").filter({ hasText: "Email" }).first().locator("summary").click();
   assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  assert.equal(await popup.getByRole("button", { name: "Choose resume" }).isVisible(), false);
+  assert.equal(await popup.getByRole("button", { name: "Change resume" }).isVisible(), true);
   assert.equal(await popup.evaluate(() => window.calls.some(call => call.type === "autofill")), true);
   await mkdir("output/playwright", { recursive: true });
   await popup.screenshot({ path: "output/playwright/extension-autofill-checklist.png", fullPage: true });
   console.log("PASS compact popup, single Autofill action, expandable checklist, no horizontal overflow");
+  await popup.evaluate(() => {
+    window.chrome.runtime.sendMessage = async message => { window.calls.push(message); return { connected: true, message: "Old worker" }; };
+    window.chrome.runtime.reload = () => { window.reloaded = true; };
+  });
+  await popup.getByRole("button", { name: "Autofill", exact: true }).click();
+  await popup.getByRole("button", { name: "Reload extension", exact: true }).waitFor();
+  assert.equal(await popup.getByRole("button", { name: "Autofill", exact: true }).isDisabled(), true);
+  await popup.getByRole("button", { name: "Reload extension", exact: true }).click();
+  assert.equal(await popup.evaluate(() => window.reloaded), true);
+  console.log("PASS mixed-version recovery without misleading Unsupported action");
 } finally { await browser.close(); }

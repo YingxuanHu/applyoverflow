@@ -67,9 +67,9 @@ for (const [args, name] of [
     for (const file of Object.keys(files).filter((file) => file !== "manifest.json"))
       assert.deepEqual(files[file], upload[file], `${file} differs from the uploaded Store package`);
   }
-  assert.equal(
+  assert.match(
     strFromU8(files["config.mjs"]),
-    'export const APP_ORIGIN = "https://applyoverflow.com";\n',
+    /^export const APP_ORIGIN = "https:\/\/applyoverflow\.com";\nexport const BUILD_ID = "[a-f0-9]{20}";\n$/,
   );
   console.log(
     `PASS: ${name} package, ${zip.length} bytes, fixed origin and minimal permissions`,

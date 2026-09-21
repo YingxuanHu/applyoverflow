@@ -1,12 +1,13 @@
 # Application Assistant Preview
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-The 0.6.0 extension requires the matching backend deployment before using Autofill.
-Version 0.6.0 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
+The 0.6.1 extension requires the matching backend deployment for full-address,
+phone-country and opt-in application-answer support.
+Version 0.6.1 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
 The popup has one primary Autofill action, an expandable remaining-fields checklist,
-and More actions for resume overrides, review and tracking. An optional
+with Change resume beside it and More actions for history, Undo and tracking. An optional
 small on-page hint appears when contact, resume, history or reviewable question fields are found;
 there is no injected sidebar. New forms and SPA navigation are detected locally.
 Question-only steps say "Application help available", not "Autofill available".
@@ -47,20 +48,33 @@ to an employer automatically. Neither feature depends on the public job board.
 
 ### One-Click Autofill
 
+- Version 0.6.1 checks the popup, worker and injected runtime build identities.
+  If an unpacked folder was overwritten while Chrome still runs the old worker,
+  the popup offers **Reload extension** instead of an unsupported action. Refresh
+  the employer tab afterward and reconnect if Chrome cleared the session token.
+
 - One request retrieves allowlisted profile fields, explicitly approved answers
   for the exact employer/question, and bounded history when rows exist.
 - Native single selects and explicitly associated ARIA listboxes use unique,
   exact displayed-option matches. Country/province/state abbreviations are mapped;
   unknown location suggestions and ambiguous widgets stay in the checklist.
 - Given/family names, address, preferred name and pronouns are editable in Profile.
-  Missing facts can be filled once in the popup, with a separate choice to remember.
+  Missing facts can be filled in the popup or compact on-page assistant, with a
+  separate choice to remember. Custom dropdowns expose **Load choices** for exact
+  associated options; existing choices are never replaced.
 - Existing entries are preserved. Filled/kept/remaining statuses use read-back,
   not attempted-write counts. Tokens expire with the document or after ten minutes.
 - Default resume attachment requires a Profile opt-in and one supported primary
-  document. Otherwise More actions > Choose resume retains per-application approval.
+  document. **Change resume** retains per-application file approval.
   Workable upload widgets remain manual.
-- Autofill fills existing empty history rows only. It does not add rows, answer
-  consent/work-authorization/demographic questions, click Next, or submit.
+- Autofill fills existing empty history rows only. It does not add rows, click
+  Next, accept legal agreements, or submit. Voluntary demographic and country-specific
+  work-eligibility answers require explicit Profile values and a separate opt-in.
+  Only supported labels and exact answer options match; there is no inference.
+- Referrals and employer relationships can be answered and explicitly remembered
+  only for the same employer and exact question, invalidated when the profile changes.
+  Consent checkboxes, signatures, ambiguous eligibility questions and location-search
+  widgets remain manual. Optional answers never enter ranking or AI prompt contexts.
 - `npm run extension:test:autofill` exercises seven synthetic platform shapes,
   matching, missing facts, DOM races, preservation, Undo and popup layout. These
   fixtures are not certification for every tenant.
@@ -287,15 +301,16 @@ preserves fieldset context such as "Reference details: Email".
 - `EXTENSION_HEADED=1 EXTENSION_TEST_PROFILE=output/playwright/assistant-test-profile npm run extension:test:detection`:
   real MV3 worker, dynamic scripts, three synthetic ATS fixtures, dynamic mounts,
   SPA navigation, revocation/re-enable, trusted clicks, no overwrite, safe fields,
-  review capture and delayed API response. Approve Chrome's native site-access
+  no review redirect or answer capture, and delayed API response. Approve Chrome's native site-access
   prompt once in this disposable profile; later runs may omit EXTENSION_HEADED.
   A fresh headless profile cannot approve the native prompt. API data is synthetic
   in this fixture test; the test below covers the real backend.
 - `DOTENV_CONFIG_PATH=.env.local NODE_PATH=./node_modules/next/dist/compiled NODE_OPTIONS=--conditions=react-server EXTENSION_TEST_PROFILE=output/playwright/assistant-test-profile npx tsx -r dotenv/config tests/integration/application-extension-browser.ts`:
   creates a temporary local account with confirmed contact facts, signs in through
   the real UI, pairs via Chrome identity, fills a synthetic form using the real
-  contact API, exercises resume confirmation/cancellation and attachment with
-  the real API, checks download/mobile layout, then revokes/signs out/deletes it.
+  autofill API, exercises resume confirmation/cancellation and default attachment with
+  the real API, checks unified profile persistence, explicit optional-answer sharing,
+  download/mobile layout, then revokes/signs out/deletes it.
   Add `EXTENSION_EMBEDDED_FIXTURE=1` to run the same authenticated flow in a
   cross-origin Greenhouse iframe, including per-file consent and exact bytes.
 - `node scripts/test-application-extension-toolbar.mjs`: interactive native-toolbar
@@ -313,8 +328,8 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.5: earlier
-backends lack history/tracking endpoints and broader URL validation. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.6.1: earlier
+backends lack parts of the updated profile/answer contract. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with

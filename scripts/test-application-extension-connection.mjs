@@ -71,6 +71,38 @@ try {
     .fill(password);
   await app.getByRole("button", { name: "Sign in", exact: true }).click();
   await app.waitForURL("**/settings/extension", { timeout: 90_000, waitUntil: "domcontentloaded" });
+  if (process.env.ASSISTANT_TEST_PROFILE_CHECK === "1") {
+    assert.match(login, /^extension-browser-.*@example\.test$/, "Profile mutations require the disposable integration account");
+    await app.goto(`${origin}/profile`);
+    const personal = app.getByRole("button", { name: /^Personal details/ });
+    if (!await app.getByRole("textbox", { name: "City", exact: true }).isVisible()) await personal.click();
+    await app.getByRole("textbox", { name: "City", exact: true }).fill("Toronto");
+    await app.getByRole("textbox", { name: "Province or state", exact: true }).fill("ON");
+    await app.getByRole("textbox", { name: "Street address", exact: true }).fill("123 Test St");
+    await app.getByRole("textbox", { name: "Postal or ZIP code", exact: true }).fill("M1A 1A1");
+    await app.getByRole("combobox", { name: "Country", exact: true }).selectOption("CA");
+    await app.getByRole("combobox", { name: "Phone country", exact: true }).selectOption("CA");
+    await app.getByText("Optional application answers", { exact: true }).click();
+    await app.getByRole("combobox", { name: "Gender identity", exact: true }).selectOption("Woman");
+    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), false);
+    await app.getByRole("checkbox", { name: /^Share these answers/ }).check();
+    await app.getByRole("button", { name: "Save profile", exact: true }).click();
+    await app.getByText("Profile saved.", { exact: true }).waitFor();
+    await app.reload();
+    if (!await app.getByRole("textbox", { name: "City", exact: true }).isVisible()) await personal.click();
+    await app.getByText("Optional application answers", { exact: true }).click();
+    assert.equal(await app.getByRole("textbox", { name: "City", exact: true }).inputValue(), "Toronto");
+    assert.equal(await app.getByRole("combobox", { name: "Gender identity", exact: true }).inputValue(), "Woman");
+    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), true);
+    for (const width of [1440, 320]) {
+      await app.setViewportSize({ width, height: 1000 });
+      assert.equal(await app.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await app.screenshot({ path: `output/playwright/profile-personal-details-${width}.png`, fullPage: true });
+    }
+    await app.setViewportSize({ width: 1280, height: 900 });
+    console.log("PASS unified Profile: address persistence, explicit voluntary-answer consent and desktop/mobile layout");
+    await app.goto(`${origin}/settings/extension`);
+  }
   await app.getByRole("button", { name: "Download ZIP" }).waitFor();
   const downloaded = app.waitForEvent("download");
   await app.getByRole("button", { name: "Download ZIP" }).click();
@@ -216,7 +248,8 @@ try {
     await form.getByRole("button", { name: "Autofill", exact: true }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     const reviewOpened = context.waitForEvent("page");
-    await form.getByRole("button", { name: "Review questions", exact: true }).click();
+    // The legacy review API remains available; it is no longer a primary UI action.
+    await popup.evaluate(() => chrome.runtime.sendMessage({ type: "review" }));
     const review = await reviewOpened;
     await review.getByRole("heading", { name: "Review application", exact: true }).waitFor();
     await review.getByText("Profile reference", { exact: true }).click();
@@ -256,7 +289,7 @@ try {
         (error) => ({ error }),
       );
       await form
-        .getByRole("button", { name: "Choose resume", exact: true })
+        .getByRole("button", { name: "Change resume", exact: true })
         .click();
       await form.getByRole("status").filter({ hasText: "Choose and approve" }).waitFor({ timeout: 5000 });
       const result = await next;

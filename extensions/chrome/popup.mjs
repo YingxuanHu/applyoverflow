@@ -1,4 +1,4 @@
-import { APP_ORIGIN } from "./config.mjs";
+import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS } from "./sites.mjs";
 const status = document.getElementById("status");
 document.getElementById("profile").href = `${APP_ORIGIN}/profile`;
@@ -7,14 +7,17 @@ document.getElementById("privacy").href = `${APP_ORIGIN}/extension/privacy`;
 let history, preview;
 let activeAction = null;
 let refreshTimer;
+let needsReload = false;
 function showFields(fields) {
   const pending = fields.filter(field => field.state === "needed");
   document.getElementById("fill-progress").hidden = false;
   document.getElementById("progress-heading").textContent = pending.length ? `${pending.length} to review` : "Supported fields complete";
   const container = document.getElementById("remaining-fields");
+  const openFields = new Set([...container.querySelectorAll("details[open]")].map(item => item.dataset.id));
   container.replaceChildren();
   for (const field of pending) {
     const disclosure = document.createElement("details"); disclosure.className = "pending-field";
+    disclosure.dataset.id = field.id; disclosure.open = openFields.has(field.id);
     const summary = document.createElement("summary"); summary.textContent = `${field.title || field.label}${field.required ? " *" : ""}`;
     disclosure.append(summary);
     const row = document.createElement("form");
@@ -27,6 +30,11 @@ function showFields(fields) {
     jump.addEventListener("click", () => void run("autofill-focus", { id: field.id, label: field.label }));
     row.append(label);
     if (field.canAnswer) {
+      if (field.kind === "combobox" && !field.options?.length) {
+        const choices = document.createElement("button"); choices.type = "button"; choices.className = "secondary"; choices.textContent = "Load choices";
+        choices.addEventListener("click", () => void run("autofill-options", { id: field.id, label: field.label }));
+        row.append(choices);
+      }
       const control = document.createElement(field.options?.length ? "select" : field.profileKey ? "input" : "textarea");
       control.id = `answer-${field.id}`; label.htmlFor = control.id;
       control.required = true;
@@ -74,6 +82,9 @@ async function run(type, data = {}) {
         "Open ApplyOverflow from the Chrome toolbar and try again.",
       );
     activeAction = result.activeAction ?? null;
+    needsReload = result.buildId !== BUILD_ID;
+    document.getElementById("reload-extension").hidden = !needsReload;
+    if (needsReload) throw new Error("An extension update is ready. Reload the extension, then refresh your application page. You may need to reconnect your profile.");
     if (result.reconnect) {
       document.getElementById("connection-state").textContent = "Reconnect needed";
       history = preview = undefined;
@@ -147,7 +158,7 @@ async function run(type, data = {}) {
     status.textContent = error.message || "Could not complete the action.";
   } finally {
     for (const button of document.querySelectorAll("button"))
-      button.disabled = Boolean(activeAction);
+      button.disabled = Boolean(activeAction) || (needsReload && button.id !== "reload-extension");
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.
     if (activeAction) refreshTimer = setTimeout(() => void run("status"), 1500);
@@ -157,7 +168,6 @@ for (const type of [
   "connect",
   "fill",
   "autofill-undo",
-  "review",
   "resume",
   "disconnect",
   "undo",
@@ -167,6 +177,7 @@ for (const type of [
 ])
   document.getElementById(type).addEventListener("click", () => void run(type === "fill" ? "autofill" : type));
 void run("status");
+document.getElementById("reload-extension").addEventListener("click", () => chrome.runtime.reload());
 document.getElementById("fill-history").addEventListener("click", () => {
   const entry =
     history?.entries[Number(document.getElementById("history-entry").value)];

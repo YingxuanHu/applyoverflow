@@ -53,6 +53,9 @@ export function createInspector(resolveContext, history, autofill) {
       "address line 1": "streetAddress",
       "street address": "streetAddress",
       "address 1": "streetAddress",
+      address: "fullAddress",
+      "full address": "fullAddress",
+      "home address": "fullAddress",
       "address line 2": "addressLine2",
       "address 2": "addressLine2",
       city: "city",
@@ -65,6 +68,7 @@ export function createInspector(resolveContext, history, autofill) {
       country: "country",
       "country/region": "country",
       "preferred name": "preferredName",
+      "preferred first name": "preferredName",
       pronouns: "pronouns",
       "zip code": "postalCode",
       "zip/postal code": "postalCode",
@@ -267,6 +271,9 @@ export function createInspector(resolveContext, history, autofill) {
       let key = Object.hasOwn(aliases, normalized)
         ? aliases[normalized]
         : undefined;
+      const explicitAddressLine = normalized === "address" &&
+        ["street-address", "address-line1"].includes(field.getAttribute("autocomplete"));
+      if (explicitAddressLine) key = "streetAddress";
       // ATS-generated identifiers distinguish applicant facts from similarly named
       // employer questions. Never infer identity from autocomplete alone.
       if (context.provider === "lever") {
@@ -431,14 +438,14 @@ export function createInspector(resolveContext, history, autofill) {
         "address-level1": "region", country: "country", "country-name": "country",
         email: "email", tel: "phone", "street-address": "streetAddress", "address-line1": "streetAddress",
         "address-line2": "addressLine2", "address-level2": "city", "postal-code": "postalCode" };
-      const candidate = aliases[normalized];
+      const candidate = explicitAddressLine ? "streetAddress" : aliases[normalized];
       if (!profileKey && candidate && !/reference|referr|emergency|supervisor|employ|education/i.test(group || "")) {
         const token = (field.getAttribute("autocomplete") || "").trim().toLowerCase();
         if (semantic[token] === candidate ||
-          (context.provider !== "generic" && ["region", "country", "preferredName", "pronouns"].includes(candidate))) profileKey = candidate;
+          (context.provider !== "generic" && ["region", "country", "preferredName", "pronouns", "fullAddress"].includes(candidate))) profileKey = candidate;
       }
       // A telephone's country code is not the applicant's address country.
-      if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = undefined;
+      if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
       if (
         field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
@@ -524,6 +531,7 @@ export function createInspector(resolveContext, history, autofill) {
       missingFields: [],
       review: questions.length,
       resumeAvailable,
+      resumeDetected: Boolean(resumeInput),
       undoAvailable: undoEntries.some(
         (entry) =>
           !entry.edited &&

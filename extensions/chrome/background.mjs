@@ -1,4 +1,4 @@
-import { APP_ORIGIN } from "./config.mjs";
+import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 
 const supportedOrigin = (url) => {
@@ -24,8 +24,10 @@ async function inspect(target, args = []) {
   });
   const [result] = await chrome.scripting.executeScript({
     target,
-    func: (...values) => globalThis.__applyOverflowInspect(...values),
-    args,
+    func: (buildId, ...values) => globalThis.__applyOverflowBuild === buildId
+      ? globalThis.__applyOverflowInspect(...values)
+      : { error: "An extension update is ready. Reload the extension in Chrome, then refresh this application page." },
+    args: [BUILD_ID, ...args],
   });
   if (result?.error || !result?.result || result.result.error)
     throw new Error(
@@ -359,6 +361,7 @@ async function handle(type, sender, message = {}) {
       "autofill",
       "autofill-answer",
       "autofill-focus",
+      "autofill-options",
       "autofill-undo",
       "review",
       "resume",
@@ -369,7 +372,7 @@ async function handle(type, sender, message = {}) {
       "applied",
     ].includes(type)
   )
-    throw new Error("Unsupported action.");
+    throw new Error("This extension needs an update. Reload it in Chrome, then refresh the application page.");
   const tab = fromPage
     ? sender.tab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
@@ -470,8 +473,10 @@ async function handle(type, sender, message = {}) {
     };
   };
   if (type === "autofill") {
+    const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
+      .map(field => field.label))].slice(0, 40) : scan.questions;
     const plan = await api("autofill-plan", {
-      url: scan.url, questions: scan.questions, history: scan.historyAvailable === true,
+      url: scan.url, questions, history: scan.historyAvailable === true,
     }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);
@@ -500,7 +505,7 @@ async function handle(type, sender, message = {}) {
     } });
     return response;
   }
-  if (["autofill-answer", "autofill-focus"].includes(type)) {
+  if (["autofill-answer", "autofill-focus", "autofill-options"].includes(type)) {
     const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
     if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
       throw new Error("Click Autofill to check the current application step first.");
@@ -513,7 +518,7 @@ async function handle(type, sender, message = {}) {
       try {
         const field = written.result.answered;
         let answer = message.answer.trim();
-        if (field.profileKey === "country") answer = ({ canada: "CA", "united states": "US", "united states of america": "US" })[answer.toLowerCase()] || answer.toUpperCase();
+        if (["country", "phoneCountry"].includes(field.profileKey)) answer = ({ canada: "CA", "united states": "US", "united states of america": "US" })[answer.toLowerCase().replace(/\s*\(?\+1\)?\s*$/, "").trim()] || answer.toUpperCase();
         const result = await api("autofill-answer", { url: scan.url, label: field.label,
           answer, ...(field.profileKey ? { profileKey: field.profileKey } : {}), revision: saved.revision }, connection.token);
         await chrome.storage.session.set({ [`autofill:${tab.id}`]: { ...saved, revision: result.revision } });
@@ -678,7 +683,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "autofill", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )
@@ -686,8 +691,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const readOnly = ["status", "availability", "detection-updated"].includes(
     message?.type,
   );
+  if (page && !readOnly && message.buildId !== BUILD_ID) {
+    respond({ error: "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
+    return false;
+  }
   if (working && !readOnly) {
-    respond({ error: workingMessage(), activeAction: working });
+    respond({ error: workingMessage(), activeAction: working, buildId: BUILD_ID });
     return false;
   }
   if (!readOnly) working = message?.type;
@@ -706,11 +715,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         };
       return handle(message?.type, sender, message);
     })
-    .then(respond)
+    .then(result => respond({ ...result, buildId: BUILD_ID }))
     .catch((error) =>
       respond({
         error: error.message || "Could not complete the action.",
         reconnect: error.reconnect === true,
+        buildId: BUILD_ID,
       }),
     )
     .finally(() => {

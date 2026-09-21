@@ -82,6 +82,7 @@ async function main() {
             ...process.env,
             ASSISTANT_TEST_EMAIL: email,
             ASSISTANT_TEST_PASSWORD: password,
+            ASSISTANT_TEST_PROFILE_CHECK: "1",
           },
         },
       );

@@ -26,12 +26,12 @@ try {
       sendMessage: async (message) => {
         window.messages.push(message.type);
         if (message.type === "availability") return window.access;
-        return { connected: window.access.connected, message: "Questions opened." };
+        return { connected: window.access.connected, fields: [], message: "Supported fields complete." };
       },
       onMessage: { addListener: (fn) => window.listeners.push(fn), removeListener: () => {} },
     } };
   });
-  await page.evaluate(`(${installIndicator.toString()})()`);
+  await page.evaluate(`(${installIndicator.toString()})("fixture")`);
   await page.getByRole("button", { name: "Application help available" }).click();
   await page.getByRole("button", { name: "Connect to ApplyOverflow" }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Autofill" }).isVisible(), false);
@@ -39,13 +39,41 @@ try {
     window.access.connected = true;
     window.listeners.forEach((fn) => fn({ type: "connection-changed" }));
   });
-  await page.getByText("More actions", { exact: true }).click();
-  await page.getByRole("button", { name: "Review questions" }).waitFor();
+  await page.getByRole("button", { name: "Autofill", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Connect to ApplyOverflow" }).isVisible(), false);
   assert.deepEqual(await page.evaluate(() => window.messages), ["availability", "availability"]);
-  await page.getByRole("button", { name: "Review questions" }).click();
-  await page.getByRole("status").filter({ hasText: "Questions opened." }).waitFor();
+  await page.getByRole("button", { name: "Autofill", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Supported fields complete." }).waitFor();
   assert.equal(await page.locator("textarea").inputValue(), "My answer");
+
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = async message => {
+      window.messages.push(message.type);
+      if (message.type === "availability") return window.access;
+      if (message.type === "autofill-answer") {
+        window.answerMessage = message;
+        return { connected: true, fields: [], message: "Answer filled. Nothing submitted." };
+      }
+      return { connected: true, message: "1 field needs an answer.", fields: [{
+        id: "fixture-question", label: "Office preference", required: true, state: "needed",
+        kind: "combobox", canAnswer: true, canRemember: true,
+        options: message.type === "autofill-options" ? ["Toronto", "Vancouver"] : [],
+      }] };
+    };
+  });
+  await page.getByRole("button", { name: "Autofill", exact: true }).click();
+  await page.getByText("1 remaining field", { exact: true }).click();
+  await page.getByText("Office preference *", { exact: true }).click();
+  await page.getByRole("button", { name: "Load choices" }).click();
+  await page.getByRole("combobox", { name: "Office preference", exact: true }).selectOption("Toronto");
+  await page.getByRole("checkbox", { name: "Remember for this employer and question" }).check();
+  await page.getByRole("button", { name: "Fill answer", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Answer filled. Nothing submitted." }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.answerMessage), {
+    type: "autofill-answer", buildId: "fixture", id: "fixture-question", label: "Office preference", answer: "Toronto", remember: true,
+  });
+  assert.equal(await page.getByText("1 remaining field", { exact: true }).isVisible(), false);
+  console.log("PASS on-page remaining questions: load choices, answer and scoped remember without leaving the employer page");
 
   await page.evaluate(() => {
     window.scan.questions = [];
@@ -60,14 +88,14 @@ try {
     window.listeners.forEach((fn) => fn({ type: "permissions-changed" }));
   });
   await page.locator("#applyoverflow-assistant").waitFor({ state: "detached" });
-  assert.ok((await page.evaluate(() => window.messages)).every((type) => ["availability", "review"].includes(type)));
+  assert.ok((await page.evaluate(() => window.messages)).every((type) => ["availability", "autofill", "autofill-options", "autofill-answer"].includes(type)));
   console.log("PASS: question/history-only hints, reconnect updates, permission revocation, no automatic profile fetch or writes");
 
   const popup = await browser.newPage({ viewport: { width: 320, height: 780 } });
   await popup.route("https://extension.fixture/*", async (route) => {
     const file = new URL(route.request().url()).pathname.slice(1);
     const body = file === "config.mjs"
-      ? 'export const APP_ORIGIN = "https://applyoverflow.com";'
+      ? 'export const APP_ORIGIN = "https://applyoverflow.com"; export const BUILD_ID="fixture";'
       : file === "icon.png"
         ? await readFile("public/brand/applyoverflow-favicon.png")
         : await readFile(`extensions/chrome/${file}`);
@@ -86,13 +114,14 @@ try {
       runtime: { sendMessage: async ({ type }) => {
         window.calls.push(type);
         if (type === "status") return {
+          buildId: "fixture",
           connected: false,
           activeAction: window.busy ? "connect" : null,
           message: window.busy ? "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue." : "Connect to your ApplyOverflow profile.",
           pageMessage: "6 empty contact fields · 4 questions",
           form: { contactFields: 6, questions: 4, historyAvailable: false },
         };
-        return { connected: true, email: "fixture@example.test", message: "Connected." };
+        return { buildId: "fixture", connected: true, email: "fixture@example.test", message: "Connected." };
       } },
     };
   });

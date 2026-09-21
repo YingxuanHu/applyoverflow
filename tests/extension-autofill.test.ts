@@ -23,8 +23,16 @@ test("remembering fixed profile fields validates formats and never implicitly op
   assert.equal(normalizeContact({ preferredName: " Jo ", pronouns: "they/them", autofillResume: "true" }).autofillResume, false);
   assert.equal(normalizeContact({ autofillResume: true }).autofillResume, true);
 });
-test("company relationship, legal and sensitive answers cannot be remembered for automatic reuse", () => {
-  for (const label of ["Do you require sponsorship?", "I certify", "Do you have a relative here?", "Who referred you?", "Gender"]) {
+test("legal and sensitive answers cannot be remembered implicitly", () => {
+  for (const label of ["Do you require sponsorship?", "I certify", "Gender"]) {
     assert.equal(autofillAnswerSchema.safeParse({ url: "https://job-boards.greenhouse.io/fixture/jobs/123", label, answer: "No", revision }).success, false);
+  }
+});
+test("explicit relationships and referrals are limited to the same employer and exact question", () => {
+  for (const [label, kind] of [["Do you have a relative here?", "company_relationship"], ["Who referred you?", "referral"]] as const) {
+    assert.equal(autofillAnswerSchema.safeParse({ url: "https://job-boards.greenhouse.io/fixture/jobs/123", label, answer: "No", revision }).success, true);
+    const entry = { companyId: "greenhouse:fixture", questionKey: label.toLowerCase(), kind, profileRevision: revision, answer: "No", autofillConfirmed: true };
+    assert.equal(reusableAutofillAnswers([entry], entry.companyId, revision, [label]).length, 1);
+    assert.equal(reusableAutofillAnswers([entry], "greenhouse:other", revision, [label]).length, 0);
   }
 });

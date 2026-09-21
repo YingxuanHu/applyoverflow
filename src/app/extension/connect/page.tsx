@@ -54,9 +54,10 @@ export default async function ExtensionConnectPage({
       <ul className="list-disc space-y-3 pl-5 text-sm leading-6">
         <li>Autofill shares confirmed profile details, including your name, address, email, phone, preferred name, pronouns and links when provided.</li>
         <li>Autofill can fill existing work and education rows and answers you explicitly enabled for the same question and employer. It never submits an application.</li>
+        <li>Optional demographic and work-eligibility answers stay private unless you separately enable sharing them in Profile. Legal agreements and signatures stay manual.</li>
         <li>
-          Save job links and question labels to your application workspace when
-          you choose Review. Record an application as applied only after your explicit confirmation.
+          Answer remaining questions in the assistant without leaving the employer form.
+          Saving an answer is optional. Record an application as applied only after your explicit confirmation.
         </li>
         <li>
           No access to passwords or application submission. Resume sharing is off

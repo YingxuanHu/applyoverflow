@@ -28,12 +28,16 @@ claim that the extension is published or approved.
 
 ## 0.5.2 Compatibility Follow-Up
 
-The 0.6.0 candidate supersedes the contact-only flow with one Autofill action.
+The 0.6.1 candidate supersedes the contact-only flow with one Autofill action.
 Before Store submission, update the listing and re-review privacy certifications:
 Autofill shares confirmed profile facts (including optional preferred name and
 pronouns), bounded history, and exact employer/question answers explicitly enabled
-for reuse. Default resume sharing is a separate Profile opt-in. Legal, sensitive
-and work-authorization questions remain manual; nothing is submitted. Previous
+for reuse. Default resume sharing is a separate Profile opt-in. Optional demographic
+and country-specific work-eligibility answers now have a separate Profile opt-in,
+with exact-question/option matching and no inference. Update the Store data-use
+disclosures and owner certifications for these optional sensitive fields before
+submitting this build. They are not used in AI or ranking. Legal agreements and
+unsupported sensitive questions remain manual; nothing is submitted. Previous
 0.5.x listing text below is historical and must not be submitted unchanged.
 
 - The owner approved using their profile for testing and reported signing back

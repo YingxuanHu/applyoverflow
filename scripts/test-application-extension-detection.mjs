@@ -170,13 +170,12 @@ try {
       .getByRole("status")
       .filter({ hasText: `${fixture.count} filled` })
       .waitFor();
-    await page.getByText("More actions", { exact: true }).click();
-    const reviewButton = page.getByRole("button", { name: "Review questions" });
-    const buttonHandle = await reviewButton.elementHandle();
-    const box = await reviewButton.boundingBox();
-    const keyboardReview = fixture.provider === "lever";
-    if (keyboardReview) {
-      await reviewButton.focus();
+    const fillButton = page.getByRole("button", { name: "Autofill", exact: true });
+    const buttonHandle = await fillButton.elementHandle();
+    const box = await fillButton.boundingBox();
+    const keyboardFill = fixture.provider === "lever";
+    if (keyboardFill) {
+      await fillButton.focus();
       await page.keyboard.down("Space");
     } else {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -193,20 +192,12 @@ try {
     assert.equal(
       await buttonHandle.evaluate((button) => button.isConnected),
       true,
-      "background scans must not replace the pressed review button",
+      "background scans must not replace the pressed Autofill button",
     );
-    const [review] = await Promise.all([
-      context.waitForEvent("page", { timeout: 60_000 }),
-      keyboardReview ? page.keyboard.up("Space") : page.mouse.up(),
-    ]);
-    await review.waitForLoadState();
-    const reviewUrl = new URL(review.url());
-    assert.equal(reviewUrl.origin, "http://127.0.0.1:3004");
-    assert.equal(
-      reviewUrl.searchParams.get("callbackUrl") ?? reviewUrl.pathname,
-      "/applications/fixture-review/review",
-    );
-    await review.close();
+    const pageCount = context.pages().length;
+    if (keyboardFill) await page.keyboard.up("Space"); else await page.mouse.up();
+    await page.getByRole("status").filter({ hasText: "Nothing submitted" }).waitFor();
+    assert.equal(context.pages().length, pageCount, "Autofill does not redirect to another page");
     await page.bringToFront();
     await page
       .getByRole("status")
@@ -232,7 +223,7 @@ try {
       "No stale indicator after SPA exit",
     );
   }
-  assert.equal(captures.length, 3);
+  assert.equal(captures.length, 0, "Autofill must not create review sessions or capture entered answers");
   assert.equal(JSON.stringify(captures).includes("Already written"), false);
   assert.equal(JSON.stringify(captures).includes(contact.email), false);
   await page.goto(fixtures[1].url);
@@ -291,8 +282,8 @@ try {
   const beforeQuestions = contactCalls;
   await page.goto(fixtures[0].url + "?unsupported=1");
   await page.getByRole("button", { name: "Application help available" }).click();
-  await page.getByRole("button", { name: "Finish remaining fields" }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Autofill", exact: true }).isVisible(), true);
+  await page.getByRole("button", { name: "Autofill", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Finish remaining fields" }).count(), 0);
   assert.equal(contactCalls, beforeQuestions, "question-only detection must not fetch profile facts");
   await page.goto("https://unrelated.example/application");
   await page.waitForTimeout(400);

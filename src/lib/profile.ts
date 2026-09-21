@@ -1,4 +1,5 @@
 import { historyDateText, readHistoryDates, type ProfileHistory } from "./profile-history";
+import { normalizeApplicationAnswers } from "./profile-application-answers";
 
 export type ProfileSkill = {
   name: string;
@@ -21,6 +22,7 @@ export type ProfileEducation = ProfileHistory & {
 };
 
 export type ProfileContact = {
+  applicationAnswers?: import("./profile-application-answers").ProfileApplicationAnswers;
   fullName: string;
   givenName?: string;
   familyName?: string;
@@ -29,6 +31,7 @@ export type ProfileContact = {
   autofillResume?: boolean;
   email: string;
   phone: string;
+  phoneCountry?: "" | "CA" | "US";
   location: string;
   linkedInUrl: string;
   githubUrl: string;
@@ -298,7 +301,9 @@ export function normalizeContact(value: unknown): ProfileContact {
       country: objectValue.country === "CA" || objectValue.country === "US"
         ? objectValue.country : "" as const,
     } : {}),
+    ...("phoneCountry" in objectValue ? { phoneCountry: objectValue.phoneCountry === "CA" || objectValue.phoneCountry === "US" ? objectValue.phoneCountry : "" as const } : {}),
     ...("autofillResume" in objectValue ? { autofillResume: objectValue.autofillResume === true } : {}),
+    ...("applicationAnswers" in objectValue ? { applicationAnswers: normalizeApplicationAnswers(objectValue.applicationAnswers) } : {}),
   };
 }
 

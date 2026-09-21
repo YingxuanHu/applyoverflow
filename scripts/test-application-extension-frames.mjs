@@ -193,32 +193,18 @@ try {
     .click();
   await frame.getByRole("status").filter({ hasText: "4 fields cleared" }).waitFor();
   assert.equal(await frame.locator("#email").inputValue(), "");
-  const opened = context.waitForEvent("page").then(
-    (page) => ({ page }),
-    (error) => ({ error }),
-  );
-  await frame
-    .getByRole("button", { name: "Review questions", exact: true })
-    .click();
-  const openedResult = await opened;
-  if (openedResult.error)
-    throw new Error(
-      `Review failed: ${await frame.getByRole("status").textContent()}; captured=${captures.length}`,
-      { cause: openedResult.error },
-    );
-  const review = openedResult.page;
-  await review.waitForURL(
-    (url) =>
-      (url.searchParams.get("callbackUrl") ?? url.pathname) ===
-      "/applications/frame-review/review",
-  );
-  await review.waitForLoadState();
-  assert.equal(new URL(review.url()).origin, APP_ORIGIN);
-  await review.close();
-  assert.equal(captures.length, 1);
-  assert.equal(captures[0].url, embed);
-  assert.equal(JSON.stringify(captures).includes(contact.email), false);
-  assert.equal(JSON.stringify(captures).includes("Already written"), false);
+  const pageCount = context.pages().length;
+  const panel = frame.locator("#applyoverflow-assistant");
+  await panel.locator("summary").filter({ hasText: /remaining fields$/ }).click();
+  await panel.locator("summary").filter({ hasText: /^First name/ }).click();
+  await panel.getByRole("textbox", { name: /^First name/ }).fill("Jordan");
+  await panel.getByRole("button", { name: "Fill answer", exact: true }).click();
+  await frame.getByRole("status").filter({ hasText: "1 filled" }).waitFor();
+  assert.equal(await frame.locator("#first_name").inputValue(), "Jordan");
+  assert.equal(await frame.locator("#email").inputValue(), "");
+  assert.equal(await page.locator("#parent-email").inputValue(), "");
+  assert.equal(captures.length, 0, "Inline answers do not capture a review session");
+  assert.equal(context.pages().length, pageCount, "Inline answers stay on the employer page");
   await page.setViewportSize({ width: 390, height: 844 });
   await frame
     .getByRole("button", { name: "Autofill", exact: true })
@@ -275,7 +261,7 @@ try {
     );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: supported cross-origin frames, registration upgrade, trusted clicks, document isolation, Undo, review privacy, 390px layout and permission revocation/re-enable; no submissions",
+    "PASS: supported cross-origin frames, registration upgrade, trusted clicks, document isolation, Undo, inline answers, 390px layout and permission revocation/re-enable; no submissions",
   );
 } finally {
   await context

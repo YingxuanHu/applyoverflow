@@ -1,10 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { buildProfileFormValues, normalizeContact, normalizeExperiences, normalizeEducations } from "@/lib/profile";
-import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey } from "@/lib/application-assistant";
+import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey, questionKind } from "@/lib/application-assistant";
 import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
+import { commonApplicationAnswers } from "@/lib/profile-application-answers";
 
 export async function getAutofillPlan(userId: string, raw: unknown) {
   const input = autofillPlanSchema.parse(raw);
@@ -21,11 +22,15 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   if (!profile) throw new AssistantError("Complete your ApplyOverflow profile first.");
   const contact = buildProfileFormValues(profile, profile.authUser ?? undefined).contact;
   const revision = profile.updatedAt.toISOString();
-  // Export only application fields, never demographic or work-authorization data.
+  // Only explicitly enabled voluntary answers matching this form are exported.
   const fields = Object.fromEntries((Object.keys(autofillProfileFields) as Array<keyof typeof autofillProfileFields>)
     .map(key => [key, contact[key] ?? ""]));
+  // A single full-address field must not receive only a street or a guessed city.
+  fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
+    ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
+    commonAnswers: commonApplicationAnswers(contact.applicationAnswers, input.questions),
     answers: reusableAutofillAnswers(parseAnswerLibrary(profile.preferences[0]?.value), applicationContext(input.url, true)!.companyKey, revision, input.questions),
     history: input.history ? [
       ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry })),
@@ -52,12 +57,15 @@ export async function rememberAutofillAnswer(userId: string, raw: unknown) {
     const key = { userId: profile.id, key: ANSWER_LIBRARY_KEY };
     const preference = await tx.userPreference.findUnique({ where: { userId_key: key } });
     const context = applicationContext(input.url, true)!;
+    const kind = questionKind(input.label);
+    if (kind !== "custom" && kind !== "company_relationship" && kind !== "referral")
+      throw new AssistantError("This question cannot be remembered automatically.");
     const library = parseAnswerLibrary(preference?.value).filter(item =>
       item.companyId !== context.companyKey || item.questionKey !== questionKey(input.label));
     if (library.length >= 60) throw new AssistantError("Remove unused saved answers in Settings before remembering another.");
     library.push({ companyId: context.companyKey, companyLabel: context.tenant,
       questionKey: questionKey(input.label), questionLabel: input.label,
-      answer: input.answer, kind: "custom", profileRevision: input.revision, autofillConfirmed: true });
+      answer: input.answer, kind, profileRevision: input.revision, autofillConfirmed: true });
     await tx.userPreference.upsert({ where: { userId_key: key },
       create: { ...key, value: JSON.stringify(library) }, update: { value: JSON.stringify(library) } });
     return { revision: input.revision };
