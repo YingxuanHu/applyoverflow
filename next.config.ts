@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
     webpackMemoryOptimizations: true,
   },
   outputFileTracingExcludes: { "/*": ["./.env", "./.env.*", "./data/uploads/**/*", "./data/automation-screenshots/**/*"] },
+  // PDF.js dynamically loads canvas and its worker outside standalone tracing.
+  // Include the canvas wrapper, installed native binary, and parsing worker.
+  outputFileTracingIncludes: {
+    "/*": [
+      "./node_modules/@napi-rs/canvas/**/*",
+      "./node_modules/@napi-rs/canvas-*/**/*",
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+    ],
+  },
   onDemandEntries: {
     maxInactiveAge: 15 * 1000,
     pagesBufferLength: 1,
