@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
+import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import {
   SITE_ORIGINS,
@@ -12,6 +13,11 @@ import {
 const release = JSON.parse(
   await readFile("extensions/chrome/release.json", "utf8"),
 );
+const buildHash = createHash("sha256");
+for (const file of (await readdir("extensions/chrome")).sort()) {
+  if (/\.(mjs|html|css|json)$/.test(file)) buildHash.update(await readFile(`extensions/chrome/${file}`));
+}
+const buildId = buildHash.digest("hex").slice(0, 20);
 
 const local = process.argv.find((arg) => arg.startsWith("--local="))?.slice(8);
 const store = process.argv.includes("--store");
@@ -53,15 +59,15 @@ for (const file of [
 await cp("public/brand/applyoverflow-favicon.png", `${destination}/icon.png`);
 await writeFile(
   `${destination}/config.mjs`,
-  `export const APP_ORIGIN = ${JSON.stringify(origin)};\n`,
+  `export const APP_ORIGIN = ${JSON.stringify(origin)};\nexport const BUILD_ID = ${JSON.stringify(buildId)};\n`,
 );
 await writeFile(
   `${destination}/adapter-runtime.js`,
-  `globalThis.__applyOverflowInspect ??= (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})());\n`,
+  `if (globalThis.__applyOverflowBuild !== ${JSON.stringify(buildId)}) {\n try { globalThis.__applyOverflowIndicator?.stop(); } catch { delete globalThis.__applyOverflowIndicator; }\n globalThis.__applyOverflowInspect = (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})());\n globalThis.__applyOverflowBuild = ${JSON.stringify(buildId)};\n}\n`,
 );
 await writeFile(
   `${destination}/indicator.js`,
-  `(${installIndicator.toString()})();\n`,
+  `(${installIndicator.toString()})(${JSON.stringify(buildId)});\n`,
 );
 await writeFile(
   `${destination}/manifest.json`,

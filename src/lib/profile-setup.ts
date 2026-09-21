@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getSafeSignInCallback } from "./auth-return-path";
 import { historyDatesSchema } from "./profile-history";
+import { profileApplicationAnswersSchema } from "./profile-application-answers";
 
 export const ONBOARDING_KEY = "profile-onboarding-v1";
 export const JOB_GOALS_KEY = "job-goals-v1";
@@ -40,8 +41,13 @@ export const setupProfileSchema = z
         fullName: text(160),
         givenName: text(100).optional(),
         familyName: text(100).optional(),
+        preferredName: text(100).optional(),
+        pronouns: text(80).optional(),
+        autofillResume: z.boolean().optional(),
+        applicationAnswers: profileApplicationAnswersSchema.optional(),
         email: text(160),
         phone: text(80),
+        phoneCountry: z.enum(["", "CA", "US"]).optional(),
         location: text(140),
         linkedInUrl: text(280),
         githubUrl: text(280),

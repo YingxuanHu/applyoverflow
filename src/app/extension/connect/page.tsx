@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ExtensionConsent } from "@/components/applications/extension-consent";
 import {
   allowedExtension,
+  extensionCancelCallback,
   extensionRequestSchema,
 } from "@/lib/application-assistant";
 import {
@@ -51,15 +52,16 @@ export default async function ExtensionConnectPage({
         </p>
       </header>
       <ul className="list-disc space-y-3 pl-5 text-sm leading-6">
-        <li>Share your confirmed name, address, email, phone, and profile links when you fill contact details.</li>
-        <li>Share one selected work or education entry when you choose Fill selected entry.</li>
+        <li>Autofill shares confirmed profile details, including your name, address, email, phone, preferred name, pronouns and links when provided.</li>
+        <li>Autofill can fill existing work and education rows and answers you explicitly enabled for the same question and employer. It never submits an application.</li>
+        <li>Optional demographic and work-eligibility answers stay private unless you separately enable sharing them in Profile. Legal agreements and signatures stay manual.</li>
         <li>
-          Save job links and question labels to your application workspace when
-          you choose Review. Record an application as applied only after your explicit confirmation.
+          Answer remaining questions in the assistant without leaving the employer form.
+          Saving an answer is optional. Record an application as applied only after your explicit confirmation.
         </li>
         <li>
-          No access to passwords or application submission. Sharing a resume
-          requires a separate file choice and confirmation each time.
+          No access to passwords or application submission. Resume sharing is off
+          by default. Enable default-resume sharing in Profile or approve a file each time.
         </li>
       </ul>
       <p className="text-sm text-muted-foreground">
@@ -70,9 +72,9 @@ export default async function ExtensionConnectPage({
       <Link className="block text-sm text-primary underline" href="/extension/privacy" target="_blank" rel="noreferrer">
         Extension data use
       </Link>
-      <Link className="text-sm text-muted-foreground underline" href="/jobs">
+      <a className="text-sm text-muted-foreground underline" href={extensionCancelCallback(input.data)}>
         Cancel
-      </Link>
+      </a>
     </div>
   );
 }

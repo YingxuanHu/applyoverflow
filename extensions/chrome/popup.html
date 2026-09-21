@@ -14,17 +14,23 @@
     </header>
     <main>
       <p id="account" hidden></p>
+      <dl class="readiness" aria-label="Autofill setup">
+        <div><dt>Profile</dt><dd id="connection-state">Checking...</dd></div>
+        <div><dt>Site access</dt><dd id="access-state">Checking...</dd></div>
+      </dl>
+      <p id="page-status" hidden></p>
       <button id="connect" type="button">Connect to ApplyOverflow</button>
+      <button id="reload-extension" type="button" hidden>Reload extension</button>
       <div id="actions" hidden>
-        <button id="fill" type="button">Fill contact details</button>
-        <button id="resume" type="button" class="secondary">
-          Choose resume
-        </button>
-        <button id="review" type="button" class="secondary">
-          Review questions
-        </button>
+        <button id="fill" type="button">Autofill</button>
+        <button id="resume" type="button" class="secondary">Change resume</button>
+        <section id="fill-progress" hidden aria-label="Autofill results">
+          <h2 id="progress-heading">Needs your attention</h2>
+          <div id="remaining-fields"></div>
+          <details id="completed-fields"><summary>Filled &amp; kept</summary><ul id="completed-list"></ul></details>
+        </section>
         <details id="more-actions">
-          <summary>History &amp; tracking</summary>
+          <summary>More actions</summary>
           <button id="history" type="button" class="secondary">Work &amp; education</button>
           <div id="history-picker" hidden>
             <label for="history-entry">Profile entry</label>
@@ -44,12 +50,15 @@
         </details>
       </div>
       <button id="undo" type="button" class="secondary" hidden>Undo contact fill</button>
+      <button id="autofill-undo" type="button" class="secondary" hidden>Undo Autofill</button>
       <p id="status" role="status" aria-live="polite">Checking connection...</p>
+      <details class="setup"><summary>Connection &amp; site access</summary>
       <label class="site-access"
         ><input id="detection" type="checkbox" />Show autofill on supported
         sites</label
       >
-      <p class="sites">Greenhouse, Lever, Ashby, Workday &amp; iCIMS. Other application sites: use the toolbar.</p>
+      <p class="sites" id="access-help">Greenhouse, Lever, Ashby, Workday, iCIMS &amp; Workable. Other application sites: use the toolbar.</p>
+      </details>
     </main>
     <footer>
       <a id="profile" target="_blank" rel="noreferrer">Profile</a

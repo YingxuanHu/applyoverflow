@@ -1,5 +1,5 @@
 // Serialized into a classic content script at build time; no module fetches.
-export function installIndicator() {
+export function installIndicator(buildId) {
   if (globalThis.__applyOverflowIndicator) return;
   let host,
     root,
@@ -15,8 +15,9 @@ export function installIndicator() {
     lastScan = 0,
     notice = "",
     noticeUntil = 0;
+  let remaining = [];
   const inspect = globalThis.__applyOverflowInspect;
-  const send = (type) => chrome.runtime.sendMessage({ type });
+  const send = (type, data = {}) => chrome.runtime.sendMessage({ type, buildId, ...data });
   const remove = () => {
     host?.remove();
     host = root = view = undefined;
@@ -46,7 +47,7 @@ export function installIndicator() {
     });
     return element;
   }
-  async function run(type) {
+  async function run(type, data = {}) {
     if (busy) return;
     busy = true;
     notice =
@@ -59,7 +60,7 @@ export function installIndicator() {
     await scan();
     const atUrl = location.href;
     try {
-      const response = await send(type);
+      const response = await send(type, data);
       if (location.href !== atUrl) return;
       if (!response)
         throw new Error(
@@ -70,6 +71,10 @@ export function installIndicator() {
       if (response.error) throw new Error(response.error);
       connection = response.connected;
       notice = response.message;
+      if (response.fields) {
+        remaining = response.fields.filter(field => field.state === "needed");
+        renderRemaining();
+      }
     } catch (error) {
       notice = error.message || "Open the extension from Chrome to retry.";
     } finally {
@@ -77,6 +82,49 @@ export function installIndicator() {
       noticeUntil = Date.now() + 15_000;
       await scan();
       setTimeout(schedule, 15_100);
+    }
+  }
+  function renderRemaining() {
+    if (!view) return;
+    const openFields = new Set([...view.remaining.querySelectorAll("details[open]")].map(item => item.dataset.id));
+    view.remaining.replaceChildren();
+    view.remaining.hidden = !remaining.length;
+    const heading = document.createElement("summary");
+    heading.textContent = `${remaining.length} remaining ${remaining.length === 1 ? "field" : "fields"}`;
+    view.remaining.append(heading);
+    for (const field of remaining) {
+      const disclosure = document.createElement("details");
+      disclosure.dataset.id = field.id; disclosure.open = openFields.has(field.id);
+      const label = document.createElement("summary"); label.textContent = `${field.title || field.label}${field.required ? " *" : ""}`;
+      disclosure.append(label);
+      if (field.canAnswer) {
+        if (field.kind === "combobox" && !field.options?.length)
+          disclosure.append(button("Load choices", () => void run("autofill-options", { id: field.id, label: field.label }), true));
+        const form = document.createElement("form");
+        const control = document.createElement(field.options?.length ? "select" : "textarea");
+        control.setAttribute("aria-label", field.label); control.required = true;
+        if (field.options?.length) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
+        else { control.rows = 2; control.maxLength = 3000; }
+        form.append(control);
+        const remember = document.createElement("input"); remember.type = "checkbox";
+        if (field.canRemember) {
+          const rememberLabel = document.createElement("label"); rememberLabel.className = "remember";
+          rememberLabel.append(remember, document.createTextNode(field.profileKey ? "Save to my profile" : "Remember for this employer and question"));
+          form.append(rememberLabel);
+        }
+        const fill = document.createElement("button"); fill.type = "submit"; fill.textContent = "Fill answer";
+        form.append(fill);
+        form.addEventListener("submit", event => {
+          event.preventDefault();
+          if (event.isTrusted) void run("autofill-answer", { id: field.id, label: field.label, answer: control.value, remember: remember.checked });
+        });
+        disclosure.append(form);
+      } else {
+        const reason = document.createElement("p"); reason.textContent = field.reason || "Complete this field on the form.";
+        disclosure.append(reason);
+      }
+      disclosure.append(button("Show on page", () => void run("autofill-focus", { id: field.id, label: field.label }), true));
+      view.remaining.append(disclosure);
     }
   }
   function render(result) {
@@ -95,6 +143,9 @@ export function installIndicator() {
       const style = document.createElement("style");
       style.textContent = `:host{color-scheme:light dark}*{box-sizing:border-box}section{font:13px/1.5 system-ui,sans-serif;letter-spacing:0;color:#202124;background:#fff;border:1px solid #dce0e6;border-radius:8px;box-shadow:0 3px 14px #0002;max-width:300px}header{display:flex;align-items:center;gap:8px;padding:6px}strong{font-size:13px;margin:0 8px}button{font:inherit;border:0;border-radius:5px;min-height:36px;padding:7px 10px;cursor:pointer;color:#fff;background:#087cf0}button:focus-visible{outline:2px solid #087cf0;outline-offset:2px}button:disabled{opacity:.55;cursor:wait}.secondary,.close{color:inherit;background:transparent}.close{margin-left:auto;font-size:18px;min-width:36px}.content{padding:0 12px 12px}.content button{width:100%;margin-top:6px}.content p{margin:6px 0;color:#656872;overflow-wrap:anywhere}.launcher{background:transparent;color:inherit;text-align:left}.dot{display:inline-block;background:#087cf0;width:8px;height:8px;border-radius:50%;margin-right:8px}@media(prefers-color-scheme:dark){section{background:#232325;color:#f5f5f7;border-color:#4b4b51}.content p{color:#b7bac2}}`;
       root.append(style);
+      const fieldsStyle = document.createElement("style");
+      fieldsStyle.textContent = `.content{max-height:65vh;overflow:auto;overscroll-behavior:contain}details{margin-top:8px}summary{cursor:pointer;padding:5px 0}details details{border-top:1px solid #8885}textarea,select{font:inherit;width:100%;max-width:100%;margin-top:6px;padding:6px;border:1px solid #8888;border-radius:4px;background:transparent;color:inherit}.remember{display:flex;align-items:start;gap:6px;margin-top:8px}.remember input{flex:none}`;
+      root.append(fieldsStyle);
       const section = document.createElement("section");
       section.setAttribute("aria-label", "ApplyOverflow application assistant");
       const header = document.createElement("header");
@@ -111,6 +162,7 @@ export function installIndicator() {
       dot.className = "dot";
       dot.setAttribute("aria-hidden", "true");
       launcher.prepend(dot);
+      const launcherLabel = launcher.lastChild;
       header.append(launcher);
       const close = button("\u00d7", () => {
         dismissedUrl = location.href;
@@ -129,27 +181,33 @@ export function installIndicator() {
         "Connect to ApplyOverflow",
         () => void run("connect"),
       );
-      const fill = button("Fill contact details", () => void run("fill"));
-      const resume = button("Choose resume", () => void run("resume"));
-      const review = button("Review questions", () => void run("review"), true);
-      const undo = button("Undo contact fill", () => void run("undo"), true);
+      const fill = button("Autofill", () => void run("autofill"));
+      const resume = button("Change resume", () => void run("resume"), true);
+      const remainingFields = document.createElement("details");
+      const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
       const status = document.createElement("p");
       status.setAttribute("role", "status");
-      content.append(summary, connect, fill, resume, review, undo, status);
+      const more = document.createElement("details");
+      const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
+      more.append(moreLabel, undo);
+      content.append(summary, connect, fill, resume, status, remainingFields, more);
       section.append(content);
       root.append(section);
       view = {
         brand,
         launcher,
+        launcherLabel,
         content,
         summary,
         connect,
         fill,
         resume,
-        review,
+        remaining: remainingFields,
+        more,
         undo,
         status,
       };
+      renderRemaining();
     }
     // Preserve DOM identity across scans: replacing a pressed button can swallow
     // the click between pointer-down/up (or Space-down/up for keyboard users).
@@ -157,18 +215,27 @@ export function installIndicator() {
     view.brand.hidden = !expanded;
     view.launcher.hidden = expanded;
     view.content.hidden = !expanded;
+    view.launcherLabel.textContent =
+      result.available || result.resumeAvailable
+        ? "Autofill available"
+        : "Application help available";
     view.summary.textContent = result.available
-      ? `${result.available} empty contact ${result.available === 1 ? "field" : "fields"}. Other questions stay manual.`
+      ? "Fill from your ApplyOverflow profile. Existing answers stay unchanged."
       : result.resumeAvailable
         ? "Resume attachment available."
-        : "";
+        : result.historyAvailable
+          ? "Work and education fields detected. Choose a profile entry in the Chrome toolbar."
+          : result.questions.length
+            ? "Application questions ready to review."
+            : "";
     view.summary.hidden = !view.summary.textContent;
     view.connect.hidden = connection;
-    view.fill.hidden = !connection || !result.available;
-    view.resume.hidden = !connection || !result.resumeAvailable;
+    view.fill.hidden = !connection || !(result.available || result.questions.length || result.historyAvailable || result.resumeAvailable);
+    view.resume.hidden = !connection || !(result.resumeAvailable || result.resumeDetected);
     view.resume.classList.toggle("secondary", !!result.available);
-    view.review.hidden = !connection || !result.questions.length;
-    view.undo.hidden = !result.undoAvailable;
+    view.remaining.hidden = !connection || !remaining.length;
+    view.undo.hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
+    view.more.hidden = view.undo.hidden;
     view.status.hidden = !notice || Date.now() >= noticeUntil;
     if (view.status.textContent !== notice) view.status.textContent = notice;
     for (const action of [
@@ -176,10 +243,10 @@ export function installIndicator() {
       view.connect,
       view.fill,
       view.resume,
-      view.review,
       view.undo,
     ])
       action.disabled = busy;
+    for (const control of view.remaining.querySelectorAll("button,input,textarea,select")) control.disabled = busy;
     if (expanded && focus?.hidden)
       [...view.content.querySelectorAll("button")]
         .find((action) => !action.hidden && !action.disabled)
@@ -203,6 +270,10 @@ export function installIndicator() {
       (!result.available &&
         !result.resumeAvailable &&
         !result.undoAvailable &&
+        !result.autofillUndoAvailable &&
+        !result.historyAvailable &&
+        !result.historyUndoAvailable &&
+        !result.questions.length &&
         !busy &&
         Date.now() >= noticeUntil)
     ) {
@@ -213,7 +284,11 @@ export function installIndicator() {
     const next = JSON.stringify([
       result.available,
       result.resumeAvailable,
+      result.resumeDetected,
       result.undoAvailable,
+      result.historyAvailable,
+      result.historyUndoAvailable,
+      result.autofillUndoAvailable,
       result.questions.length,
       expanded,
       busy,
@@ -243,6 +318,7 @@ export function installIndicator() {
       notice = "";
       noticeUntil = 0;
       expanded = false;
+      remaining = [];
       remove();
     }
     try {
@@ -301,7 +377,8 @@ export function installIndicator() {
     if (location.href !== lastUrl) void resume();
   }, 500);
   function onMessage(message) {
-    if (message?.type === "permissions-changed") void resume();
+    if (["permissions-changed", "connection-changed"].includes(message?.type))
+      void resume();
   }
   chrome.runtime.onMessage.addListener(onMessage);
   void resume();

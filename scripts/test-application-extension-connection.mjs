@@ -50,6 +50,7 @@ context.on("response", response => {
 });
 try {
   await api.post(`${origin}/api/auth/sign-out`, {
+    timeout: 90_000,
     headers: { Origin: origin },
     data: {},
   });
@@ -69,7 +70,39 @@ try {
     .getByRole("textbox", { name: "Password", exact: true })
     .fill(password);
   await app.getByRole("button", { name: "Sign in", exact: true }).click();
-  await app.waitForURL("**/settings/extension", { timeout: 90_000 });
+  await app.waitForURL("**/settings/extension", { timeout: 90_000, waitUntil: "domcontentloaded" });
+  if (process.env.ASSISTANT_TEST_PROFILE_CHECK === "1") {
+    assert.match(login, /^extension-browser-.*@example\.test$/, "Profile mutations require the disposable integration account");
+    await app.goto(`${origin}/profile`);
+    const personal = app.getByRole("button", { name: /^Personal details/ });
+    if (!await app.getByRole("textbox", { name: "City", exact: true }).isVisible()) await personal.click();
+    await app.getByRole("textbox", { name: "City", exact: true }).fill("Toronto");
+    await app.getByRole("textbox", { name: "Province or state", exact: true }).fill("ON");
+    await app.getByRole("textbox", { name: "Street address", exact: true }).fill("123 Test St");
+    await app.getByRole("textbox", { name: "Postal or ZIP code", exact: true }).fill("M1A 1A1");
+    await app.getByRole("combobox", { name: "Country", exact: true }).selectOption("CA");
+    await app.getByRole("combobox", { name: "Phone country", exact: true }).selectOption("CA");
+    await app.getByText("Optional application answers", { exact: true }).click();
+    await app.getByRole("combobox", { name: "Gender identity", exact: true }).selectOption("Woman");
+    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), false);
+    await app.getByRole("checkbox", { name: /^Share these answers/ }).check();
+    await app.getByRole("button", { name: "Save profile", exact: true }).click();
+    await app.getByText("Profile saved.", { exact: true }).waitFor();
+    await app.reload();
+    if (!await app.getByRole("textbox", { name: "City", exact: true }).isVisible()) await personal.click();
+    await app.getByText("Optional application answers", { exact: true }).click();
+    assert.equal(await app.getByRole("textbox", { name: "City", exact: true }).inputValue(), "Toronto");
+    assert.equal(await app.getByRole("combobox", { name: "Gender identity", exact: true }).inputValue(), "Woman");
+    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), true);
+    for (const width of [1440, 320]) {
+      await app.setViewportSize({ width, height: 1000 });
+      assert.equal(await app.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await app.screenshot({ path: `output/playwright/profile-personal-details-${width}.png`, fullPage: true });
+    }
+    await app.setViewportSize({ width: 1280, height: 900 });
+    console.log("PASS unified Profile: address persistence, explicit voluntary-answer consent and desktop/mobile layout");
+    await app.goto(`${origin}/settings/extension`);
+  }
   await app.getByRole("button", { name: "Download ZIP" }).waitFor();
   const downloaded = app.waitForEvent("download");
   await app.getByRole("button", { name: "Download ZIP" }).click();
@@ -97,6 +130,7 @@ try {
   });
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${id}/popup.html`);
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByText("Connect to your ApplyOverflow profile.").waitFor();
   if (process.env.EXTENSION_TEST_PROFILE && await popup.locator("#detection").isChecked()) {
     assert.ok((await worker.evaluate(() => chrome.scripting.getRegisteredContentScripts())).some(script => script.id === "application-detection"),
@@ -117,6 +151,20 @@ try {
   await popup.screenshot({
     path: "output/playwright/assistant-popup-disconnected.png",
   });
+  const cancelledPagePromise = context.waitForEvent("page", { timeout: 60_000 });
+  await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
+  const cancelledPage = await cancelledPagePromise;
+  await cancelledPage.getByRole("button", { name: "Allow connection" }).waitFor({ timeout: 60_000 });
+  const reopenedPopup = await context.newPage();
+  await reopenedPopup.goto(`chrome-extension://${id}/popup.html`);
+  await reopenedPopup.getByText(/Connection in progress/).waitFor();
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isDisabled(), true);
+  await cancelledPage.getByRole("link", { name: "Cancel", exact: true }).click();
+  await popup.getByText("Connection cancelled.", { exact: true }).waitFor();
+  await reopenedPopup.getByText("Connect to your ApplyOverflow profile.", { exact: true }).waitFor();
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isEnabled(), true);
+  await reopenedPopup.close();
+  console.log("PASS: real web cancellation closes Chrome identity, reopened popup recovers and reconnect remains available");
   const authPagePromise = context.waitForEvent("page", { timeout: 60_000 });
   await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
   const authPage = await authPagePromise;
@@ -180,7 +228,7 @@ try {
     assert.ok(form, "The expected embedded document must be loaded");
     await formPage.bringToFront();
     await form.getByRole("button", { name: "Autofill available" }).click();
-    await form.getByRole("button", { name: "Fill contact details" }).click();
+    await form.getByRole("button", { name: "Autofill" }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     assert.ok(confirmed.email, "Local fixture profile needs a confirmed email");
     assert.equal(await form.locator("#email").inputValue(), confirmed.email);
@@ -193,13 +241,15 @@ try {
     console.log(
       "PASS: authenticated MV3 hint -> click -> real contact API -> isolated-world fill on a synthetic form",
     );
-    await form.getByRole("button", { name: "Undo contact fill", exact: true }).click();
+    await form.getByText("More actions", { exact: true }).click();
+    await form.getByRole("button", { name: "Undo Autofill", exact: true }).click();
     await form.getByRole("status").filter({ hasText: "cleared" }).waitFor();
     assert.equal(await form.locator("#email").inputValue(), "");
-    await form.getByRole("button", { name: "Fill contact details", exact: true }).click();
+    await form.getByRole("button", { name: "Autofill", exact: true }).click();
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     const reviewOpened = context.waitForEvent("page");
-    await form.getByRole("button", { name: "Review questions", exact: true }).click();
+    // The legacy review API remains available; it is no longer a primary UI action.
+    await popup.evaluate(() => chrome.runtime.sendMessage({ type: "review" }));
     const review = await reviewOpened;
     await review.getByRole("heading", { name: "Review application", exact: true }).waitFor();
     await review.getByText("Profile reference", { exact: true }).click();
@@ -239,7 +289,7 @@ try {
         (error) => ({ error }),
       );
       await form
-        .getByRole("button", { name: "Choose resume", exact: true })
+        .getByRole("button", { name: "Change resume", exact: true })
         .click();
       await form.getByRole("status").filter({ hasText: "Choose and approve" }).waitFor({ timeout: 5000 });
       const result = await next;
@@ -306,6 +356,22 @@ try {
       "PASS: real per-file Chrome identity consent, cancel without upload, explicit radio choice, single-use bytes API and exact resume attached; no submit/next",
     );
     if (embedded) console.log("PASS: connection, contact fill, review and per-file resume consent target the embedded document; parent remains untouched");
+    await app.goto(`${origin}/profile`);
+    await app.getByRole("textbox", { name: "Preferred name (optional)", exact: true }).fill("Jo");
+    await app.getByRole("textbox", { name: "Pronouns (optional)", exact: true }).fill("they/them");
+    await app.getByRole("checkbox", { name: /Include my default resume when I click Autofill/ }).check();
+    await app.getByRole("button", { name: "Save profile", exact: true }).click();
+    await app.getByText("Profile saved.", { exact: true }).waitFor();
+    await formPage.reload();
+    await formPage.bringToFront();
+    const freshForm = embedded ? formPage.frame({ url: fixtureUrl }) : formPage;
+    await freshForm.getByRole("button", { name: "Autofill available" }).click();
+    await freshForm.getByRole("button", { name: "Autofill", exact: true }).click();
+    await freshForm.getByRole("status").filter({ hasText: "Default resume selected" }).waitFor({ timeout: 60_000 });
+    assert.equal(await freshForm.locator("#email").inputValue(), confirmed.email);
+    assert.equal(await freshForm.locator("#resume").evaluate(field => field.files[0]?.name), "Jordan Resume.pdf");
+    assert.equal(await freshForm.evaluate(() => window.submissions + window.steps), 0);
+    console.log("PASS: profile preference saved, then one-click contact + default resume through the authenticated API");
     await formPage.close();
     await popup.bringToFront();
   }

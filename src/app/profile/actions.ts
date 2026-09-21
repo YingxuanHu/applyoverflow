@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/db";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import { historyValidationError } from "@/lib/profile-history";
+import { profileApplicationAnswersSchema } from "@/lib/profile-application-answers";
 import {
   buildProfileTextCopies,
   normalizeContact,
@@ -194,7 +195,11 @@ export async function saveProfile(
   const summary = String(formData.get("summary") ?? "").trim();
   const location = String(formData.get("location") ?? "").trim();
   const legacyEducationText = String(formData.get("educationText") ?? "").trim();
-  const contact = normalizeContact(parseJsonPayload(formData.get("contactJson")));
+  const rawContact = parseJsonPayload(formData.get("contactJson"));
+  if (rawContact && typeof rawContact === "object" && "applicationAnswers" in rawContact &&
+    !profileApplicationAnswersSchema.safeParse(rawContact.applicationAnswers).success)
+    return { error: "Check your saved application answers.", success: null };
+  const contact = normalizeContact(rawContact);
   const skills = normalizeSkills(parseJsonPayload(formData.get("skillsJson")));
   const rawEducations = parseJsonPayload(formData.get("educationsJson"));
   const rawExperiences = parseJsonPayload(formData.get("experiencesJson"));
@@ -233,7 +238,7 @@ export async function saveProfile(
     legacyEducationText,
   });
   const skillsJson = skills.length > 0 ? skills : Prisma.DbNull;
-  const hasContact = Object.values(contact).some((value) => value.length > 0);
+  const hasContact = Boolean(contact.applicationAnswers) || Object.values(contact).some((value) => typeof value === "string" ? value.length > 0 : value === true);
   const contactJson = hasContact ? contact : Prisma.DbNull;
   const educationsJson = educations.length > 0 ? educations : Prisma.DbNull;
   const experiencesJson = experiences.length > 0 ? experiences : Prisma.DbNull;
@@ -248,9 +253,7 @@ export async function saveProfile(
       id: user.id,
     },
     data: {
-      // Overview-section location takes priority; fall back to the
-      // contact-section location when the overview one is blank.
-      location: location || contactColumns.location || null,
+      location: contactColumns.location || location || null,
       headline: headline || null,
       summary: summary || null,
       skillsText: textCopies.skillsText,

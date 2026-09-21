@@ -1,4 +1,4 @@
-import { APP_ORIGIN } from "./config.mjs";
+import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 
 const supportedOrigin = (url) => {
@@ -24,8 +24,10 @@ async function inspect(target, args = []) {
   });
   const [result] = await chrome.scripting.executeScript({
     target,
-    func: (...values) => globalThis.__applyOverflowInspect(...values),
-    args,
+    func: (buildId, ...values) => globalThis.__applyOverflowBuild === buildId
+      ? globalThis.__applyOverflowInspect(...values)
+      : { error: "An extension update is ready. Reload the extension in Chrome, then refresh this application page." },
+    args: [BUILD_ID, ...args],
   });
   if (result?.error || !result?.result || result.result.error)
     throw new Error(
@@ -34,6 +36,16 @@ async function inspect(target, args = []) {
         "The page changed. Try again.",
     );
   return result;
+}
+
+async function inspectActive(tab, args = []) {
+  const key = `autofill:${tab.id}`;
+  const saved = (await chrome.storage.session.get(key))[key];
+  if (saved?.expires > Date.now() && (!saved.pageUrl || saved.pageUrl === tab.url)) {
+    try { return await inspect({ tabId: tab.id, documentIds: [saved.documentId] }, args); }
+    catch { await chrome.storage.session.remove(key); }
+  }
+  return inspect({ tabId: tab.id }, args);
 }
 
 let registration = Promise.resolve();
@@ -74,7 +86,9 @@ function syncDetection() {
         ]);
       // Apply permission changes to existing tabs, not just the next navigation.
       for (const tab of await chrome.tabs.query({})) {
-        await chrome.tabs
+        // Background/frozen renderers may never reply. Registration and popup
+        // readiness must not wait for best-effort UI notifications or injection.
+        void chrome.tabs
           .sendMessage(tab.id, { type: "permissions-changed" })
           .catch(() => {});
         if (
@@ -84,7 +98,7 @@ function syncDetection() {
             origins: [`${new URL(tab.url).origin}/*`],
           }))
         )
-          await chrome.scripting
+          void chrome.scripting
             .executeScript({
               target: { tabId: tab.id, allFrames: true },
               files: ["adapter-runtime.js", "indicator.js"],
@@ -108,6 +122,13 @@ const encoded = (bytes) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 const random = () => encoded(crypto.getRandomValues(new Uint8Array(32)));
+async function notifyConnectionChanged() {
+  // No profile data or token crosses this channel; each frame rechecks access.
+  for (const tab of await chrome.tabs.query({}))
+    void chrome.tabs
+      .sendMessage(tab.id, { type: "connection-changed" })
+      .catch(() => {});
+}
 async function clearAccountSession() {
   const state = await chrome.storage.session.get(null);
   await chrome.storage.session.remove(
@@ -115,9 +136,10 @@ async function clearAccountSession() {
       (key) =>
         key === "connection" ||
         key === "appliedPreview" ||
-        key.startsWith("application:"),
+        key.startsWith("application:") || key.startsWith("autofill:"),
     ),
   );
+  await notifyConnectionChanged();
 }
 async function api(action, body, token) {
   const response = await fetch(`${APP_ORIGIN}/api/extension/v1/${action}`, {
@@ -142,6 +164,24 @@ async function api(action, body, token) {
   return result;
 }
 
+async function authorize(url) {
+  let timer;
+  try {
+    // Chrome's timeout option only applies to non-interactive flows. Stop
+    // awaiting abandoned windows; a late callback must never exchange a token.
+    return await Promise.race([
+      chrome.identity.launchWebAuthFlow({ interactive: true, url }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          "Approval timed out. Close the ApplyOverflow sign-in window, then try again.",
+        )), 5 * 60_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function connect() {
   const verifier = random();
   const state = random();
@@ -152,10 +192,7 @@ async function connect() {
   const callback = chrome.identity.getRedirectURL("callback");
   await chrome.storage.session.set({ authorization: { verifier, state } });
   try {
-    const finalUrl = await chrome.identity.launchWebAuthFlow({
-      interactive: true,
-      url: `${APP_ORIGIN}/extension/connect?${new URLSearchParams({ clientId, challenge, state })}`,
-    });
+    const finalUrl = await authorize(`${APP_ORIGIN}/extension/connect?${new URLSearchParams({ clientId, challenge, state })}`);
     const url = new URL(finalUrl);
     const expected = new URL(callback);
     const pending = (await chrome.storage.session.get("authorization"))
@@ -174,6 +211,7 @@ async function connect() {
     });
     await clearAccountSession();
     await chrome.storage.session.set({ connection });
+    await notifyConnectionChanged();
     return {
       connected: true,
       email: connection.email,
@@ -184,7 +222,12 @@ async function connect() {
   }
 }
 
-let working = false;
+let working = null;
+function workingMessage() {
+  if (working === "connect") return "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue.";
+  if (working === "resume") return "Resume approval in progress. Complete or close the resume selection window to continue.";
+  return "Finishing the previous action. Please wait.";
+}
 async function handle(type, sender, message = {}) {
   // Session storage is never exposed to content scripts or synced across devices.
   await chrome.storage.session.setAccessLevel({
@@ -195,6 +238,11 @@ async function handle(type, sender, message = {}) {
     connection?.token && Date.parse(connection.expiresAt) > Date.now(),
   );
   const fromPage = sender.url !== chrome.runtime.getURL("popup.html");
+  if (type === "open-popup") {
+    try { await chrome.action.openPopup(); }
+    catch { return { connected, message: "Open ApplyOverflow from the Chrome toolbar to finish remaining fields." }; }
+    return { connected, message: "Continue in the extension popup." };
+  }
   if (type === "availability")
     return {
       enabled: await chrome.permissions.contains({
@@ -211,10 +259,27 @@ async function handle(type, sender, message = {}) {
     const tab = (
       await chrome.tabs.query({ active: true, currentWindow: true })
     )[0];
-    const current =
-      tab?.id && applicationContext(tab.url, true)
-        ? await inspect({ tabId: tab.id }).catch(() => null)
-        : null;
+    let current, inspectionError;
+    const saved = tab?.id ? (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`] : null;
+    if (tab?.id && (applicationContext(tab.url, true) || (saved?.expires > Date.now() && (!saved.pageUrl || saved.pageUrl === tab.url)))) {
+      let inspectionTimer;
+      try {
+        // This scan is read-only. A busy renderer must not disable Connect or
+        // conceal the independently known account state indefinitely.
+        current = await Promise.race([
+          inspectActive(tab),
+          new Promise((_, reject) => {
+            inspectionTimer = setTimeout(() => reject(new Error(
+              "This page is taking too long to respond. Reopen the extension when it finishes loading.",
+            )), 2500);
+          }),
+        ]);
+      } catch (error) {
+        inspectionError = error.message;
+      } finally {
+        clearTimeout(inspectionTimer);
+      }
+    }
     if (current)
       await chrome.storage.session.set({
         [`application:${tab.id}`]: {
@@ -225,10 +290,29 @@ async function handle(type, sender, message = {}) {
       });
     return {
       connected,
+      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? { fields: current.result.fields } : {}),
+      activeAction: working,
       undoAvailable: current?.result.undoAvailable === true,
       historyUndoAvailable: current?.result.historyUndoAvailable === true,
+      autofillUndoAvailable: current?.result.autofillUndoAvailable === true,
       email: connected ? connection.email : "",
-      message: connected
+      form: current
+        ? {
+            contactFields: current.result.available,
+            resumeAvailable: current.result.resumeAvailable,
+            historyAvailable: current.result.historyAvailable === true,
+            questions: current.result.questions.length,
+          }
+        : null,
+      pageMessage: current
+        ? [
+            current.result.available && `${current.result.available} empty contact fields`,
+            current.result.historyAvailable && "work & education",
+            current.result.resumeAvailable && "resume upload",
+            current.result.questions.length && `${current.result.questions.length} questions`,
+          ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
+        : inspectionError || "Open an employer application form to check available fields.",
+      message: working ? workingMessage() : connected
         ? current
           ? "Review the employer form after filling."
           : "Open an application form. Some fields need manual entry."
@@ -244,7 +328,8 @@ async function handle(type, sender, message = {}) {
       if (
         !scan.result.available &&
         !scan.result.resumeAvailable &&
-        !scan.result.historyAvailable
+        !scan.result.historyAvailable &&
+        !scan.result.questions.length
       )
         throw new Error("No supported empty fields found.");
     }
@@ -273,6 +358,11 @@ async function handle(type, sender, message = {}) {
   if (
     ![
       "fill",
+      "autofill",
+      "autofill-answer",
+      "autofill-focus",
+      "autofill-options",
+      "autofill-undo",
       "review",
       "resume",
       "undo",
@@ -282,7 +372,7 @@ async function handle(type, sender, message = {}) {
       "applied",
     ].includes(type)
   )
-    throw new Error("Unsupported action.");
+    throw new Error("This extension needs an update. Reload it in Chrome, then refresh the application page.");
   const tab = fromPage
     ? sender.tab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
@@ -359,18 +449,93 @@ async function handle(type, sender, message = {}) {
       message: "Confirm only after the employer has accepted your submission.",
     };
   }
-  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage))
+  const savedFrame = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage) &&
+    !(!fromPage && savedFrame?.expires > Date.now() && (!savedFrame.pageUrl || savedFrame.pageUrl === tab.url)))
     throw new Error(
       "Open a supported application form. For an embedded form, use its autofill hint; enable site access and reload if the hint is missing.",
     );
-  const inspection = await inspect(
-    fromPage
-      ? { tabId: tab.id, documentIds: [sender.documentId] }
-      : { tabId: tab.id },
-    type === "resume" ? ["prepare-resume"] : [],
-  );
+  const inspection = fromPage
+    ? await inspect({ tabId: tab.id, documentIds: [sender.documentId] }, type === "resume" ? ["prepare-resume"] : [])
+    : await inspectActive(tab, type === "resume" ? ["prepare-resume"] : []);
   const scan = inspection.result;
   if (scan.error) throw new Error(scan.error);
+  const target = { tabId: tab.id, documentIds: [inspection.documentId] };
+  const report = (result, note = "") => {
+    const fields = result.fields || [];
+    const filled = fields.filter(field => field.state === "filled").length;
+    const kept = fields.filter(field => field.state === "kept").length;
+    const needed = fields.filter(field => field.state === "needed").length;
+    return { connected: true, fields,
+      autofillUndoAvailable: result.autofillUndoAvailable === true,
+      historyUndoAvailable: result.historyUndoAvailable === true,
+      message: `${filled} filled · ${kept} kept · ${needed} to review.${note} Nothing submitted.`,
+    };
+  };
+  if (type === "autofill") {
+    const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
+      .map(field => field.label))].slice(0, 40) : scan.questions;
+    const plan = await api("autofill-plan", {
+      url: scan.url, questions, history: scan.historyAvailable === true,
+    }, connection.token);
+    // Pin both frame document and URL across every asynchronous network step.
+    const written = await inspect(target, ["autofill", plan, scan.url]);
+    let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (scan.resumeAvailable) {
+      if (plan.includeResume) {
+        try {
+          const ready = await inspect(target, ["prepare-resume", {}, scan.url]);
+          const file = await api("resume-default", { url: scan.url }, connection.token);
+          const attached = await inspect(target, ["attach-resume", { ...file, resumeToken: ready.result.resumeToken }, scan.url]);
+          note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
+        } catch (error) {
+          if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Some fields were filled, but the connection expired before resume sharing. Reconnect to continue." };
+          note += ` Resume: ${error.message}`;
+        }
+      } else note += " Resume not shared. Choose a resume or enable default sharing in Profile.";
+    }
+    const final = await inspect(target, ["inspect", {}, scan.url]);
+    const response = report(final.result, note);
+    response.revision = plan.revision;
+    // Save only document identity/revision. Profile and answer values stay transient.
+    await chrome.storage.session.set({ [`autofill:${tab.id}`]: {
+      url: scan.url, documentId: inspection.documentId, revision: plan.revision,
+      pageUrl: tab.url,
+      expires: Date.now() + 10 * 60_000,
+    } });
+    return response;
+  }
+  if (["autofill-answer", "autofill-focus", "autofill-options"].includes(type)) {
+    const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+    if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
+      throw new Error("Click Autofill to check the current application step first.");
+    if (typeof message.id !== "string" || typeof message.label !== "string" ||
+      (type === "autofill-answer" && (typeof message.answer !== "string" || message.answer.length > 3000)))
+      throw new Error("Check your answer and try again.");
+    const written = await inspect(target, [type, { id: message.id, label: message.label, answer: message.answer }, scan.url]);
+    let note = "";
+    if (type === "autofill-answer" && message.remember === true && written.result.answered?.canRemember) {
+      try {
+        const field = written.result.answered;
+        let answer = message.answer.trim();
+        if (["country", "phoneCountry"].includes(field.profileKey)) answer = ({ canada: "CA", "united states": "US", "united states of america": "US" })[answer.toLowerCase().replace(/\s*\(?\+1\)?\s*$/, "").trim()] || answer.toUpperCase();
+        const result = await api("autofill-answer", { url: scan.url, label: field.label,
+          answer, ...(field.profileKey ? { profileKey: field.profileKey } : {}), revision: saved.revision }, connection.token);
+        await chrome.storage.session.set({ [`autofill:${tab.id}`]: { ...saved, revision: result.revision } });
+        note = field.profileKey ? " Saved to Profile." : " Saved for this exact question at this employer.";
+      } catch (error) {
+        if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Answer filled but not remembered. Reconnect to continue." };
+        note = ` Filled, but not remembered: ${error.message}`;
+      }
+    }
+    return report(written.result, note);
+  }
+  if (type === "autofill-undo") {
+    const written = await inspect(target, [type, {}, scan.url]);
+    const history = await inspect(target, ["undo-history", {}, scan.url]);
+    const final = await inspect(target, ["inspect", {}, scan.url]);
+    return { ...report(final.result), message: `${written.result.undone + (history.result.undone || 0)} fields cleared. Unsupported widgets, resumes and employer autosaves cannot be undone here.` };
+  }
   await chrome.storage.session.set({
     [`application:${tab.id}`]: {
       url: scan.url,
@@ -419,10 +584,7 @@ async function handle(type, sender, message = {}) {
       connection.token,
     );
     try {
-      const finalUrl = await chrome.identity.launchWebAuthFlow({
-        interactive: true,
-        url: `${APP_ORIGIN}/extension/resume/${encodeURIComponent(request.id)}`,
-      });
+      const finalUrl = await authorize(`${APP_ORIGIN}/extension/resume/${encodeURIComponent(request.id)}`);
       const callback = new URL(finalUrl);
       const expected = new URL(chrome.identity.getRedirectURL("callback"));
       if (
@@ -476,10 +638,21 @@ async function handle(type, sender, message = {}) {
     );
     const counts = written.result;
     if (counts.error) throw new Error(counts.error);
+    const names = {
+      givenName: "given name", familyName: "family name", fullName: "full name",
+      email: "email", phone: "phone", linkedInUrl: "LinkedIn",
+      githubUrl: "GitHub", portfolioUrl: "portfolio", streetAddress: "street address",
+      addressLine2: "address line 2", city: "city", postalCode: "postal code",
+    };
+    const missing = [...new Set(counts.missingFields || [])]
+      .filter(key => Object.hasOwn(names, key)).map(key => names[key]);
+    const profileHint = missing.length
+      ? ` Complete ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? " and other missing details" : ""} in your ApplyOverflow profile.`
+      : "";
     return {
       connected: true,
       undoAvailable: counts.undoAvailable,
-      message: `${counts.filled} filled · ${counts.preserved} kept · ${counts.missing} missing or unverified. Review the employer form before submitting.`,
+      message: `${counts.filled} filled · ${counts.preserved} kept · ${counts.missing} missing or unverified.${profileHint} Review the employer form before submitting.`,
     };
   }
   const result = await api(
@@ -510,7 +683,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "review", "resume", "undo"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )
@@ -518,11 +691,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const readOnly = ["status", "availability", "detection-updated"].includes(
     message?.type,
   );
-  if (working && !readOnly) {
-    respond({ error: "An action is already running." });
+  if (page && !readOnly && message.buildId !== BUILD_ID) {
+    respond({ error: "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
     return false;
   }
-  if (!readOnly) working = true;
+  if (working && !readOnly) {
+    respond({ error: workingMessage(), activeAction: working, buildId: BUILD_ID });
+    return false;
+  }
+  if (!readOnly) working = message?.type;
   Promise.resolve()
     .then(async () => {
       if (
@@ -538,18 +715,19 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         };
       return handle(message?.type, sender, message);
     })
-    .then(respond)
+    .then(result => respond({ ...result, buildId: BUILD_ID }))
     .catch((error) =>
       respond({
         error: error.message || "Could not complete the action.",
         reconnect: error.reconnect === true,
+        buildId: BUILD_ID,
       }),
     )
     .finally(() => {
-      if (!readOnly) working = false;
+      if (!readOnly) working = null;
     });
   return true;
 });
 chrome.tabs.onRemoved.addListener(
-  (tabId) => void chrome.storage.session.remove(`application:${tabId}`),
+  (tabId) => void chrome.storage.session.remove([`application:${tabId}`, `autofill:${tabId}`]),
 );

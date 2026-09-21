@@ -1,5 +1,7 @@
 "use client";
 
+import { applicationAnswerFields, normalizeApplicationAnswers } from "@/lib/profile-application-answers";
+
 import { HistoryDatesFields } from "./history-dates-fields";
 
 import { type ReactNode, startTransition, useActionState, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -328,8 +330,8 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   );
   const [headline, setHeadline] = useState(initialValues.headline);
   const [summary, setSummary] = useState(initialValues.summary);
-  const [location, setLocation] = useState(initialValues.location);
   const [contact, setContact] = useState<ProfileContact>(initialValues.contact ?? makeEmptyContact());
+  const location = contact.location;
   const [skills, setSkills] = useState<ProfileSkill[]>(
     initialValues.skills.length > 0 ? initialValues.skills : [makeEmptySkill()]
   );
@@ -406,7 +408,14 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
   }, [state]);
 
   function updateContact(key: keyof ProfileContact, value: string) {
-    setContact((current) => ({ ...current, [key]: value }));
+    setContact((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "city" || key === "region") next.location = [next.city, next.region].filter(Boolean).join(", ");
+      if ((key === "givenName" || key === "familyName") &&
+        (!current.fullName || current.fullName === [current.givenName, current.familyName].filter(Boolean).join(" ")))
+        next.fullName = [next.givenName, next.familyName].filter(Boolean).join(" ");
+      return next;
+    });
   }
 
   function updateSkill(index: number, value: string) {
@@ -480,17 +489,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={headline}
             />
           </div>
-          <div className="space-y-1.5">
-            <FieldLabel htmlFor="location">Location</FieldLabel>
-            <Input
-              id="location"
-              name="location"
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Toronto, ON, Canada"
-              value={location}
-            />
-          </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <FieldLabel htmlFor="summary">Summary</FieldLabel>
             <Textarea
               className="min-h-[96px] resize-y sm:min-h-[120px]"
@@ -510,9 +509,18 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         badge={formatCountBadge(countFilledContactFields(contact), "field")}
         id="contact"
         setActiveSection={setActiveSection}
-        title="Personal info and links"
+        title="Personal details"
       >
         <div className="grid gap-3 sm:grid-cols-2">
+          {([
+            ["givenName", "Given name", 100], ["familyName", "Family name", 100],
+            ["preferredName", "Preferred name (optional)", 100], ["pronouns", "Pronouns (optional)", 80],
+          ] as const).map(([key, label, maxLength]) => (
+            <label key={key} className="space-y-1.5 text-sm">
+              <span>{label}</span>
+              <Input value={contact[key] ?? ""} onChange={event => updateContact(key, event.target.value)} maxLength={maxLength} />
+            </label>
+          ))}
           <div className="space-y-1.5">
             <FieldLabel htmlFor="contact-full-name">Full name</FieldLabel>
             <Input
@@ -539,20 +547,17 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               id="contact-phone"
               onChange={(event) => updateContact("phone", event.target.value)}
               placeholder="+CountryCode Number"
-              type="text"
+              type="tel"
               value={contact.phone}
             />
           </div>
-          <div className="space-y-1.5">
-            <FieldLabel htmlFor="contact-location">Location</FieldLabel>
-            <Input
-              id="contact-location"
-              onChange={(event) => updateContact("location", event.target.value)}
-              placeholder="City, Region, Country"
-              type="text"
-              value={contact.location}
-            />
-          </div>
+          <label className="space-y-1.5 text-sm">
+            <span>Phone country</span>
+            <select className="h-10 w-full rounded-lg border border-input bg-background px-3"
+              value={contact.phoneCountry ?? ""} onChange={event => updateContact("phoneCountry", event.target.value)}>
+              <option value="">Not provided</option><option value="CA">Canada (+1)</option><option value="US">United States (+1)</option>
+            </select>
+          </label>
           <div className="space-y-1.5">
             <FieldLabel htmlFor="contact-linkedin">LinkedIn URL</FieldLabel>
             <Input
@@ -583,14 +588,10 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={contact.portfolioUrl}
             />
           </div>
-          <details className="sm:col-span-2">
-            <summary className="cursor-pointer py-2 text-sm font-medium">
-              Application details (optional)
-            </summary>
+          <section className="sm:col-span-2 border-t border-border pt-4" aria-label="Address">
+            <h3 className="text-sm font-semibold">Address</h3>
             <div className="grid gap-4 pt-3 sm:grid-cols-2">
               {([
-                ["givenName", "Given name", 100],
-                ["familyName", "Family name", 100],
                 ["streetAddress", "Street address", 200],
                 ["addressLine2", "Apartment or unit", 120],
                 ["city", "City", 100],
@@ -618,6 +619,39 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                   <option value="US">United States</option>
                 </select>
               </label>
+              <label className="flex items-start gap-3 text-sm sm:col-span-2">
+                <input type="checkbox" className="mt-1 size-4 shrink-0" checked={contact.autofillResume === true}
+                  onChange={(event) => setContact((previous) => ({ ...previous, autofillResume: event.target.checked }))} />
+                <span>Include my default resume when I click Autofill<span className="mt-1 block text-xs text-muted-foreground">The employer may receive the file immediately. Manage your default resume in Documents.</span></span>
+              </label>
+            </div>
+          </section>
+          <details className="sm:col-span-2 border-t border-border pt-4">
+            <summary className="cursor-pointer text-sm font-semibold">Optional application answers</summary>
+            <p className="mt-3 text-sm text-muted-foreground">Only answers you choose are saved. Leaving a field blank means no answer, not &quot;No&quot;. These answers are not used for job matching or AI-generated materials.</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {applicationAnswerFields.map(field => (
+                <label key={field.key} className="space-y-1.5 text-sm">
+                  <span>{field.label}</span>
+                  <select className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3"
+                    value={contact.applicationAnswers?.values[field.key] ?? ""}
+                    onChange={event => setContact(current => ({ ...current, applicationAnswers: {
+                      ...normalizeApplicationAnswers(current.applicationAnswers),
+                      values: { ...normalizeApplicationAnswers(current.applicationAnswers).values, [field.key]: event.target.value },
+                    } }))}>
+                    <option value="">Not provided</option>
+                    {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+              ))}
+              <label className="flex items-start gap-3 text-sm sm:col-span-2">
+                <input type="checkbox" className="mt-1 size-4 shrink-0" checked={contact.applicationAnswers?.enabled === true}
+                  onChange={event => setContact(current => ({ ...current, applicationAnswers: {
+                    ...normalizeApplicationAnswers(current.applicationAnswers), enabled: event.target.checked,
+                  } }))} />
+                <span>Share these answers with matching employer fields when I click Autofill</span>
+              </label>
+              <p className="text-sm text-muted-foreground sm:col-span-2">Referrals, relatives at an employer and government relationships depend on the employer. Answer them on that application; you can choose to remember an exact question for that employer. Communication consent, legal agreements and signatures stay manual.</p>
             </div>
           </details>
         </div>

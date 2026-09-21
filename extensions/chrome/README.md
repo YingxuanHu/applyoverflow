@@ -1,13 +1,24 @@
 # Application Assistant Preview
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-Version 0.5 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
+The 0.6.1 extension requires the matching backend deployment for full-address,
+phone-country and opt-in application-answer support.
+Version 0.6.1 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
-The popup has Connect, Fill contact details, Choose resume, and Review questions. An optional
-small on-page hint appears only when unambiguous empty contact or resume fields are found;
+The popup has one primary Autofill action, an expandable remaining-fields checklist,
+with Change resume beside it and More actions for history, Undo and tracking. An optional
+small on-page hint appears when contact, resume, history or reviewable question fields are found;
 there is no injected sidebar. New forms and SPA navigation are detected locally.
-Undo contact fill appears after filling. Application assistant in each tracked
+Question-only steps say "Application help available", not "Autofill available".
+The popup reports profile connection and site access separately, with a local
+field summary or inspection error. Connecting/disconnecting updates existing
+on-page hints without a refresh. No profile is fetched just to detect fields.
+Cancel on the connection page returns to Chrome instead of navigating away.
+Reopening the popup during approval shows the active operation and recovers when
+it ends. Abandoned approval waits expire after five minutes without processing
+a late callback; close the old sign-in window before reconnecting.
+Undo Autofill clears unchanged native fields; custom widgets and uploads require manual review. Application assistant in each tracked
 application also opens a copy-ready contact, work and education reference.
 
 Workday and iCIMS have conservative beta adapters for known, labelled contact
@@ -17,12 +28,60 @@ all-sites access. Generic contact fields require exact autocomplete semantics
 and matching labels; unsupported fields stay manual. This is not a claim of
 compatibility with every tenant or custom widget.
 
-History & tracking expands to two secondary actions: choose one saved work or
+Workable has a beta adapter for verified first name, last name and email fields
+on `apply.workable.com/<company>/j/<job>/apply/`. Its compound phone/country,
+address lookup and file-upload widgets remain manual. Existing users must grant
+the new optional Workable origin for automatic hints; previously approved ATS
+origins continue working without that grant. The toolbar remains available.
+Generic forms support standard section-prefixed autocomplete tokens and
+multiline street addresses when the label and semantics agree. Reference,
+billing/shipping and custom-answer controls remain excluded. Missing profile
+facts are named after filling, not silently guessed. Each write and Undo is
+revalidated against the current DOM so rerenders cannot redirect later writes.
+
+More actions includes two secondary actions: choose one saved work or
 education entry to fill an existing empty row; or use I applied to explicitly
 confirm a submission and record it in your private tracker. Nothing is submitted
 to an employer automatically. Neither feature depends on the public job board.
 
 ## Local Setup
+
+### One-Click Autofill
+
+- Version 0.6.1 checks the popup, worker and injected runtime build identities.
+  If an unpacked folder was overwritten while Chrome still runs the old worker,
+  the popup offers **Reload extension** instead of an unsupported action. Refresh
+  the employer tab afterward and reconnect if Chrome cleared the session token.
+
+- One request retrieves allowlisted profile fields, explicitly approved answers
+  for the exact employer/question, and bounded history when rows exist.
+- Native single selects and explicitly associated ARIA listboxes use unique,
+  exact displayed-option matches. Country/province/state abbreviations are mapped;
+  unknown location suggestions and ambiguous widgets stay in the checklist.
+- Given/family names, address, preferred name and pronouns are editable in Profile.
+  Missing facts can be filled in the popup or compact on-page assistant, with a
+  separate choice to remember. Custom dropdowns expose **Load choices** for exact
+  associated options; existing choices are never replaced.
+- Existing entries are preserved. Filled/kept/remaining statuses use read-back,
+  not attempted-write counts. Tokens expire with the document or after ten minutes.
+- Default resume attachment requires a Profile opt-in and one supported primary
+  document. **Change resume** retains per-application file approval.
+  Workable upload widgets remain manual.
+- Autofill fills existing empty history rows only. It does not add rows, click
+  Next, accept legal agreements, or submit. Voluntary demographic and country-specific
+  work-eligibility answers require explicit Profile values and a separate opt-in.
+  Only supported labels and exact answer options match; there is no inference.
+- Referrals and employer relationships can be answered and explicitly remembered
+  only for the same employer and exact question, invalidated when the profile changes.
+  Consent checkboxes, signatures, ambiguous eligibility questions and location-search
+  widgets remain manual. Optional answers never enter ranking or AI prompt contexts.
+- `npm run extension:test:autofill` exercises seven synthetic platform shapes,
+  matching, missing facts, DOM races, preservation, Undo and popup layout. These
+  fixtures are not certification for every tenant.
+- Local account/storage test:
+  `DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local NODE_PATH=./node_modules/next/dist/compiled NODE_OPTIONS=--conditions=react-server npx tsx -r dotenv/config tests/integration/extension-autofill.ts`
+
+### Installation
 
 1. Apply the additive Prisma migration to the local database and generate the client.
 2. Run `npm run extension:build -- --local=http://127.0.0.1:3004` (substitute the running local port).
@@ -32,8 +91,9 @@ to an employer automatically. Neither feature depends on the public job board.
    `APPLICATION_EXTENSION_IDS` environment setting and restart the local server.
    The default is empty: no extension can connect until explicitly enabled.
 5. Open the extension and connect through ApplyOverflow's sign-in and consent page.
-   Put confirmed given/family names in Profile > Application details; names are
-   never split or guessed from a full name.
+   Put confirmed given/family names in Profile > Autofill details; names are
+   never split or guessed from a full name. Missing facts can also be entered in the
+   popup and explicitly saved to Profile. Default resume sharing is separately opt-in.
 6. Enable "Show autofill on supported sites" in the popup and approve Chrome's
    optional permission prompt. No automatic employer-site access is granted at
    install time. Without opt-in, the toolbar's one-time activeTab flow still works.
@@ -46,7 +106,7 @@ use a local build with real production credentials. Backend origin selection is
 build-time only. Both builds produce ZIPs next to their unpacked folders.
 
 `npm run extension:build -- --publish` also writes the production ZIP to
-`public/downloads/applyoverflow-assistant.zip` (about 108 KiB, generated/ignored).
+`public/downloads/applyoverflow-assistant.zip` (about 119 KiB, generated/ignored).
 Normal app build/dev hooks generate it, and Settings > Application assistant
 includes the download and expandable unpacked-install instructions. The ZIP
 contains only runtime files, not source maps, secrets, or local configuration.
@@ -75,27 +135,28 @@ not a one-click consumer installation or an automatically updated store release.
 
 ## Boundaries
 
-- Undo: clears only contact fields filled in the same page within ten minutes,
+- Undo: restores supported native fields filled in the same page within ten minutes,
   provided the control is unchanged and the user has not edited it. Replaced,
   hidden, disabled, ambiguous and edited fields are preserved. Undo is local,
   needs no server call and remains available if the connection expires. It does
-  not detach resumes, retract employer autosaves or undo a submission. Temporary
+  not reverse arbitrary custom widgets, detach resumes, retract employer autosaves or undo a submission. Temporary
   values live only in the current page's isolated script memory.
 - Profile reference: copy one saved fact at a time in the web review workspace,
   including work/education dates at their original precision. Missing facts are
   omitted, repeated roles stay separate, and legacy date text is not guessed.
   This adds no extension profile/history permission, persistent copies or AI
   requests. Question drafts remain mounted while browsing reference sections.
-- Contact fill: confirmed given name, family name, full name, email, phone, and
+- Contact fill: confirmed names, email, phone, address, preferred name, pronouns and
   professional links where supported. Identity fields require both known labels
-  and the ATS's standard IDs/names. Ashby currently fills system name/email (and
-  system phone when present), not arbitrary UUID-labelled contact questions.
+  and the ATS's standard IDs/names or explicit matching autocomplete semantics.
+  Ashby system fields are recognized; arbitrary UUIDs without semantics are not.
   Blank/ambiguous/unconfirmed fields are skipped. Existing
   entries, hidden/disabled fields, custom answers, passwords,
   consent checkboxes, and legal/demographic choices are not overwritten.
 - Resume attachment: Choose resume opens ApplyOverflow, where the user explicitly
   selects a saved PDF or DOCX of up to 5 MiB and confirms sharing it for the shown
-  employer URL. No file is selected by default. Only that file is read, with no
+  employer URL. Separately, Autofill can attach the primary resume after explicit
+  opt-in in Profile. Only the approved file is read, with no
   extra persistent copy. A native file field may begin uploading immediately.
   Existing files, ambiguous/replaced fields, unsupported formats, and Ashby's
   separate "autofill from resume" widget are not changed. The extension reports
@@ -105,8 +166,9 @@ not a one-click consumer installation or an automatically updated store release.
   existing form values. Creates a **Preparing** tracked application or extends
   an existing review, without changing an existing stage. Review and documents
   stay in the normal application workspace.
-- Remembered answers require an explicit web save. They are exact-question,
-  exact-employer suggestions, never auto-filled. Work authorization and sensitive
+- Answers remembered on the website remain suggestions. The popup can explicitly
+  enable exact-question, exact-employer automatic reuse, invalidated by profile changes.
+  Work authorization and sensitive
   answers must be entered directly on the employer site. Remove saved answers in
   Settings > Application assistant. User data export includes review drafts and
   remembered answers; account deletion cascades to them and connections.
@@ -117,10 +179,12 @@ not a one-click consumer installation or an automatically updated store release.
   Grant access and reload the employer page when enabling hints for the first
   time. No permission to the parent employer site is requested. Each action is
   bound to the originating frame document; replaced frames reject late fills.
-- Custom combobox/listbox question labels are available for web review, but
-  their answers are not filled. Selected text, self-referencing labels and
+- Custom combobox/listbox labels are available for web review. Associated single
+  listboxes can accept an exact profile or user-provided answer; unsupported
+  widgets stay manual. Selected text, self-referencing labels and
   ambiguous multiple label references are excluded from capture.
-- History: select one saved entry; one empty row must be unambiguous or focused.
+- History: Autofill fills existing empty rows in profile order; More actions can
+  target one saved entry to an unambiguous or focused row.
   Populated rows and probable duplicates are preserved. Dates retain their exact
   precision; native degree/month selects require one exact match. Reversible
   ARIA history single-selects require an explicitly linked listbox, one exact
@@ -134,7 +198,7 @@ not a one-click consumer installation or an automatically updated store release.
   disconnecting clears cached previews/URLs. No submission is inferred from
   filling, and repeat confirmations do not duplicate or regress an application.
 - No generated answers, sensitive-choice filling, arbitrary cross-origin iframe
-  access, custom question answering, or next-step/submission automation. Custom
+  access, guessed custom answers, or next-step/submission automation. Custom
   employer domains use the conservative toolbar fallback, not automatic hints.
 - The DOM adapter can confirm an immediate input value but not an ATS's eventual
   server-side acceptance. Users must review the employer form themselves.
@@ -210,7 +274,18 @@ preserves fieldset context such as "Reference details: Email".
   `EXTENSION_HEADED=1` in this disposable profile. Every HTTP request is mocked.
 - `npm run extension:test:expanded`: Workday/iCIMS/generic contact and selected
   history fixtures, existing rows, precision, native selects, edited Undo,
-  ambiguous repeaters, reference fields, DOM/navigation races, mobile layout.
+  ambiguous repeaters, reference fields, DOM/navigation races, mobile layout,
+  signed-in Workday static-email and question-only application steps.
+- `npm run extension:test:compatibility`: intercepted generic/Workable fixtures,
+  section/recipient autocomplete, multiline addresses, explicit missing facts,
+  incorrect identifiers and field mutations during Fill/Undo. Includes bounded
+  detection/fill benchmarks; results exclude network latency and do not establish
+  real employer acceptance or performance relative to another extension.
+- `npm run extension:test:readiness`: popup setup states and question/history-only
+  hints, connection changes without reload, permission removal, no unsolicited
+  profile requests, and a 320px screenshot. Uses mocked Chrome APIs, so it does
+  not replace the real MV3 permission/connection tests below.
+  Also covers reopening during approval and automatic recovery after cancellation.
 - `EXTENSION_TEST_PROFILE=output/playwright/assistant-frames-profile npm run extension:test:history`:
   actual MV3 runtime, selected-entry requests, Workday/iCIMS history/Undo,
   same-origin success navigation, explicit confirmation, replay rejection and
@@ -226,15 +301,16 @@ preserves fieldset context such as "Reference details: Email".
 - `EXTENSION_HEADED=1 EXTENSION_TEST_PROFILE=output/playwright/assistant-test-profile npm run extension:test:detection`:
   real MV3 worker, dynamic scripts, three synthetic ATS fixtures, dynamic mounts,
   SPA navigation, revocation/re-enable, trusted clicks, no overwrite, safe fields,
-  review capture and delayed API response. Approve Chrome's native site-access
+  no review redirect or answer capture, and delayed API response. Approve Chrome's native site-access
   prompt once in this disposable profile; later runs may omit EXTENSION_HEADED.
   A fresh headless profile cannot approve the native prompt. API data is synthetic
   in this fixture test; the test below covers the real backend.
 - `DOTENV_CONFIG_PATH=.env.local NODE_PATH=./node_modules/next/dist/compiled NODE_OPTIONS=--conditions=react-server EXTENSION_TEST_PROFILE=output/playwright/assistant-test-profile npx tsx -r dotenv/config tests/integration/application-extension-browser.ts`:
   creates a temporary local account with confirmed contact facts, signs in through
   the real UI, pairs via Chrome identity, fills a synthetic form using the real
-  contact API, exercises resume confirmation/cancellation and attachment with
-  the real API, checks download/mobile layout, then revokes/signs out/deletes it.
+  autofill API, exercises resume confirmation/cancellation and default attachment with
+  the real API, checks unified profile persistence, explicit optional-answer sharing,
+  download/mobile layout, then revokes/signs out/deletes it.
   Add `EXTENSION_EMBEDDED_FIXTURE=1` to run the same authenticated flow in a
   cross-origin Greenhouse iframe, including per-file consent and exact bytes.
 - `node scripts/test-application-extension-toolbar.mjs`: interactive native-toolbar
@@ -252,8 +328,8 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.5: earlier
-backends lack history/tracking endpoints and broader URL validation. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.6.1: earlier
+backends lack parts of the updated profile/answer contract. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with

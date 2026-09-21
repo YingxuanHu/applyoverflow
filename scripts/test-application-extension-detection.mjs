@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
 import { chromium } from "playwright";
 import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
 import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
@@ -7,6 +8,11 @@ import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
 // Real MV3 worker, permissions, registered scripts and click-to-fill. All page
 // and API traffic is synthetic here; identity/API integration has a separate test.
 const extension = resolve("output/extension/local");
+if (process.env.EXTENSION_TEST_PROFILE) {
+  const profile = resolve(process.env.EXTENSION_TEST_PROFILE);
+  assert.ok(profile.startsWith(`${resolve("output/playwright")}/`), "Use a disposable profile, never personal Chrome data");
+  await rm(resolve(profile, "Default/Service Worker"), { recursive: true, force: true });
+}
 const context = await chromium.launchPersistentContext(
   process.env.EXTENSION_TEST_PROFILE ?? "",
   {
@@ -46,7 +52,7 @@ try {
     if (!["https:", "http:"].includes(url.protocol)) return route.continue();
     if (url.pathname.startsWith("/api/extension/v1/")) {
       const action = url.pathname.split("/").pop();
-      if (action === "contact") {
+      if (action === "autofill-plan") {
         contactCalls++;
         if (responseDelay)
           await new Promise((resolve) => setTimeout(resolve, responseDelay));
@@ -55,7 +61,7 @@ try {
       return route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(
-          action === "contact" ? contact : { id: "fixture-review" },
+          action === "autofill-plan" ? { contact, answers: [], history: [], revision: "2026-09-20T00:00:00.000Z", includeResume: false } : { id: "fixture-review" },
         ),
       });
     }
@@ -102,6 +108,7 @@ try {
     .getByText("Open an application form. Some fields need manual entry.")
     .waitFor();
   console.log("Requesting site access through the popup");
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
   console.log("Site access granted");
@@ -122,12 +129,12 @@ try {
     await page.keyboard.press("Enter");
     assert.equal(
       await page
-        .getByRole("button", { name: "Fill contact details" })
+        .getByRole("button", { name: "Autofill" })
         .evaluate((button) => button.getRootNode().activeElement === button),
       true,
     );
     const start = Date.now();
-    await page.getByRole("button", { name: "Fill contact details" }).click();
+    await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
       .filter({ hasText: `${fixture.count} filled` })
@@ -147,9 +154,9 @@ try {
       [0, 0],
     );
     assert.equal(
-      await page.getByRole("button", { name: "Fill contact details" }).count(),
-      0,
-      "Completed contact actions are hidden while review stays available",
+      await page.getByRole("button", { name: "Autofill" }).count(),
+      1,
+      "Autofill stays available for remaining questions and dynamic fields",
     );
     const firstField =
       fixture.provider === "greenhouse"
@@ -158,17 +165,17 @@ try {
           ? '[name="name"]'
           : "#_systemfield_name";
     await page.locator(firstField).fill("");
-    await page.getByRole("button", { name: "Fill contact details" }).click();
+    await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
-      .filter({ hasText: `1 filled \u00b7 ${fixture.count - 1} kept` })
+      .filter({ hasText: `${fixture.count} filled` })
       .waitFor();
-    const reviewButton = page.getByRole("button", { name: "Review questions" });
-    const buttonHandle = await reviewButton.elementHandle();
-    const box = await reviewButton.boundingBox();
-    const keyboardReview = fixture.provider === "lever";
-    if (keyboardReview) {
-      await reviewButton.focus();
+    const fillButton = page.getByRole("button", { name: "Autofill", exact: true });
+    const buttonHandle = await fillButton.elementHandle();
+    const box = await fillButton.boundingBox();
+    const keyboardFill = fixture.provider === "lever";
+    if (keyboardFill) {
+      await fillButton.focus();
       await page.keyboard.down("Space");
     } else {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -185,20 +192,12 @@ try {
     assert.equal(
       await buttonHandle.evaluate((button) => button.isConnected),
       true,
-      "background scans must not replace the pressed review button",
+      "background scans must not replace the pressed Autofill button",
     );
-    const [review] = await Promise.all([
-      context.waitForEvent("page"),
-      keyboardReview ? page.keyboard.up("Space") : page.mouse.up(),
-    ]);
-    await review.waitForLoadState();
-    const reviewUrl = new URL(review.url());
-    assert.equal(reviewUrl.origin, "http://127.0.0.1:3004");
-    assert.equal(
-      reviewUrl.searchParams.get("callbackUrl") ?? reviewUrl.pathname,
-      "/applications/fixture-review/review",
-    );
-    await review.close();
+    const pageCount = context.pages().length;
+    if (keyboardFill) await page.keyboard.up("Space"); else await page.mouse.up();
+    await page.getByRole("status").filter({ hasText: "Nothing submitted" }).waitFor();
+    assert.equal(context.pages().length, pageCount, "Autofill does not redirect to another page");
     await page.bringToFront();
     await page
       .getByRole("status")
@@ -224,7 +223,7 @@ try {
       "No stale indicator after SPA exit",
     );
   }
-  assert.equal(captures.length, 3);
+  assert.equal(captures.length, 0, "Autofill must not create review sessions or capture entered answers");
   assert.equal(JSON.stringify(captures).includes("Already written"), false);
   assert.equal(JSON.stringify(captures).includes(contact.email), false);
   await page.goto(fixtures[1].url);
@@ -245,13 +244,13 @@ try {
   // Synthetic page events cannot trigger privileged extension actions.
   const before = contactCalls;
   await page
-    .getByRole("button", { name: "Fill contact details" })
+    .getByRole("button", { name: "Autofill" })
     .evaluate((button) => button.click());
   await page.waitForTimeout(200);
   assert.equal(contactCalls, before);
   // Slow contact response must never fill a different job after SPA navigation.
   responseDelay = 600;
-  await page.getByRole("button", { name: "Fill contact details" }).click();
+  await page.getByRole("button", { name: "Autofill" }).click();
   await page.waitForTimeout(150);
   await page.evaluate(() => {
     history.pushState(
@@ -280,14 +279,15 @@ try {
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
   await page.bringToFront();
-  for (const url of [
-    fixtures[0].url + "?unsupported=1",
-    "https://unrelated.example/application",
-  ]) {
-    await page.goto(url);
-    await page.waitForTimeout(400);
-    assert.equal(await page.locator("#applyoverflow-assistant").count(), 0);
-  }
+  const beforeQuestions = contactCalls;
+  await page.goto(fixtures[0].url + "?unsupported=1");
+  await page.getByRole("button", { name: "Application help available" }).click();
+  await page.getByRole("button", { name: "Autofill", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Finish remaining fields" }).count(), 0);
+  assert.equal(contactCalls, beforeQuestions, "question-only detection must not fetch profile facts");
+  await page.goto("https://unrelated.example/application");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator("#applyoverflow-assistant").count(), 0);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
