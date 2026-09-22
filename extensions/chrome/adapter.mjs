@@ -33,6 +33,8 @@ export function createInspector(resolveContext, history, autofill) {
       };
     if (expectedUrl && location.href !== expectedUrl)
       return { error: "The page changed. Open the extension again." };
+    const rippling = context.provider === "generic" && location.hostname === "ats.rippling.com" &&
+      /^\/[a-z0-9_-]+\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
     const aliases = {
       "first name": "givenName",
       "given name": "givenName",
@@ -210,6 +212,16 @@ export function createInspector(resolveContext, history, autofill) {
       // Workable has separate resume/import/photo widgets. Keep file uploads
       // manual until the complete upload lifecycle is verified.
       if (context.provider === "workable") return false;
+      if (rippling) {
+        const widget = field.closest('label[data-testid="resume"]');
+        const labels = (widget?.getAttribute("aria-labelledby") || "").split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent || "");
+        return field.getAttribute("data-testid") === "input-resume" &&
+          forms[0].querySelectorAll('input[type="file"][data-testid="input-resume"]').length === 1 &&
+          widget && visible(widget) && !field.disabled && !field.multiple &&
+          !field.closest('[hidden],[inert],[aria-hidden="true"],[aria-busy="true"]') &&
+          labels.some(label => /^(resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(label)));
+      }
       if (
         [...document.querySelectorAll("input")].filter(
           (item) => item.id === field.id,
@@ -394,7 +406,12 @@ export function createInspector(resolveContext, history, autofill) {
           ["email", "tel"].includes(tokens[1])
         ) tokens.shift();
         const token = tokens.length === 1 ? tokens[0] : "";
-        if (!token || standard[token] !== key) key = undefined;
+        const ripplingFields = { first_name: "givenName", last_name: "familyName", email: "email", phone_number: "phone" };
+        const input = field.getAttribute("data-input");
+        const confirmedRipplingField = rippling && ripplingFields[input] === key && key &&
+          field.getAttribute("data-testid") === `input-${input}` &&
+          field.getAttribute("aria-labelledby") === `${field.id}-label`;
+        if ((!token || standard[token] !== key) && !confirmedRipplingField) key = undefined;
       }
       const group = field
         .closest("fieldset")
@@ -448,6 +465,10 @@ export function createInspector(resolveContext, history, autofill) {
       // A telephone's country code is not the applicant's address country.
       if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
       if (context.provider === "greenhouse" && field.id === "candidate-location" && candidate === "city") profileKey = "city";
+      if (rippling && normalized === "location" && field instanceof HTMLInputElement &&
+        field.getAttribute("data-testid") === "input-undefined" &&
+        field.getAttribute("aria-labelledby") === `${field.id}-label` &&
+        field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
       if (
         field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
@@ -711,10 +732,20 @@ export function createInspector(resolveContext, history, autofill) {
       resumeInput.dispatchEvent(new Event("input", { bubbles: true }));
       resumeInput.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 150));
+      if (rippling && autofill) {
+        // Rippling imports contact details asynchronously after resume upload.
+        // Keep this bounded; a late employer update still needs user review.
+        const until = Date.now() + 5000;
+        while (Date.now() < until && location.href === target.url && forms[0].isConnected)
+          await new Promise(resolve => setTimeout(resolve, 100));
+        if (location.href === target.url && forms[0].isConnected)
+          await autofill("autofill-reconcile-resume", {}, entries, forms[0], labelFor, visible);
+      }
       const selected = resumeInput.files?.[0];
       return {
         ...result,
         resumeAvailable: false,
+        resumeParserReview: rippling,
         resumeSelected:
           resumeInput.isConnected &&
           location.href === target.url &&

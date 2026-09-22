@@ -28,14 +28,14 @@ export function suggestionEvidence(profile: ProfileFormValues, note: string): Su
   return rows.filter(x => x.text.trim());
 }
 
-const generatedSchema = z.object({
+export const generatedSuggestionSchema = z.object({
   answer: z.string().trim().max(2500),
   evidence: z.array(z.object({ id: z.string().max(60), quote: z.string().trim().min(8).max(300) }).strict()).max(4),
-  missing: z.string().trim().max(240).default(""),
+  missing: z.string().trim().max(240),
 }).strict();
 
 export function parseSuggestion(raw: string, sources: SuggestionEvidence[]) {
-  const result = generatedSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
+  const result = generatedSuggestionSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
   if (result.answer && (!result.evidence.length || result.evidence.some(ref =>
     !sources.some(source => source.id === ref.id && source.text.includes(ref.quote)))))
     throw new Error("Draft evidence could not be verified.");

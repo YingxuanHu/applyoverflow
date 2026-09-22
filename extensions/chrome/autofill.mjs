@@ -5,7 +5,7 @@ export function createAutofillInspector() {
   let completed = new WeakMap();
   const ids = new WeakMap();
   const norm = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"]');
+  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[aria-autocomplete="list"][aria-haspopup="listbox"]');
   const read = field => {
     // React Select keeps its search input empty after selecting a value.
     const container = custom(field) && field.closest('.select__value-container');
@@ -253,6 +253,18 @@ export function createAutofillInspector() {
         confirmedQuestions.get(norm(item.label)) ||
         (item.canRemember ? payload.answers?.find(answer => norm(answer.label) === norm(item.label))?.answer : undefined);
       if (value) await write(item, value);
+    }
+    // Some ATS resume parsers overwrite contact fields after upload. Restore
+    // only our own previously empty scalar fields, never a user's edits.
+    if (mode === "autofill-reconcile-resume") for (const item of items) {
+      if (!item.profileKey || item.kind !== "text" || item.manual || !safe(item)) continue;
+      const record = undo.find(record => record.field === item.field && record.label === item.label &&
+        record.profileKey === item.profileKey && !record.before && !record.edited);
+      if (!record || equivalent(read(item.field), record.value, item.profileKey)) continue;
+      setValue(item.field, record.value);
+      await delay(35);
+      if (safe(item) && !record.edited && read(item.field) === record.value && item.field.validity?.valid !== false)
+        completed.set(item.field, { label: item.label, value: record.value });
     }
     let undone = 0;
     if (mode === "autofill-undo") {

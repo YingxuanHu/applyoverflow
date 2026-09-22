@@ -35,6 +35,9 @@ async function main() {
       if (!url.startsWith("https://api.openai.com/")) return originalFetch(input, init);
       calls++;
       const body = JSON.parse(String(init?.body));
+      assert.equal(body.response_format.type, "json_schema");
+      assert.equal(body.response_format.json_schema.strict, true);
+      assert.deepEqual(body.response_format.json_schema.schema.required, ["answer", "evidence", "missing"]);
       const payload = body.messages.find((m: { role: string }) => m.role === "user").content;
       for (const secret of [email, "5555550199", "Private fixture address", "Woman"]) assert.ok(!payload.includes(secret));
       return Response.json({ choices: [{ message: { content: JSON.stringify({ answer: "I built a finance dashboard using TypeScript and SQL, and would like to apply that experience to reporting tools.", evidence: [{ id: "summary", quote: "Built a finance dashboard using TypeScript and SQL." }], missing: "" }) } }] });

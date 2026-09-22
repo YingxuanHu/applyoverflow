@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { questionAssistance, parseSuggestion, suggestionEvidence, suggestionRequestSchema } from "../src/lib/extension-suggestions";
 import { buildProfileFormValues } from "../src/lib/profile";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { generatedSuggestionSchema } from "../src/lib/extension-suggestions";
 
 test("question assistance distinguishes grounded drafts from personal decisions", () => {
   for (const question of ["Why do you want to join Figma?", "Tell us about a project you built", "Describe your relevant experience", "What interests you in this role?"])
@@ -32,4 +34,14 @@ test("suggestion requests are bounded, job scoped and reject extra form answers"
   assert.equal(suggestionRequestSchema.safeParse({ ...input, answers: ["private"] }).success, false);
   assert.equal(suggestionRequestSchema.safeParse({ ...input, jobDescription: "x".repeat(8001) }).success, false);
   assert.equal(suggestionRequestSchema.safeParse({ ...input, url: "http://localhost/private" }).success, false);
+});
+
+test("draft generation uses the same bounded schema as response validation", () => {
+  const format = zodResponseFormat(generatedSuggestionSchema, "application_answer");
+  assert.equal(format.json_schema.strict, true);
+  assert.deepEqual(format.json_schema.schema?.required, ["answer", "evidence", "missing"]);
+  assert.equal(format.json_schema.schema?.additionalProperties, false);
+  const result = { answer: "A draft", evidence: [], missing: "" };
+  assert.equal(generatedSuggestionSchema.safeParse({ ...result, missing: null }).success, false);
+  assert.equal(generatedSuggestionSchema.safeParse({ ...result, evidence: [{ id: "summary", quote: "x".repeat(301) }] }).success, false);
 });

@@ -504,6 +504,7 @@ async function handle(type, sender, message = {}) {
           const file = await api("resume-default", { url: scan.url }, connection.token);
           const attached = await inspect(target, ["attach-resume", { ...file, resumeToken: ready.result.resumeToken }, scan.url]);
           note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
+          if (attached.result.resumeParserReview) note += " Review details imported by the employer's resume parser.";
         } catch (error) {
           if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Some fields were filled, but the connection expired before resume sharing. Reconnect to continue." };
           note += ` Resume: ${error.message}`;
