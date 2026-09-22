@@ -1,6 +1,10 @@
 // Serialized into a classic content script at build time; no module fetches.
-export function installIndicator(buildId) {
+export function installIndicator(buildId, renderQuestions) {
   if (globalThis.__applyOverflowIndicator) return;
+  // Chrome reloads the isolated world but can leave its old DOM behind.
+  for (const orphan of document.querySelectorAll("#applyoverflow-assistant")) {
+    if (orphan.shadowRoot?.querySelector('[aria-label="ApplyOverflow application assistant"]')) orphan.remove();
+  }
   let host,
     root,
     view,
@@ -32,7 +36,7 @@ export function installIndicator(buildId) {
     document.removeEventListener("change", schedule, true);
     document.removeEventListener("visibilitychange", resume);
     window.removeEventListener("popstate", resume);
-    chrome.runtime.onMessage.removeListener(onMessage);
+    try { chrome.runtime.onMessage.removeListener(onMessage); } catch { /* Invalidated after an extension reload. */ }
     delete globalThis.__applyOverflowIndicator;
   }
   globalThis.__applyOverflowIndicator = { stop };
@@ -66,8 +70,11 @@ export function installIndicator(buildId) {
         throw new Error(
           "Reload the extension in Chrome, then refresh this application page.",
         );
-      if (response.reconnect || response.connected === false)
+      if (response.reconnect || response.connected === false) {
         connection = false;
+        remaining = [];
+        renderRemaining();
+      }
       if (response.error) throw new Error(response.error);
       connection = response.connected;
       notice = response.message;
@@ -75,6 +82,7 @@ export function installIndicator(buildId) {
         remaining = response.fields.filter(field => field.state === "needed");
         renderRemaining();
       }
+      return response;
     } catch (error) {
       notice = error.message || "Open the extension from Chrome to retry.";
     } finally {
@@ -86,46 +94,8 @@ export function installIndicator(buildId) {
   }
   function renderRemaining() {
     if (!view) return;
-    const openFields = new Set([...view.remaining.querySelectorAll("details[open]")].map(item => item.dataset.id));
-    view.remaining.replaceChildren();
     view.remaining.hidden = !remaining.length;
-    const heading = document.createElement("summary");
-    heading.textContent = `${remaining.length} remaining ${remaining.length === 1 ? "field" : "fields"}`;
-    view.remaining.append(heading);
-    for (const field of remaining) {
-      const disclosure = document.createElement("details");
-      disclosure.dataset.id = field.id; disclosure.open = openFields.has(field.id);
-      const label = document.createElement("summary"); label.textContent = `${field.title || field.label}${field.required ? " *" : ""}`;
-      disclosure.append(label);
-      if (field.canAnswer) {
-        if (field.kind === "combobox" && !field.options?.length)
-          disclosure.append(button("Load choices", () => void run("autofill-options", { id: field.id, label: field.label }), true));
-        const form = document.createElement("form");
-        const control = document.createElement(field.options?.length ? "select" : "textarea");
-        control.setAttribute("aria-label", field.label); control.required = true;
-        if (field.options?.length) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
-        else { control.rows = 2; control.maxLength = 3000; }
-        form.append(control);
-        const remember = document.createElement("input"); remember.type = "checkbox";
-        if (field.canRemember) {
-          const rememberLabel = document.createElement("label"); rememberLabel.className = "remember";
-          rememberLabel.append(remember, document.createTextNode(field.profileKey ? "Save to my profile" : "Remember for this employer and question"));
-          form.append(rememberLabel);
-        }
-        const fill = document.createElement("button"); fill.type = "submit"; fill.textContent = "Fill answer";
-        form.append(fill);
-        form.addEventListener("submit", event => {
-          event.preventDefault();
-          if (event.isTrusted) void run("autofill-answer", { id: field.id, label: field.label, answer: control.value, remember: remember.checked });
-        });
-        disclosure.append(form);
-      } else {
-        const reason = document.createElement("p"); reason.textContent = field.reason || "Complete this field on the form.";
-        disclosure.append(reason);
-      }
-      disclosure.append(button("Show on page", () => void run("autofill-focus", { id: field.id, label: field.label }), true));
-      view.remaining.append(disclosure);
-    }
+    if (renderQuestions) renderQuestions(view.remaining, remaining, run);
   }
   function render(result) {
     if (!host?.isConnected) {
@@ -183,7 +153,7 @@ export function installIndicator(buildId) {
       );
       const fill = button("Autofill", () => void run("autofill"));
       const resume = button("Change resume", () => void run("resume"), true);
-      const remainingFields = document.createElement("details");
+      const remainingFields = document.createElement("div");
       const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
       const status = document.createElement("p");
       status.setAttribute("role", "status");
@@ -254,6 +224,7 @@ export function installIndicator(buildId) {
   }
   let signature = "";
   async function scan() {
+    if (!chrome.runtime?.id) { stop(); return; }
     if (
       stopped ||
       !enabled ||
@@ -332,6 +303,10 @@ export function installIndicator(buildId) {
       }
       enabled = true;
       connection = result.connected;
+      if (!connection) {
+        remaining = [];
+        renderRemaining();
+      }
       schedule();
     } catch {
       stop();

@@ -59,13 +59,15 @@ export default async function ExtensionConnectPage({
           Answer remaining questions in the assistant without leaving the employer form.
           Saving an answer is optional. Record an application as applied only after your explicit confirmation.
         </li>
+        <li>Suggest answer uses OpenAI to draft from your professional profile, the job description and an optional note. You edit and approve each draft before inserting it.</li>
         <li>
           No access to passwords or application submission. Resume sharing is off
           by default. Enable default-resume sharing in Profile or approve a file each time.
         </li>
       </ul>
       <p className="text-sm text-muted-foreground">
-        Access expires after eight hours or when this sign-in session ends.
+        Stay connected on this browser, including after restarting Chrome.
+        Access ends when this sign-in session expires or is revoked, within 30 days.
         Disconnect at any time in Settings.
       </p>
       <ExtensionConsent request={input.data} />

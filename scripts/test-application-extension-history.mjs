@@ -76,7 +76,10 @@ try {
   );
   await popup.goto(`chrome-extension://${id}/popup.html`);
   const send = (type, data = {}) =>
-    popup.evaluate((message) => chrome.runtime.sendMessage(message), {
+    popup.evaluate(async (message) => {
+      const { BUILD_ID } = await import(chrome.runtime.getURL("config.mjs"));
+      return chrome.runtime.sendMessage({ ...message, buildId: BUILD_ID });
+    }, {
       type,
       ...data,
     });

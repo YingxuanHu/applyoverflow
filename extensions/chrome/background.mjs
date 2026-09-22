@@ -130,6 +130,7 @@ async function notifyConnectionChanged() {
       .catch(() => {});
 }
 async function clearAccountSession() {
+  await chrome.storage.local.remove("connection");
   const state = await chrome.storage.session.get(null);
   await chrome.storage.session.remove(
     Object.keys(state).filter(
@@ -210,7 +211,7 @@ async function connect() {
       verifier: pending.verifier,
     });
     await clearAccountSession();
-    await chrome.storage.session.set({ connection });
+    await chrome.storage.local.set({ connection: { ...connection, origin: APP_ORIGIN } });
     await notifyConnectionChanged();
     return {
       connected: true,
@@ -229,11 +230,25 @@ function workingMessage() {
   return "Finishing the previous action. Please wait.";
 }
 async function handle(type, sender, message = {}) {
-  // Session storage is never exposed to content scripts or synced across devices.
+  if (type === "version") return { activeAction: working, message: working ? workingMessage() : "Ready." };
+  // The grant survives browser restarts, but is never exposed to content scripts
+  // or synced. Profile data and field state remain transient.
   await chrome.storage.session.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
-  const { connection } = await chrome.storage.session.get("connection");
+  await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  let { connection } = await chrome.storage.local.get("connection");
+  if (!connection) {
+    const legacy = (await chrome.storage.session.get("connection")).connection;
+    if (legacy) {
+      connection = { ...legacy, origin: APP_ORIGIN };
+      await chrome.storage.local.set({ connection });
+      await chrome.storage.session.remove("connection");
+    }
+  }
+  if (connection && (connection.origin !== APP_ORIGIN || Date.parse(connection.expiresAt) <= Date.now())) {
+    await clearAccountSession(); connection = undefined;
+  }
   const connected = Boolean(
     connection?.token && Date.parse(connection.expiresAt) > Date.now(),
   );
@@ -362,6 +377,7 @@ async function handle(type, sender, message = {}) {
       "autofill-answer",
       "autofill-focus",
       "autofill-options",
+      "autofill-suggest",
       "autofill-undo",
       "review",
       "resume",
@@ -505,13 +521,25 @@ async function handle(type, sender, message = {}) {
     } });
     return response;
   }
-  if (["autofill-answer", "autofill-focus", "autofill-options"].includes(type)) {
+  if (["autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest"].includes(type)) {
     const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
     if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
       throw new Error("Click Autofill to check the current application step first.");
     if (typeof message.id !== "string" || typeof message.label !== "string" ||
       (type === "autofill-answer" && (typeof message.answer !== "string" || message.answer.length > 3000)))
       throw new Error("Check your answer and try again.");
+    if (type === "autofill-suggest") {
+      const field = scan.fields?.find(field => field.id === message.id && field.label === message.label && field.state === "needed" && field.canAnswer && !field.profileKey && field.kind === "text");
+      if (!field || typeof message.note !== "string" || message.note.length > 1200)
+        throw new Error("This question changed. Autofill again to check the form.");
+      const context = await inspect(target, ["autofill-context", {}, scan.url]);
+      const result = await api("autofill-suggest", { url: scan.url, label: field.label,
+        title: scan.title || "", jobDescription: context.result.jobDescription || "", note: message.note, revision: saved.revision }, connection.token);
+      const current = await inspect(target, ["inspect", {}, scan.url]);
+      if (!current.result.fields?.some(f => f.id === field.id && f.label === field.label && f.state === "needed"))
+        throw new Error("The form changed while drafting. Your existing answers were not changed.");
+      return { connected: true, ...result, message: result.suggestion.answer ? "Draft ready. Edit it, then choose Use answer." : result.suggestion.missing };
+    }
     const written = await inspect(target, [type, { id: message.id, label: message.label, answer: message.answer }, scan.url]);
     let note = "";
     if (type === "autofill-answer" && message.remember === true && written.result.answered?.canRemember) {
@@ -683,16 +711,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )
     return false;
-  const readOnly = ["status", "availability", "detection-updated"].includes(
+  const readOnly = ["version", "status", "availability", "detection-updated"].includes(
     message?.type,
   );
-  if (page && !readOnly && message.buildId !== BUILD_ID) {
-    respond({ error: "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
+  if (!readOnly && message.buildId !== BUILD_ID) {
+    respond({ error: popup ? "Reopen the extension to finish updating. Nothing was changed." : "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
     return false;
   }
   if (working && !readOnly) {

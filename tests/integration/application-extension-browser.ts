@@ -75,7 +75,7 @@ async function main() {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(
         process.execPath,
-        ["scripts/test-application-extension-connection.mjs"],
+        [process.argv.includes("--autofill") ? "scripts/test-application-extension-flow.mjs" : "scripts/test-application-extension-connection.mjs"],
         {
           stdio: "inherit",
           env: {

@@ -13,6 +13,7 @@ type SignInScreenProps = {
   googleEnabled?: boolean;
   localDevelopmentAccount?: boolean;
   mobileMode?: "landing" | "form";
+  reauthenticate?: boolean;
 };
 
 export function SignInScreen({
@@ -25,6 +26,7 @@ export function SignInScreen({
   googleEnabled = false,
   localDevelopmentAccount = false,
   mobileMode = "form",
+  reauthenticate = false,
 }: SignInScreenProps) {
   return (
     <AuthShell
@@ -41,6 +43,7 @@ export function SignInScreen({
       mobileMode={mobileMode}
     >
       <SignInForm
+        reauthenticate={reauthenticate}
         callbackUrl={callbackUrl}
         defaultEmail={defaultEmail}
         emailVerificationError={emailVerificationError}

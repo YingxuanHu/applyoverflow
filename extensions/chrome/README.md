@@ -51,13 +51,13 @@ to an employer automatically. Neither feature depends on the public job board.
 - Version 0.6.1 checks the popup, worker and injected runtime build identities.
   If an unpacked folder was overwritten while Chrome still runs the old worker,
   the popup offers **Reload extension** instead of an unsupported action. Refresh
-  the employer tab afterward and reconnect if Chrome cleared the session token.
+  the employer tab afterward. The connection now survives browser restarts and unpacked reloads.
 
 - One request retrieves allowlisted profile fields, explicitly approved answers
   for the exact employer/question, and bounded history when rows exist.
 - Native single selects and explicitly associated ARIA listboxes use unique,
   exact displayed-option matches. Country/province/state abbreviations are mapped;
-  unknown location suggestions and ambiguous widgets stay in the checklist.
+  Greenhouse city search requires a unique city/province/country match. Ambiguous widgets stay manual.
 - Given/family names, address, preferred name and pronouns are editable in Profile.
   Missing facts can be filled in the popup or compact on-page assistant, with a
   separate choice to remember. Custom dropdowns expose **Load choices** for exact
@@ -71,10 +71,12 @@ to an employer automatically. Neither feature depends on the public job board.
   Next, accept legal agreements, or submit. Voluntary demographic and country-specific
   work-eligibility answers require explicit Profile values and a separate opt-in.
   Only supported labels and exact answer options match; there is no inference.
-- Referrals and employer relationships can be answered and explicitly remembered
-  only for the same employer and exact question, invalidated when the profile changes.
-  Consent checkboxes, signatures, ambiguous eligibility questions and location-search
-  widgets remain manual. Optional answers never enter ranking or AI prompt contexts.
+- The compact question view has an editable draft queue and a separate queue for
+  personal decisions. Suggest answer is explicit, uses professional profile evidence
+  and bounded job text, and requires review before Use answer. Personal reasons need
+  a note; eligibility, availability, referrals and consent are not guessed. No new
+  employer-specific answer-saving checkbox is shown. Fixed facts can be saved to Profile.
+  Existing exact saved answers still work. Optional demographic answers never enter AI prompts.
 - `npm run extension:test:autofill` exercises seven synthetic platform shapes,
   matching, missing facts, DOM races, preservation, Undo and popup layout. These
   fixtures are not certification for every tenant.
@@ -208,7 +210,9 @@ not a one-click consumer installation or an automatically updated store release.
 `/api/extension/v1/...` is a narrow bearer-only API, separate from web sessions.
 Connection uses explicit web consent, a fresh authenticated session, an exact
 allowlisted Chrome redirect, a two-minute single-use code, state, and S256 PKCE.
-Only code/token hashes are persisted. Access expires in eight hours at most and
+Only code/token hashes are persisted on the server. The browser grant is stored
+in Chrome local storage with TRUSTED_CONTEXTS access (never sync); profile contents
+remain transient. Access expires no later than the approving session, within 30 days, and
 is rejected when its originating web session expires, is revoked, or is signed
 out. Settings and the popup both support revocation. There are no refresh tokens.
 
@@ -267,6 +271,10 @@ preserves fieldset context such as "Reference details: Email".
   clipboard failure, retained question drafts and a 320px review layout.
 - `npm run extension:test:package`: production and Store ZIP integrity, fixed
   origins, minimal permissions, distinct Store identity, and prohibited flags.
+  Test artifacts go to `output/extension/package-test/`; tests never replace an
+  installed unpacked build. Only explicitly rebuild an installed directory when
+  ready to reload it in Chrome. Popup actions check the worker build before
+  sending mutations; workers also reject requests from stale popup/page builds.
 - `EXTENSION_TEST_PROFILE=output/playwright/assistant-frames-profile npm run extension:test:frames`:
   real MV3 cross-origin frame isolation, old-registration upgrade, trusted-click
   enforcement, review privacy, replaced-document races, narrow layout and
@@ -328,10 +336,29 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.6.1: earlier
-backends lack parts of the updated profile/answer contract. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.7.0: earlier
+backends lack persistent-session support and the answer-suggestion endpoint. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with
-consenting test profiles), controlled React/select/repeater fixtures,
-Chrome Web Store review, and source-grounded answer-drafting batches.
+consenting test profiles) and Chrome Web Store review. Fixture coverage is not
+a guarantee that every employer's customized form is supported.
+
+### Session and answer-draft checks
+
+- `npm run extension:test:questions`: React Select mouse events, country flags,
+  asynchronous exact city selection, ambiguous-location rejection, compact
+  editable drafts and account-change clearing. Add `-- --live` for synthetic
+  contact fills on public Klaviyo and Vercel Greenhouse pages, without file
+  upload or submission. Live postings can expire.
+- `DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local NODE_PATH=./node_modules/next/dist/compiled NODE_OPTIONS=--conditions=react-server npx tsx -r dotenv/config tests/integration/extension-suggestions.ts`:
+  temporary localhost profiles, evidence validation, personal-question rejection
+  and mocked AI. Add `--live-ai` for two real model calls using synthetic facts,
+  or `--browser` for aged-session confirmation, PKCE and sign-out revocation.
+- Add `--autofill` to the authenticated `application-extension-browser.ts` test
+  above to check real MV3 contact filling, an editable live-AI draft, browser
+  restart persistence and disconnect revocation. It needs a local server with
+  AI configured and a disposable Chrome profile with Developer mode and supported
+  sites approved. Optional `EXTENSION_LIVE_NARRATIVE_URL` accepts a public Figma
+  Greenhouse job URL for the same draft/edit/insert flow on a real page. Only
+  synthetic profile data is used; no resumes or applications are submitted.

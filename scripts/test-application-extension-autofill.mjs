@@ -190,7 +190,7 @@ try {
   await popup.goto("https://extension.fixture/popup.html");
   await popup.getByRole("button", { name: "Autofill", exact: true }).click();
   await popup.locator("#fill-progress").waitFor();
-  await popup.locator(".pending-field").filter({ hasText: "Email" }).first().locator("summary").click();
+  await popup.getByText(/^Needs your input \(/).click();
   assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.equal(await popup.getByRole("button", { name: "Change resume" }).isVisible(), true);
   assert.equal(await popup.evaluate(() => window.calls.some(call => call.type === "autofill")), true);
@@ -198,12 +198,15 @@ try {
   await popup.screenshot({ path: "output/playwright/extension-autofill-checklist.png", fullPage: true });
   console.log("PASS compact popup, single Autofill action, expandable checklist, no horizontal overflow");
   await popup.evaluate(() => {
-    window.chrome.runtime.sendMessage = async message => { window.calls.push(message); return { connected: true, message: "Old worker" }; };
+    window.calls = [];
+    window.chrome.runtime.sendMessage = async message => { window.calls.push(message); return { connected: true, activeAction: "connect", message: "Old worker" }; };
     window.chrome.runtime.reload = () => { window.reloaded = true; };
   });
   await popup.getByRole("button", { name: "Autofill", exact: true }).click();
   await popup.getByRole("button", { name: "Reload extension", exact: true }).waitFor();
+  assert.deepEqual(await popup.evaluate(() => window.calls.map(call => call.type)), ["version"], "A mismatched worker must not receive Autofill before the version check");
   assert.equal(await popup.getByRole("button", { name: "Autofill", exact: true }).isDisabled(), true);
+  assert.equal(await popup.getByRole("button", { name: "Reload extension", exact: true }).isEnabled(), true, "An old worker's pending action must not disable recovery");
   await popup.getByRole("button", { name: "Reload extension", exact: true }).click();
   assert.equal(await popup.evaluate(() => window.reloaded), true);
   console.log("PASS mixed-version recovery without misleading Unsupported action");

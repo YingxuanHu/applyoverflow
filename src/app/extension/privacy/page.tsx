@@ -18,7 +18,7 @@ export default function ExtensionPrivacyPage() {
         <h1 className="text-2xl font-semibold">
           Application assistant data use
         </h1>
-        <p className="text-muted-foreground">Updated September 20, 2026</p>
+        <p className="text-muted-foreground">Updated September 21, 2026</p>
         <p>
           This notice describes the ApplyOverflow Chrome extension and its
           application-review workflow.
@@ -61,8 +61,8 @@ export default function ExtensionPrivacyPage() {
           the surrounding employer page.
         </p>
         <p>
-          The extension keeps its connection token in Chrome session storage,
-          inaccessible to employer-page scripts, and its site-access preference
+          The extension keeps its connection token in Chrome local storage,
+          restricted to trusted extension contexts and inaccessible to content scripts or employer-page scripts, and its site-access preference
           locally. It does not sync profile data to your Chrome account.
           Temporary contact/history-fill values used for Undo expire after ten minutes
           or when the page is closed or navigates away. Resume bytes are not
@@ -82,8 +82,8 @@ export default function ExtensionPrivacyPage() {
           Autofill sends the application URL and up to 40 question labels to find
           matching saved answers. Only answers explicitly enabled for reuse are filled,
           and they require review again when your profile changes. Answers entered in
-          the popup or on-page assistant stay on the form unless you choose to save them to your profile
-          or remember that exact question for the same employer. Optional demographic
+          the popup or on-page assistant stay on the form unless you choose to save them to your profile.
+          Older explicitly remembered answers remain scoped to the same employer and question. Optional demographic
           answers are not included in ranking or AI-generated materials. Legal agreements,
           signatures and unsupported sensitive fields remain manual.
         </p>
@@ -97,8 +97,12 @@ export default function ExtensionPrivacyPage() {
           Profile details, stored resumes and application reviews use
           ApplyOverflow&apos;s database and document storage. The
           extension&apos;s contact-fill, question-capture and resume-transfer
-          actions do not send those contents to an AI service. Separate AI tools
-          in the website are not part of this extension workflow. Normal
+          actions do not send those contents to an AI service. Choosing Suggest answer sends
+          the question, a bounded excerpt of the job description, your optional note and
+          relevant professional profile evidence to OpenAI through ApplyOverflow.
+          Contact details and optional demographic answers are excluded from that profile evidence.
+          Drafts are not saved as reusable answers and are inserted only after you choose Use answer.
+          No answers already entered on the employer form are sent for drafting. Normal
           authentication and service requests may also produce operational logs,
           such as request time, status and network address.
         </p>
@@ -115,8 +119,9 @@ export default function ExtensionPrivacyPage() {
           <Link className="text-primary underline" href="/settings/extension">
             Application assistant settings
           </Link>
-          . Access also ends when its sign-in session ends and expires after at
-          most eight hours. Turning off automatic hints removes the
+          . The connection survives restarting Chrome but ends when its approving
+          sign-in session expires or is revoked, within 30 days. Disconnecting clears the local token.
+          Turning off automatic hints removes the
           permission-based hints; using the toolbar is a separate, deliberate
           action.
         </p>

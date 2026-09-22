@@ -18,6 +18,8 @@ export type AICompletionOptions = {
   maxTokens?: number;
   temperature?: number;
   modelFlavor?: AIModelFlavor;
+  signal?: AbortSignal;
+  budgetSubject?: string;
 };
 
 function selectModel(flavor: AIModelFlavor) {
@@ -33,7 +35,7 @@ function selectModel(flavor: AIModelFlavor) {
 }
 
 export async function aiComplete(opts: AICompletionOptions): Promise<string> {
-  const openai = getOpenAIClient();
+  const openai = getOpenAIClient(opts.budgetSubject);
   const response = await openai.chat.completions.create({
     model: selectModel(opts.modelFlavor ?? "standard"),
     messages: [
@@ -44,7 +46,7 @@ export async function aiComplete(opts: AICompletionOptions): Promise<string> {
     ],
     max_completion_tokens: opts.maxTokens ?? 4096,
     temperature: opts.temperature ?? 0,
-  });
+  }, opts.signal ? { signal: opts.signal, maxRetries: 0 } : undefined);
 
   return response.choices[0]?.message?.content ?? "";
 }

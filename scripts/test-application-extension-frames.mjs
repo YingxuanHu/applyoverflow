@@ -195,9 +195,11 @@ try {
   assert.equal(await frame.locator("#email").inputValue(), "");
   const pageCount = context.pages().length;
   const panel = frame.locator("#applyoverflow-assistant");
-  await panel.locator("summary").filter({ hasText: /remaining fields$/ }).click();
-  await panel.locator("summary").filter({ hasText: /^First name/ }).click();
-  await panel.getByRole("textbox", { name: /^First name/ }).fill("Jordan");
+  await panel.locator("summary").filter({ hasText: /^Needs your input/ }).click();
+  const picker = panel.getByRole("combobox", { name: "Needs your input: choose a field" });
+  const firstName = await picker.locator("option").filter({ hasText: /First name/i }).getAttribute("value");
+  await picker.selectOption(firstName);
+  await panel.getByRole("textbox", { name: /^Answer: First name/i }).fill("Jordan");
   await panel.getByRole("button", { name: "Fill answer", exact: true }).click();
   await frame.getByRole("status").filter({ hasText: "1 filled" }).waitFor();
   assert.equal(await frame.locator("#first_name").inputValue(), "Jordan");

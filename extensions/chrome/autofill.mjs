@@ -11,7 +11,16 @@ export function createAutofillInspector() {
     const container = custom(field) && field.closest('.select__value-container');
     if (container && container.querySelectorAll('[role="combobox"]').length === 1) {
       const values = container.querySelectorAll('.select__single-value');
-      if (values.length === 1) return values[0].textContent.trim();
+      if (values.length === 1) {
+        // Greenhouse displays only a flag and dial code after selection. +1 is
+        // ambiguous; read the widget's country identity, not the dial code.
+        const flag = values[0].querySelector('.iti__flag');
+        if (field.id === "country" && field.closest('fieldset.phone-input') && flag) {
+          if (flag.classList.contains("iti__ca")) return "Canada +1";
+          if (flag.classList.contains("iti__us")) return "United States +1";
+        }
+        return values[0].textContent.trim();
+      }
     }
     return field instanceof HTMLSelectElement && field.selectedOptions[0]?.disabled ? "" : field instanceof HTMLButtonElement ?
       (/^(select|choose)( one| an? .+)?[.\u2026]*$/i.test(field.textContent.trim()) ? "" : field.textContent.trim()) : field.value || "";
@@ -36,6 +45,7 @@ export function createAutofillInspector() {
   const equivalent = (a, b, key) => {
     const canonical = value => {
       const text = norm(value);
+      if (key === "phone") return text.replace(/[^\d+]/g, "");
       const countryText = key === "phoneCountry" ? text.replace(/\s*\(?\+1\)?\s*$/, "").trim() : text;
       return ["country", "phoneCountry"].includes(key) ? ({ ca: "canada", us: "united states", usa: "united states", "united states of america": "united states" })[countryText] || countryText :
         key === "region" ? aliases[text] || text : text;
@@ -80,7 +90,7 @@ export function createAutofillInspector() {
         radioFields: radios.map(item => item.field), radioGroup: group }];
     });
     const current = groupedEntries.filter(({ field, label }) => label && label.length <= 500 &&
-      !["hidden", "password", "submit", "reset"].includes(field.type) &&
+      !["hidden", "password", "submit", "reset", "file"].includes(field.type) &&
       (!(field instanceof HTMLButtonElement) || custom(field)));
     const safe = item => location.href === operationUrl && pageUrl === operationUrl && form.isConnected && form.contains(item.field) &&
       item.field.isConnected && visible(item.field) && labelFor(item.field) === (item.originalLabel || item.label) &&
@@ -110,8 +120,8 @@ export function createAutofillInspector() {
         .slice(0, 250).map(option => option.textContent.trim()) : radio ? entry.radioFields.map(labelFor) :
         choiceCache.get(field)?.label === label ? choiceCache.get(field).options : [];
       const item = { ...entry, id, field, label, profileKey: key, manual, options,
-        canRemember: !manual && key !== "fullAddress" && (!!key || (!entry.identityLabel && rememberable(label))),
-        title: inHistory && heading ? `${heading}: ${label}` : label,
+        canRemember: !manual && key !== "fullAddress" && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
+        title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
         required: field.required || field.getAttribute("aria-required") === "true",
         kind: radio ? "radio" : select ? "select" : widget ? "combobox" : "text",
         reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
@@ -137,25 +147,37 @@ export function createAutofillInspector() {
         reason: invalid ? "An existing value is invalid. Correct it on the employer form." : item.reason,
       };
     });
-    async function loadOptions(item, keepOpen = false) {
+    const closeOptions = field => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+      field.blur();
+      if (field.getAttribute("aria-expanded") === "true") field.click();
+    };
+    async function loadOptions(item, keepOpen = false, search = "") {
       const field = item.field;
       if (!safe(item) || item.kind !== "combobox" || read(field).trim()) return [];
       const expanded = field.getAttribute("aria-expanded") === "true";
       if (!expanded) field.click();
-      let list;
-      for (let attempt = 0; attempt < 16 && safe(item); attempt++) {
+      if (field.getAttribute("aria-expanded") !== "true") {
+        field.focus();
+        field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
+        field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, view: window }));
+      }
+      if (search && field instanceof HTMLInputElement) { field.focus(); setValue(field, search); }
+      let options = [];
+      for (let attempt = 0; attempt < (search ? 64 : 16) && safe(item); attempt++) {
         const lists = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)
           .flatMap(id => [...document.querySelectorAll(`#${CSS.escape(id)}`)])
           .filter(node => node.matches('[role="listbox"]') && visible(node));
-        if (lists.length === 1) { list = lists[0]; break; }
+        const list = lists.length === 1 ? lists[0] : null;
+        options = list && list.getAttribute("aria-multiselectable") !== "true" ?
+          [...list.querySelectorAll('[role="option"]')].filter(option => visible(option) &&
+            option.closest('[role="listbox"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
+        if (options.length) break;
         await delay(25);
       }
-      const options = list && list.getAttribute("aria-multiselectable") !== "true" ?
-        [...list.querySelectorAll('[role="option"]')].filter(option => visible(option) &&
-          option.closest('[role="listbox"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
       item.options = options.map(option => option.textContent.trim()).slice(0, 250);
       choiceCache.set(field, { label: item.label, options: item.options });
-      if (!keepOpen && safe(item) && !expanded && field.getAttribute("aria-expanded") === "true") field.click();
+      if (!keepOpen && safe(item) && !expanded) closeOptions(field);
       if (!options.length) item.reason = "No choices available yet. This field may need a search on the employer form.";
       return options;
     }
@@ -175,14 +197,28 @@ export function createAutofillInspector() {
         setValue(field, matches[0].value);
       } else if (item.kind === "combobox") {
         const expanded = field.getAttribute("aria-expanded") === "true";
-        const options = await loadOptions(item, true);
-        const matches = options.filter(option => equivalent(option.textContent, value, item.profileKey));
-        if (!safe(item) || read(field) !== before || matches.length !== 1) {
-          if (safe(item) && !expanded && field.getAttribute("aria-expanded") === "true") field.click();
+        const citySearch = item.profileKey === "city" && field instanceof HTMLInputElement && payload.contact?.region && payload.contact?.country;
+        const matchesValue = text => {
+          if (!citySearch) return equivalent(text, value, item.profileKey);
+          const parts = text.split(",").map(part => part.trim());
+          return parts.length === 3 && equivalent(parts[0], value) &&
+            equivalent(parts[1], payload.contact.region, "region") && equivalent(parts[2], payload.contact.country, "country");
+        };
+        let edited = false;
+        const onEdit = event => { if (event.isTrusted) edited = true; };
+        field.addEventListener("input", onEdit);
+        const options = await loadOptions(item, true, citySearch ? value : "");
+        field.removeEventListener("input", onEdit);
+        const matches = options.filter(option => matchesValue(option.textContent));
+        if (!safe(item) || edited || read(field) !== (citySearch ? value : before) || matches.length !== 1) {
+          if (safe(item) && !edited && citySearch && read(field) === value) setValue(field, before);
+          if (safe(item) && !edited && !expanded) closeOptions(field);
           item.reason = "Choose a matching option on the form."; return false;
         }
+        // Validate against the selected display value, not the temporary search.
+        value = matches[0].textContent.trim();
         matches[0].click();
-        if (safe(item) && field.getAttribute("aria-expanded") === "true") field.click();
+        if (safe(item) && field.getAttribute("aria-expanded") === "true") closeOptions(field);
       } else setValue(field, value);
       await delay(35);
       const valid = safe(item) && Boolean(readItem(item).trim()) &&

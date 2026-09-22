@@ -6,6 +6,8 @@ import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
+import { createQuestionReview } from "../extensions/chrome/question-review.mjs";
+import { questionAssistance } from "../extensions/chrome/question-policy.mjs";
 import {
   SITE_ORIGINS,
   applicationContext,
@@ -22,6 +24,9 @@ const buildId = buildHash.digest("hex").slice(0, 20);
 const local = process.argv.find((arg) => arg.startsWith("--local="))?.slice(8);
 const store = process.argv.includes("--store");
 const storeTest = process.argv.includes("--store-test");
+const testOutput = process.argv.includes("--test-output");
+if (testOutput && process.argv.includes("--publish"))
+  throw new Error("Isolated test builds cannot replace the public download.");
 if ((store || storeTest) && (local || process.argv.includes("--publish")))
   throw new Error("Store builds cannot use localhost or replace the preview download.");
 if (store && storeTest)
@@ -44,7 +49,7 @@ if (local && (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || local !== origin))
     "Local preview requires an exact http://127.0.0.1:PORT origin.",
   );
 const destination = resolve(
-  `output/extension/${storeTest ? "store-test" : store ? "store" : local ? "local" : "production"}`,
+  `output/extension/${testOutput ? "package-test/" : ""}${storeTest ? "store-test" : store ? "store" : local ? "local" : "production"}`,
 );
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
@@ -54,6 +59,8 @@ for (const file of [
   "popup.html",
   "popup.css",
   "popup.mjs",
+  "question-review.mjs",
+  "question-policy.mjs",
 ])
   await cp(`extensions/chrome/${file}`, `${destination}/${file}`);
 await cp("public/brand/applyoverflow-favicon.png", `${destination}/icon.png`);
@@ -67,7 +74,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/indicator.js`,
-  `(${installIndicator.toString()})(${JSON.stringify(buildId)});\n`,
+  `(${installIndicator.toString()})(${JSON.stringify(buildId)}, (${createQuestionReview.toString()})(${questionAssistance.toString()}));\n`,
 );
 await writeFile(
   `${destination}/manifest.json`,

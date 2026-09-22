@@ -24,6 +24,7 @@
     "extension:build": "node scripts/build-application-extension.mjs",
     "extension:test": "node scripts/test-application-extension.mjs",
     "extension:test:autofill": "node scripts/test-application-extension-autofill.mjs",
+    "extension:test:questions": "node scripts/test-application-extension-questions.mjs",
     "extension:test:expanded": "node scripts/test-application-extension-expanded.mjs",
     "extension:test:compatibility": "node scripts/test-application-extension-compatibility.mjs",
     "extension:test:history": "node scripts/test-application-extension-history.mjs",

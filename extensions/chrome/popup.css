@@ -150,3 +150,10 @@ button.field-link { width: auto; background: transparent; color: inherit; border
 #progress-heading { font-size: 14px; margin: 14px 0 6px; }
 #completed-list { padding-left: 18px; overflow-wrap: anywhere; }
 .setup { margin-top: 14px; }
+.question-title { font-weight: 600; overflow-wrap: anywhere; }
+.question-group { border-top: 1px solid #8885; padding: 8px 0; }
+.question-picker { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.question-hint { color: #85868e; font-size: 12px; line-height: 1.5; }
+.question-group textarea { width: 100%; min-width: 0; resize: vertical; }
+.question-group details { border: 0; padding: 0; }
+.question-group .field-link { border: 0; box-shadow: none; padding: 4px; }

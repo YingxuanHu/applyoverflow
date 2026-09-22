@@ -23,6 +23,7 @@ import {
 } from "@/lib/queries/application-assistant";
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
+import { suggestApplicationAnswer } from "@/lib/queries/extension-suggestions";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -48,6 +49,7 @@ export async function POST(
         "resume-default",
         "autofill-plan",
         "autofill-answer",
+        "autofill-suggest",
       ].includes(action)
     )
       return json({ error: "Not found" }, 404);
@@ -74,6 +76,13 @@ export async function POST(
       return json(await getAutofillPlan(identity.userId, body.data));
     if (action === "autofill-answer")
       return json(await rememberAutofillAnswer(identity.userId, body.data));
+    if (action === "autofill-suggest") {
+      if (!consumeUserRateLimit(identity.userId, "extension:suggest", { limit: 10, windowMs: 300_000 }).allowed)
+        return json({ error: "Draft limit reached. Try again in a few minutes." }, 429);
+      const result = await suggestApplicationAnswer(identity.userId, body.data);
+      await authenticateExtension(request);
+      return json(result);
+    }
     if (action === "history")
       return json(await getExtensionHistory(identity.userId));
     if (action === "history-entry")

@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { isSessionUsableByPolicy } from "@/lib/auth-session-policy";
+import { isSessionUsableByPolicy, SESSION_MAX_LIFETIME_SECONDS } from "@/lib/auth-session-policy";
 import {
   normalizeExperiences,
   normalizeEducations,
@@ -80,8 +80,7 @@ export async function exchangeExtensionCode(raw: unknown) {
   if (!allowedExtension(input.clientId))
     throw new AssistantError("Invalid connection request.", 401);
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60_000);
-  const email = await prisma.$transaction(async (tx) => {
+  const connection = await prisma.$transaction(async (tx) => {
     const grant = await tx.extensionConnection.findUnique({
       where: { codeHash: hashSecret(input.code) },
       include: {
@@ -101,6 +100,9 @@ export async function exchangeExtensionCode(raw: unknown) {
         "Connection expired or invalid. Connect again.",
         401,
       );
+    // The extension cannot outlive the approving web session or its absolute limit.
+    const expiresAt = new Date(Math.min(grant.session.expiresAt.getTime(),
+      grant.session.createdAt.getTime() + SESSION_MAX_LIFETIME_SECONDS * 1000));
     const consumed = await tx.extensionConnection.updateMany({
       where: {
         id: grant.id,
@@ -117,9 +119,9 @@ export async function exchangeExtensionCode(raw: unknown) {
     });
     if (consumed.count !== 1)
       throw new AssistantError("Connection code already used.", 401);
-    return grant.user.email;
+    return { email: grant.user.email, expiresAt: expiresAt.toISOString() };
   });
-  return { token, expiresAt: expiresAt.toISOString(), email };
+  return { token, ...connection };
 }
 
 export async function authenticateExtension(request: Request) {

@@ -60,6 +60,7 @@ export function createInspector(resolveContext, history, autofill) {
       "address 2": "addressLine2",
       city: "city",
       "city/town": "city",
+      "location (city)": "city",
       "postal code": "postalCode",
       province: "region",
       state: "region",
@@ -446,6 +447,7 @@ export function createInspector(resolveContext, history, autofill) {
       }
       // A telephone's country code is not the applicant's address country.
       if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
+      if (context.provider === "greenhouse" && field.id === "candidate-location" && candidate === "city") profileKey = "city";
       if (
         field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
@@ -564,6 +566,15 @@ export function createInspector(resolveContext, history, autofill) {
       const details = await autofill(mode, contact, entries, forms[0], labelFor, visible);
       if (details.error) return details;
       Object.assign(result, details);
+      if (mode === "autofill-context") {
+        // Send only the posting text, never applicant answers, and only when the
+        // user explicitly requests an AI draft. Never read a surrounding frame.
+        const description = context.provider === "greenhouse"
+          ? document.querySelector('.job__description, #content .content, .job-post-container .content')
+          : null;
+        result.jobDescription = description && !description.contains(forms[0]) && !forms[0].contains(description)
+          ? description.innerText.slice(0, 8000) : "";
+      }
       if (mode === "autofill" && history) {
         result.historyFilled = 0;
         result.historyNeedsReview = 0;

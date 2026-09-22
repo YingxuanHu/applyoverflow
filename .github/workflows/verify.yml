@@ -32,6 +32,10 @@ jobs:
       - run: npx prisma generate
       - run: npx prisma migrate deploy
       - run: npm run test:unit
+      - run: npx playwright install --with-deps chromium
+      - run: npm run extension:test:autofill
+      - run: npm run extension:test:questions
+      - run: npm run extension:test:package
       - run: node --import tsx tests/integration/resource-budget.ts
       - run: node --import tsx tests/integration/storage-deletion.ts
       - run: node --import tsx tests/integration/ingestion-feed.ts

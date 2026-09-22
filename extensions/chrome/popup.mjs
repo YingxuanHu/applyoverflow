@@ -1,6 +1,14 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS } from "./sites.mjs";
+import { createQuestionReview } from "./question-review.mjs";
+import { questionAssistance } from "./question-policy.mjs";
+const renderQuestions = createQuestionReview(questionAssistance);
 const status = document.getElementById("status");
+function clearQuestions() {
+  renderQuestions(document.getElementById("remaining-fields"), [], run);
+  document.getElementById("completed-list").replaceChildren();
+  document.getElementById("fill-progress").hidden = true;
+}
 document.getElementById("profile").href = `${APP_ORIGIN}/profile`;
 document.getElementById("settings").href = `${APP_ORIGIN}/settings/extension`;
 document.getElementById("privacy").href = `${APP_ORIGIN}/extension/privacy`;
@@ -8,60 +16,20 @@ let history, preview;
 let activeAction = null;
 let refreshTimer;
 let needsReload = false;
+function checkVersion(result) {
+  if (!result) throw new Error("Open ApplyOverflow from the Chrome toolbar and try again.");
+  activeAction = result.activeAction ?? null;
+  needsReload = result.buildId !== BUILD_ID;
+  document.getElementById("reload-extension").hidden = !needsReload;
+  if (needsReload) throw new Error("An extension update is ready. Reload the extension, then reopen it. Your form has not been changed.");
+}
 function showFields(fields) {
   const pending = fields.filter(field => field.state === "needed");
   document.getElementById("fill-progress").hidden = false;
   document.getElementById("progress-heading").textContent = pending.length ? `${pending.length} to review` : "Supported fields complete";
-  const container = document.getElementById("remaining-fields");
-  const openFields = new Set([...container.querySelectorAll("details[open]")].map(item => item.dataset.id));
-  container.replaceChildren();
-  for (const field of pending) {
-    const disclosure = document.createElement("details"); disclosure.className = "pending-field";
-    disclosure.dataset.id = field.id; disclosure.open = openFields.has(field.id);
-    const summary = document.createElement("summary"); summary.textContent = `${field.title || field.label}${field.required ? " *" : ""}`;
-    disclosure.append(summary);
-    const row = document.createElement("form");
-    row.className = "answer-row";
-    const label = document.createElement("label");
-    label.className = "answer-label";
-    label.textContent = `${field.label}${field.required ? " *" : ""}`;
-    const jump = document.createElement("button");
-    jump.type = "button"; jump.className = "field-link"; jump.textContent = "Show on page";
-    jump.addEventListener("click", () => void run("autofill-focus", { id: field.id, label: field.label }));
-    row.append(label);
-    if (field.canAnswer) {
-      if (field.kind === "combobox" && !field.options?.length) {
-        const choices = document.createElement("button"); choices.type = "button"; choices.className = "secondary"; choices.textContent = "Load choices";
-        choices.addEventListener("click", () => void run("autofill-options", { id: field.id, label: field.label }));
-        row.append(choices);
-      }
-      const control = document.createElement(field.options?.length ? "select" : field.profileKey ? "input" : "textarea");
-      control.id = `answer-${field.id}`; label.htmlFor = control.id;
-      control.required = true;
-      if (control instanceof HTMLSelectElement) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
-      else if (control instanceof HTMLTextAreaElement) { control.rows = 2; control.maxLength = 3000; }
-      else { control.type = field.profileKey === "email" ? "email" : field.profileKey === "phone" ? "tel" : /Url$/.test(field.profileKey) ? "url" : "text"; control.maxLength = 500; }
-      row.append(control);
-      const remember = document.createElement("input"); remember.type = "checkbox";
-      if (field.canRemember) {
-        const rememberLabel = document.createElement("label"); rememberLabel.className = "remember-answer";
-        rememberLabel.append(remember, document.createTextNode(field.profileKey ? "Save to my profile" : "Reuse for this question at this employer"));
-        row.append(rememberLabel);
-      }
-      const submit = document.createElement("button"); submit.type = "submit"; submit.className = "secondary"; submit.textContent = "Fill answer";
-      row.append(submit);
-      row.addEventListener("submit", event => {
-        event.preventDefault();
-        void run("autofill-answer", { id: field.id, label: field.label, answer: control.value, remember: remember.checked });
-      });
-    } else {
-      const reason = document.createElement("p"); reason.className = "sites";
-      reason.textContent = field.reason || "Complete this field on the employer form."; row.append(reason);
-    }
-    row.append(jump); disclosure.append(row); container.append(disclosure);
-  }
+  renderQuestions(document.getElementById("remaining-fields"), fields, run);
   document.getElementById("completed-list").replaceChildren(...fields.filter(field => field.state !== "needed").map(field => {
-    const item = document.createElement("li"); item.textContent = `${field.label}: ${field.state === "filled" ? "Filled" : "Kept"}`; return item;
+    const item = document.createElement("li"); item.textContent = `${field.label.replace(/[*]/g, "").trim()}: ${field.state === "filled" ? "Filled" : "Kept"}`; return item;
   }));
 }
 async function run(type, data = {}) {
@@ -76,16 +44,17 @@ async function run(type, data = {}) {
           ? "Choose and approve a resume in ApplyOverflow..."
           : "Working...";
   try {
-    const result = await chrome.runtime.sendMessage({ type, ...data });
-    if (!result)
-      throw new Error(
-        "Open ApplyOverflow from the Chrome toolbar and try again.",
-      );
-    activeAction = result.activeAction ?? null;
-    needsReload = result.buildId !== BUILD_ID;
-    document.getElementById("reload-extension").hidden = !needsReload;
-    if (needsReload) throw new Error("An extension update is ready. Reload the extension, then refresh your application page. You may need to reconnect your profile.");
+    // Check even after initial load: an unpacked build may have changed while
+    // this popup was open. Older workers must never receive the mutation first.
+    if (type !== "status") {
+      const ready = await chrome.runtime.sendMessage({ type: "version", buildId: BUILD_ID });
+      checkVersion(ready);
+      if (activeAction) throw new Error(ready.message || "Finishing the previous action. Please wait.");
+    }
+    const result = await chrome.runtime.sendMessage({ type, ...data, buildId: BUILD_ID });
+    checkVersion(result);
     if (result.reconnect) {
+      clearQuestions();
       document.getElementById("connection-state").textContent = "Reconnect needed";
       history = preview = undefined;
       document.getElementById("history-entry").replaceChildren();
@@ -126,6 +95,7 @@ async function run(type, data = {}) {
       document.getElementById("applied-confirmation").hidden = true;
     }
     if (!result.connected) {
+      clearQuestions();
       history = undefined;
       document.getElementById("history-entry").replaceChildren();
       document.getElementById("history-picker").hidden = true;
@@ -154,14 +124,15 @@ async function run(type, data = {}) {
       document.getElementById("undo-history").hidden =
         !result.historyUndoAvailable;
     status.textContent = result.message;
+    return result;
   } catch (error) {
     status.textContent = error.message || "Could not complete the action.";
   } finally {
     for (const button of document.querySelectorAll("button"))
-      button.disabled = Boolean(activeAction) || (needsReload && button.id !== "reload-extension");
+      button.disabled = needsReload ? button.id !== "reload-extension" : Boolean(activeAction);
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.
-    if (activeAction) refreshTimer = setTimeout(() => void run("status"), 1500);
+    if (activeAction && !needsReload) refreshTimer = setTimeout(() => void run("status"), 1500);
   }
 }
 for (const type of [

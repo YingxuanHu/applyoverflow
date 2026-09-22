@@ -54,10 +54,21 @@ try {
     headers: { Origin: origin },
     data: {},
   });
+  // An idle existing profile need not start its MV3 worker until the popup opens.
+  const knownId = process.env.APPLICATION_EXTENSION_IDS?.split(",")[0];
+  if (!context.serviceWorkers().length && knownId && /^[a-p]{32}$/.test(knownId)) {
+    const wake = await context.newPage();
+    await wake.goto(`chrome-extension://${knownId}/popup.html`);
+    await wake.close();
+  }
   const worker =
     context.serviceWorkers()[0] ||
     (await context.waitForEvent("serviceworker"));
   const id = new URL(worker.url()).host;
+  await worker.evaluate(async () => {
+    await chrome.storage.local.remove("connection");
+    await chrome.storage.session.clear();
+  });
   console.log(`Testing registered local extension ${id}`);
   const app = await context.newPage();
   await app.goto(`${origin}/sign-in?callbackUrl=%2Fsettings%2Fextension`, {
@@ -181,7 +192,7 @@ try {
     .waitFor({ timeout: 60_000 });
   console.log("Connected through Chrome identity");
   connection = await popup.evaluate(
-    async () => (await chrome.storage.session.get("connection")).connection,
+    async () => (await chrome.storage.local.get("connection")).connection,
   );
   assert.ok(connection.token);
   assert.equal(
@@ -249,7 +260,10 @@ try {
     await form.getByRole("status").filter({ hasText: "filled" }).waitFor();
     const reviewOpened = context.waitForEvent("page");
     // The legacy review API remains available; it is no longer a primary UI action.
-    await popup.evaluate(() => chrome.runtime.sendMessage({ type: "review" }));
+    await popup.evaluate(async () => {
+      const { BUILD_ID } = await import(chrome.runtime.getURL("config.mjs"));
+      return chrome.runtime.sendMessage({ type: "review", buildId: BUILD_ID });
+    });
     const review = await reviewOpened;
     await review.getByRole("heading", { name: "Review application", exact: true }).waitFor();
     await review.getByText("Profile reference", { exact: true }).click();
@@ -382,7 +396,7 @@ try {
   });
   assert.equal(revoked.status(), 401);
   console.log(
-    "PASS: real Chrome identity flow, explicit web consent, PKCE exchange, trusted session token storage, minimal no-store contact API, disconnect revocation",
+    "PASS: real Chrome identity flow, explicit web consent, PKCE exchange, trusted local grant storage, minimal no-store contact API, disconnect revocation",
   );
 } catch (error) {
   const worker = context.serviceWorkers()[0];
