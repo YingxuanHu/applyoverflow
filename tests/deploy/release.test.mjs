@@ -41,14 +41,16 @@ if (args[0] === 'compose') {
     const override = args[args.lastIndexOf('-f') + 1];
     const image = fs.readFileSync(override, 'utf8').match(/image: "([^"]+)"/)[1];
     const isPrevious = image === '${previousImage}';
+    if (scenario === 'rollback-fails' && isPrevious) process.exit(1);
     state = {image: isPrevious ? '${previousImage}' : '${currentImage}', revision: isPrevious ? '${previous}' : '${revision}'};
     fs.writeFileSync(file, JSON.stringify(state));
-    if ((scenario === 'start-fails' && !isPrevious) || (scenario === 'rollback-fails' && isPrevious)) process.exit(1);
+    if (scenario === 'start-fails' && !isPrevious) process.exit(1);
     process.exit();
   }
 }
 if (args[0] === 'inspect') { console.log(state.image); process.exit(); }
 if (args[0] === 'exec') {
+  if (scenario === 'current-down' && state.image === '${currentImage}') process.exit(1);
   const expected = args.at(-1);
   if (!/^[ab]{40}$/.test(expected)) { console.log(state.revision); process.exit(); }
   if ((scenario === 'unhealthy' || scenario === 'rollback-fails') && expected === '${revision}') process.exit(1);
@@ -77,8 +79,8 @@ if (args[0] === 'run') {
 console.error('Unexpected Docker invocation', args); process.exit(99);
 `;
   for (const name of ["docker", "curl", "df", "flock"]) writeFileSync(join(bin, name), mock, { mode: 0o755 });
-  const run = (args = ["deploy", revision, web, migrations, "YingxuanHu"]) => spawnSync("bash", [script, ...args], {
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, DEPLOY_ROOT: root, SCENARIO: scenario, HEALTH_ATTEMPTS: "2", HEALTH_DELAY: "0" },
+  const run = (args = ["deploy", revision, web, migrations, "YingxuanHu"], mode = scenario) => spawnSync("bash", [script, ...args], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, DEPLOY_ROOT: root, SCENARIO: mode, HEALTH_ATTEMPTS: "2", HEALTH_DELAY: "0" },
     input: "ephemeral-registry-token\n", encoding: "utf8", timeout: 20_000,
   });
   const state = () => JSON.parse(readFileSync(join(root, "mock.json")));
@@ -161,4 +163,23 @@ test("a manual deployment invalidates automatic rollback assumptions", t => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Running app changed outside CI/);
   assert.equal(f.calls().filter(call => call.includes("up")).length, 1);
+});
+
+test("manual rollback restores an unhealthy current deployment without relying on its HTTP health", t => {
+  const f = fixture(t);
+  assert.equal(f.run().status, 0);
+  const result = f.run(["rollback"], "current-down");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.state().revision, previous);
+});
+
+test("manual recovery remains possible after an automatic rollback fails", t => {
+  const f = fixture(t, "rollback-fails");
+  assert.notEqual(f.run().status, 0);
+  assert.equal(f.state().revision, revision);
+  const recovery = JSON.parse(readFileSync(join(f.root, ".github-deploy/recovery.json")));
+  assert.equal(recovery.image, previousImage);
+  const result = f.run(["rollback"], "current-down");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.state().revision, previous);
 });

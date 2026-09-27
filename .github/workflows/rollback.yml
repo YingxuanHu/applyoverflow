@@ -15,14 +15,17 @@ jobs:
   rollback:
     if: >-
       github.ref == 'refs/heads/main' &&
-      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
-      inputs.confirmation == 'rollback-production'
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
       name: Production
       url: https://applyoverflow.com
     steps:
+      - name: Validate rollback confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "$CONFIRMATION" = rollback-production
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Restore last known-good web image
         env:

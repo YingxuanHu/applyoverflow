@@ -17,13 +17,30 @@ exec 9> "$state/release.lock"
 flock -w 600 9 || fail 'Another deployment holds the server lock'
 
 compose=(docker compose --project-name "$project" --env-file "$env_file" -f "$compose_file")
-container=$("${compose[@]}" ps -q app)
+container=$("${compose[@]}" ps -a -q app)
 [[ -n $container ]] || fail 'No existing app container; bootstrap manually first'
 previous_image=$(docker inspect --format '{{.Image}}' "$container")
 [[ $previous_image =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'Cannot identify current app image'
-previous_sha=$(docker exec "$container" node -e \
-  'fetch("http://127.0.0.1:3000/api/health", {signal: AbortSignal.timeout(5000)}).then(async r => {const h = await r.json(); if (!r.ok || h.status !== "ready") process.exit(1); console.log(h.revision)}).catch(() => process.exit(1))')
-[[ $previous_sha =~ ^[a-f0-9]{40}$ ]] || fail 'Current app is not a known healthy revision; investigate before releasing'
+if [[ $mode == deploy ]]; then
+  previous_sha=$(docker exec "$container" node -e \
+    'fetch("http://127.0.0.1:3000/api/health", {signal: AbortSignal.timeout(5000)}).then(async r => {const h = await r.json(); if (!r.ok || h.status !== "ready") process.exit(1); console.log(h.revision)}).catch(() => process.exit(1))')
+else
+  # A recovery operation must not depend on the broken app answering HTTP.
+  if [[ -f $state/recovery.json && $(jq -er .failedImage "$state/recovery.json") == "$previous_image" ]]; then
+    previous_sha=$(jq -er .failedRevision "$state/recovery.json")
+    target_image=$(jq -er .image "$state/recovery.json")
+    sha=$(jq -er .revision "$state/recovery.json")
+  else
+    [[ -f $state/previous.json ]] || fail 'No previous successful deployment recorded'
+    [[ -f $state/current.json ]] || fail 'No current deployment recorded'
+    [[ $(jq -er .image "$state/current.json") == "$previous_image" ]] || fail 'Running app changed outside CI; reconcile deployment records before rollback'
+    previous_sha=$(jq -er .revision "$state/current.json")
+    target_image=$(jq -er .image "$state/previous.json")
+    sha=$(jq -er .revision "$state/previous.json")
+  fi
+  [[ $target_image =~ ^sha256:[a-f0-9]{64}$ && $sha =~ ^[a-f0-9]{40}$ ]] || fail 'Invalid rollback record'
+fi
+[[ $previous_sha =~ ^[a-f0-9]{40}$ ]] || fail 'Current revision is unknown; investigate before releasing'
 
 temporary=$(mktemp -d "$state/attempt.XXXXXX")
 changed=0
@@ -52,8 +69,10 @@ cleanup() {
   local result=$?
   trap - EXIT INT TERM
   if [[ $changed == 1 && $finished == 0 ]]; then
-    printf 'Deployment failed; restoring revision %s\n' "$previous_sha" >&2
-    if activate "$temporary/previous.yml" && check_health "$previous_sha"; then
+    if [[ $mode == rollback ]]; then
+      printf 'CRITICAL: manual rollback could not be verified; recovery records retained for operator intervention.\n' >&2
+    elif activate "$temporary/previous.yml" && check_health "$previous_sha"; then
+      rm -f "$state/recovery.json"
       printf 'Rollback verified. The release remains failed.\n' >&2
     else
       printf 'CRITICAL: rollback could not be verified; immediate operator intervention required.\n' >&2
@@ -68,7 +87,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 write_override "$previous_image" "$temporary/previous.yml"
 # Retain the running image even while Docker recreates its container.
-docker image tag "$previous_image" applyoverflow-ci:inflight
+if [[ $mode == deploy ]]; then
+  docker image tag "$previous_image" applyoverflow-ci:inflight
+else
+  docker image tag "$target_image" applyoverflow-ci:inflight
+fi
 
 if [[ $mode == deploy ]]; then
   sha=${2:-} web=${3:-} migrations=${4:-} registry_user=${5:-}
@@ -96,12 +119,6 @@ if [[ $mode == deploy ]]; then
   docker run --rm --network none "$web" node pdf-smoke/pdf-parser-smoke.mjs
   target_image=$web
 else
-  [[ -f $state/previous.json ]] || fail 'No previous successful deployment recorded'
-  [[ -f $state/current.json ]] || fail 'No current deployment recorded'
-  [[ $(jq -er .image "$state/current.json") == "$previous_image" && $(jq -er .revision "$state/current.json") == "$previous_sha" ]] || fail 'Running app changed outside CI; reconcile deployment records before rollback'
-  target_image=$(jq -er .image "$state/previous.json")
-  sha=$(jq -er .revision "$state/previous.json")
-  [[ $target_image =~ ^sha256:[a-f0-9]{64}$ && $sha =~ ^[a-f0-9]{40}$ ]] || fail 'Invalid rollback record'
   docker image inspect "$target_image" >/dev/null
 fi
 
@@ -113,18 +130,26 @@ if [[ $expected_image == "$previous_image" ]]; then
   exit 0
 fi
 write_override "$target_image" "$temporary/target.yml"
+if [[ $mode == deploy ]]; then
+  jq -n --arg image "$previous_image" --arg revision "$previous_sha" --arg failedImage "$expected_image" --arg failedRevision "$sha" \
+    '{image:$image, revision:$revision, failedImage:$failedImage, failedRevision:$failedRevision}' > "$temporary/recovery.json"
+  mv "$temporary/recovery.json" "$state/recovery.json"
+fi
 changed=1
 activate "$temporary/target.yml"
 check_health "$sha" || fail 'New app failed internal or public revision checks'
 current_container=$("${compose[@]}" ps -q app)
 current_image=$(docker inspect --format '{{.Image}}' "$current_container")
 [[ $current_image == "$expected_image" ]] || fail 'Running container does not match the requested image'
-docker image tag "$previous_image" applyoverflow-ci:previous
+if [[ $mode == deploy ]]; then
+  docker image tag "$previous_image" applyoverflow-ci:previous
+  jq -n --arg image "$previous_image" --arg revision "$previous_sha" '{image:$image, revision:$revision}' > "$temporary/previous.json"
+  mv "$temporary/previous.json" "$state/previous.json"
+fi
 docker image tag "$current_image" applyoverflow-ci:current
-jq -n --arg image "$previous_image" --arg revision "$previous_sha" '{image:$image, revision:$revision}' > "$temporary/previous.json"
 jq -n --arg image "$current_image" --arg revision "$sha" '{image:$image, revision:$revision}' > "$temporary/current.json"
-mv "$temporary/previous.json" "$state/previous.json"
 mv "$temporary/current.json" "$state/current.json"
 cp "$temporary/target.yml" "$state/current.yml"
+rm -f "$state/recovery.json"
 finished=1
 printf 'Verified production web revision %s. Workers and database services were not restarted.\n' "$sha"

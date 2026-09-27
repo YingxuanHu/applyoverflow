@@ -93,12 +93,17 @@ volume cleanup, or production monitoring schedule.
 If app startup or revision health checks fail, the script restores the previously
 healthy image and verifies it. The workflow stays **failed** even when rollback
 succeeds. If rollback also fails, the log emits a CRITICAL operator alert.
+The pre-release known-good image and failed candidate identity are retained in
+`recovery.json`, so the manual workflow can retry recovery even if the current app
+is unhealthy or stopped. An unrelated manual deployment is not silently rolled
+back: image identity must match the recorded deployment or failed candidate.
 
 For a manual rollback use **Actions > Roll back production web**, select `main`,
 and type `rollback-production`. It uses the same Production approval and release
 lock. The two known-good images are tagged `applyoverflow-ci:current` and
 `applyoverflow-ci:previous`; preserve them during maintenance. Rollback switches
 web code only, never data. Do not roll back across incompatible schema changes.
+Also preserve `applyoverflow-ci:inflight` while a deployment or recovery is pending.
 
 Release records and an active Compose overlay live in
 `/opt/autoapplication/.github-deploy`. Normal manual Compose commands must include
