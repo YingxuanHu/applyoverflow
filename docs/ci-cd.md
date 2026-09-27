@@ -14,7 +14,7 @@
   check, anonymous auth redirect, and downloadable extension ZIP validation.
 
 The final **application** check fails if any prerequisite fails, is cancelled, or
-is skipped. Require this stable check in the `main` branch ruleset. Require PRs,
+is skipped. Require **application** and **dependencies** in the `main` branch ruleset. Require PRs,
 resolved review conversations, and up-to-date branches; disable force pushes and
 deletions. For a solo maintainer, do not require a review by a second person unless
 another reviewer is available. Dependency review rejects newly introduced high or
@@ -22,6 +22,9 @@ critical vulnerabilities. Dependabot opens grouped update PRs; nothing auto-merg
 
 CI uses synthetic data and needs no production secrets. Third-party Actions are
 commit-pinned. Superseded verification runs are cancelled, but deploys are not.
+Dependency review requires GitHub's dependency graph under repository
+**Settings > Advanced Security**. Dependency alerts and the graph are enabled for
+this repository; review the existing vulnerability backlog separately.
 The interactive `extension:test:detection` and `extension:test:frames` scripts
 require Chrome's native site-permission approval and are not unattended CI gates.
 Run those separately in disposable headed Chrome before extension releases;

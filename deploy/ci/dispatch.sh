@@ -30,9 +30,9 @@ connection=( -i "$temporary/key" -o IdentitiesOnly=yes -o BatchMode=yes
   -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$temporary/known_hosts"
   -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 )
 target="$DEPLOY_USER@$DEPLOY_HOST"
-# A fixed, validated path avoids remote shell interpolation of user-supplied values.
-remote="/tmp/applyoverflow-ci-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}.sh"
-[[ $GITHUB_RUN_ID =~ ^[0-9]+$ && $GITHUB_RUN_ATTEMPT =~ ^[0-9]+$ ]] || exit 2
+# Create a private unpredictable file, rather than following a pre-existing /tmp path.
+remote=$(ssh "${connection[@]}" "$target" 'umask 077; mktemp /tmp/applyoverflow-ci.XXXXXXXX')
+[[ $remote =~ ^/tmp/applyoverflow-ci\.[a-zA-Z0-9]+$ ]] || exit 2
 scp "${connection[@]}" deploy/ci/remote-release.sh "$target:$remote"
 if [[ $mode == deploy ]]; then
   printf '%s\n' "$GHCR_TOKEN" | ssh "${connection[@]}" "$target" \
