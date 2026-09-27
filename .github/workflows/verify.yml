@@ -3,11 +3,64 @@ on:
   push:
     branches: [dev, main]
   pull_request:
+  workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  DATABASE_URL: postgresql://test:test@localhost:5432/applyoverflow_test
+  DATABASE_URL_DO_PRIVATE: ''
+  BETTER_AUTH_SECRET: test-only-ci-secret-not-for-deployment
+  BETTER_AUTH_URL: http://localhost:3000
+  NEXT_PUBLIC_BETTER_AUTH_URL: http://localhost:3000
+  NEXT_TELEMETRY_DISABLED: '1'
 jobs:
-  application:
+  quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Validate GitHub workflows and release scripts
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          shellcheck deploy/ci/*.sh
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - name: Test deployment failure and rollback paths
+        run: node --test tests/deploy/*.test.mjs
+
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: npx playwright install --with-deps chromium
+      - name: Test autofill, questions, and packaging
+        run: |
+          npm run extension:test:autofill
+          node scripts/test-application-extension-rippling.mjs
+          npm run extension:test:questions
+          npm run extension:test:expanded
+          npm run extension:test:compatibility
+          npm run extension:test:undo
+          npm run extension:test:readiness
+          npm run extension:test:package
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: extension-failure-screenshots
+          path: output/playwright/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18-bookworm
@@ -17,30 +70,58 @@ jobs:
           POSTGRES_DB: applyoverflow_test
         ports: ['5432:5432']
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DATABASE_URL: postgresql://test:test@localhost:5432/applyoverflow_test
-      BETTER_AUTH_SECRET: test-only-ci-secret-not-for-deployment
-      BETTER_AUTH_URL: http://localhost:3000
-      NEXT_PUBLIC_BETTER_AUTH_URL: http://localhost:3000
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npx prisma generate
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
       - run: npx prisma migrate deploy
-      - run: npm run test:unit
-      - run: npx playwright install --with-deps chromium
-      - run: npm run extension:test:autofill
-      - run: node scripts/test-application-extension-rippling.mjs
-      - run: npm run extension:test:questions
-      - run: npm run extension:test:package
-      - run: node --import tsx tests/integration/resource-budget.ts
-      - run: node --import tsx tests/integration/storage-deletion.ts
-      - run: node --import tsx tests/integration/ingestion-feed.ts
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run build
+      - name: Check migrations are repeatable
+        run: npx prisma migrate deploy && npx prisma migrate status
+      - name: Test storage, ingestion, and profile-backed extension APIs
+        env:
+          NODE_PATH: ./node_modules/next/dist/compiled
+          NODE_OPTIONS: --conditions=react-server
+        run: |
+          for test in resource-budget storage-deletion ingestion-feed application-assistant extension-autofill extension-resume extension-suggestions profile-setup-import; do
+            node --import tsx "tests/integration/$test.ts"
+          done
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18-bookworm
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: applyoverflow_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: npx prisma migrate deploy
+      - run: npm run build -- --webpack
       - run: node scripts/pdf-parser-smoke.mjs .next/standalone
+      - name: Smoke-test the production server
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: node scripts/ci/web-smoke.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: extension-preview-${{ github.sha }}
+          path: public/downloads/applyoverflow-assistant.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # Keep this stable check required in the main branch ruleset.
+  application:
+    if: always()
+    needs: [quality, extension, integration, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every check to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"

@@ -13,6 +13,10 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci
 
+FROM deps AS migration-check
+COPY prisma.config.ts ./
+CMD ["node", "node_modules/prisma/build/index.js", "migrate", "status"]
+
 FROM deps AS builder
 
 COPY . .

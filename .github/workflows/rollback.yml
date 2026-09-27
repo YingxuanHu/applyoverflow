@@ -1,0 +1,33 @@
+name: Roll back production web
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type rollback-production to restore the previous web image
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+jobs:
+  rollback:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
+      inputs.confirmation == 'rollback-production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Production
+      url: https://applyoverflow.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore last known-good web image
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: bash deploy/ci/dispatch.sh rollback

@@ -51,6 +51,7 @@ logs/
 data/uploads/
 data/automation-screenshots/
 .runtime/
+.github-deploy/
 migration-counts-*.json
 certs/digitalocean-ca.crt
 scripts/_daemon-*.ts

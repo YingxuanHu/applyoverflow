@@ -4,6 +4,7 @@
 .git
 .next
 .runtime
+.github-deploy
 logs
 output
 .playwright-cli

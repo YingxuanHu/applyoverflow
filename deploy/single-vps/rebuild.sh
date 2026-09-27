@@ -42,6 +42,7 @@ RSYNC_EXCLUDES=(
   --exclude='.env'
   --exclude='.env.*'
   --exclude='.runtime'
+  --exclude='.github-deploy'
   --exclude='data/uploads'
   --exclude='data/automation-screenshots'
   --exclude='logs'
