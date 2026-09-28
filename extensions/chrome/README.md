@@ -1,6 +1,19 @@
 # Application Assistant Preview
 
-## Recurring answers and live-form coverage (0.9.0)
+## Direct answers and progress (0.10.0)
+
+- One Autofill click fills saved facts, the opted-in default resume and supported
+  professional answers directly on the employer form. Users edit on the form.
+- The popup and on-page assistant show field names and progress, never a second
+  answer form. Unknown facts and legal certifications remain blank with reasons.
+- The worker owns the answer queue, with two bounded model requests at a time
+  and serialized, document-pinned writes. Closing the popup does not cancel it.
+- Dropdown answers must match a live offered option. Missing evidence is not No;
+  demographic, consent and eligibility values are never inferred by AI.
+- Generated text is not remembered as a profile fact. Existing form answers stay
+  unchanged, and the extension never clicks Next or Submit.
+
+## Recurring answers and live-form coverage (0.9.0, historical)
 
 - Profile has grouped optional work eligibility, availability, pay, relocation,
   job-source, recruiting-message and voluntary self-identification answers.
@@ -35,8 +48,8 @@ manual input. Workday/iCIMS authenticated histories are not certified by these
 public-form checks. Store publication remains separate from the downloadable preview.
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-The 0.9.0 extension requires the matching backend deployment for recurring
-application answers, bounded answer drafts and profile guidance.
+The 0.10.0 extension requires the matching backend deployment for recurring
+application answers and evidence-backed professional responses.
 The extension supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
@@ -93,9 +106,9 @@ to an employer automatically. Neither feature depends on the public job board.
   exact displayed-option matches. Country/province/state abbreviations are mapped;
   Greenhouse city search requires a unique city/province/country match. Ambiguous widgets stay manual.
 - Given/family names, address, preferred name and pronouns are editable in Profile.
-  Missing facts can be filled in the popup or compact on-page assistant, with a
-  separate choice to remember. Custom dropdowns expose **Load choices** for exact
-  associated options; existing choices are never replaced.
+  Missing facts stay blank with a reason and a **Show field** action. Users edit
+  directly on the employer form; the assistant is not a second answer form.
+  Custom dropdowns are read automatically; existing choices are never replaced.
 - Existing entries are preserved. Filled/kept/remaining statuses use read-back,
   not attempted-write counts. Tokens expire with the document or after ten minutes.
 - Default resume attachment requires a Profile opt-in and one supported primary
@@ -107,13 +120,11 @@ to an employer automatically. Neither feature depends on the public job board.
   Next, accepts legal agreements, or submits. Voluntary demographic and country-specific
   work-eligibility answers require explicit Profile values and a separate opt-in.
   Only supported labels and exact answer options match; there is no inference.
-- The compact question view has an editable draft queue and a separate queue for
-  personal decisions. Autofill prepares up to three professional answer drafts after
-  saved facts finish filling; Suggest answer can regenerate an individual draft.
-  Both use professional profile evidence and bounded job text, and require review
-  before Use answer. Personal reasons need
-  a note; eligibility, availability, referrals and consent are not guessed. No new
-  employer-specific answer-saving checkbox is shown. Fixed facts can be saved to Profile.
+- Autofill processes professional questions after saved facts, using profile evidence
+  and bounded job text. Supported answers are inserted directly and users review
+  them on the form. The progress view shows processing, filled, preserved and
+  empty states without answer values. Personal reasons, eligibility, availability,
+  referrals and consent are not guessed. Fixed facts are edited in Profile.
   Existing exact saved answers still work. Optional demographic answers never enter AI prompts.
 - `npm run extension:test:autofill` exercises seven synthetic platform shapes,
   matching, missing facts, DOM races, preservation, Undo and popup layout. These
@@ -240,7 +251,7 @@ not a one-click consumer installation or an automatically updated store release.
   page for thirty minutes after inspection. Previews expire after two minutes;
   disconnecting clears cached previews/URLs. No submission is inferred from
   filling, and repeat confirmations do not duplicate or regress an application.
-- No unreviewed generated answers, inferred sensitive choices, arbitrary cross-origin iframe
+- No inferred sensitive choices, arbitrary cross-origin iframe
   access, guessed custom answers, or next-step/submission automation. Custom
   employer domains use the conservative toolbar fallback, not automatic hints.
 - The DOM adapter can confirm an immediate input value but not an ATS's eventual
@@ -377,8 +388,8 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.9.0: earlier
-backends lack recurring-answer mappings and answer-choice validation. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.10.0: earlier
+backends lack the current professional-answer behavior. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with

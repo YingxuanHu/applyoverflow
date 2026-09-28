@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { questionAssistance, parseSuggestion, suggestionEvidence, suggestionRequestSchema } from "../src/lib/extension-suggestions";
+import { questionAssistance, parseSuggestion, suggestionEvidence, suggestionRequestSchema, suggestionTask, suggestionTaskInstructions } from "../src/lib/extension-suggestions";
 import { buildProfileFormValues } from "../src/lib/profile";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { generatedSuggestionSchema } from "../src/lib/extension-suggestions";
@@ -59,6 +59,16 @@ test("professional qualification drafts require exact offered choices; personal 
   const output = { answer: "Yes", evidence: [{ id: "summary", quote: sources[0].text }], missing: "" };
   assert.equal(parseSuggestion(JSON.stringify(output), sources, { options: ["Yes", "No"] }).answer, "Yes");
   assert.throws(() => parseSuggestion(JSON.stringify({ ...output, answer: "Yes, five years" }), sources, { options: ["Yes", "No"] }), /choice/);
+});
+
+test("open-ended overviews do not inherit the qualification gate", () => {
+  const label = "(Optional) Is there anything about your experience that may not be apparent on your resume but would help us evaluate your fit for this role?";
+  assert.equal(suggestionTask(label), "overview");
+  assert.match(suggestionTaskInstructions(label), /NOT a qualification test/);
+  assert.match(suggestionTaskInstructions(label), /transferable/);
+  assert.doesNotMatch(suggestionTaskInstructions(label), /Every condition/);
+  assert.match(suggestionTaskInstructions("Do you have 3 years of experience managing fraud teams?"), /Missing evidence is NOT evidence of No/);
+  assert.equal(suggestionTask("Describe your disability and fit"), "personal");
 });
 
 test("draft generation uses the same bounded schema as response validation", () => {
