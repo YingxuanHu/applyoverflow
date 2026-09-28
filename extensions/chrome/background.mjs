@@ -521,6 +521,8 @@ async function handle(type, sender, message = {}) {
     const written = await inspect(target, ["autofill", plan, scan.url]);
     await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (written.result.historySaved) note += ` ${written.result.historySaved} work/education records saved.`;
+    if (written.result.historyDateAdjusted) note += " Month-only dates use the first day for starts and the last day for ends.";
     if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
     if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
     if (scan.manualResume) note += " Review the resume on the form; this site's upload button needs manual attachment.";

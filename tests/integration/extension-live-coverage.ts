@@ -8,7 +8,7 @@ import { isLocalDevelopmentDatabaseUrl } from "../../src/lib/local-development-a
 import { getAutofillPlan } from "../../src/lib/queries/extension-autofill";
 
 type Field = { id: string; label: string; profileKey?: string; kind: string; state: string; canAnswer: boolean; reason: string; options?: string[] };
-type Report = { error?: string; fields: Field[]; historyAvailable?: boolean; historyFilled?: number; employmentCountry?: "CA" | "US"; url: string };
+type Report = { error?: string; fields: Field[]; historyAvailable?: boolean; historyFilled?: number; historySaved?: number; employmentCountry?: "CA" | "US"; url: string };
 
 async function main() {
   assert.ok(isLocalDevelopmentDatabaseUrl(process.env.DATABASE_URL), "Disposable local database required");
@@ -23,8 +23,15 @@ async function main() {
       applicationAnswers: { enabled: true, values: { gender: "Prefer not to answer", ethnicity: "Prefer not to answer", hispanicLatino: "Prefer not to answer", veteran: "I don't wish to answer", disability: "I do not want to answer", transgender: "Prefer not to answer", sexualOrientation: "Prefer not to answer", limitingDisability: "Prefer not to answer", physicalDisability: "Prefer not to answer", veteranOrActiveUS: "Prefer not to answer", over18: "Yes", authorizedUS: "Yes", authorizedCA: "No", sponsorshipUS: "No", sponsorshipCA: "Yes", usPerson: "Yes", smsUpdates: "No", jobSource: "ApplyOverflow", startDate: "2026-10-15", availability: "Monday through Friday, 9am to 5pm", desiredPay: "USD 80,000 per year", partTimeReason: "I am seeking a reduced schedule while studying.", partTimeDuration: "One year" },
         employers: urls.map(url => ({ url, employeeRelationship: "No", referral: "No", previousEmployment: "No" })) } },
     skillsJson: [{ name: "Python" }, { name: "SQL" }],
-    experiencesJson: [{ title: "Analyst", company: "Synthetic Fixture", description: "Built reporting tools.", time: "Jan 2, 2020 - Apr 5, 2023" }],
-    educationsJson: [{ school: "Fixture University", degree: "Bachelor of Computer Science & BBA (Finance)", fieldOfStudy: "Computer Science", time: "Sep 1, 2016 - Jun 1, 2020" }],
+    experiencesJson: [
+      { title: "Analyst", company: "Synthetic Fixture", description: "Built reporting tools.", time: "Jan - Aug 2025" },
+      { title: "Engineer", company: "Second Fixture", time: "Sep - Dec 2023" },
+      { title: "Developer", company: "Third Fixture", time: "Jan - Apr 2023" },
+    ],
+    educationsJson: [
+      { school: "Fixture University, School of Computer Science", degree: "Bachelor of Computer Science & BBA (Finance, Other University)", time: "Aug 2020 - Oct 2025" },
+      { school: "Second University", degree: "Master of Engineering, Emphasis in Computer Engineering", time: "Sep 2025 - Present" },
+    ],
   } } } });
   const source = execFileSync(process.execPath, ["--input-type=module", "-e", `
     import {createInspector} from './extensions/chrome/adapter.mjs';
@@ -83,6 +90,12 @@ async function main() {
           }
         }
         if (url.includes("careers.hibob.com")) {
+          assert.equal(result.historySaved, 5, "all three jobs and both education entries saved");
+          assert.equal(await page.locator('careers-ui-experience-edit-item').count(), 0, "no blocked editors remain");
+          const educationText = await page.locator('[data-testid="efc-education"]').innerText();
+          assert.match(educationText, /Fixture University/);
+          assert.match(educationText, /Second University/);
+          assert.equal(plan.history.filter(entry => entry.kind === "education").every(({ entry }) => "fieldOfStudy" in entry && Boolean(entry.fieldOfStudy)), true);
           assert.equal(before.employmentCountry, "CA");
           for (const key of ["jobSource", "authorizedCA", "sponsorshipCA"]) {
             const answer = plan.commonAnswers.find(a => a.answerKey === key);

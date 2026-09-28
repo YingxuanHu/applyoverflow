@@ -7,6 +7,8 @@ export function createHistoryInspector() {
     expiryTimer;
   const created = new WeakSet();
   const saved = new WeakMap();
+  const isHiBob = () => /\.careers\.hibob\.com$/.test(location.hostname) &&
+    /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
   const normalize = (value) =>
     value
       .trim()
@@ -92,6 +94,22 @@ export function createHistoryInspector() {
     return field.value === "" && /^(select(?: one)?|choose(?: one)?|none|--?)$/i.test(text) ? "" : text;
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, 25));
+  const dateValue = (value, part, field) => {
+    if (field.type === "month" && value.length >= 7) return value.slice(0, 7);
+    if (/^MM\s*\/\s*YYYY$/i.test(field.placeholder || "") && value.length >= 7)
+      return `${value.slice(5, 7)}/${value.slice(0, 4)}`;
+    // Employer forms often require a day while resumes supply months. Keep
+    // profile precision unchanged; only adapt the value written to this widget.
+    if (/^\d{4}-\d{2}$/.test(value)) {
+      const day = part === "start" ? 1 : new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 0)).getUTCDate();
+      value = `${value}-${String(day).padStart(2, "0")}`;
+    }
+    if (value.length !== 10) return;
+    if (field.type === "date" || /^yyyy-mm-dd$/i.test(field.placeholder || "")) return value;
+    if (/^dd-mm-yyyy$/i.test(field.placeholder || "")) return `${value.slice(8)}-${value.slice(5, 7)}-${value.slice(0, 4)}`;
+    if (/^mm\/dd\/yyyy$/i.test(field.placeholder || "")) return `${value.slice(5, 7)}/${value.slice(8)}/${value.slice(0, 4)}`;
+    if (/^dd\/mm\/yyyy$/i.test(field.placeholder || "")) return `${value.slice(8)}/${value.slice(5, 7)}/${value.slice(0, 4)}`;
+  };
   // Never infer a popup from its position or choose another question's options.
   async function choose(field, label, safe, visible, restoreLabel, alternatives = []) {
     if (!safe() || !visible(field) ||
@@ -223,7 +241,7 @@ export function createHistoryInspector() {
           visible(button) && !button.disabled && /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work |employment |education )?(?:experience|entry|education))?$/i.test(button.textContent.trim()));
         return buttons.length === 1 ? [{ group, kind, button: buttons[0] }] : [];
       });
-    const available = groups.some(emptyGroup) || repeaters.length > 0;
+    const available = groups.length > 0 || repeaters.length > 0;
     const validUndo = (entry) =>
       lastUrl === location.href &&
       !entry.edited &&
@@ -269,19 +287,32 @@ export function createHistoryInspector() {
       return { error: "Complete this entry's title and employer, or school, in your profile first." };
     const matching = groups.filter((item) => item.kind === payload.kind);
     const fingerprint = JSON.stringify([payload.entry?.title, payload.entry?.company, payload.entry?.school, payload.entry?.degree, payload.entry?.dates]);
+    const values = { ...payload.entry };
+    for (const part of ["start", "end"]) {
+      const value = part === "end" && values.dates?.current ? "" : values.dates?.[part];
+      if (typeof value === "string" && /^(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?$/.test(value)) {
+        values[part] = value;
+        values[`${part}Year`] = value.slice(0, 4);
+        if (value.length >= 7) values[`${part}Month`] = value.slice(5, 7);
+      }
+    }
+    const identityMatches = item => [...item.required, ...(item.kind === "education" && item.fields.some(f => f.key === "degree") ? ["degree"] : [])]
+      .every(key => values[key] && normalize(read(item.fields.find(f => f.key === key).field)) === normalize(values[key]));
+    // Resume an identifiable unfinished HiBob editor, even after reload, but
+    // never mix profile values with a conflicting or independently edited row.
+    const compatible = item => isHiBob() && item.group.matches('careers-ui-experience-edit-item') && identityMatches(item) &&
+      [...item.group.querySelectorAll('input,textarea,select')].filter(visible).every(field => {
+        if (!read(field).trim()) return true;
+        const key = item.fields.find(f => f.field === field)?.key;
+        if (!key) return false;
+        if (key === "current") return values.dates?.current === true;
+        const expected = ["start", "end"].includes(key) && values[key] ? dateValue(values[key], key, field) : values[key];
+        return typeof expected === "string" && normalize(read(field)) === normalize(expected);
+      });
+    const resumable = matching.filter(compatible);
     const knownSaved = repeaters.some(item => item.kind === payload.kind && saved.get(item.group)?.has(fingerprint));
     if (
-      knownSaved || matching.some((item) => saved.get(item.group)?.has(fingerprint)) || matching.some((item) =>
-        item.required.every((key) => {
-          const value = payload.entry?.[key];
-          return (
-            value &&
-            normalize(
-              read(item.fields.find((field) => field.key === key).field),
-            ) === normalize(value)
-          );
-        }),
-      )
+      knownSaved || matching.some(item => (identityMatches(item) || saved.get(item.group)?.has(fingerprint)) && !resumable.includes(item))
     )
       return {
         error:
@@ -291,7 +322,7 @@ export function createHistoryInspector() {
     const focused = empty.filter(({ group }) =>
       group.contains(document.activeElement),
     );
-    const target =
+    const target = resumable.length === 1 ? resumable[0] :
       payload.automatic ? empty[0] : empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
     if (!target && payload.automatic && !payload.addAttempted) {
       if (matching.some(item => !emptyGroup(item) && item.required.some(key => !read(item.fields.find(f => f.key === key).field).trim())))
@@ -335,19 +366,6 @@ export function createHistoryInspector() {
         error:
           "Complete this entry's title and employer, or school, in your profile first.",
       };
-    const values = { ...payload.entry };
-    for (const part of ["start", "end"]) {
-      const value =
-        part === "end" && values.dates?.current ? "" : values.dates?.[part];
-      if (
-        typeof value === "string" &&
-        /^(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?$/.test(value)
-      ) {
-        values[part] = value;
-        values[`${part}Year`] = value.slice(0, 4);
-        if (value.length >= 7) values[`${part}Month`] = value.slice(5, 7);
-      }
-    }
     const months = [
       "january",
       "february",
@@ -363,10 +381,11 @@ export function createHistoryInspector() {
       "december",
     ];
     let filled = 0,
-      skipped = 0;
+      skipped = 0, savedCount = 0, dateAdjusted = 0;
     const warnings = [];
     const writes = [];
     const atUrl = location.href;
+    const baseline = new Map([...target.group.querySelectorAll('input,textarea,select')].map(field => [field, read(field)]));
     for (const { field, key } of target.fields) {
       if (location.href !== atUrl || !form.isConnected || !target.group.contains(field)) break;
       let value = values[key];
@@ -387,20 +406,10 @@ export function createHistoryInspector() {
         continue;
       }
       if (key === "start" || key === "end") {
-        if (field.type === "month" && value.length >= 7) {
-          value = value.slice(0, 7);
-        } else if (value.length === 10 && field.type === "date") {
-          /* Explicit day precision only; never manufacture an employment date. */
-        } else if (value.length === 10 && /^dd-mm-yyyy$/i.test(field.placeholder || "")) {
-          value = `${value.slice(8)}-${value.slice(5, 7)}-${value.slice(0, 4)}`;
-        } else if (
-          /^MM\s*\/\s*YYYY$/i.test(field.placeholder || "") &&
-          value.length === 7
-        )
-          value = `${value.slice(5)}/${value.slice(0, 4)}`;
-        else {
+        value = dateValue(value, key, field);
+        if (!value) {
           skipped++;
-          if (field.required) warnings.push(`${labelFor(field)} needs an exact date; your profile only supplies a year or month.`);
+          if (field.required) warnings.push(`${labelFor(field)} needs a month and year, or a supported date format.`);
           continue;
         }
       }
@@ -486,28 +495,38 @@ export function createHistoryInspector() {
     if (location.href !== atUrl || !form.isConnected)
       return { filled: 0, skipped: writes.length, warning: "The application changed during filling. Review the current form.", historyUndoAvailable: false };
     for (const entry of writes) {
-      if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && (!entry.field.validity || entry.field.validity.valid)) filled++;
+      if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && (!entry.field.validity || entry.field.validity.valid)) {
+        filled++;
+        if (["start", "end"].includes(entry.key) && values[entry.key]?.length === 7 && entry.value.length === 10) dateAdjusted++;
+      }
       else skipped++;
     }
-    if (filled) {
+    if (filled && !target.group.matches('careers-ui-experience-edit-item')) {
       const entries = saved.get(target.group) || new Set(); entries.add(fingerprint); saved.set(target.group, entries);
     }
     // HiBob requires Save for each row before Add is available again. Only save
-    // rows we opened and only after every required value validates.
-    if (payload.automatic && created.has(target.group) && target.group.matches('careers-ui-experience-edit-item')) {
+    // our rows or compatible profile-matching editors, after validated readback.
+    if (payload.automatic && isHiBob() && (created.has(target.group) || resumable.includes(target)) && target.group.matches('careers-ui-experience-edit-item')) {
       const controls = [...target.group.querySelectorAll('input,textarea,select')].filter(visible);
-      const complete = controls.every(field => field.type === "checkbox" ? true :
+      const complete = controls.every(field => field.type === "checkbox" ? !field.required || field.checked :
         (!field.required || read(field).trim()) && field.validity?.valid !== false && field.getAttribute("aria-invalid") !== "true");
+      const unchanged = controls.every(field => {
+        const write = writes.find(entry => entry.field === field);
+        if (write) return !write.edited && read(field) === write.value;
+        if (field.type === "checkbox" && target.fields.some(entry => entry.field === field && entry.key === "current") && values.dates?.current === true) return field.checked;
+        return baseline.has(field) && baseline.get(field) === read(field);
+      });
       const saves = target.group.querySelectorAll('button[type="button"][data-testid="save-btn"]');
-      if (complete && filled && saves.length === 1 && !saves[0].disabled && location.href === atUrl) {
+      if (complete && unchanged && (filled || resumable.includes(target)) && saves.length === 1 && !saves[0].disabled && location.href === atUrl) {
         const owner = target.group.parentElement;
         saves[0].click();
         for (let attempt = 0; attempt < 40 && target.group.isConnected && location.href === atUrl; attempt++) await wait();
         if (!target.group.isConnected && owner.isConnected && location.href === atUrl) {
           const entries = saved.get(owner) || new Set(); entries.add(fingerprint); saved.set(owner, entries);
+          savedCount++;
         } else warnings.push("The history row was filled but Save needs review on the form.");
       }
     }
-    return { filled, skipped, warning: warnings[0], historyUndoAvailable: undo.some(validUndo) };
+    return { filled, skipped, saved: savedCount, dateAdjusted, warning: warnings[0], historyUndoAvailable: undo.some(validUndo) };
   };
 }
