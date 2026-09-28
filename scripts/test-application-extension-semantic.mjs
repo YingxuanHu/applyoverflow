@@ -38,6 +38,28 @@ try {
   assert.equal(await page.getByLabel("Preferred name").inputValue(), "Jay", "preferred is not a referral");
   console.log("PASS reference context, conflicting semantics and false-positive protection");
 
+  await load(`${base}${field("Please provide a link to your LinkedIn, GitHub, portfolio or similar professional profile or website.")}
+    <label>During this application process I agree to use only my own words. I understand that the use of AI or other generated content will disqualify my application.<input type="checkbox"></label>
+    <label>Describe a project<textarea></textarea></label></form>`);
+  const restricted = await inspect("autofill", { contact: { ...contact, professionalUrl: contact.linkedInUrl } });
+  assert.equal(restricted.aiRestricted, true);
+  assert.equal(restricted.fields.find(f => f.label === "Describe a project").aiRestricted, true);
+  assert.equal(await page.getByLabel("Please provide a link to your LinkedIn, GitHub, portfolio or similar professional profile or website.").inputValue(), contact.linkedInUrl);
+  assert.equal(await page.locator('input[type=checkbox]').isChecked(), false);
+
+  await load(`<h1>Job application</h1><form id="application-form">${field("Full name", 'name="name"')}${field("Email", 'name="email"')}
+    <li class="application-question custom-question"><div><div class="application-label"><div class="text">Are you legally authorized to work in the United States?<span>\u2731</span></div></div>
+    <div class="application-field"><label><input type="radio" name="auth" value="yes">Yes</label><label><input type="radio" name="auth" value="no">No</label></div></div></li>
+    <li class="application-question custom-question"><div><div class="application-label">Describe your relevant experience</div><div class="application-field"><textarea></textarea></div></div></li></form>`, "https://jobs.lever.co/fixture/00000000-0000-4000-8000-000000000000/apply");
+  const leverScan = await inspect();
+  const workAuth = leverScan.fields.find(f => f.label.startsWith("Are you legally authorized"));
+  assert.equal(workAuth.kind, "radio");
+  assert.ok(leverScan.fields.some(f => f.label === "Describe your relevant experience"));
+  await inspect("autofill", { contact, commonAnswers: [{ label: workAuth.label, answer: "Yes", answerKey: "authorizedUS" }] });
+  assert.equal(await page.locator('input[type=radio][value=yes]').isChecked(), true);
+  assert.equal(await page.locator('input[type=radio][value=no]').isChecked(), false);
+  console.log("PASS mixed professional links, employer AI restriction, and Lever custom question/radio labels");
+
   await load(`<h1>Submit your job application</h1><main>${field("First name")}${field("Email")}<label>Resume<input type="file" accept=".pdf"></label>${field("LinkedIn profile link")}</main>`);
   await inspect("autofill", { contact });
   assert.equal(await page.getByLabel("LinkedIn profile link").inputValue(), contact.linkedInUrl);

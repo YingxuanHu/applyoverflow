@@ -94,17 +94,18 @@ try {
     await app.getByRole("combobox", { name: "Country", exact: true }).selectOption("CA");
     await app.getByRole("combobox", { name: "Phone country", exact: true }).selectOption("CA");
     await app.getByText("Optional application answers", { exact: true }).click();
+    await app.getByText("Voluntary self-identification", { exact: true }).click();
     await app.getByRole("combobox", { name: "Gender identity", exact: true }).selectOption("Woman");
-    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), false);
-    await app.getByRole("checkbox", { name: /^Share these answers/ }).check();
+    await app.getByRole("checkbox", { name: /^Use my saved answers/ }).check();
     await app.getByRole("button", { name: "Save profile", exact: true }).click();
     await app.getByText("Profile saved.", { exact: true }).waitFor();
     await app.reload();
     if (!await app.getByRole("textbox", { name: "City", exact: true }).isVisible()) await personal.click();
     await app.getByText("Optional application answers", { exact: true }).click();
+    await app.getByText("Voluntary self-identification", { exact: true }).click();
     assert.equal(await app.getByRole("textbox", { name: "City", exact: true }).inputValue(), "Toronto");
     assert.equal(await app.getByRole("combobox", { name: "Gender identity", exact: true }).inputValue(), "Woman");
-    assert.equal(await app.getByRole("checkbox", { name: /^Share these answers/ }).isChecked(), true);
+    assert.equal(await app.getByRole("checkbox", { name: /^Use my saved answers/ }).isChecked(), true);
     for (const width of [1440, 320]) {
       await app.setViewportSize({ width, height: 1000 });
       assert.equal(await app.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
