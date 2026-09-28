@@ -1,8 +1,7 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS } from "./sites.mjs";
-import { createQuestionReview } from "./question-review.mjs";
-import { questionAssistance } from "./question-policy.mjs";
-const renderQuestions = createQuestionReview(questionAssistance);
+import { createFillProgress } from "./fill-progress.mjs";
+const renderQuestions = createFillProgress();
 const status = document.getElementById("status");
 function clearQuestions() {
   renderQuestions(document.getElementById("remaining-fields"), [], run);
@@ -16,6 +15,13 @@ let history, preview;
 let activeAction = null;
 let refreshTimer;
 let needsReload = false;
+let activeTabId;
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (sender.id !== chrome.runtime.id || sender.tab || message?.type !== "autofill-progress" ||
+    message.buildId !== BUILD_ID || message.tabId !== activeTabId) return;
+  showFields(message.fields || []);
+  status.textContent = message.message;
+});
 function checkVersion(result) {
   if (!result) throw new Error("Open ApplyOverflow from the Chrome toolbar and try again.");
   activeAction = result.activeAction ?? null;
@@ -26,11 +32,9 @@ function checkVersion(result) {
 function showFields(fields) {
   const pending = fields.filter(field => field.state === "needed");
   document.getElementById("fill-progress").hidden = false;
-  document.getElementById("progress-heading").textContent = pending.length ? `${pending.length} to review` : "Supported fields complete";
+  document.getElementById("progress-heading").textContent = pending.some(f => f.queued || f.processing) ? "Autofill in progress" : "Autofill results";
   renderQuestions(document.getElementById("remaining-fields"), fields, run);
-  document.getElementById("completed-list").replaceChildren(...fields.filter(field => field.state !== "needed").map(field => {
-    const item = document.createElement("li"); item.textContent = `${field.label.replace(/[*]/g, "").trim()}: ${field.state === "filled" ? "Filled" : "Kept"}`; return item;
-  }));
+  document.getElementById("completed-fields").hidden = true;
 }
 async function run(type, data = {}) {
   let prepareDrafts = false;
@@ -67,6 +71,7 @@ async function run(type, data = {}) {
       document.getElementById("account").hidden = true;
     }
     if (result.error) throw new Error(result.error);
+    if (result.tabId !== undefined) activeTabId = result.tabId;
     if (result.fields) showFields(result.fields);
     prepareDrafts = type === "autofill" && result.prepareDrafts === true;
     if (result.history) {

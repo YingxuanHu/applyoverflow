@@ -81,7 +81,7 @@ export function installIndicator(buildId, renderQuestions) {
       notice = response.message;
       prepareDrafts = type === "autofill" && response.prepareDrafts === true;
       if (response.fields) {
-        remaining = response.fields.filter(field => field.state === "needed");
+        remaining = response.fields;
         renderRemaining();
       }
       return response;
@@ -119,6 +119,9 @@ export function installIndicator(buildId, renderQuestions) {
       const fieldsStyle = document.createElement("style");
       fieldsStyle.textContent = `.content{max-height:65vh;overflow:auto;overscroll-behavior:contain}details{margin-top:8px}summary{cursor:pointer;padding:5px 0}details details{border-top:1px solid #8885}textarea,select{font:inherit;width:100%;max-width:100%;margin-top:6px;padding:6px;border:1px solid #8888;border-radius:4px;background:transparent;color:inherit}.remember{display:flex;align-items:start;gap:6px;margin-top:8px}.remember input{flex:none}`;
       root.append(fieldsStyle);
+      const progressStyle = document.createElement("style");
+      progressStyle.textContent = `.fill-counts{font-weight:600}.fill-events{list-style:none;padding:0;margin:0}.fill-events li{padding:8px 0;border-bottom:1px solid #8883;overflow-wrap:anywhere}.fill-label,.fill-events small{display:block}.fill-events small{color:#85868e;margin-top:3px;line-height:1.4}.fill-group .field-link{width:auto;padding:3px 0;margin:0;font-size:12px;border:0;background:transparent}`;
+      root.append(progressStyle);
       const section = document.createElement("section");
       section.setAttribute("aria-label", "ApplyOverflow application assistant");
       const header = document.createElement("header");
@@ -156,7 +159,7 @@ export function installIndicator(buildId, renderQuestions) {
       );
       const fill = button("Autofill", () => void run("autofill"));
       const aiDisclosure = document.createElement("p");
-      aiDisclosure.textContent = "AI drafts use your professional profile and this job description. Review before use.";
+      aiDisclosure.textContent = "Answers use your profile and this job description. Review and edit them on the form.";
       const resume = button("Change resume", () => void run("resume"), true);
       const remainingFields = document.createElement("div");
       const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
@@ -201,7 +204,7 @@ export function installIndicator(buildId, renderQuestions) {
         : result.historyAvailable
           ? "Work and education fields detected. Choose a profile entry in the Chrome toolbar."
           : result.questions.length
-            ? "Application questions ready to review."
+            ? "Fill answers from your profile."
             : "";
     view.summary.hidden = !view.summary.textContent;
     view.connect.hidden = connection;
@@ -211,7 +214,7 @@ export function installIndicator(buildId, renderQuestions) {
     view.remaining.hidden = !connection || !remaining.length;
     view.undo.hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
     view.more.hidden = view.undo.hidden;
-    view.status.hidden = !notice || Date.now() >= noticeUntil;
+    view.status.hidden = !notice || (!remaining.length && Date.now() >= noticeUntil);
     if (view.status.textContent !== notice) view.status.textContent = notice;
     for (const action of [
       view.launcher,
@@ -356,7 +359,15 @@ export function installIndicator(buildId, renderQuestions) {
   const navigation = setInterval(() => {
     if (location.href !== lastUrl) void resume();
   }, 500);
-  function onMessage(message) {
+  function onMessage(message, sender) {
+    if (message?.type === "autofill-progress" && sender?.id === chrome.runtime.id && !sender.tab && message.buildId === buildId && message.url === location.href) {
+      remaining = message.fields || [];
+      notice = message.message;
+      noticeUntil = Date.now() + 120_000;
+      busy = message.active;
+      renderRemaining();
+      void scan();
+    }
     if (["permissions-changed", "connection-changed"].includes(message?.type))
       void resume();
   }
