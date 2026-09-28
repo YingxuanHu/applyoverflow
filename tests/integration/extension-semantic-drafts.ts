@@ -32,7 +32,9 @@ async function main() {
   const request = { url, label, title: "Software Engineer", jobDescription: "Build software and validate AI outputs.", revision: user.profile!.updatedAt.toISOString(), maxWords: 40, maxLength: 400 };
   let browser;
   const aiResponses: string[] = [];
+  const requestedFormats: string[] = [];
   let invalidResponses = 0, generatedCalls = 0;
+  let missingResponses = 0, legacyRetryShape = false;
   try {
     if (liveAI) globalThis.fetch = async (input, init) => {
       const response = await originalFetch(input, init);
@@ -45,12 +47,37 @@ async function main() {
       if (!address.startsWith("https://api.openai.com/")) return originalFetch(input, init);
       const body = JSON.parse(String(init?.body));
       assert.match(body.messages[0].content, /at most 400 characters and 40 words/);
+      const format = body.response_format.json_schema;
+      const repair = format.name === "application_answer_citation_repair";
+      assert.ok(repair || format.name === "application_answer", "Unexpected answer response schema");
+      assert.equal(format.strict, true);
+      assert.deepEqual(format.schema.required, ["answer", repair ? "references" : "evidence", "missing"]);
+      requestedFormats.push(format.name);
       generatedCalls++;
-      const quote = invalidResponses > 0 ? "This statement does not exist in the saved evidence." : summary;
+      const invalid = invalidResponses > 0, missing = missingResponses > 0;
       invalidResponses = Math.max(0, invalidResponses - 1);
+      missingResponses = Math.max(0, missingResponses - 1);
+      const quote = invalid ? "This statement does not exist in the saved evidence." : summary;
+      let citations: { evidence?: Array<{ id: string; quote: string }>; references?: number[] } = {
+        evidence: missing ? [] : [{ id: "summary", quote }],
+      };
+      if (repair) {
+        const payload = JSON.parse(body.messages.find((message: { role: string }) => message.role === "user").content);
+        const excerpts: Array<{ reference: number; id: string; quote: string }> = payload.citationExcerpts;
+        assert.ok(Array.isArray(excerpts) && excerpts.length > 0 && excerpts.length <= 100);
+        for (const excerpt of excerpts) {
+          assert.ok(excerpt.quote.length >= 8 && excerpt.quote.length <= 300);
+          assert.ok(payload.evidence.some((source: { id: string; text: string }) =>
+            source.id === excerpt.id && source.text.includes(excerpt.quote)), "Retry catalog must contain exact source text");
+        }
+        const supported = excerpts.find(excerpt => excerpt.id === "summary" && excerpt.quote === summary);
+        assert.ok(supported, "Select an actual supporting excerpt, never assume its reference number");
+        if (!legacyRetryShape) citations = { references: missing ? [] : [invalid
+          ? Math.max(...excerpts.map(excerpt => excerpt.reference)) + 1 : supported.reference] };
+      }
       return Response.json({ choices: [{ message: { content: JSON.stringify({
-        answer: "I built a document classifier in Python and validated its predictions against manually labelled test examples.",
-        evidence: [{ id: "summary", quote }], missing: "",
+        answer: missing ? "" : "I built a document classifier in Python and validated its predictions against manually labelled test examples.",
+        ...citations, missing: missing ? "Which documented project should I describe?" : "",
       }) } }] });
     };
     const started = Date.now();
@@ -67,12 +94,34 @@ async function main() {
     const beforeRetry = generatedCalls;
     const technologyAnswer = await suggestApplicationAnswer(user.id, { ...request, label: technology });
     assert.ok(technologyAnswer.suggestion.answer);
-    if (!liveAI) assert.equal(generatedCalls - beforeRetry, 2, "Invalid evidence is regenerated once, then revalidated");
+    if (!liveAI) {
+      assert.equal(generatedCalls - beforeRetry, 2, "Invalid evidence is regenerated once, then revalidated");
+      assert.deepEqual(requestedFormats.slice(beforeRetry), ["application_answer", "application_answer_citation_repair"]);
+      assert.deepEqual(technologyAnswer.suggestion.evidence, [{ id: "summary", quote: summary }], "References resolve back to exact saved evidence");
+    }
     if (!liveAI) {
       invalidResponses = 2;
       const beforeRejected = generatedCalls;
       await assert.rejects(() => suggestApplicationAnswer(user.id, request), /Could not prepare a supported draft/);
-      assert.equal(generatedCalls - beforeRejected, 2, "Unverified output stays rejected after the bounded retry");
+      assert.equal(generatedCalls - beforeRejected, 2, "An unknown retry reference stays rejected after the bounded retry");
+      assert.deepEqual(requestedFormats.slice(beforeRejected), ["application_answer", "application_answer_citation_repair"]);
+
+      invalidResponses = 1;
+      legacyRetryShape = true;
+      const beforeLegacy = generatedCalls;
+      await assert.rejects(() => suggestApplicationAnswer(user.id, request), /Could not prepare a supported draft/);
+      assert.equal(generatedCalls - beforeLegacy, 2, "The obsolete evidence-shaped retry remains invalid even with a real quote");
+      assert.deepEqual(requestedFormats.slice(beforeLegacy), ["application_answer", "application_answer_citation_repair"]);
+      legacyRetryShape = false;
+
+      missingResponses = 1;
+      const beforeOverview = generatedCalls;
+      const overview = await suggestApplicationAnswer(user.id, { ...request,
+        label: "Is there anything about your experience that would help us evaluate your fit?" });
+      assert.ok(overview.suggestion.answer);
+      assert.deepEqual(overview.suggestion.evidence, [{ id: "summary", quote: summary }]);
+      assert.equal(generatedCalls - beforeOverview, 2, "Overview abstention uses one reference-based retry");
+      assert.deepEqual(requestedFormats.slice(beforeOverview), ["application_answer", "application_answer_citation_repair"]);
     }
     await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "Why are you interested in part-time employment?" }), /personal circumstance/);
     const withNote = await suggestApplicationAnswer(user.id, { ...request, label: preference, note: "I am comfortable building Python applications without AI tools. I would build a document classifier." });
