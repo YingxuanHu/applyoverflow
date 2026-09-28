@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { buildProfileFormValues, normalizeContact, normalizeExperiences, normalizeEducations } from "@/lib/profile";
 import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey, questionKind } from "@/lib/application-assistant";
-import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
+import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, currentEmploymentFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import { applicationAnswerPlan } from "@/lib/profile-application-answers";
@@ -16,7 +16,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
       contactJson: true, updatedAt: true, phone: true, location: true,
       linkedinUrl: true, githubUrl: true, portfolioUrl: true,
       skillsJson: true, skillsText: true,
-      experiencesJson: input.history, educationsJson: input.history,
+      experiencesJson: true, educationsJson: input.history,
       authUser: { select: { name: true, email: true } },
       preferences: { where: { key: ANSWER_LIBRARY_KEY }, select: { value: true } },
     },
@@ -32,7 +32,8 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
   fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
-  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
+  Object.assign(fields, currentEmploymentFields(profile.experiencesJson));
+  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry, input.employmentLocation);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
     skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),

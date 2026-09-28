@@ -1,6 +1,5 @@
 "use client";
 
-import { normalizeApplicationAnswers } from "@/lib/profile-application-answers";
 import { ApplicationAnswersFields } from "@/components/profile/application-answers-fields";
 
 import { HistoryDatesFields } from "./history-dates-fields";
@@ -282,6 +281,7 @@ function normalizeProjectsSnapshot(projects: ProfileProject[]) {
 function normalizeContactSnapshot(contact: ProfileContact) {
   return {
     ...normalizeContact(contact),
+    ...(contact.applicationAnswers ? { applicationAnswers: contact.applicationAnswers } : {}),
     fullName: trimmed(contact.fullName),
     email: trimmed(contact.email),
     phone: trimmed(contact.phone),
@@ -629,7 +629,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               </label>
             </div>
           </section>
-          <ApplicationAnswersFields value={normalizeApplicationAnswers(contact.applicationAnswers)}
+          <ApplicationAnswersFields value={contact.applicationAnswers ?? { enabled: false, values: {} }}
             onChange={applicationAnswers => setContact(current => ({ ...current, applicationAnswers }))} />
         </div>
       </ProfileSection>

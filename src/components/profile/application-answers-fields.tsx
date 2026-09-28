@@ -1,6 +1,7 @@
 "use client";
 
-import { applicationAnswerFields, applicationTextFields, employerAnswerFields, type ProfileApplicationAnswers } from "@/lib/profile-application-answers";
+import { useId } from "react";
+import { applicationAnswerFields, applicationTextFields, commuteLocationError, employerAnswerFields, type ApplicationAnswerKey, type CommuteAnswer, type ProfileApplicationAnswers } from "@/lib/profile-application-answers";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
@@ -9,11 +10,12 @@ export function ApplicationAnswersFields({ value, onChange }: {
   value: ProfileApplicationAnswers;
   onChange: (value: ProfileApplicationAnswers) => void;
 }) {
-  const set = (key: string, answer: string) => onChange({ ...value, values: { ...value.values, [key]: answer } });
-  const groups = [
+  const errorId = useId();
+  const set = (key: ApplicationAnswerKey, answer: string) => onChange({ ...value, values: { ...value.values, [key]: answer } });
+  const groups: { title: string; keys: ApplicationAnswerKey[] }[] = [
     { title: "Work eligibility", keys: ["over18", "authorizedCA", "authorizedUS", "sponsorshipCA", "sponsorshipUS", "usPerson", "visaDetailsUS"] },
-    { title: "Availability and preferences", keys: ["startDate", "availability", "desiredPay", "relocation", "partTimeReason", "partTimeDuration"] },
-    { title: "Job source and communication", keys: ["jobSource", "sourceDetails", "smsUpdates", "emailUpdates"] },
+    { title: "Availability and preferences", keys: ["startDate", "noticePeriod", "availability", "desiredPay", "relocation", "travel", "partTimeReason", "partTimeDuration"] },
+    { title: "Job source and communication", keys: ["jobSource", "sourceDetails", "smsUpdates", "emailUpdates", "talentCommunity", "jobAlerts", "careerNewsletters"] },
     { title: "Voluntary self-identification", keys: ["gender", "transgender", "sexualOrientation", "ethnicity", "hispanicLatino", "veteran", "veteranOrActiveUS", "disability", "limitingDisability", "physicalDisability"] },
   ];
   return <details id="application-answers" className="sm:col-span-2 border-t border-border pt-4">
@@ -44,6 +46,33 @@ export function ApplicationAnswersFields({ value, onChange }: {
         })}
       </div>
     </details>)}
+    <details className="mt-4 border-t border-border pt-3">
+      <summary className="cursor-pointer text-sm font-medium">Commute willingness by location</summary>
+      {(value.commutes || []).map((commute, index) => {
+        const update = (change: Partial<CommuteAnswer>) => onChange({ ...value, commutes: value.commutes!.map((row, i) => i === index ? { ...row, ...change } : row) });
+        const error = commuteLocationError(commute.location, commute.willingness);
+        const locationErrorId = `${errorId}-commute-${index}`;
+        return <div key={index} className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+          <label className="min-w-0 space-y-1.5 text-sm"><span>Commute location (city, state or province, country)</span>
+            <Input value={commute.location} placeholder="Toronto, Ontario, Canada" maxLength={200}
+              aria-invalid={error ? true : undefined} aria-describedby={error ? locationErrorId : undefined}
+              onChange={event => update({ location: event.target.value })} />
+            {error && <span id={locationErrorId} className="block text-sm text-destructive">{error}</span>}
+          </label>
+          <div className="flex items-end gap-2">
+            <label className="min-w-0 flex-1 space-y-1.5 text-sm"><span>Willing and able to regularly commute and work in an office at this location</span>
+              <select className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3"
+                value={commute.willingness ?? ""} onChange={event => update({ willingness: event.target.value as CommuteAnswer["willingness"] })}>
+                <option value="">Not provided</option><option>Yes</option><option>No</option>
+              </select></label>
+            <Button type="button" variant="ghost" size="icon" aria-label={`Remove commute location ${index + 1}`} title="Remove commute location"
+              onClick={() => onChange({ ...value, commutes: value.commutes!.filter((_, i) => i !== index) })}><Trash2 className="size-4" /></Button>
+          </div>
+        </div>;
+      })}
+      <Button type="button" variant="outline" className="mt-4" disabled={(value.commutes?.length || 0) >= 12}
+        onClick={() => onChange({ ...value, commutes: [...(value.commutes || []), { location: "" }] })}><Plus className="mr-2 size-4" />Add commute location</Button>
+    </details>
     <details className="mt-4 border-t border-border pt-3">
       <summary className="cursor-pointer text-sm font-medium">Employer-specific answers</summary>
       <p className="mt-2 text-sm text-muted-foreground">Relationships and referrals apply only to the employer whose application link you enter.</p>

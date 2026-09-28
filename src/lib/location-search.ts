@@ -10,6 +10,7 @@ export type ExpandedLocationSearchTerm = {
 type LocationDictionaryEntry = {
   label: string;
   region: LocationSearchRegion;
+  code?: string;
   aliases: string[];
   containsTerms: string[];
 };
@@ -30,6 +31,7 @@ function buildSubdivisionEntries(
   return subdivisions.map(([label, code, cities, extraAliases = []]) => ({
     label,
     region,
+    code,
     aliases: [
       label.toLowerCase(),
       ...(region === "US" && code === "CA"
@@ -223,6 +225,16 @@ function matchEntries(raw: string, entries: LocationDictionaryEntry[]) {
       return normalized === normalizedAlias;
     })
   );
+}
+
+/** Exact subdivision identity within an explicit country, without city/metro expansion. */
+export function normalizeLocationSubdivision(value: string, country: LocationSearchRegion): string | undefined {
+  if (country !== "CA" && country !== "US") return;
+  const normalized = normalizeLookupText(value.normalize("NFD").replace(/\p{M}/gu, ""));
+  if (!normalized) return;
+  const matches = SUBDIVISION_ENTRIES.filter(entry => entry.region === country &&
+    [entry.code || "", ...entry.aliases].some(alias => normalizeLookupText(alias) === normalized));
+  return matches.length === 1 ? matches[0].code : undefined;
 }
 
 /** Preserve city qualifiers; semicolons separate explicit alternative places. */

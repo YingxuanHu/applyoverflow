@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { captureSchema, questionKey, questionKind, type AnswerLibrary } from "@/lib/application-assistant";
+import { normalizeExperiences } from "@/lib/profile";
 
 export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
   history: z.boolean().default(false),
   employmentCountry: z.enum(["CA", "US"]).optional(),
+  employmentLocation: z.string().trim().min(1).max(200).optional(),
 });
 export const autofillProfileFields = {
   givenName: 100, familyName: 100, fullName: 200, preferredName: 100,
@@ -11,6 +13,17 @@ export const autofillProfileFields = {
   addressLine2: 240, city: 120, region: 120, postalCode: 32,
   country: 2, linkedInUrl: 500, githubUrl: 500, portfolioUrl: 500,
 } as const;
+
+export function currentEmploymentFields(raw: unknown): { currentCompany: string; currentTitle: string } {
+  // Count explicit current flags before normalization/truncation so ambiguous or
+  // malformed additional current records cannot silently become one employer.
+  const current = Array.isArray(raw) ? raw.filter(item => item && typeof item === "object" && item.dates?.current === true) : [];
+  const entry = current.length === 1 ? normalizeExperiences(current)[0] : undefined;
+  return {
+    currentCompany: entry?.dates?.current === true ? entry.company : "",
+    currentTitle: entry?.dates?.current === true ? entry.title : "",
+  };
+}
 const reusableKind = (label: string) => ["custom", "referral", "company_relationship"].includes(questionKind(label));
 export const autofillAnswerSchema = z.object({
   url: captureSchema.shape.url,
