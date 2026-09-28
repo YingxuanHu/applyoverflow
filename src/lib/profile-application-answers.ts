@@ -156,7 +156,7 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       reason: "Not applicable based on your saved answer. Left blank." });
     else details.push({ label, profileLabel, answerKey: key, reason: !saved.enabled
       ? "Enable sharing in Profile > Optional application answers to use your saved choices."
-      : `Add ${profileLabel.toLowerCase()} in Profile, or answer here.` });
+      : `Add ${profileLabel.toLowerCase()} in Profile, or answer on the form.` });
   });
   return { answers, details };
 }

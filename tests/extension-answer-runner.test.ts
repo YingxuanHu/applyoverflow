@@ -49,3 +49,11 @@ test("AI restrictions and unsupported widgets do not trigger answer generation",
   await fillProfessionalAnswers({ fields, inspect: async () => ({ fields }), suggest: async () => { calls++; }, progress: async () => {} });
   assert.equal(calls, 0);
 });
+
+test("answer progress distinguishes throttling from missing profile facts", async () => {
+  const fields = [field("fit", "Describe your relevant experience")];
+  const result = await fillProfessionalAnswers({ fields, inspect: async () => ({ fields }),
+    suggest: async () => { throw Object.assign(new Error("Request limited"), { status: 429 }); }, progress: async () => {} });
+  assert.equal(result[0].state, "needed");
+  assert.match(result[0].reason, /temporarily limited/);
+});

@@ -32,6 +32,7 @@ async function main() {
   const request = { url, label, title: "Software Engineer", jobDescription: "Build software and validate AI outputs.", revision: user.profile!.updatedAt.toISOString(), maxWords: 40, maxLength: 400 };
   let browser;
   const aiResponses: string[] = [];
+  let invalidResponses = 0, generatedCalls = 0;
   try {
     if (liveAI) globalThis.fetch = async (input, init) => {
       const response = await originalFetch(input, init);
@@ -44,9 +45,12 @@ async function main() {
       if (!address.startsWith("https://api.openai.com/")) return originalFetch(input, init);
       const body = JSON.parse(String(init?.body));
       assert.match(body.messages[0].content, /at most 400 characters and 40 words/);
+      generatedCalls++;
+      const quote = invalidResponses > 0 ? "This statement does not exist in the saved evidence." : summary;
+      invalidResponses = Math.max(0, invalidResponses - 1);
       return Response.json({ choices: [{ message: { content: JSON.stringify({
         answer: "I built a document classifier in Python and validated its predictions against manually labelled test examples.",
-        evidence: [{ id: "summary", quote: summary }], missing: "",
+        evidence: [{ id: "summary", quote }], missing: "",
       }) } }] });
     };
     const started = Date.now();
@@ -58,6 +62,18 @@ async function main() {
     const preference = "If AI coding tools were unavailable tomorrow, how comfortable would you be building an application yourself and what would you build?";
     const proposed = await suggestApplicationAnswer(user.id, { ...request, label: preference });
     assert.ok(proposed.suggestion.answer, "Professional hypotheticals can be proposed from documented projects");
+    const technology = "Which programming language and framework are you most confident in (e.g., Python, Java, C#, React, TypeScript)? Describe a feature or application you built using that technology.";
+    if (!liveAI) invalidResponses = 1;
+    const beforeRetry = generatedCalls;
+    const technologyAnswer = await suggestApplicationAnswer(user.id, { ...request, label: technology });
+    assert.ok(technologyAnswer.suggestion.answer);
+    if (!liveAI) assert.equal(generatedCalls - beforeRetry, 2, "Invalid evidence is regenerated once, then revalidated");
+    if (!liveAI) {
+      invalidResponses = 2;
+      const beforeRejected = generatedCalls;
+      await assert.rejects(() => suggestApplicationAnswer(user.id, request), /Could not prepare a supported draft/);
+      assert.equal(generatedCalls - beforeRejected, 2, "Unverified output stays rejected after the bounded retry");
+    }
     await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "Why are you interested in part-time employment?" }), /personal circumstance/);
     const withNote = await suggestApplicationAnswer(user.id, { ...request, label: preference, note: "I am comfortable building Python applications without AI tools. I would build a document classifier." });
     assert.ok(withNote.suggestion.answer);

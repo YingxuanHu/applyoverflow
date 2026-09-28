@@ -164,6 +164,7 @@ async function api(action, body, token) {
   if (!response.ok) {
     const error = new Error(result.error || "Request failed. Try again.");
     error.reconnect = response.status === 401;
+    error.status = response.status;
     throw error;
   }
   return result;
