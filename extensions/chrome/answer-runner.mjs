@@ -1,5 +1,42 @@
 import { questionAssistance } from "./question-policy.mjs";
 
+// A selection can mount new controls or replace a dependent editor. Re-scan
+// instead of assuming the first DOM snapshot is the entire application.
+export async function fillSavedDetails({ scan, getPlan, inspect, progress }) {
+  const attempts = new Map();
+  const allQuestions = new Set();
+  let current = scan, plan, result = scan;
+  const history = { historyFilled: 0, historySaved: 0, historyDateAdjusted: 0, historyWarnings: [] };
+  for (let pass = 0; pass < 4; pass++) {
+    const pending = (current.fields || []).filter(field => (field.canAnswer || field.canPlan) && field.state === "needed");
+    const fresh = pending.filter(field => {
+      const count = attempts.get(`${field.id}:${field.label}`) || 0;
+      return count === 0 || (field.retryable && count < 2);
+    });
+    if (pass && !fresh.length) break;
+    pending.forEach(field => { const key = `${field.id}:${field.label}`; attempts.set(key, (attempts.get(key) || 0) + 1); });
+    const currentQuestions = [...new Set((current.fields || []).filter(field => !field.profileKey && (field.canAnswer || field.canPlan)).map(field => field.label))];
+    for (const label of currentQuestions) if (allQuestions.size < 40) allQuestions.add(label);
+    // Already-selected parents still determine whether a follow-up applies.
+    // Keep current DOM order, with removed-step context only as a fallback.
+    const questions = [...currentQuestions, ...[...allQuestions].filter(label => !currentQuestions.includes(label))].slice(0, 40);
+    const nextPlan = await getPlan({ ...current, questions });
+    if (plan?.revision && nextPlan.revision !== plan.revision)
+      throw new Error("Your profile changed. Click Autofill again to use the latest details.");
+    plan = nextPlan;
+    if (pass) await progress(current.fields || [], "Filling newly revealed fields...");
+    result = await inspect("autofill", plan);
+    history.historyFilled += result.historyFilled || 0;
+    history.historySaved += result.historySaved || 0;
+    history.historyDateAdjusted += result.historyDateAdjusted || 0;
+    history.historyWarnings.push(...(result.historyWarnings || []));
+    await new Promise(resolve => setTimeout(resolve, 120));
+    current = await inspect("inspect");
+  }
+  return { plan, result: { ...result, ...history, fields: current.fields || result.fields,
+    historyWarnings: [...new Set(history.historyWarnings)] } };
+}
+
 export const canPrepareAnswer = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
   ((field.kind === "text" && ["draft", "context"].includes(questionAssistance(field.label))) || questionAssistance(field.label) === "qualification");
 

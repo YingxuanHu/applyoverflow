@@ -1,12 +1,25 @@
 import { applicationContext } from "./sites.mjs";
 import { createHistoryInspector } from "./history.mjs";
 import { createAutofillInspector } from "./autofill.mjs";
+import { createFormDetection } from "./form-detection.mjs";
+import { createJobContext } from "./job-context.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
 export function createInspector(resolveContext, history, autofill) {
+  return createInspectorRuntime(resolveContext, history, autofill, createFormDetection(), createJobContext());
+}
+
+// Existing build/test callers serialize createInspector. Keep that public
+// contract self-contained without runtime imports or page-provided code.
+createInspector.toString = () => `(function(resolveContext, history, autofill) {
+  return (${createInspectorRuntime})(resolveContext, history, autofill, (${createFormDetection})(), (${createJobContext})());
+})`;
+
+function createInspectorRuntime(resolveContext, history, autofill, detection, jobContext) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
+  const manualChoiceIds = new WeakMap();
   let undoEntries = [],
     undoUrl = "",
     undoTimer;
@@ -37,20 +50,8 @@ export function createInspector(resolveContext, history, autofill) {
       /^\/[a-z0-9_-]+\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
     const hibob = /\.careers\.hibob\.com$/.test(location.hostname) &&
       /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
-    // Bind country-relative eligibility questions to the posting, never the
-    // applicant address or arbitrary text elsewhere on the page.
-    let employmentCountry;
-    if (hibob) {
-      const locations = [...document.querySelectorAll('careers-ui-job-ad-header .job-ad-subtitle')];
-      if (locations.length === 1) {
-        const place = locations[0].textContent.trim().split("\u00b7")[0].trim();
-        const parts = place.split(",").map(part => part.trim().toLowerCase());
-        const country = { canada: "CA", "united states": "US", "united states of america": "US", usa: "US", us: "US" }[parts.at(-1)];
-        if (country && !/\b(?:or|and|uk|united kingdom|mexico)\b|[;/]/i.test(place) &&
-            !(country === "CA" && /\bunited states\b|\busa?\b/i.test(place)) &&
-            !(country === "US" && /\bcanada\b/i.test(place))) employmentCountry = country;
-      }
-    }
+    const dom = detection.scan(document);
+    if (dom.oversized) return { error: "This page is too large to inspect safely. Use manual entry." };
     const aliases = {
       "first name": "givenName",
       "given name": "givenName",
@@ -101,6 +102,14 @@ export function createInspector(resolveContext, history, autofill) {
       "portfolio url": "portfolioUrl",
       skills: "skills",
       "technical skills": "skills",
+      "current company": "currentCompany",
+      "current employer": "currentCompany",
+      "company you currently work for": "currentCompany",
+      "current job title": "currentTitle",
+      "phone country": "phoneCountry",
+      "phone country code": "phoneCountry",
+      "telephone country code": "phoneCountry",
+      "country calling code": "phoneCountry",
     };
     const normalize = (value) =>
       value
@@ -118,9 +127,8 @@ export function createInspector(resolveContext, history, autofill) {
         .replace(/^(?:what is|what's)\s+/, "")
         .replace(/^(?:a link to\s+|link to\s+)?(?:your|applicant|candidate)\s+/, "");
       if (Object.hasOwn(aliases, text)) return aliases[text];
-      if (/\b(?:link|url|website|profile)\b/.test(text) && /\bor\b/.test(text) &&
-        /linkedin/i.test(text) && /github|portfolio|professional (?:profile|website)/.test(text) &&
-        !/experience|describe|explain|employer|reference|referr|company|team/.test(text)) return "professionalUrl";
+      const link = detection.profileLink(text);
+      if (link) return link;
       const rules = [
         ["givenName", /^(?:legal )?(?:first|given) name(?:\(s\)|s)?$/],
         ["familyName", /^(?:legal )?(?:last|family) name(?:\(s\)|s)?$/],
@@ -140,14 +148,15 @@ export function createInspector(resolveContext, history, autofill) {
       ];
       return rules.find(([, pattern]) => pattern.test(text))?.[0];
     };
-    const visible = (element) =>
-      !!element.getClientRects().length &&
-      !element.closest("[hidden], [inert], [aria-hidden='true']") &&
-      getComputedStyle(element).visibility !== "hidden" &&
-      getComputedStyle(element).display !== "none";
-    const valueControls =
-      'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
+    const visible = detection.visible;
     const labelFor = (element) => {
+      // Observed Rippling phone-code widget (2026-09-28): unlike its pronouns
+      // picker, the country combobox has only aria-label="Search". Require both
+      // the purpose-specific wrapper and control identifiers, never Search alone.
+      const phoneCode = rippling && element.closest('[data-testid="phone_number-code"]');
+      if (phoneCode && element.matches('input[role="combobox"][data-input="select-search-input"][data-testid="input-select-search-input"][aria-haspopup="listbox"]') &&
+          element.getAttribute("aria-label") === "Search" && !element.hasAttribute("aria-labelledby") &&
+          phoneCode.querySelectorAll('input').length === 1) return "Phone country";
       const salary = hibob && element.closest('b-currency-value-select');
       if (salary && salary.querySelectorAll('input').length === 1 &&
           salary.querySelectorAll('b-single-select > [role="button"]').length === 1 &&
@@ -160,60 +169,30 @@ export function createInspector(resolveContext, history, autofill) {
         const headings = question?.querySelectorAll('.application-label');
         if (headings?.length === 1 && !headings[0].contains(element)) return headings[0].textContent.trim();
       }
-      const label = element.labels?.[0]?.cloneNode(true);
-      label
-        ?.querySelectorAll(valueControls)
-        .forEach((control) => control.remove());
-      // Widgets can include their current selection in aria-labelledby. Only
-      // accept one independent label; ambiguous references stay manual.
-      const labelNodes = [
-        ...new Set(
-          (element.getAttribute("aria-labelledby") || "")
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((id) => document.getElementById(id)),
-        ),
-      ].filter(
-        (node) =>
-          node &&
-          node !== element &&
-          !element.contains(node) &&
-          !node.contains(element) &&
-          !node.closest(valueControls) &&
-          !node.querySelector(valueControls),
-      );
-      const labelledBy =
-        labelNodes.length === 1 ? labelNodes[0].textContent : "";
-      return (
-        label?.textContent ||
-        labelledBy ||
-        element.getAttribute("aria-label") ||
-        ""
-      )
-        .trim()
-        .replace(/\s+/g, " ");
+      return detection.labelFor(element, meaning);
     };
+    const applicationControl = field => !field.closest('[role="listbox"],[role="tree"],[role="menu"]') &&
+      !/^(?:search|filter)(?:\s+(?:options?|countries|locations?|results))?\s*[:*]?$/i.test(labelFor(field));
     const controlSelector =
       'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
+    const allControlSelector = `${controlSelector},[role="radio"],[role="checkbox"],[role="switch"]`;
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
     const applicationHeading =
       /\b(application|apply|my information|my experience)\b/i.test(
         [
-          ...document.querySelectorAll(
-            "h1,h2,h3,h4,[role='tab'][aria-selected='true'],[data-automation-id='pageHeaderTitle']",
-          ),
+          ...dom.elements.filter(node => node.matches("h1,h2,h3,h4,[role='tab'][aria-selected='true'],[data-automation-id='pageHeaderTitle']") && visible(node)),
         ]
-          .map((node) => node.textContent)
+          .map((node) => detection.text(node))
           .join(" "),
       );
-    if (document.querySelectorAll(controlSelector).length > 500)
+    if (dom.elements.filter(node => node.matches(allControlSelector)).length > 500)
       return {
         error: "This form is too large to inspect safely. Use manual entry.",
       };
     const forms = [
-      ...document.querySelectorAll(
+      ...dom.elements.filter(node => node.matches(
         hibob ? "careers-ui-job-ad-application-form" : context.provider === "ashby"
           ? ".ashby-application-form-container"
           : context.provider === "workable"
@@ -221,10 +200,13 @@ export function createInspector(resolveContext, history, autofill) {
             : context.provider === "workday"
               ? 'form, [data-automation-id="applyFlowPage"]'
               : 'form, [role="form"]',
-      ),
+      )),
     ]
       .filter(
         (form) =>
+          context.provider === "generic" && !hibob
+            ? detection.genericApplication(form, labelFor, meaning)
+            :
           visible(form) &&
           (!flexible || !form.querySelector('input[type="password"]')) &&
           (!flexible || !/\b(newsletter|job alerts?|subscribe|sign in|sign up)\b/i.test(
@@ -261,16 +243,18 @@ export function createInspector(resolveContext, history, autofill) {
       );
     // Form-less employer pages: require multiple applicant facts and a resume
     // control inside one non-document container, plus explicit application text.
-    if (!forms.length && flexible && applicationHeading) {
-      const inputs = [...document.querySelectorAll("input")].filter(field => visible(field));
+    if (!forms.length && flexible) {
+      const inputs = dom.elements.filter(field => field.matches("input") && visible(field));
       const emails = inputs.filter(field => meaning(labelFor(field)) === "email");
       if (emails.length === 1) {
         let root = emails[0].parentElement;
-        while (root && !root.matches("body,html")) {
+        let depth = 0;
+        while (root && !root.matches("body,html") && ++depth <= 12) {
           const keys = new Set([...root.querySelectorAll("input")].map(field => meaning(labelFor(field))));
           if (keys.has("email") && (keys.has("givenName") || keys.has("fullName")) &&
               root.querySelector('input[type="file"]') && !root.querySelector('input[type="password"]') &&
-              !root.querySelector("form")) { forms.push(root); break; }
+              !root.querySelector("form") && detection.genericApplication(root, labelFor, meaning) &&
+              detection.applicationEvidence(root)) { forms.push(root); break; }
           root = root.parentElement;
         }
       }
@@ -280,9 +264,17 @@ export function createInspector(resolveContext, history, autofill) {
         error:
           "A single application form was not found. Embedded or multi-form pages need manual review.",
       };
+    // Native containment is a write-safety invariant in the history/autofill
+    // engines. A whole form inside an open root is safe; split-root controls are
+    // not. Do not monkey-patch DOM queries or traverse closed roots/other frames.
+    if (dom.roots.some(root => root.host && forms[0].contains(root.host) &&
+        root.querySelector(allControlSelector)))
+      return { error: "This application has controls split across shadow roots. Use manual entry." };
+    const { employmentCountry, employmentLocation } = jobContext.inspect(dom.elements, location.href, detection, forms[0]);
     const fields = [...forms[0].querySelectorAll(controlSelector)].filter(
       (field) =>
         visible(field) &&
+        applicationControl(field) &&
         !field.matches(':disabled, [aria-disabled="true"]') &&
         !field.readOnly,
     );
@@ -303,7 +295,7 @@ export function createInspector(resolveContext, history, autofill) {
           labels.some(label => /^(resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(label)));
       }
       if (
-        [...document.querySelectorAll("input")].filter(
+        [...field.getRootNode().querySelectorAll("input")].filter(
           (item) => item.id === field.id,
         ).length !== 1
       )
@@ -493,10 +485,8 @@ export function createInspector(resolveContext, history, autofill) {
           field.getAttribute("aria-labelledby") === `${field.id}-label`;
         if ((!token || standard[token] !== key) && !confirmedRipplingField) key = undefined;
       }
-      const group = field
-        .closest("fieldset")
-        ?.querySelector("legend")
-        ?.textContent?.trim();
+      const groupContext = detection.groupContext(field, forms[0], label);
+      const group = groupContext.title;
       const greenhousePhone = context.provider === "greenhouse" && group === "Phone" &&
         field.id === "phone" && key === "phone";
       if (
@@ -551,13 +541,8 @@ export function createInspector(resolveContext, history, autofill) {
         field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
       const inferred = meaning(label);
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
-      let foreignContext = Boolean(inferred && foreign.test(label));
-      for (let node = field.parentElement; node && node !== forms[0]; node = node.parentElement) {
-        if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control')) {
-          const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4')?.textContent || "";
-          if (foreign.test(title) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
-        }
-      }
+      const currentEmployment = ["currentCompany", "currentTitle"].includes(inferred);
+      const foreignContext = groupContext.unsafe || Boolean(inferred && !currentEmployment && foreign.test(label));
       const autoTokens = (field.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
       const declared = semantic[autoTokens.at(-1)];
       const conflict = declared && inferred && declared !== inferred && !(inferred === "fullAddress" && declared === "streetAddress");
@@ -572,7 +557,15 @@ export function createInspector(resolveContext, history, autofill) {
         key = undefined;
       return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext };
     };
-    const entries = fields.map(contactEntry);
+    const manualChoices = detection.manualChoices(forms[0], labelFor);
+    for (const { field } of manualChoices) if (!manualChoiceIds.has(field)) manualChoiceIds.set(field, crypto.randomUUID());
+    // Custom choices share the write engine, never their hidden native inputs.
+    // A mixed visible-native/custom subgroup is still reported, but not writable.
+    const entries = fields.filter(field => !manualChoices.some(choice => choice.field === field || choice.field.contains(field))).map(contactEntry);
+    if (autofill) entries.push(...manualChoices.map(choice => ({ ...choice,
+      inHistory: detection.groupContext(choice.field, forms[0], choice.label).unsafe,
+      ...(choice.kind === "radio" ? { radioFields: choice.ariaChoice.fields } : {}),
+    })));
     const isContactField = ({ field, key }) =>
       key &&
       !field.matches('[role="combobox"], [aria-autocomplete], [list]') &&
@@ -582,7 +575,7 @@ export function createInspector(resolveContext, history, autofill) {
     const contactFields = entries.filter(isContactField);
     const currentContactFields = () =>
       [...forms[0].querySelectorAll(controlSelector)]
-        .filter(field => field.isConnected && visible(field) &&
+        .filter(field => field.isConnected && visible(field) && applicationControl(field) &&
           !field.matches(':disabled, [aria-disabled="true"]') && !field.readOnly)
         .map(contactEntry)
         .filter(isContactField);
@@ -591,8 +584,8 @@ export function createInspector(resolveContext, history, autofill) {
         ? HTMLTextAreaElement.prototype
         : HTMLInputElement.prototype;
     const questions = [
-      ...new Set(
-        entries
+      ...new Set([
+        ...entries
           .filter(
             ({ key, field }) =>
               !key &&
@@ -605,10 +598,8 @@ export function createInspector(resolveContext, history, autofill) {
               ),
           )
           .map(({ field, label }) => {
-            const group = field
-              .closest("fieldset")
-              ?.querySelector("legend")
-              ?.textContent?.trim();
+            if (manualChoices.some(choice => choice.field === field)) return label;
+            const group = detection.groupContext(field, forms[0], label).title;
             return ["radio", "checkbox"].includes(field.type)
               ? field
                   .closest(".application-question")
@@ -618,23 +609,22 @@ export function createInspector(resolveContext, history, autofill) {
                     .closest(".ashby-application-form-field-entry")
                     ?.querySelector(".ashby-application-form-question-title")
                     ?.textContent?.trim() ||
-                  field
-                    .closest("fieldset")
-                    ?.querySelector("legend")
-                    ?.textContent?.trim() ||
+                  group ||
                   label
               : group && label && !normalize(label).includes(normalize(group))
                 ? `${group}: ${label}`
                 : label;
           })
           .filter((label) => label && label.length <= 500),
-      ),
+        ...manualChoices.map(choice => choice.label),
+      ]),
     ];
     const aiRestricted = [...forms[0].querySelectorAll('label,legend,p')].some(node =>
       /(?:ai|artificial intelligence|chatgpt)[- ]?(?:generated|written)?[\s\S]{0,180}(?:disqualif|not (?:permitted|allowed)|prohibited)|(?:do not|must not|cannot|may not) use[\s\S]{0,100}(?:artificial intelligence|chatgpt|\bAI\b)/i.test(node.textContent || ""));
     const result = {
       aiRestricted,
       employmentCountry,
+      employmentLocation,
       url: location.href,
       title: (
         (context.provider === "workday" &&
@@ -673,6 +663,26 @@ export function createInspector(resolveContext, history, autofill) {
           contactFields.filter((entry) => entry.key === key).length === 1,
       ).length,
     };
+    const addManualChoices = () => {
+      if (!forms[0].isConnected || location.href !== result.url) return;
+      const choices = detection.manualChoices(forms[0], labelFor).map(({ field, label, kind, options, required, state }) => {
+        if (!manualChoiceIds.has(field)) manualChoiceIds.set(field, crypto.randomUUID());
+        return { label, kind, options, required, state, id: manualChoiceIds.get(field), title: label,
+          canAnswer: false, canRemember: false, retryable: false,
+          reason: "This custom choice needs selection on the employer form. Nothing was selected automatically.",
+          ...(aiRestricted ? { aiRestricted: true } : {}),
+        };
+      });
+      if (choices.length) result.fields = [...(result.fields || []), ...choices];
+    };
+    const manualTarget = !autofill && manualChoices.find(choice => manualChoiceIds.get(choice.field) === contact.id && choice.label === contact.label);
+    if (mode === "autofill-focus" && manualTarget) {
+      manualTarget.field.scrollIntoView({ block: "center", behavior: "smooth" });
+      manualTarget.focus?.focus({ preventScroll: true });
+      // The write engine never owns these tokens. Refresh its regular fields
+      // without sending it a custom-choice focus or answer action.
+      mode = "inspect";
+    }
     if (history) {
       const historyResult = await history(
         mode,
@@ -720,6 +730,7 @@ export function createInspector(resolveContext, history, autofill) {
       }
       if (mode.startsWith("autofill")) return result;
     }
+    if (!autofill) addManualChoices();
     if (mode === "undo") {
       const restored = [];
       let kept = 0;

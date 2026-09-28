@@ -1,7 +1,7 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
-import { fillProfessionalAnswers } from "./answer-runner.mjs";
+import { fillProfessionalAnswers, fillSavedDetails } from "./answer-runner.mjs";
 const canDraft = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
   ((field.kind === "text" && questionAssistance(field.label) === "draft") || questionAssistance(field.label) === "qualification");
 
@@ -512,13 +512,17 @@ async function handle(type, sender, message = {}) {
       void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
     };
     await publish((scan.fields || []).map(field => ({ ...field, queued: field.state === "needed" })), "Reading your saved profile...");
-    const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
-      .map(field => field.label))].slice(0, 40) : scan.questions;
-    const plan = await api("autofill-plan", {
-      url: scan.url, questions, history: scan.historyAvailable === true, employmentCountry: scan.employmentCountry,
-    }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
-    const written = await inspect(target, ["autofill", plan, scan.url]);
+    const savedDetails = await fillSavedDetails({ scan,
+      getPlan: current => api("autofill-plan", {
+        url: scan.url, questions: current.questions, history: current.historyAvailable === true,
+        employmentCountry: current.employmentCountry, employmentLocation: current.employmentLocation,
+      }, connection.token),
+      inspect: async (mode, payload = {}) => (await inspect(target, [mode, payload, scan.url])).result,
+      progress: (fields, message) => publish(fields, message),
+    });
+    const { plan } = savedDetails;
+    const written = { result: savedDetails.result };
     await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
     if (written.result.historySaved) note += ` ${written.result.historySaved} work/education records saved.`;
