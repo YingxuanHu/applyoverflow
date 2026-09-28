@@ -556,7 +556,7 @@ async function handle(type, sender, message = {}) {
           maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token),
         progress: (fields, message) => publish(fields, message),
       });
-      response.message = report({ ...final.result, fields: response.fields }, note).message;
+      response.message = `Autofill complete.${note} Nothing submitted.`;
     } catch (error) {
       response.fields = (autofillProgress?.fields || response.fields).map(field => ({ ...field, queued: false, processing: false }));
       response.message = `Some fields were filled. ${error.message || "Autofill stopped; check the form."}`;

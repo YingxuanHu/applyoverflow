@@ -206,7 +206,7 @@ export function installIndicator(buildId, renderQuestions) {
           : result.questions.length
             ? "Fill answers from your profile."
             : "";
-    view.summary.hidden = !view.summary.textContent;
+    view.summary.hidden = !view.summary.textContent || remaining.length > 0;
     view.connect.hidden = connection;
     view.fill.hidden = !connection || !(result.available || result.questions.length || result.historyAvailable || result.resumeAvailable);
     view.resume.hidden = !connection || !(result.resumeAvailable || result.resumeDetected);

@@ -51,7 +51,7 @@ try {
   const form = await context.newPage(); await form.goto(url);
   await form.getByRole("button", { name: "Autofill available" }).click();
   await form.getByRole("button", { name: "Autofill", exact: true }).click();
-  await form.getByRole("status").filter({ hasText: /filled/ }).waitFor();
+  await form.waitForFunction(() => document.querySelector('#first_name').value === "Jordan");
   assert.equal(await form.locator("#email").inputValue(), process.env.ASSISTANT_TEST_EMAIL);
   assert.equal(await form.locator("#first_name").inputValue(), "Jordan");
   const assistant = form.locator("#applyoverflow-assistant");
