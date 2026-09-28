@@ -17,7 +17,7 @@ try {
   let html;
   await page.route("**/*", route => route.fulfill({ contentType: "text/html", body: html }));
   const load = async (body, url = "https://careers.fixture.example/jobs/123/apply") => {
-    html = body;
+    html = `<meta charset="utf-8">${body}`;
     await page.goto(url);
     await page.evaluate(code => { window.inspect = (0, eval)(code); }, source);
   };
@@ -69,6 +69,72 @@ try {
   assert.match((await inspect()).error, /application form/);
   console.log("PASS form-less employer container; newsletter is not an application");
 
+  const bobUrl = "https://fixture.careers.hibob.com/jobs/00000000-0000-4000-8000-000000000000/apply";
+  const bobForm = `<careers-ui-job-ad-application-form>${base}${field("Country", 'value="Canada"')}</form></careers-ui-job-ad-application-form>`;
+  for (const [place, expected] of [["Toronto, Canada, Canada", "CA"], ["Boston, United States", "US"],
+    ["Toronto, Canada or United States", undefined], ["Toronto, Canada; London, United Kingdom", undefined],
+    ["Canada", "CA"], ["Toronto", undefined], ["Toronto, CA", undefined], ["US / Canada", undefined]]) {
+    await load(`<careers-ui-job-ad-header><div class="job-ad-subtitle">${place} \u00b7 Permanent Employee \u00b7 Hybrid</div></careers-ui-job-ad-header>${bobForm}`, bobUrl);
+    assert.equal((await inspect()).employmentCountry, expected, place);
+  }
+  await load(bobForm, bobUrl);
+  assert.equal((await inspect()).employmentCountry, undefined, "applicant country is not job country");
+  await load(`<careers-ui-job-ad-header><div class="job-ad-subtitle">Canada</div><div class="job-ad-subtitle">United States</div></careers-ui-job-ad-header>${bobForm}`, bobUrl);
+  assert.equal((await inspect()).employmentCountry, undefined, "ambiguous posting headers stay manual");
+  console.log("PASS job-country context excludes applicant location and multi-country postings");
+
+  const bobChoice = (id, label) => `<b-single-select><label id="label-${id}" for="${id}">${label}</label>
+    <div role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" aria-labelledby="label-${id}" id="${id}"></div></b-single-select>`;
+  const bobChoices = `<style>b-single-select,[role=button]{display:block;min-height:24px}</style>${bobForm.replace('</form>',
+    bobChoice('source', 'How did you learn about this job opening?') + bobChoice('auth', 'Are you legally authorized to work in Canada?') + '</form>')}
+    <script>
+    window.searches=[];window.submits=0;document.querySelector('form').onsubmit=e=>{e.preventDefault();window.submits++};
+    for (const id of ['source','auth']) {
+      const field=document.getElementById(id);
+      const close=()=>{document.querySelector('.cdk-overlay-pane')?.remove();field.setAttribute('aria-expanded','false')};
+      field.onkeydown=e=>{if(e.key==='Escape')close()};
+      field.onclick=()=>{
+        if(field.getAttribute('aria-expanded')==='true'){close();return;}
+        const pane=document.createElement('div');pane.className='cdk-overlay-pane';
+        pane.innerHTML='<input type="search" aria-controls="list__'+id+'"><div role="tree" id="list__'+id+'" aria-labelledby="label-'+id+'"></div>';
+        document.body.append(pane);field.setAttribute('aria-expanded','true');
+        const list=pane.querySelector('[role=tree]'),search=pane.querySelector('input');
+        const render=values=>list.replaceChildren(...values.map(value=>{const option=document.createElement('div');option.role='treeitem';option.textContent=value;option.onclick=()=>{field.textContent=value;close()};return option}));
+        render(id==='source'?['LinkedIn']:['Yes','No']);
+        search.oninput=()=>{window.searches.push({id,value:search.value});list.replaceChildren();setTimeout(()=>render((id==='source'?['LinkedIn','Other']:['Yes','No']).filter(value=>value.toLowerCase().includes(search.value.toLowerCase()))),120)};
+      };
+    }
+    </script>`;
+  for (const sourceValue of ['ApplyOverflow', 'Not offered']) {
+    await load(bobChoices, bobUrl);
+    const answers = [{label:'How did you learn about this job opening?',answer:sourceValue,answerKey:'jobSource',alternatives:sourceValue==='ApplyOverflow'?['Other']:[]},
+      {label:'Are you legally authorized to work in Canada?',answer:'No',answerKey:'authorizedCA'}];
+    await inspect('autofill', {contact:{},commonAnswers:answers});
+    assert.equal(await page.locator('#auth').textContent(), 'No', 'unmatched previous choices cannot block the next answer');
+    assert.equal(await page.locator('#source').textContent(), sourceValue==='ApplyOverflow'?'Other':'');
+    assert.equal(await page.evaluate(()=>window.searches.some(search=>search.id==='auth')), false, 'do not filter an already available Yes/No option');
+    assert.equal(await page.evaluate(()=>window.submits), 0);
+    await inspect('autofill', {contact:{},commonAnswers:answers.map(answer=>answer.answerKey==='authorizedCA'?{...answer,answer:'Yes'}:answer)});
+    assert.equal(await page.locator('#auth').textContent(), 'No', 'never overwrite a selected answer');
+  }
+  console.log('PASS virtualized HiBob alternatives, asynchronous search, following Yes/No selection and preservation');
+
+  const salaryPlan = {contact:{},commonAnswers:[
+    {label:'Desired salary (amount)',answer:'80000',answerKey:'desiredPayAmount',dependsOn:{answerKey:'desiredPayCurrency',answer:'USD $'}},
+    {label:'Desired salary (currency)',answer:'USD $',answerKey:'desiredPayCurrency'}]};
+  for (const currency of ['USD $','CAD $']) {
+    await load(bobForm.replace('</form>', `<b-currency-value-select required><label>Desired salary</label>
+      <input id="amount" role="spinbutton" type="tel" required><b-single-select><div role="button" aria-haspopup="true" aria-labelledby="currency-label">${currency}</div></b-single-select></b-currency-value-select>
+      <script>document.getElementById('amount').oninput=e=>{if(e.target.value==='80000')e.target.value='80,000'}</script></form>`), bobUrl);
+    const filled = await inspect('autofill',salaryPlan);
+    assert.equal(await page.locator('#amount').inputValue(), currency==='USD $'?'80,000':'');
+    const amount = filled.fields.find(f=>f.label==='Desired salary (amount)');
+    assert.equal(amount.state,currency==='USD $'?'filled':'needed');
+    assert.equal(amount.required,true);
+    assert.equal(filled.fields.find(f=>f.label==='Desired salary (currency)').state,'kept');
+  }
+  console.log('PASS salary amount detection, formatted readback and existing currency protection');
+
   await load(`${base}<label>Tell us about a project (maximum 8 words)<textarea maxlength="70"></textarea></label><label>Date available<input placeholder="dd-mm-yyyy"></label></form>`);
   let report = await inspect("autofill", { contact });
   const question = report.fields.find(f => f.label.startsWith("Tell us"));
@@ -117,6 +183,7 @@ try {
       { kind: "education", entry: { school: "Fixture University", degree: "Bachelor of Science", fieldOfStudy: "Computer Science", dates: { start: "2016-09-01", end: "2020-06-01", current: false } } },
     ];
     const before = await scan();
+    assert.equal(before.employmentCountry, "CA");
     assert.equal(before.manualResume, true, "detached upload button reports manual attachment");
     console.log("HiBob detected:", before.fields?.map(f => ({ label: f.label, key: f.profileKey, kind: f.kind })), before.error);
     const result = await scan("autofill", { contact, history, skills: ["Python", "TypeScript"] });

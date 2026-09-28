@@ -62,6 +62,31 @@ export function readHistoryDates(
   return parsed.success ? parsed.data : undefined;
 }
 
+// Read-only extension projection. Keep legacy profile text unchanged and use
+// only explicit, unambiguous endpoints at their original precision.
+export function autofillHistoryDates(entry: ProfileHistory): ProfileHistoryDates | undefined {
+  if (entry.dates) return readHistoryDates(entry.dates);
+  const parts = entry.time.trim().split(/\s+(?:-|--|to)\s+|\s*[\u2013\u2014]\s*/i);
+  if (parts.length !== 2) return;
+  const parse = (value: string) => {
+    if (/^(?:19|20|21)\d{2}(?:-\d{2}(?:-\d{2})?)?$/.test(value)) return value;
+    const match = /^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.? (?:(\d{1,2}),? )?((?:19|20|21)\d{2})$/i.exec(value);
+    if (!match) return;
+    const month = HISTORY_MONTHS.findIndex(name => name.toLowerCase() === match[1].slice(0, 3).toLowerCase()) + 1;
+    return `${match[3]}-${String(month).padStart(2, "0")}${match[2] ? `-${match[2].padStart(2, "0")}` : ""}`;
+  };
+  let start = parse(parts[0]);
+  const current = /^(?:present|current|now)$/i.test(parts[1]);
+  const end = current ? "" : parse(parts[1]);
+  if (!start && end && end.length === 7) {
+    const sharedYear = parse(`${parts[0]} ${end.slice(0, 4)}`);
+    // "Jan - Aug 2025" has one shared year; "Nov - Feb 2025" is
+    // ambiguous and must not silently become a previous-year start.
+    if (sharedYear?.length === 7 && sharedYear <= end) start = sharedYear;
+  }
+  return start && end !== undefined ? readHistoryDates({ start, end, current }) : undefined;
+}
+
 export function formatHistoryDates(dates: ProfileHistoryDates): string {
   const label = (part: string) =>
     part.length >= 7

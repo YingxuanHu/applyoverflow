@@ -8,7 +8,7 @@ import { isLocalDevelopmentDatabaseUrl } from "../../src/lib/local-development-a
 import { getAutofillPlan } from "../../src/lib/queries/extension-autofill";
 
 type Field = { id: string; label: string; profileKey?: string; kind: string; state: string; canAnswer: boolean; reason: string; options?: string[] };
-type Report = { error?: string; fields: Field[]; historyAvailable?: boolean; historyFilled?: number; url: string };
+type Report = { error?: string; fields: Field[]; historyAvailable?: boolean; historyFilled?: number; employmentCountry?: "CA" | "US"; url: string };
 
 async function main() {
   assert.ok(isLocalDevelopmentDatabaseUrl(process.env.DATABASE_URL), "Disposable local database required");
@@ -23,8 +23,8 @@ async function main() {
       applicationAnswers: { enabled: true, values: { gender: "Prefer not to answer", ethnicity: "Prefer not to answer", hispanicLatino: "Prefer not to answer", veteran: "I don't wish to answer", disability: "I do not want to answer", transgender: "Prefer not to answer", sexualOrientation: "Prefer not to answer", limitingDisability: "Prefer not to answer", physicalDisability: "Prefer not to answer", veteranOrActiveUS: "Prefer not to answer", over18: "Yes", authorizedUS: "Yes", authorizedCA: "No", sponsorshipUS: "No", sponsorshipCA: "Yes", usPerson: "Yes", smsUpdates: "No", jobSource: "ApplyOverflow", startDate: "2026-10-15", availability: "Monday through Friday, 9am to 5pm", desiredPay: "USD 80,000 per year", partTimeReason: "I am seeking a reduced schedule while studying.", partTimeDuration: "One year" },
         employers: urls.map(url => ({ url, employeeRelationship: "No", referral: "No", previousEmployment: "No" })) } },
     skillsJson: [{ name: "Python" }, { name: "SQL" }],
-    experiencesJson: [{ title: "Analyst", company: "Synthetic Fixture", description: "Built reporting tools.", dates: { start: "2020-01-02", end: "2023-04-05", current: false } }],
-    educationsJson: [{ school: "Fixture University", degree: "BSc", fieldOfStudy: "Computer Science", dates: { start: "2016-09-01", end: "2020-06-01", current: false } }],
+    experiencesJson: [{ title: "Analyst", company: "Synthetic Fixture", description: "Built reporting tools.", time: "Jan 2, 2020 - Apr 5, 2023" }],
+    educationsJson: [{ school: "Fixture University", degree: "Bachelor of Computer Science & BBA (Finance)", fieldOfStudy: "Computer Science", time: "Sep 1, 2016 - Jun 1, 2020" }],
   } } } });
   const source = execFileSync(process.execPath, ["--input-type=module", "-e", `
     import {createInspector} from './extensions/chrome/adapter.mjs';
@@ -64,18 +64,36 @@ async function main() {
         const before = await scan();
         assert.equal(before.error, undefined, `${url}: ${before.error}`);
         const questions = before.fields.filter(f => !f.profileKey && f.canAnswer && f.state === "needed").map(f => f.label).slice(0, 40);
-        const plan = await getAutofillPlan(user.id, { url: page.url(), questions, history: before.historyAvailable === true });
+        const plan = await getAutofillPlan(user.id, { url: page.url(), questions, history: before.historyAvailable === true, employmentCountry: before.employmentCountry });
         const start = Date.now();
         const result = await scan("autofill", plan);
-        const domValues = await page.locator("input,textarea,select").evaluateAll(nodes => nodes.filter(node => node.getClientRects().length && node.getAttribute("aria-hidden") !== "true").map(node => {
+        const domValues = await page.locator('input,textarea,select,b-single-select > [role="button"]').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length && node.getAttribute("aria-hidden") !== "true").map(node => {
           const input = node as HTMLInputElement;
-          return { label: input.labels?.[0]?.textContent?.trim() || input.getAttribute("aria-label"), value: input.closest('.select__value-container')?.querySelector('.select__single-value')?.textContent || input.value };
+          const label = input.labels?.[0]?.textContent?.trim() || (input.getAttribute("aria-labelledby") || "").split(/\s+/).map(id => document.getElementById(id)?.textContent).filter(Boolean).join(" ") || input.getAttribute("aria-label");
+          return { label, value: input.closest('.select__value-container')?.querySelector('.select__single-value')?.textContent ||
+            (input instanceof HTMLSelectElement ? input.selectedOptions[0]?.textContent : input.matches('b-single-select > [role="button"]') ? input.textContent?.trim() : input.value) };
         }));
         const filled = result.fields.filter(f => f.state === "filled");
         await writeFile(`output/playwright/coverage/${index + 1}-fields.json`, JSON.stringify({ plan, fields: result.fields, domValues }, null, 2));
         for (const answer of plan.commonAnswers) {
           const field = result.fields.find(f => f.label === answer.label);
-          if (field?.state !== "filled") console.log("UNFILLED SAVED ANSWER", new URL(url).pathname, answer.answerKey, field?.reason);
+          if (field?.state !== "filled") {
+            const choices = field?.kind === "combobox" ? (await scan("autofill-options", { id: field.id, label: field.label })).fields.find(f => f.id === field.id)?.options : field?.options;
+            console.log("UNFILLED SAVED ANSWER", new URL(url).pathname, answer.answerKey, field?.reason, choices);
+          }
+        }
+        if (url.includes("careers.hibob.com")) {
+          assert.equal(before.employmentCountry, "CA");
+          for (const key of ["jobSource", "authorizedCA", "sponsorshipCA"]) {
+            const answer = plan.commonAnswers.find(a => a.answerKey === key);
+            assert.ok(answer, `HiBob plan: ${key}`);
+            const actual = domValues.find(row => row.label?.trim() === answer.label.trim());
+            assert.equal(actual?.value, key === "jobSource" ? "Other" : answer.answer, `HiBob actual visible selection: ${key}`);
+            assert.equal(result.fields.find(f => f.label === answer.label)?.state, "filled");
+          }
+          assert.equal(await page.locator('b-currency-value-select input').inputValue(), "80,000");
+          assert.equal((await page.locator('b-currency-value-select b-single-select > [role="button"]').innerText()).trim(), "USD $");
+          assert.equal(result.fields.find(f=>f.label==='Desired salary (amount)')?.state, "filled");
         }
         if (url.includes("missionlane")) {
           for (const key of ["givenName", "familyName", "email", "phone", "phoneCountry", "professionalUrl", "region"])

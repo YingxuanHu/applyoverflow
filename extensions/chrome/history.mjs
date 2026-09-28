@@ -58,6 +58,19 @@ export function createHistoryInspector() {
     "currently employed here": "current",
     "currently studying here": "current",
   };
+  const degreeAlternatives = (value) => {
+    const text = normalize(value).replace(/[\u2018\u2019]/g, "'");
+    const short = text.replace(/[.\s]/g, "");
+    const bachelor = /^(?:bachelor(?:'s)?(?: of| degree|$))/.test(text) || /^(bsc|bs|ba|beng|bba|bcom|bcs)$/.test(short);
+    const master = /^master(?:'s)?(?: of| degree|$)/.test(text) || /^(msc|ms|ma|meng|mba)$/.test(short);
+    const doctorate = /^doctor(?:ate| of philosophy)(?:\b|$)/.test(text) || short === "phd";
+    // Full program names can map down to their explicit qualification level,
+    // never across subjects or from mixed-level credentials to a higher degree.
+    if (bachelor && !/\bmaster|\bdoctor|\bphd/.test(text)) return ["Bachelor's Degree", "Bachelor's degree", "Bachelors", "Bachelor", "Bachelor Degree"];
+    if (master && !/\bbachelor|\bdoctor|\bphd/.test(text)) return ["Master's Degree", "Masters", "Master", ...(short === "mba" ? ["Master of Business Administration (M.B.A.)"] : [])];
+    if (doctorate && !/\bbachelor|\bmaster/.test(text)) return ["Doctor of Philosophy (Ph.D.)", "Doctorate", "Doctoral Degree", "PhD"];
+    return [];
+  };
   const setter = (field, value) => {
     const proto =
       field instanceof HTMLTextAreaElement
@@ -392,7 +405,7 @@ export function createHistoryInspector() {
         }
       }
       if (field instanceof HTMLSelectElement) {
-        const matches = [...field.options].filter(
+        let matches = [...field.options].filter(
           (option) =>
             !option.disabled &&
             option.value &&
@@ -405,6 +418,10 @@ export function createHistoryInspector() {
                 ].includes(normalize(option.text))
               : normalize(option.text) === normalize(value)),
         );
+        if (!matches.length && key === "degree") {
+          const alternatives = degreeAlternatives(value).map(normalize);
+          matches = [...field.options].filter(option => !option.disabled && option.value && alternatives.includes(normalize(option.text)));
+        }
         if (matches.length !== 1) {
           skipped++;
           continue;
@@ -444,9 +461,7 @@ export function createHistoryInspector() {
         const safe = () => location.href === atUrl && field.isConnected &&
           target.group.contains(field) && !read(field).trim() && !entry.edited;
         if (/Month$/.test(key)) value = months[Number(value) - 1] || value;
-        // Exact common degree aliases, never choose a higher qualification.
-        const degreeAlias = { bsc: "Bachelor's Degree", bs: "Bachelor's Degree", ba: "Bachelor's Degree", beng: "Bachelor's Degree", msc: "Master's Degree", ms: "Master's Degree", ma: "Master's Degree", mba: "Master of Business Administration (M.B.A.)", phd: "Doctor of Philosophy (Ph.D.)" };
-        const selected = await choose(field, value, safe, visible, undefined, key === "degree" && degreeAlias[normalize(value)] ? [degreeAlias[normalize(value)]] : []);
+        const selected = await choose(field, value, safe, visible, undefined, key === "degree" ? degreeAlternatives(value) : []);
         if (!selected) { skipped++; continue; }
         value = selected.value;
         entry.custom = true;

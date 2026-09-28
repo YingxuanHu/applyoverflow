@@ -53,6 +53,7 @@ export function createAutofillInspector() {
     const canonical = value => {
       const text = norm(value);
       if (key === "phone") return text.replace(/[^\d+]/g, "");
+      if (key === "desiredPayAmount" && /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return String(Number(text.replaceAll(",", "")));
       const countryText = key === "phoneCountry" ? text.replace(/\s*\(?\+1\)?\s*$/, "").trim() : text;
       return ["country", "phoneCountry"].includes(key) ? ({ ca: "canada", us: "united states", usa: "united states", "united states of america": "united states" })[countryText] || countryText :
         key === "region" ? aliases[text] || text : text;
@@ -140,12 +141,14 @@ export function createAutofillInspector() {
       const charLimit = limitText.match(/(?:max(?:imum)?(?: of)?|up to|limit(?: of|:)?|no more than)\s*(\d{1,5})\s*characters?\b/i)?.[1];
       const maxLength = Math.min(3000, field.maxLength >= 0 ? field.maxLength : 3000, Number(charLimit) || 3000);
       const maxWords = wordLimit ? Math.min(1000, Number(wordLimit)) : undefined;
+      const required = field.required || field.getAttribute("aria-required") === "true" ||
+        (field.matches('b-single-select > [role="button"]') && field.parentElement.hasAttribute("required")) || Boolean(field.closest('b-currency-value-select[required]'));
       const item = { ...entry, id, field, label, profileKey: key, manual, options, maxLength, maxWords,
         canRemember: !manual && !["fullAddress", "professionalUrl", "skills"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         profileLabel: profileGuidance.get(norm(label))?.profileLabel,
-        notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !field.required && field.getAttribute("aria-required") !== "true",
+        notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !required,
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
-        required: field.required || field.getAttribute("aria-required") === "true",
+        required,
         kind: radio ? "radio" : select ? "select" : widget ? "combobox" : "text",
         reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
           manual ? "Review this field on the employer form." : issues.get(field)?.label === label ? issues.get(field).reason : profileGuidance.get(norm(label))?.reason || "",
@@ -209,19 +212,22 @@ export function createAutofillInspector() {
           .filter(node => node.matches('[role="listbox"],[role="tree"]') && visible(node) &&
             (!bob || node.getAttribute("aria-labelledby") === field.getAttribute("aria-labelledby")));
         const list = lists.length === 1 ? lists[0] : null;
-        if (list && bob && search && !searched) {
-          const searchBox = list.closest('.cdk-overlay-pane')?.querySelector('input[type="search"][aria-controls]');
-          if (searchBox?.getAttribute("aria-controls") === list.id) {
-            setValue(searchBox, search);
-            searchBox.dispatchEvent(new KeyboardEvent("keyup", { key: search.at(-1), bubbles: true }));
-            searched = true; await delay(100);
-          }
-        }
         // One explicit saved choice is also safe in an empty multi-select.
         // Existing chips are read above, so we never add to a user's selection.
         options = list ?
           [...list.querySelectorAll('[role="option"],[role="treeitem"]')].filter(option => visible(option) &&
             option.closest('[role="listbox"],[role="tree"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
+        if (list && bob && search && !searched) {
+          // A short Yes/No list is already complete. Searching it can remove
+          // the live options during Angular's asynchronous filter update.
+          if (options.some(option => norm(option.textContent) === norm(search))) break;
+          const searchBox = list.closest('.cdk-overlay-pane')?.querySelector('input[type="search"][aria-controls]');
+          if (searchBox?.getAttribute("aria-controls") === list.id) {
+            setValue(searchBox, search);
+            searchBox.dispatchEvent(new KeyboardEvent("keyup", { key: search.at(-1), bubbles: true }));
+            searched = true; await delay(100); continue;
+          }
+        }
         if (options.length && (!search || options.some(option => norm(option.textContent).includes(norm(search))))) break;
         await delay(25);
       }
@@ -285,9 +291,19 @@ export function createAutofillInspector() {
         field.addEventListener("input", onEdit);
         const bobSearch = field.matches('b-single-select > [role="button"]') ?
           (["country", "phoneCountry"].includes(item.profileKey) ? ({ CA: "Canada", US: "United States" })[value] || value : value) : "";
-        const options = await loadOptions(item, true, citySearch ? value : bobSearch);
+        let options = await loadOptions(item, true, citySearch ? value : bobSearch);
+        let matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
+        if (bobSearch && !matches.length && saved?.answer === value) {
+          // Virtualized lists may not render "Other" until searched. Use only
+          // server-approved equivalents, not a nearest-looking option.
+          for (const alternative of (saved.alternatives || []).slice(0, 2)) {
+            if (!safe(item) || edited || read(field) !== before || performance.now() > deadline) break;
+            options = await loadOptions(item, true, alternative);
+            matches = matchingOptions(options);
+            if (matches.length) break;
+          }
+        }
         field.removeEventListener("input", onEdit);
-        const matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
         if (!safe(item) || edited || read(field) !== (citySearch ? value : before) || matches.length !== 1) {
           if (safe(item) && !edited && citySearch && read(field) === value) setValue(field, before);
           if (safe(item) && !edited && !expanded) closeOptions(field);
@@ -300,13 +316,14 @@ export function createAutofillInspector() {
       } else setValue(field, value);
       await delay(35);
       const valid = safe(item) && Boolean(readItem(item).trim()) &&
-        (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey)) && field.validity?.valid !== false;
+        (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && field.validity?.valid !== false;
       if (!valid) {
         if (safe(item) && item.kind === "text" && read(field) === value) setValue(field, before);
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
       }
       completed.set(field, { label: item.label, value: readItem(item) });
       issues.delete(field);
+      item.reason = "";
       if (!["combobox", "radio"].includes(item.kind)) {
         const record = { ...item, before: originalValue, value: read(field), edited: false };
         record.onEdit = event => { if (event.isTrusted) record.edited = true; };

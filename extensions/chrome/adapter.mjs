@@ -37,6 +37,20 @@ export function createInspector(resolveContext, history, autofill) {
       /^\/[a-z0-9_-]+\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
     const hibob = /\.careers\.hibob\.com$/.test(location.hostname) &&
       /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
+    // Bind country-relative eligibility questions to the posting, never the
+    // applicant address or arbitrary text elsewhere on the page.
+    let employmentCountry;
+    if (hibob) {
+      const locations = [...document.querySelectorAll('careers-ui-job-ad-header .job-ad-subtitle')];
+      if (locations.length === 1) {
+        const place = locations[0].textContent.trim().split("\u00b7")[0].trim();
+        const parts = place.split(",").map(part => part.trim().toLowerCase());
+        const country = { canada: "CA", "united states": "US", "united states of america": "US", usa: "US", us: "US" }[parts.at(-1)];
+        if (country && !/\b(?:or|and|uk|united kingdom|mexico)\b|[;/]/i.test(place) &&
+            !(country === "CA" && /\bunited states\b|\busa?\b/i.test(place)) &&
+            !(country === "US" && /\bcanada\b/i.test(place))) employmentCountry = country;
+      }
+    }
     const aliases = {
       "first name": "givenName",
       "given name": "givenName",
@@ -134,6 +148,13 @@ export function createInspector(resolveContext, history, autofill) {
     const valueControls =
       'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
     const labelFor = (element) => {
+      const salary = hibob && element.closest('b-currency-value-select');
+      if (salary && salary.querySelectorAll('input').length === 1 &&
+          salary.querySelectorAll('b-single-select > [role="button"]').length === 1 &&
+          normalize(salary.querySelector('label')?.textContent || "") === "desired salary") {
+        if (element.matches('input')) return "Desired salary (amount)";
+        if (element.matches('b-single-select > [role="button"]')) return "Desired salary (currency)";
+      }
       if (context.provider === "lever" && !["radio", "checkbox"].includes(element.type)) {
         const question = element.closest('.application-question');
         const headings = question?.querySelectorAll('.application-label');
@@ -613,6 +634,7 @@ export function createInspector(resolveContext, history, autofill) {
       /(?:ai|artificial intelligence|chatgpt)[- ]?(?:generated|written)?[\s\S]{0,180}(?:disqualif|not (?:permitted|allowed)|prohibited)|(?:do not|must not|cannot|may not) use[\s\S]{0,100}(?:artificial intelligence|chatgpt|\bAI\b)/i.test(node.textContent || ""));
     const result = {
       aiRestricted,
+      employmentCountry,
       url: location.href,
       title: (
         (context.provider === "workday" &&

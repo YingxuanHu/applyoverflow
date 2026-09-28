@@ -3,6 +3,7 @@ import { captureSchema, questionKey, questionKind, type AnswerLibrary } from "@/
 
 export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
   history: z.boolean().default(false),
+  employmentCountry: z.enum(["CA", "US"]).optional(),
 });
 export const autofillProfileFields = {
   givenName: 100, familyName: 100, fullName: 200, preferredName: 100,

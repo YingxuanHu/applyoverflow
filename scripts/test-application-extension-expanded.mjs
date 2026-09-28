@@ -306,6 +306,22 @@ try {
       assert.equal(await page.locator("#degree").textContent(), "Bachelor of Science", "No unsupported clear operation is attempted");
     }
   }
+  for (const widget of ["native", "custom"]) {
+    for (const [savedDegree, expected] of [["Bachelor of Computer Science & BBA (Finance)", "Bachelor's Degree"],
+      ["Bachelor of Science", "Bachelor's Degree"], ["B.Sc.", "Bachelor's Degree"],
+      ["Master of Computer Science", "Master's Degree"], ["BA / Master of Science", ""], ["Associate degree", ""]]) {
+      const controls = widget === "native" ? education : customEducation;
+      await load("generic", controls);
+      await page.locator(widget === "native" ? "#degree" : "#degrees").evaluate((list, native) => {
+        list.innerHTML = native
+          ? `<option value="">Select One</option><option value="bachelor">Bachelor's Degree</option><option value="master">Master's Degree</option>`
+          : `<div role="option" data-value="">Select One</div><div role="option" data-value="bachelor">Bachelor's Degree</div><div role="option" data-value="master">Master's Degree</div>`;
+      }, widget === "native");
+      await inspect("fill-history", { kind: "education", entry: { school: "Fixture University", degree: savedDegree } });
+      const actual = await page.locator("#degree").evaluate(field => field instanceof HTMLSelectElement ? field.selectedOptions[0].textContent : field.textContent);
+      assert.equal(actual, expected || "Select One", `${widget}: ${savedDegree}`);
+    }
+  }
   await load("generic", customEducation);
   await page.locator("#education").evaluate((group) => group.insertAdjacentHTML("beforeend", '<label>Field of study<button type="button" aria-haspopup="listbox" value="existing">Already selected</button></label>'));
   assert.match((await inspect("fill-history", degreePayload)).error, /empty work/);

@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import { applicationAnswerFields, applicationAnswerKey, applicationAnswerPlan, commonApplicationAnswers, normalizeApplicationAnswers, profileApplicationAnswersSchema } from "../src/lib/profile-application-answers";
 import { normalizeContact } from "../src/lib/profile";
 
+test("posting-relative eligibility uses a single known job country, not applicant residence", () => {
+  const labels = ["Are you legally authorized to work in the country of employment for this position?",
+    "Will you require visa sponsorship now or in future to work where this role is based?"];
+  const saved = { enabled: true, values: { authorizedCA: "Yes", authorizedUS: "No", sponsorshipCA: "No", sponsorshipUS: "Yes" } };
+  assert.deepEqual(applicationAnswerPlan(saved, labels).answers, []);
+  assert.deepEqual(applicationAnswerPlan(saved, labels, undefined, "CA").answers.map(a => a.answer), ["Yes", "No"]);
+  assert.deepEqual(applicationAnswerPlan(saved, labels, undefined, "US").answers.map(a => a.answer), ["No", "Yes"]);
+  for (const label of ["Are you authorized to work here?", "Are you authorized to work in the country of employment without sponsorship?", "Are you legally authorized to work in Canada and the country of employment?", "I certify that I am authorized to work in the country of employment"])
+    assert.equal(applicationAnswerKey(label, "US"), undefined, label);
+  assert.equal(applicationAnswerKey("Are you legally authorized to work in the United States?", "CA"), "authorizedUS");
+  assert.equal(applicationAnswerPlan({ ...saved, enabled: false }, labels, undefined, "CA").answers.length, 0);
+  assert.equal(applicationAnswerPlan({ enabled: true, values: { authorizedUS: "Yes" } }, labels, undefined, "CA").answers.length, 0);
+});
+
 test("voluntary application answers require explicit opt-in and valid per-field values", () => {
   const values = { gender: "Woman", authorizedCA: "No", over18: "Yes" };
   assert.deepEqual(commonApplicationAnswers({ enabled: false, values }, ["Gender identity"]), []);
@@ -11,6 +25,20 @@ test("voluntary application answers require explicit opt-in and valid per-field 
   assert.equal(profileApplicationAnswersSchema.safeParse({ enabled: true, values: { ssn: "secret" } }).success, false);
   assert.equal(normalizeContact({ applicationAnswers: { enabled: true, values } }).applicationAnswers?.values.authorizedCA, "No");
   assert.deepEqual(commonApplicationAnswers({ enabled: true, values }, ["Are you legally authorized to work in Canada?"]), [{ label: "Are you legally authorized to work in Canada?", answer: "No" }]);
+});
+
+test("split salary widgets require explicit annual amount and currency, without conversion", () => {
+  const labels = ["Desired salary (amount)", "Desired salary (currency)"];
+  for (const desiredPay of ["USD 80,000 per year", "CAD 95000/year", "CAD 100000.50 annually"]) {
+    const plan = applicationAnswerPlan({enabled:true,values:{desiredPay}}, labels);
+    assert.equal(plan.answers.length, 2);
+    assert.equal(plan.answers[0].answer, desiredPay.match(/[\d,.]+/)![0].replaceAll(",", ""));
+    assert.equal(plan.answers[1].answer, `${desiredPay.slice(0,3)} $`);
+    assert.deepEqual(plan.answers[0].dependsOn, {answerKey:"desiredPayCurrency",answer:plan.answers[1].answer});
+  }
+  for (const desiredPay of ["USD 25 per hour", "$80000", "80000", "USD 80000", "USD 70,000-90,000 per year", "USD 80,00 per year", "Negotiable"])
+    assert.equal(applicationAnswerPlan({enabled:true,values:{desiredPay}},labels).answers.length, 0, desiredPay);
+  assert.equal(applicationAnswerPlan({enabled:false,values:{desiredPay:"USD 80000 per year"}},labels).answers.length, 0);
 });
 
 test("Mission Lane questions map to explicit scoped facts, not guessed citizenship or relationships", () => {

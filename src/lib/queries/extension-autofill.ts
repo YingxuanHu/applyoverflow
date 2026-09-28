@@ -6,6 +6,7 @@ import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusab
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import { applicationAnswerPlan } from "@/lib/profile-application-answers";
+import { autofillHistoryDates } from "@/lib/profile-history";
 
 export async function getAutofillPlan(userId: string, raw: unknown) {
   const input = autofillPlanSchema.parse(raw);
@@ -31,15 +32,15 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
   fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
-  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url);
+  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
     skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),
     commonAnswers: common.answers, answerDetails: common.details,
     answers: reusableAutofillAnswers(parseAnswerLibrary(profile.preferences[0]?.value), applicationContext(input.url, true)!.companyKey, revision, input.questions),
     history: input.history ? [
-      ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry })),
-      ...normalizeEducations(profile.educationsJson).slice(0, 10).map(entry => ({ kind: "education", entry })),
+      ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry: { ...entry, dates: autofillHistoryDates(entry) } })),
+      ...normalizeEducations(profile.educationsJson).slice(0, 10).map(entry => ({ kind: "education", entry: { ...entry, dates: autofillHistoryDates(entry) } })),
     ] : [],
   };
 }

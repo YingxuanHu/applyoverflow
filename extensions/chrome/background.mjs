@@ -515,7 +515,7 @@ async function handle(type, sender, message = {}) {
     const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
       .map(field => field.label))].slice(0, 40) : scan.questions;
     const plan = await api("autofill-plan", {
-      url: scan.url, questions, history: scan.historyAvailable === true,
+      url: scan.url, questions, history: scan.historyAvailable === true, employmentCountry: scan.employmentCountry,
     }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);

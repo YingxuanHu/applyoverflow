@@ -64,8 +64,12 @@ export function normalizeApplicationAnswers(raw: unknown): ProfileApplicationAns
 const cleanQuestion = (label: string) => label.normalize("NFKC").replace(/[\u2018\u2019]/g, "'")
   .replace(/[*:\u2731\u2217]/g, "").replace(/\(optional\)|\(required\)/gi, "").trim().replace(/\s+/g, " ").toLowerCase();
 
-export function applicationAnswerKey(label: string): ApplicationAnswerKey | undefined {
-  const text = cleanQuestion(label);
+export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "US"): ApplicationAnswerKey | undefined {
+  let text = cleanQuestion(label);
+  if (employmentCountry) {
+    const country = employmentCountry === "CA" ? "Canada" : "United States";
+    text = text.replace(/\bthe country of employment(?: for this position)?\b|\bthe country (?:where|in which) (?:this|the) (?:role|position|job) is (?:based|located)\b|\bwhere (?:this|the) (?:role|position|job) is based\b/g, country.toLowerCase());
+  }
   // Compound declarations and attestations are not a synonym for a profile fact.
   if (/certify|attest|signature|agree to|terms|privacy|background check|criminal|convict/.test(text)) return;
   if (/^(?:gender|gender identity|i identify my gender as|what is your gender(?: identity)?\??|which gender do you identify as\??|how (?:do|would) you (?:describe|identify) your gender(?: identity)?\??(?: \(mark all that apply\))?)$/.test(text)) return "gender";
@@ -93,7 +97,7 @@ export function applicationAnswerKey(label: string): ApplicationAnswerKey | unde
     if (/text messages|sms/.test(text) && !/email|e-mail/.test(text)) return "smsUpdates";
     if (/email|e-mail/.test(text) && !/text messages|sms/.test(text)) return "emailUpdates";
   }
-  if (/^how did you (?:initially )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(text)) return "jobSource";
+  if (/^how did you (?:initially )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job(?: opening)?|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(text)) return "jobSource";
   if (/^(?:earliest (?:available )?start date|(?:date |when are you |when would you be )available(?: to start(?: work)?)?|when (?:can|could) you start(?: work)?|availability date)\??$/.test(text)) return "startDate";
   if (/^(?:what (?:weekdays|days)(?: and times| and hours)? are you available(?: to work)?|(?:work |weekly )?availability|available (?:days|hours)(?: and (?:days|hours))?)\??$/.test(text)) return "availability";
   if (/^(?:please (?:indicate|provide) |what are )?(?:your )?(?:desired (?:starting )?(?:pay|salary(?: expectations)?|compensation)|salary expectations)(?:\s*\([^)]*\))?[.!?]?$/.test(text)) return "desiredPay";
@@ -104,7 +108,7 @@ export function applicationAnswerKey(label: string): ApplicationAnswerKey | unde
 
 export type CommonAnswer = { label: string; answer: string; answerKey: string; alternatives?: string[]; dependsOn?: { answerKey: string; answer: string } };
 export type CommonAnswerDetail = { label: string; profileLabel: string; reason: string; answerKey: string; notApplicable?: boolean; dependsOn?: { answerKey: string; answer: string } };
-export function applicationAnswerPlan(raw: unknown, labels: string[], url?: string) {
+export function applicationAnswerPlan(raw: unknown, labels: string[], url?: string, employmentCountry?: "CA" | "US") {
   const saved = normalizeApplicationAnswers(raw);
   const context = url && applicationContext(url, true);
   const employers = saved.employers?.filter(e => e.url && applicationContext(e.url, true)?.companyKey === (context && context.companyKey));
@@ -112,10 +116,18 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
   const answers: CommonAnswer[] = [], details: CommonAnswerDetail[] = [];
   labels.forEach((label, index) => {
     const text = cleanQuestion(label), previous = cleanQuestion(labels[index - 1] || "");
-    let key: string | undefined = applicationAnswerKey(label);
+    let key: string | undefined = applicationAnswerKey(label, employmentCountry);
     let notApplicable = false;
     let answer = key ? saved.values[key as ApplicationAnswerKey] : undefined;
     let profileLabel: string | undefined = [...applicationAnswerFields, ...applicationTextFields].find(f => f.key === key)?.label;
+    if (/^desired salary \((?:amount|currency)\)$/.test(text)) {
+      answer = undefined;
+      const pay = /^(USD|CAD)\s*\$?\s*((?:[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d{1,2})?)\s*(?:\/\s*year|per year|annually|per annum)$/i.exec(saved.values.desiredPay || "");
+      key = text.endsWith("(amount)") ? "desiredPayAmount" : "desiredPayCurrency";
+      profileLabel = "Desired pay with annual amount and currency";
+      if (pay && Number(pay[2].replaceAll(",", "")) <= 1_000_000_000)
+        answer = key === "desiredPayAmount" ? pay[2].replaceAll(",", "") : `${pay[1].toUpperCase()} $`;
+    }
     if (/^if ["']?other\b/.test(text) && applicationAnswerKey(labels[index - 1] || "") === "jobSource") {
       key = "sourceDetails"; profileLabel = "Other job source";
       answer = saved.values.jobSource === "ApplyOverflow" ? "ApplyOverflow" : saved.values.jobSource === "Other" ? saved.values.sourceDetails : undefined;
@@ -150,7 +162,8 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
       key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] : undefined;
     if (saved.enabled && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
-      ...(key === "sourceDetails" ? { dependsOn: { answerKey: "jobSource", answer: "Other" } } : {}) });
+      ...(key === "sourceDetails" ? { dependsOn: { answerKey: "jobSource", answer: "Other" } } :
+        key === "desiredPayAmount" ? { dependsOn: { answerKey: "desiredPayCurrency", answer: `${saved.values.desiredPay!.slice(0, 3).toUpperCase()} $` } } : {}) });
     else if (saved.enabled && notApplicable) details.push({ label, profileLabel, answerKey: key, notApplicable: true,
       dependsOn: { answerKey: key === "relationshipDetails" ? "employeeRelationship" : key === "referralName" ? "referral" : "sponsorshipUS", answer: "No" },
       reason: "Not applicable based on your saved answer. Left blank." });
