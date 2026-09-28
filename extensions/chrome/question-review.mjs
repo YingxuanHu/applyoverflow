@@ -38,11 +38,19 @@ export function createQuestionReview(classify) {
         const control = document.createElement(field.options?.length ? "select" : "textarea");
         control.setAttribute("aria-label", `Answer: ${clean(field.label)}`); control.required = true;
         if (field.options?.length) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
-        else { control.rows = key === "draft" ? 5 : 2; control.maxLength = 3000; }
-        control.value = draft.value; control.addEventListener("input", () => { draft.value = control.value; });
+        else { control.rows = key === "draft" ? 5 : 2; control.maxLength = field.maxLength ?? 3000; }
+        control.value = draft.value;
+        const limits = document.createElement("p"); limits.className = "question-hint";
+        const updateLimits = () => {
+          const words = control.value.trim() ? control.value.trim().split(/\s+/).length : 0;
+          const tooLong = (field.maxWords && words > field.maxWords) || (field.maxLength && control.value.length > field.maxLength);
+          control.setCustomValidity(tooLong ? "Shorten your answer to fit the employer's limit." : "");
+          limits.textContent = [field.maxWords ? `${words}/${field.maxWords} words` : "", field.maxLength < 3000 ? `${control.value.length}/${field.maxLength} characters` : ""].filter(Boolean).join(" · ");
+        };
+        control.addEventListener("input", () => { draft.value = control.value; updateLimits(); }); updateLimits();
         if (key === "draft") {
           const noteLabel = document.createElement("label");
-          noteLabel.textContent = classify(field.label) === "context" ? "What's your reason? A short note is enough." : "Anything to emphasize? (optional)";
+          noteLabel.textContent = classify(field.label) === "context" ? "What's your answer in a few words?" : "Anything to emphasize? (optional)";
           const note = document.createElement("textarea"); note.rows = 2; note.maxLength = 1200; note.value = draft.note;
           note.setAttribute("aria-label", noteLabel.textContent);
           note.addEventListener("input", () => { draft.note = note.value; }); noteLabel.append(note);
@@ -69,7 +77,7 @@ export function createQuestionReview(classify) {
               const result = await run("autofill-suggest", { id: field.id, label: field.label, note: note.value });
               if (result?.suggestion && control.isConnected && control.value === previousValue) {
                 draft.value = result.suggestion.answer; draft.evidence = result.suggestion.evidence; draft.missing = result.suggestion.missing;
-                control.value = draft.value; drawEvidence(); control.focus();
+                control.value = draft.value; updateLimits(); drawEvidence(); control.focus();
               }
             } finally { generate.disabled = false; generate.textContent = "Suggest answer"; }
           });
@@ -77,7 +85,12 @@ export function createQuestionReview(classify) {
         } else if (field.kind === "combobox" && !field.options?.length) {
           form.append(action("Load choices", () => run("autofill-options", { id: field.id, label: field.label })));
         }
-        form.append(control);
+        form.append(control, limits);
+        if (field.suggestedAnswer && !draft.value) {
+          form.append(action(field.suggestionLabel || "Use suggested value", () => {
+            draft.value = field.suggestedAnswer; control.value = draft.value; updateLimits(); control.focus();
+          }));
+        }
         const remember = document.createElement("input"); remember.type = "checkbox";
         if (field.profileKey && field.canRemember) {
           const label = document.createElement("label"); label.className = "remember-answer remember";

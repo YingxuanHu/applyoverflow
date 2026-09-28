@@ -242,6 +242,7 @@ function normalizeEducationsSnapshot(educations: ProfileEducation[]) {
     .map((entry) => ({
       school: trimmed(entry.school),
       degree: trimmed(entry.degree),
+      fieldOfStudy: trimmed(entry.fieldOfStudy ?? ""),
       time: trimmed(entry.time),
       dates: entry.dates,
       location: trimmed(entry.location),
@@ -251,6 +252,7 @@ function normalizeEducationsSnapshot(educations: ProfileEducation[]) {
       (entry) =>
         entry.school.length > 0 ||
         entry.degree.length > 0 ||
+        entry.fieldOfStudy.length > 0 ||
         entry.description.length > 0 ||
         entry.time.length > 0 ||
         entry.location.length > 0
@@ -841,10 +843,16 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
                   <Input
                     id={`education-degree-${index}`}
                     onChange={(event) => updateEducation(index, "degree", event.target.value)}
-                    placeholder="Degree and program"
+                    placeholder="Degree or qualification"
                     type="text"
                     value={entry.degree}
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <FieldLabel htmlFor={`education-study-${index}`}>Field of study</FieldLabel>
+                  <Input id={`education-study-${index}`} maxLength={160}
+                    onChange={(event) => updateEducation(index, "fieldOfStudy", event.target.value)}
+                    placeholder="Major or program" value={entry.fieldOfStudy ?? ""} />
                 </div>
                 <div className="space-y-1.5">
                   <FieldLabel htmlFor={`education-location-${index}`}>Location</FieldLabel>

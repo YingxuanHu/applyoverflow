@@ -324,6 +324,7 @@ async function handle(type, sender, message = {}) {
             current.result.available && `${current.result.available} empty contact fields`,
             current.result.historyAvailable && "work & education",
             current.result.resumeAvailable && "resume upload",
+            current.result.manualResume && "resume: manual upload",
             current.result.questions.length && `${current.result.questions.length} questions`,
           ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
         : inspectionError || "Open an employer application form to check available fields.",
@@ -497,6 +498,8 @@ async function handle(type, sender, message = {}) {
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
+    if (scan.manualResume) note += " Review the resume on the form; this site's upload button needs manual attachment.";
     if (scan.resumeAvailable) {
       if (plan.includeResume) {
         try {
@@ -535,7 +538,8 @@ async function handle(type, sender, message = {}) {
         throw new Error("This question changed. Autofill again to check the form.");
       const context = await inspect(target, ["autofill-context", {}, scan.url]);
       const result = await api("autofill-suggest", { url: scan.url, label: field.label,
-        title: scan.title || "", jobDescription: context.result.jobDescription || "", note: message.note, revision: saved.revision }, connection.token);
+        title: scan.title || "", jobDescription: context.result.jobDescription || "", note: message.note, revision: saved.revision,
+        maxLength: field.maxLength, maxWords: field.maxWords }, connection.token);
       const current = await inspect(target, ["inspect", {}, scan.url]);
       if (!current.result.fields?.some(f => f.id === field.id && f.label === field.label && f.state === "needed"))
         throw new Error("The form changed while drafting. Your existing answers were not changed.");

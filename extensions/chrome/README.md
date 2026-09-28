@@ -1,9 +1,9 @@
 # Application Assistant Preview
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-The 0.6.1 extension requires the matching backend deployment for full-address,
-phone-country and opt-in application-answer support.
-Version 0.6.1 supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
+The 0.8.0 extension requires the matching backend deployment for answer limits,
+profile skills and precise history dates.
+The extension supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
 The popup has one primary Autofill action, an expandable remaining-fields checklist,
@@ -24,8 +24,8 @@ application also opens a copy-ready contact, work and education reference.
 Workday and iCIMS have conservative beta adapters for known, labelled contact
 fields and existing work/education groups. Generic HTTPS application forms can
 be inspected through the toolbar, without coming from ApplyOverflow or granting
-all-sites access. Generic contact fields require exact autocomplete semantics
-and matching labels; unsupported fields stay manual. This is not a claim of
+all-sites access. Generic contact fields use a bounded semantic vocabulary with
+section context and conflicting-autocomplete checks; unsupported fields stay manual. This is not a claim of
 compatibility with every tenant or custom widget.
 
 Workable has a beta adapter for verified first name, last name and email fields
@@ -67,8 +67,10 @@ to an employer automatically. Neither feature depends on the public job board.
 - Default resume attachment requires a Profile opt-in and one supported primary
   document. **Change resume** retains per-application file approval.
   Workable upload widgets remain manual.
-- Autofill fills existing empty history rows only. It does not add rows, click
-  Next, accept legal agreements, or submit. Voluntary demographic and country-specific
+- Autofill fills empty history rows and can use a uniquely identified Add control
+  in a work/education section. Verified HiBob row editors can be saved before adding
+  the next entry, but only when required values validate. It never clicks
+  Next, accepts legal agreements, or submits. Voluntary demographic and country-specific
   work-eligibility answers require explicit Profile values and a separate opt-in.
   Only supported labels and exact answer options match; there is no inference.
 - The compact question view has an editable draft queue and a separate queue for
@@ -149,9 +151,9 @@ not a one-click consumer installation or an automatically updated store release.
   This adds no extension profile/history permission, persistent copies or AI
   requests. Question drafts remain mounted while browsing reference sections.
 - Contact fill: confirmed names, email, phone, address, preferred name, pronouns and
-  professional links where supported. Identity fields require both known labels
-  and the ATS's standard IDs/names or explicit matching autocomplete semantics.
-  Ashby system fields are recognized; arbitrary UUIDs without semantics are not.
+  professional links where supported. Labels are interpreted using a bounded
+  semantic vocabulary, corroborated by section context and HTML semantics.
+  Contradictory autocomplete, reference sections and duplicate identities stay manual.
   Blank/ambiguous/unconfirmed fields are skipped. Existing
   entries, hidden/disabled fields, custom answers, passwords,
   consent checkboxes, and legal/demographic choices are not overwritten.
@@ -185,13 +187,15 @@ not a one-click consumer installation or an automatically updated store release.
   listboxes can accept an exact profile or user-provided answer; unsupported
   widgets stay manual. Selected text, self-referencing labels and
   ambiguous multiple label references are excluded from capture.
-- History: Autofill fills existing empty rows in profile order; More actions can
+- History: Autofill fills empty rows in profile order; More actions can
   target one saved entry to an unambiguous or focused row.
   Populated rows and probable duplicates are preserved. Dates retain their exact
   precision; native degree/month selects require one exact match. Reversible
   ARIA history single-selects require an explicitly linked listbox, one exact
   match and an enabled blank option for Undo. Ambiguous or irreversible custom
-  controls, multi-selects, current-role checkboxes, Add another and Next stay manual.
+  controls and Next stay manual. Clearly labelled current-role checkboxes use only
+  an explicit saved current flag. Add is bounded to one identified work/education
+  section; Save is restricted to newly opened, complete HiBob row editors.
   Undo history preserves user edits and expires after ten minutes. Profile
   revision checks reject an entry selected before the profile changed.
 - Tracking: I applied requires editable company/title review and an explicit
@@ -199,7 +203,7 @@ not a one-click consumer installation or an automatically updated store release.
   page for thirty minutes after inspection. Previews expire after two minutes;
   disconnecting clears cached previews/URLs. No submission is inferred from
   filling, and repeat confirmations do not duplicate or regress an application.
-- No generated answers, sensitive-choice filling, arbitrary cross-origin iframe
+- No unreviewed generated answers, inferred sensitive choices, arbitrary cross-origin iframe
   access, guessed custom answers, or next-step/submission automation. Custom
   employer domains use the conservative toolbar fallback, not automatic hints.
 - The DOM adapter can confirm an immediate input value but not an ATS's eventual
@@ -336,13 +340,53 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.7.0: earlier
-backends lack persistent-session support and the answer-suggestion endpoint. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.8.0: earlier
+backends reject answer-limit metadata and lack the additional profile fields. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with
 consenting test profiles) and Chrome Web Store review. Fixture coverage is not
 a guarantee that every employer's customized form is supported.
+
+### Semantic coverage and HiBob (0.8.0)
+
+- HiBob requires a new, optional `*.careers.hibob.com` permission for automatic
+  hints. Existing grants are retained; toolbar inspection still works without it.
+- HiBob split forms, searchable country trees, skills chips, work/education
+  Add/Save editors and questionnaire capture are covered by
+  `npm run extension:test:semantic`. Add `-- --live-hibob` to test the supplied
+  Synpulse page's actual Angular controls with synthetic values in an isolated
+  browser. That test blocks outbound traffic before filling and never submits.
+- Generic employer forms no longer need autocomplete attributes for unambiguous
+  labelled facts. Form-less pages require a bounded application container with
+  identity and resume controls. Newsletter/password forms remain excluded.
+- Profile supports optional exact dates and a separate education field of study.
+  Year/month precision is preserved; the extension never substitutes day 1.
+- Drafts carry employer character/word limits through generation, editing and
+  insertion. Technical preference questions request a short personal note rather
+  than inventing confidence or interests. Availability offers today's date for
+  explicit review, not an automatic promise. Job-source choices can suggest Other.
+- HiBob's detached native file chooser remains manual. Languages, licences and
+  memberships without corresponding saved facts are not invented. Arbitrary
+  custom repeaters, shadow-root controls and unapproved embedded hosts are not
+  claimed as supported. Saved HiBob rows cannot be removed with Undo.
+- `DATABASE_URL=<disposable-local-database> NODE_PATH=./node_modules/next/dist/compiled node --conditions=react-server --import tsx tests/integration/extension-semantic-drafts.ts`
+  verifies saved-profile export, bounded drafts and reviewed insertion with a
+  mocked model. Add `--live-ai --live-form` for real model calls and the live
+  Synpulse form with outbound employer traffic blocked before any filling.
+  Both modes use a temporary synthetic profile and delete it afterward.
+- `DATABASE_URL=<same-local-database-as-preview> TEST_APP_URL=http://127.0.0.1:<port> node --import tsx tests/integration/profile-history-ui.ts`
+  signs a disposable account into the preview, saves education/date edits,
+  reloads to verify persistence and checks desktop/mobile layout. This does not
+  use a real user's account. Clear `DATABASE_URL_DO_PRIVATE` for these tests.
+
+Verified locally for this batch: 1,011 unit tests; semantic and existing autofill,
+question, compatibility, resume and undo fixtures; real database profile export;
+live AI drafts inserted into the live HiBob Angular form with employer traffic
+blocked; authenticated profile UI at 1440/390/320px; typecheck and production build.
+Native MV3 permission/history tests still require a disposable Chromium profile
+with Chrome's site-access prompt approved. The user's installed extension and
+production deployment are not changed by these checks.
 
 ### Session and answer-draft checks
 

@@ -11,6 +11,8 @@ export const suggestionRequestSchema = z.object({
   jobDescription: z.string().max(8000),
   note: z.string().trim().max(1200).default(""),
   revision: z.string().datetime(),
+  maxLength: z.number().int().min(1).max(3000).optional(),
+  maxWords: z.number().int().min(1).max(1000).optional(),
 }).strict();
 export type SuggestionEvidence = { id: string; text: string };
 
@@ -22,7 +24,7 @@ export function suggestionEvidence(profile: ProfileFormValues, note: string): Su
     { id: "skills", text: profile.skills.slice(0, 40).map(s => s.name).join(", ") },
     ...profile.experiences.slice(0, 6).map((x, i) => ({ id: `experience-${i}`, text: `${x.title} at ${x.company}: ${x.description}`.slice(0, 1800) })),
     ...profile.projects.slice(0, 4).map((x, i) => ({ id: `project-${i}`, text: `${x.name}: ${x.description}`.slice(0, 1500) })),
-    ...profile.educations.slice(0, 3).map((x, i) => ({ id: `education-${i}`, text: `${x.degree} at ${x.school}`.slice(0, 400) })),
+    ...profile.educations.slice(0, 3).map((x, i) => ({ id: `education-${i}`, text: `${x.degree}${x.fieldOfStudy ? ` in ${x.fieldOfStudy}` : ""} at ${x.school}`.slice(0, 400) })),
     { id: "your-note", text: note },
   ];
   return rows.filter(x => x.text.trim());
@@ -34,10 +36,13 @@ export const generatedSuggestionSchema = z.object({
   missing: z.string().trim().max(240),
 }).strict();
 
-export function parseSuggestion(raw: string, sources: SuggestionEvidence[]) {
+export function parseSuggestion(raw: string, sources: SuggestionEvidence[], limits: { maxLength?: number; maxWords?: number } = {}) {
   const result = generatedSuggestionSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
   if (result.answer && (!result.evidence.length || result.evidence.some(ref =>
     !sources.some(source => source.id === ref.id && source.text.includes(ref.quote)))))
     throw new Error("Draft evidence could not be verified.");
+  if ((limits.maxLength && result.answer.length > limits.maxLength) ||
+      (limits.maxWords && result.answer.trim().split(/\s+/).length > limits.maxWords))
+    throw new Error("Draft exceeds the employer's answer limit.");
   return result;
 }

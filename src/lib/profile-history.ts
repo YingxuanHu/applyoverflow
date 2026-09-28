@@ -3,7 +3,12 @@ import { z } from "zod";
 // A year without a month remains a year. Unknown dates never become January.
 const datePart = z
   .string()
-  .regex(/^(?:|(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2]))?)$/);
+  .regex(/^(?:|(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?)$/)
+  .refine(value => {
+    if (value.length !== 10) return true;
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "Check the calendar date.");
 export const historyDatesSchema = z
   .object({
     start: datePart,
@@ -21,8 +26,8 @@ export const historyDatesSchema = z
     }
     if (dates.start && dates.end) {
       const earliestStart =
-        dates.start.length === 4 ? `${dates.start}-01` : dates.start;
-      const latestEnd = dates.end.length === 4 ? `${dates.end}-12` : dates.end;
+        dates.start.length === 4 ? `${dates.start}-01-01` : dates.start.length === 7 ? `${dates.start}-01` : dates.start;
+      const latestEnd = dates.end.length === 4 ? `${dates.end}-12-31` : dates.end.length === 7 ? `${dates.end}-31` : dates.end;
       if (earliestStart > latestEnd) {
         ctx.addIssue({
           code: "custom",
@@ -59,8 +64,8 @@ export function readHistoryDates(
 
 export function formatHistoryDates(dates: ProfileHistoryDates): string {
   const label = (part: string) =>
-    part.length === 7
-      ? `${HISTORY_MONTHS[Number(part.slice(5)) - 1]} ${part.slice(0, 4)}`
+    part.length >= 7
+      ? `${HISTORY_MONTHS[Number(part.slice(5, 7)) - 1]}${part.length === 10 ? ` ${Number(part.slice(8))},` : ""} ${part.slice(0, 4)}`
       : part;
   const start = label(dates.start);
   const end = dates.current ? "Present" : label(dates.end);
@@ -87,7 +92,7 @@ export function historyValidationError(value: unknown): string | null {
       continue;
     const result = historyDatesSchema.safeParse(item.dates);
     if (!result.success)
-      return `Entry ${index + 1}: check the start and end dates. Use a four-digit year (1900-2199), with an optional month; the end cannot be before the start.`;
+      return `Entry ${index + 1}: check the start and end dates. Use a four-digit year (1900-2199), with an optional month and day; the end cannot be before the start.`;
   }
   return null;
 }

@@ -9,8 +9,23 @@ test("question assistance distinguishes grounded drafts from personal decisions"
   for (const question of ["Why do you want to join Figma?", "Tell us about a project you built", "Describe your relevant experience", "What interests you in this role?"])
     assert.equal(questionAssistance(question), "draft", question);
   assert.equal(questionAssistance("Please explain why you are interested in part time employment."), "context");
+  assert.equal(questionAssistance("If AI coding tools were unavailable tomorrow, how comfortable would you be building an application yourself and what would you build?"), "context");
+  assert.equal(questionAssistance("Which programming language are you most confident in? Describe a feature you built."), "context");
+  assert.equal(questionAssistance("How comfortable are you disclosing your disability?"), "personal");
   for (const question of ["How long do you anticipate working in a part time role?", "What weekdays are you available?", "This schedule includes Saturdays. Does this work?", "Please indicate desired starting pay", "Were you referred by an employee?", "Do you have a family member here?", "Are you 18 or older?", "Why are you interested and can you prove eligibility?", "Describe your disability", "Have you ever been employed with this company?", "I agree to receive messages"])
     assert.equal(questionAssistance(question), "personal", question);
+});
+
+test("employer word and character limits apply to both requests and generated answers", () => {
+  const sources = [{ id: "project", text: "Built an analytics application" }];
+  const result = { answer: "I built an analytics application.", evidence: [{ id: "project", quote: sources[0].text }], missing: "" };
+  assert.equal(parseSuggestion(JSON.stringify(result), sources, { maxWords: 5, maxLength: 40 }).answer, result.answer);
+  assert.throws(() => parseSuggestion(JSON.stringify(result), sources, { maxWords: 4 }), /limit/);
+  assert.throws(() => parseSuggestion(JSON.stringify(result), sources, { maxLength: 10 }), /limit/);
+  const input = { url: "https://careers.fixture.example/job/apply", title: "Engineer", label: "Describe a project", jobDescription: "", revision: new Date().toISOString(), maxWords: 25, maxLength: 200 };
+  assert.equal(suggestionRequestSchema.safeParse(input).success, true);
+  assert.equal(suggestionRequestSchema.safeParse({ ...input, maxWords: 0 }).success, false);
+  assert.equal(suggestionRequestSchema.safeParse({ ...input, maxLength: 3001 }).success, false);
 });
 test("draft evidence excludes contact, eligibility and demographics", () => {
   const profile = buildProfileFormValues({ summary: "Built a reporting application", contactJson: { email: "private@example.test", phone: "5559991234", streetAddress: "Private address", applicationAnswers: { enabled: true, values: { gender: "Woman" } } }, workAuthorization: "Private eligibility" });

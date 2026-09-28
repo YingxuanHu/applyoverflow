@@ -71,7 +71,7 @@ export function HistoryDatesFields({
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         {(["start", "end"] as const).map((key) => {
-          const [year = "", month = ""] = dates[key].split("-");
+          const [year = "", month = "", day = ""] = dates[key].split("-");
           const disabled = key === "end" && dates.current;
           const label = key === "start" ? "Start" : "End";
           return (
@@ -86,7 +86,7 @@ export function HistoryDatesFields({
                   onChange={(event) =>
                     setDates({
                       [key]: event.target.value
-                        ? `${year}-${event.target.value}`
+                        ? `${year}-${event.target.value}${day ? `-${day}` : ""}`
                         : year,
                     })
                   }
@@ -111,12 +111,26 @@ export function HistoryDatesFields({
                   onChange={(event) =>
                     setDates({
                       [key]: month
-                        ? `${event.target.value}-${month}`
+                        ? `${event.target.value}-${month}${day ? `-${day}` : ""}`
                         : event.target.value,
                     })
                   }
                 />
               </div>
+              <label htmlFor={`${id}-${key}-day`} className="block text-xs text-muted-foreground">Day (optional)</label>
+              <select
+                id={`${id}-${key}-day`}
+                aria-label={`${label} day (optional)`}
+                value={day}
+                disabled={disabled || !month || !year}
+                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                onChange={(event) => setDates({ [key]: `${year}-${month}${event.target.value ? `-${event.target.value}` : ""}` })}
+              >
+                <option value="">Day unknown</option>
+                {Array.from({ length: new Date(Number(year) || 2000, Number(month) || 1, 0).getDate() }, (_, index) => (
+                  <option key={index} value={String(index + 1).padStart(2, "0")}>{index + 1}</option>
+                ))}
+              </select>
             </div>
           );
         })}
@@ -145,7 +159,7 @@ export function HistoryDatesFields({
       </div>
       {!validation.success && (
         <p id={`${id}-error`} role="alert" className="text-xs text-destructive">
-          Check the years (1900-2199) and date order. Months are optional.
+          Check the years (1900-2199), calendar dates and date order. Months and days are optional.
         </p>
       )}
     </fieldset>
