@@ -41,3 +41,15 @@ checks on Greenhouse and HiBob; those are not new 0.10.0 certification. Arbitrar
 widgets, incomplete profile histories and employer-specific choices may still
 require manual input. Fixture coverage is not universal platform compatibility.
 Store publication is separate from this downloadable preview.
+
+## 0.10.1 live-test follow-up
+
+The production-profile check inserted the Mission Lane overview directly and
+two HiBob technical responses without popup editing. A third HiBob response
+failed generation/validation and remained blank, even though a separate backend
+diagnostic could answer it. The follow-up adds one regeneration attempt for
+invalid output within the original deadline, without weakening evidence checks.
+The integration test covers both successful recovery and rejection after two
+invalid attempts. Rate-limit feedback is distinct from missing profile data;
+the extension request limit now accommodates a full 40-question run while the
+shared hourly AI budget and concurrency cap remain in force.

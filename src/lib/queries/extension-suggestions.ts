@@ -21,7 +21,7 @@ export async function suggestApplicationAnswer(userId: string, raw: unknown) {
   let suggestion;
   const generationDeadline = AbortSignal.timeout(18_000);
   try {
-    const response = await aiComplete({
+    const request: Parameters<typeof aiComplete>[0] = {
       modelFlavor: "fast", maxTokens: 1000, temperature: 0,
       signal: generationDeadline,
       budgetSubject: userId,
@@ -35,12 +35,23 @@ Never assert availability, pay requirements, relocation, work eligibility, demog
 ${suggestionTaskInstructions(input.label)}
 Write a concise first-person draft (normally 40-80 words, or fewer when the limit requires it). The answer MUST be at most ${input.maxLength ?? 2500} characters${input.maxWords ? ` and ${input.maxWords} words` : ""}; use a shorter complete answer, never a truncated sentence. Write natural, grammatical prose in answer, with no quotations, citation markers, bracketed edits, placeholders or markdown. Put 1-4 exact supporting quotes, each 8-300 characters, ONLY in the evidence array; do not quote job text as proof of applicant facts. If the requested fact or preference is missing, return an empty answer, empty evidence and one short clarifying question in missing. Otherwise missing must be an empty string.`,
       messages: [{ role: "user", content: JSON.stringify({ question: input.label, choices: input.options, job: { title: input.title, description: input.jobDescription }, evidence }) }],
-    });
-    suggestion = parseSuggestion(response, evidence, input);
+    };
+    const response = await aiComplete(request);
+    let retried = false;
+    try {
+      suggestion = parseSuggestion(response, evidence, input);
+    } catch {
+      // Retry malformed or unsupported output once, within the same deadline.
+      // A retry must pass the original evidence, option and length checks.
+      retried = true;
+      const retry = await aiComplete({ ...request, system: `${request.system}
+The previous output failed validation. Write a shorter answer with one or two exact supporting quotes, each 8-100 characters copied verbatim from its identified source. Do not change punctuation or paraphrase inside evidence quotes. Ensure JSON, answer limits and exact offered choices are valid.` });
+      suggestion = parseSuggestion(retry, evidence, input);
+    }
     // A broad overview does not need evidence of every requirement in the job.
     // Retry without the employer's criteria if the model incorrectly applies
     // that qualification gate; the same citations and length checks still apply.
-    if (!suggestion.answer && suggestionTask(input.label) === "overview" && evidence.some(source => /^(?:summary|experience-|project-)/.test(source.id))) {
+    if (!retried && !suggestion.answer && suggestionTask(input.label) === "overview" && evidence.some(source => /^(?:summary|experience-|project-)/.test(source.id))) {
       const overview = await aiComplete({
         modelFlavor: "fast", maxTokens: 800, temperature: 0, signal: generationDeadline, budgetSubject: userId,
         responseFormat: zodResponseFormat(generatedSuggestionSchema, "application_answer"),
@@ -53,7 +64,8 @@ Return JSON {"answer":"", "evidence":[{"id":"source-id","quote":"exact source ex
   } catch (error) {
     console.warn("[extension-suggestion] Draft failed", error instanceof ZodError
       ? error.issues.slice(0, 5).map(issue => `${issue.path.join(".")}:${issue.code}`).join(",")
-      : error instanceof Error ? error.name : "UnknownError");
+      : error instanceof Error && ["Draft evidence could not be verified.", "Draft exceeds the employer's answer limit.", "Draft does not match an available answer choice."].includes(error.message)
+        ? error.message : error instanceof Error ? error.name : "UnknownError");
     throw new AssistantError("Could not prepare a supported draft. Your form is unchanged; try again or write your answer.", 502);
   }
   const latest = await prisma.userProfile.findUnique({ where: { id: profile.id }, select: { updatedAt: true } });

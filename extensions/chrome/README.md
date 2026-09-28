@@ -1,6 +1,6 @@
 # Application Assistant Preview
 
-## Direct answers and progress (0.10.0)
+## Direct answers and progress (0.10.1)
 
 - One Autofill click fills saved facts, the opted-in default resume and supported
   professional answers directly on the employer form. Users edit on the form.
@@ -12,6 +12,10 @@
   demographic, consent and eligibility values are never inferred by AI.
 - Generated text is not remembered as a profile fact. Existing form answers stay
   unchanged, and the extension never clicks Next or Submit.
+- Invalid generated output gets one retry within the same 18-second deadline;
+  the retry must pass the same evidence, choice and length checks. Generation
+  throttling is reported separately from missing profile facts. The request limit
+  accommodates one 40-question form; shared hourly and concurrency limits remain.
 
 ## Recurring answers and live-form coverage (0.9.0, historical)
 
@@ -48,7 +52,7 @@ manual input. Workday/iCIMS authenticated histories are not certified by these
 public-form checks. Store publication remains separate from the downloadable preview.
 
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-The 0.10.0 extension requires the matching backend deployment for recurring
+The 0.10.1 extension requires the matching backend deployment for recurring
 application answers and evidence-backed professional responses.
 The extension supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
@@ -388,7 +392,7 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.10.0: earlier
+Deploy the matching web/backend revision before distributing 0.10.1: earlier
 backends lack the current professional-answer behavior. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 

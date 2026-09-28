@@ -42,7 +42,9 @@ export async function fillProfessionalAnswers({ fields, inspect, suggest, progre
         return { field, answer };
       } catch (error) {
         if (error.reconnect) throw error;
-        return { field, reason: "Could not prepare a supported answer. Retry Autofill or complete this field on the form." };
+        return { field, reason: error.status === 429 ? "Answer generation is temporarily limited. Try Autofill again in a few minutes." :
+          error.status === 409 ? "Your profile changed. Click Autofill to use the latest details." :
+          "Could not prepare a supported answer. Retry Autofill or complete this field on the form." };
       }
     }));
     for (const { field, answer, reason } of prepared) {
