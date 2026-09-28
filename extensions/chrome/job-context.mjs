@@ -48,6 +48,28 @@ export function createJobContext() {
     if (parts.slice(0, -1).some(part => !part || (countryNames.has(part) && aliases.get(part) !== code))) return undefined;
     return code;
   }
+  const regionCountries = new Map([
+    ..."Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming".split("|").map(name => [norm(name), "US"]),
+    ..."Alberta|British Columbia|Manitoba|New Brunswick|Newfoundland and Labrador|Northwest Territories|Nova Scotia|Nunavut|Ontario|Prince Edward Island|Quebec|Saskatchewan|Yukon".split("|").map(name => [norm(name), "CA"]),
+  ]);
+  function postingCountry(raw) {
+    if (typeof raw !== "string" || raw.length > 240) return undefined;
+    const parts = raw.replace(/^(?:job |work |employment )?location\s*:\s*/i, "").split(/[;|]/)
+      .map(value => value.trim().replace(/^remote(?: opportunity)?\s*(?:[-:\u2013\u2014]\s*|in\s+)/i, "")
+        .replace(/\s*\((?:remote|hybrid|on[- ]?site)\)\s*$/i, ""));
+    if (parts.length > 8 || parts.some(value => !value)) return undefined;
+    const explicit = parts.map(locationText);
+    if (parts.length === 1) return explicit[0];
+    // An explicit country may be corroborated by a fully named state/province,
+    // never by an unknown city or applicant data. Every listed site must agree.
+    if (!consensus(explicit.filter(Boolean))) return undefined;
+    return consensus(parts.map((value, index) => {
+      if (explicit[index]) return explicit[index];
+      const address = value.split(",").map(norm);
+      if (address.length !== 2 || !component(address[0]) || countryNames.has(address[0]) || countryNames.has(address[1])) return undefined;
+      return regionCountries.get(address[1]);
+    }));
+  }
   function pageKey(raw, base) {
     try {
       const url = new URL(raw, base);
@@ -114,7 +136,7 @@ export function createJobContext() {
       const place = dereference(item);
       if (typeof place === "string") {
         locations.push(headerLocation(place));
-        return locationText(place);
+        return postingCountry(place);
       }
       const address = dereference(place?.address);
       if (!address || typeof address !== "object") { locations.push(undefined); return undefined; }
@@ -123,7 +145,9 @@ export function createJobContext() {
       return code;
     });
     return { present: Boolean(selected), values, locations,
-      ambiguousLocation: (locations.length > 1 && !sameLocation(locations)) || array(selected?.jobLocationType).some(value => /telecommute|remote/i.test(value)),
+      ambiguousLocation: (locations.length > 1 && !sameLocation(locations)) ||
+        array(selected?.jobLocation).some(value => typeof value === "string" && /\bremote\b|[;|]/i.test(value)) ||
+        array(selected?.jobLocationType).some(value => /telecommute|remote/i.test(value)),
       ambiguous: values.length > 0 && !consensus(values) };
   }
   function inspect(elements, url, detection, form) {
@@ -133,10 +157,10 @@ export function createJobContext() {
     const locationEvidence = (json.locations || []).filter(Boolean);
     let ambiguousLocation = json.ambiguousLocation;
     const addHeaderLocation = value => {
-      if (/\bremote\b/i.test(value)) ambiguousLocation = true;
-      const code = locationText(value);
+      if (/\bremote\b|[;|]/i.test(value)) ambiguousLocation = true;
+      const code = postingCountry(value);
       // A city-only header does not contradict an explicit structured country.
-      // Explicit conflicting/unsupported countries and multi-location text do.
+      // Conflicting/unsupported countries and unresolved location lists do.
       const words = norm(value).replace(/[.,()]/g, " ").replace(/\s+/g, " ");
       if (code || /\b(?:and|or|worldwide|anywhere|global|multiple)\b|[;/|&]/i.test(value) ||
           [...(countryNames || [])].some(name => ` ${words} `.includes(` ${name} `))) evidence.push(code);

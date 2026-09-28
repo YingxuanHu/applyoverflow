@@ -5,13 +5,14 @@ import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { applicationContext } from "../extensions/chrome/sites.mjs";
 
-// Synthetic standards-based fixtures, plus the Braze header observed publicly
+// Synthetic standards-based fixtures, plus Braze and Recursion headers observed publicly
 // on 2026-09-28. All traffic is intercepted; no profile or employer submissions.
 const source = `(${createInspector.toString()})(${applicationContext},undefined,(${createAutofillInspector})())`;
 const runtimePath = process.argv.find(arg => arg.startsWith("--runtime="))?.slice(10);
 const installer = runtimePath ? `${await readFile(runtimePath, "utf8")}\nwindow.inspect=globalThis.__applyOverflowInspect;` : `window.inspect=${source};`;
 const generic = "https://careers.company.example/openings/123/apply";
 const braze = "https://job-boards.greenhouse.io/braze/jobs/8222294";
+const recursion = "https://job-boards.greenhouse.io/recursionpharmaceuticals/jobs/8214932";
 const field = (label, attrs = "") => `<label>${label}<input ${attrs}></label>`;
 const form = (extra = "") => `<form aria-label="Job application" class="ashby-application-form-container">
   ${field("First name", 'id="first_name" autocomplete="given-name"')}
@@ -68,6 +69,25 @@ try {
     ["JSON/city header", json(posting()) + header("Toronto"), "CA", "Toronto, ON, CA"],
     ["same country different city", json(posting()) + header("Vancouver, BC, Canada"), "CA", undefined],
     ["remote header", header("Toronto, ON, Canada (Remote)"), "CA", undefined],
+    ["remote country prefix", header("Remote Opportunity - United States"), "US", undefined],
+    ["remote US and fully named state", header("Remote Opportunity - United States; Salt Lake City, Utah"), "US", undefined],
+    ["reversed same-country locations", header("Salt Lake City, Utah; Remote - United States"), "US", undefined],
+    ["remote Canada and fully named province", header("Remote - Canada; Toronto, Ontario"), "CA", undefined],
+    ["same-country explicit locations", header("Austin, Texas, United States; Salt Lake City, Utah, United States"), "US", undefined],
+    ["pipe-separated same country", header("Remote in United States | Salt Lake City, Utah"), "US", undefined],
+    ["remote actual multinational locations", header("Remote Opportunity - United States; Toronto, Ontario"), undefined, undefined],
+    ["two explicit remote countries", header("Remote - United States; Remote - Canada"), undefined, undefined],
+    ["remote US and unsupported country", header("Remote - United States; Oxford, United Kingdom"), undefined, undefined],
+    ["remote US and city-only location", header("Remote - United States; Montreal"), undefined, undefined],
+    ["state abbreviation not inherited", header("Remote - United States; San Francisco, CA"), undefined, undefined],
+    ["ambiguous country/state name", header("Remote - United States; Tbilisi, Georgia"), undefined, undefined],
+    ["remote US and global scope", header("Remote - United States; Worldwide"), undefined, undefined],
+    ["incomplete location list", header("Remote - United States;"), undefined, undefined],
+    ["regions alone lack explicit country", header("Salt Lake City, Utah; Austin, Texas"), undefined, undefined],
+    ["country-only remote JSON string", json(posting("Remote Opportunity - United States; Salt Lake City, Utah")), "US", undefined],
+    ["remote JSON string excludes concrete office inference", json(posting("Remote Opportunity - United States")) + header("Salt Lake City, Utah, United States"), "US", undefined],
+    ["structured job country still conflicts", json(posting()) + header("Remote Opportunity - United States; Salt Lake City, Utah"), undefined, undefined],
+    ["structured multinational not overridden", json(posting([place(), place("US", "Austin", "TX")])) + header("Remote - United States"), undefined, undefined],
     ["remote header overrides concrete JSON office", json(posting()) + header("Toronto, ON, Canada (Remote)"), "CA", undefined],
     ["country-only JSON", json(posting({ address: { addressCountry: "CA" } })), "CA", undefined],
     ["footer boilerplate", '<footer><div class="job-header"><div data-job-location>Toronto, ON, Canada</div></div></footer>', undefined, undefined],
@@ -92,6 +112,35 @@ try {
     '<p>For candidates based in Canada, the pay range...</p>' + form(field("Country", 'value="Canada"')), braze);
   assert.equal((await inspect()).employmentCountry, undefined, "observed Braze city does not imply country");
   assert.equal((await inspect()).employmentLocation, undefined);
+  count++;
+
+  const recursionHeader = '<div class="job__header"><div class="job__title"><h1>Clinical Supply Chain Manager</h1>' +
+    '<div class="job__location"><svg aria-hidden="true"></svg><div>Remote Opportunity - United States; Salt Lake City, Utah</div></div></div>' +
+    '<button type="button">Apply</button></div>';
+  const companyGeography = '<div class="job__description"><h2>About the company</h2>' +
+    '<p>Company offices: Oxford and London, United Kingdom; Montreal, Canada. Global teams collaborate across these offices.</p></div>' +
+    json({ "@type": "Organization", address: [{ addressCountry: "GB" }, { addressCountry: "CA" }] });
+  const applicantGeography = '<fieldset><legend>Countries where you are authorized to work</legend>' +
+    '<label><input type="checkbox" checked>Canada</label><label><input type="checkbox">United States</label></fieldset>' +
+    field("Country", 'id="home-country" value="Canada"') + field("City", 'id="home-city" value="Montreal"') +
+    '<label for="visa">Will you now or in the future require visa sponsorship?</label><select id="visa"><option value="">Select</option><option>Yes</option><option>No</option></select>';
+  for (const url of [recursion, generic]) {
+    await load(recursionHeader + companyGeography + form(applicantGeography), url);
+    const report = await inspect();
+    assert.equal(report.employmentCountry, "US", "explicit job header outranks multinational company/applicant geography");
+    assert.equal(report.employmentLocation, undefined, "remote/multiple sites are not a single onsite office");
+    assert.ok(report.fields.some(field => /visa sponsorship/.test(field.label)), "authorization planning receives job context alongside the question");
+    assert.equal(await page.locator("#home-country").inputValue(), "Canada");
+    assert.equal(await page.locator("#visa").inputValue(), "");
+    assert.equal(await page.locator('input[type="checkbox"]:checked').count(), 1);
+    assert.equal(await page.evaluate(() => window.submissions), 0);
+    count++;
+    await page.locator(".job__header").evaluate(node => node.remove());
+    assert.equal((await inspect()).employmentCountry, undefined, "without the job header, company/applicant geography is not a fallback");
+    count++;
+  }
+  await load(form(recursionHeader + applicantGeography), recursion);
+  assert.equal((await inspect()).employmentCountry, undefined, "job-like location markup inside applicant form is excluded");
   count++;
 
   const controls = `<span id="first">First</span><span id="name">name</span><input id="split" aria-labelledby="first name">
