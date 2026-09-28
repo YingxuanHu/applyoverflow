@@ -71,13 +71,15 @@ jobs:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: applyoverflow_test
         ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U test -d applyoverflow_test" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: npx prisma migrate deploy
       - name: Check migrations are repeatable
         run: npx prisma migrate deploy && npx prisma migrate status
+      - name: Install Chromium for profile-backed form tests
+        run: npx playwright install --with-deps chromium
       - name: Test storage, ingestion, and profile-backed extension APIs
         env:
           NODE_PATH: ./node_modules/next/dist/compiled
@@ -98,7 +100,7 @@ jobs:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: applyoverflow_test
         ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U test -d applyoverflow_test" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup

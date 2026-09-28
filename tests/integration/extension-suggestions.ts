@@ -43,7 +43,7 @@ async function main() {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ answer: "I built a finance dashboard using TypeScript and SQL, and would like to apply that experience to reporting tools.", evidence: [{ id: "summary", quote: "Built a finance dashboard using TypeScript and SQL." }], missing: "" }) } }] });
     };
     await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "What weekdays are you available?" }), /decision/);
-    await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "Explain why you are interested in part time employment" }), /short note/);
+    await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "Explain why you are interested in part time employment" }), /personal circumstance/);
     await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, revision: new Date(0).toISOString() }), /profile changed/);
     assert.equal(calls, 0, "Personal decisions and stale revisions never invoke AI");
     const start = Date.now();

@@ -39,7 +39,9 @@ async function main() {
     assert.deepEqual((await getAutofillPlan(user.id, { ...request, questions: ["Gender identity"] })).commonAnswers, []);
     await prisma.userProfile.update({ where: { id: user.profile!.id }, data: { contactJson: { applicationAnswers: { ...voluntary, enabled: true } } } });
     plan = await getAutofillPlan(user.id, { ...request, questions: ["Gender identity"] });
-    assert.deepEqual(plan.commonAnswers, [{ label: "Gender identity", answer: "Woman" }]);
+    assert.deepEqual(plan.commonAnswers, [{
+      label: "Gender identity", answer: "Woman", answerKey: "gender", alternatives: ["Female"],
+    }]);
     assert.equal("applicationAnswers" in plan.contact, false, "Never export the entire optional-answer record");
     assert.deepEqual((await getAutofillPlan(user.id, request)).commonAnswers, [], "Do not export answers to questions not on this form");
     const answer = { url, label: "First name", profileKey: "givenName", answer: "Jordan", revision: plan.revision };
