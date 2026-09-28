@@ -76,3 +76,47 @@ to 33 calendar months, still below a five-year requirement. This supplies a
 documented-history upper bound; it does not establish clinical experience or
 guarantee that the user's recorded work history is exhaustive. Derived screening
 answers must be marked for review, never saved as lifetime qualification facts.
+
+## Corrective Release: 0.11.1
+
+Deployed revision `fbc512267d6678fb2de5141cf3014dcb24667d67` after
+[Verify run 36482805058](https://github.com/YingxuanHu/applyoverflow/actions/runs/36482805058)
+passed every job. The server's 16 guarded-transport tests and PDF generation
+smoke checks passed; all 63 migrations were already applied. Only the app was
+recreated. Public health reported the expected revision and ready status.
+
+The public ZIP was downloaded again and its extracted files matched the locally
+packaged release byte-for-byte. A checksum-based copy updated the same unpacked
+folder, and Chrome's actual extension-details page confirmed version 0.11.1.
+Connection and supported-site permissions persisted without a new login. Each
+form below was refreshed before clicking the on-page assistant's Autofill.
+
+| Retested form | Actual 0.11.1 result | Remaining limitations |
+| --- | --- | --- |
+| Recursion / Greenhouse | 15 filled, 5 empty. Source selected Other, dependent detail filled from the saved source preference, US sponsorship selected Yes, and the five-year clinical-experience question selected No. The latter showed "Based on documented work history; review" under Completed. Default resume attachment was visible. | Unset personal facts, an unmatched veteran option and legal consent stayed empty. No lifetime-qualification fact was saved. |
+| Achievers / Lever | 7 filled, 1 already complete, 10 empty. Current location now filled, Other selected, and a professional programming-language answer actually inserted. Resume attachment showed Success. | Authorization/sponsorship radio groups and saved demographic choices remained empty. Exact system-design leadership duration and mentoring evidence were not established. Current company was populated by employer resume parsing, not counted as an extension-only write. |
+| Sentry / Ashby | 9 filled, 6 empty. Location picker visibly selected the profile city and country; a grounded motivation paragraph appeared on the actual form. Saved gender and veteran choices were selected. | Button-style Yes/No controls remained unselected but are now reported. Race option matching failed. A specific cross-team architectural decision was not established by the available evidence. Unset pronouns and privacy acknowledgement stayed empty. |
+| Synpulse / HiBob | 12 filled, 5 already complete, 8 empty. Two education records were saved automatically; the first work row had title, employer, summary and day-formatted dates. Three grounded narrative answers appeared directly in the form. | Work-row auto-save still falsely reported incomplete/invalid fields. A separate manual click of that record's Save succeeded; this is diagnostic evidence, NOT an autofill success. Source/eligibility dropdowns, date availability, skills and the custom resume upload still had gaps. |
+| Mission Lane / Greenhouse | 14 filled, 14 empty. Source and dependent detail filled, the minimum three-year management question selected the inferred No, and the open-ended experience question received a profile-grounded paragraph. Saved US sponsorship and the default resume were verified. | No invented US state, relationships, visa details or undisclosed personal facts; consents were left untouched. Some demographic option matching remains incomplete. |
+| Braze / Greenhouse | 9 filled, 4 already complete, 5 empty. Both schools and both degrees were visibly selected, including the previously missed master's degree. Source and its dependent detail filled; resume attached. | The job header says only Toronto, and country resolution remained empty despite Canada-specific compensation prose. Eligibility and commute were therefore skipped. The duplicate-entry warning after successful education filling is noisy. |
+
+TD's refreshed Workday session expired before the 0.11.1 contact test; sign-in
+was requested. No updated Workday pass is claimed. iCIMS and Workday history
+remain unverified. The other initial forms were not relabeled as passing this
+patch without another live run.
+
+### Storage During Rollout
+
+The local Docker VM's 64 GB limit blocked the first build. Obsolete generated
+release images were removed; current local rollback images were first exported
+to a verified host archive, then removed from the VM. Disposable build cache was
+cleared. Local database volumes and unrelated project images were untouched.
+Docker Desktop's settings UI was unavailable, so the approved increase to 96 GB
+was not applied; cleanup unblocked the build and transfer instead.
+
+The new pre-import guard passed against both verified production image-store
+paths. This rollout completed without another disk-full or database-recovery
+incident. Production root had about 6.5 GB free afterward; the attached volume
+had about 82 GB free. The image store still resides on root, so using the attached
+volume for future image storage remains necessary capacity work, not a claim
+that the root capacity issue has been solved.
