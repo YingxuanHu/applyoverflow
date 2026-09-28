@@ -23,11 +23,11 @@ export function suggestionTaskInstructions(label: string) {
   switch (suggestionTask(label)) {
     case "overview": return `This is an open-ended professional overview, NOT a qualification test. Write a useful, modest first-person overview of 1-2 documented strengths and their transferable value. Do not require experience in the employer's exact industry or demand facts absent from the resume. Do not claim the applicant meets any unproven requirements. For example, a software engineer can truthfully describe data analysis, reliability or process improvement without claiming fraud-team leadership. If any professional experience or project evidence exists, draft from it instead of asking the applicant to write an answer. Do not include a hiring recommendation or evaluate eligibility.`;
     case "motivation": return `This is a professional motivation/alignment question, NOT a qualification test or a request to guess personal passion. Answer through factual alignment: connect one or two documented professional facts to the role's work, using language such as "My experience in ... aligns with ...". This is a wording pattern, not evidence. Do not claim enthusiasm, preferences, personal reasons or prior employer/industry experience that is not documented. A relevant professional summary or documented skill is sufficient; do not demand a more specific workflow example, automation/standardization steps, metrics or outcomes unless the question explicitly requests them. Only the applicant facts actually stated in the answer need support; unasked-for details are not missing facts. The job description and role title are employer context only, never candidate evidence or proof that the applicant meets every requirement. If the job description is absent, use the role title only for broad context without inventing employer priorities. Write a short factual alignment answer from the available professional evidence instead of asking the applicant to restate it. If an explicitly requested fact is genuinely missing, use MISSING.`;
-    case "qualification": return factual;
+    case "qualification": return `${factual} When asked about programming languages, distinguish languages from frameworks (React is not a programming language). A skills list alone does not establish recent professional usage or which language was used most extensively. Use explicit role evidence for the requested scope; never infer comparative usage, duration or proficiency from a mention.`;
     case "education": return `${factual} Use only directly documented education. For highest completed education, compare all supplied education entries; an ongoing, expected, incomplete or planned degree is NOT a completed degree. A school name, attendance dates, coursework or job title alone does not establish a degree or graduation. Do not invent education dates, degree equivalence or completion. If a lower completed degree is documented, it can be used instead of an unfinished higher degree.`;
     case "credential": return `${factual} Name a professional certification or license only if explicitly documented as earned or held by the applicant. Training, exam preparation, an intended certification, or using a vendor's tools does not establish certification. Never infer validity, expiry, license jurisdiction or certification dates; if the question requires these and they are absent, ask for the missing fact.`;
     case "context": return `For a professional hypothetical (what you would build), propose a modest answer based on a stack and project actually documented in the profile. Frame any future idea as a proposal ("I would build..."), not an existing accomplishment. Describe demonstrated experience instead of claiming an unsupported confidence ranking or preference. If the question requires a preference or confidence choice, it must be explicitly stated in the applicant's note; otherwise return an empty answer and ask. Use the applicant's note when present. Never invent personal circumstances, availability, or reasons for part-time work or a career change.`;
-    default: return `Draft from the applicant's documented professional experience. For projects and accomplishments, give one relevant documented example and only the stated contribution, technologies and results. Do not invent metrics, implementation details or claim an example is the applicant's greatest or favorite. For motivation, relate that experience to the role without inventing personal reasons or preferences. Do not demand proof of every job requirement for an open-ended question.`;
+    default: return `Draft from the applicant's documented professional experience. For projects and accomplishments, give one relevant documented example and only the stated contribution, technologies and results. Do not invent metrics, implementation details or claim an example is the applicant's greatest or favorite. If the question requests an architectural decision affecting multiple teams, require evidence of both the applicant's decision and its cross-team impact; a technical title or single-team project is insufficient. Similarly, coaching requires explicit coaching evidence. When a requested example or scope is absent, use MISSING and ask for that fact, never embellish a different example. For motivation, relate that experience to the role without inventing personal reasons or preferences. Do not demand proof of every job requirement for an open-ended question.`;
   }
 }
 
@@ -100,6 +100,39 @@ export const generatedSuggestionSchema = z.object({
   evidence: z.array(z.object({ id: z.string().max(60), quote: z.string().trim().min(8).max(300) }).strict()).max(4),
   missing: z.string().trim().max(240),
 }).strict();
+
+// Retry references select existing excerpts instead of copying quotes again;
+// neither model-created source IDs nor rewritten quotes can be repaired silently.
+export function suggestionCitationRepair(sources: SuggestionEvidence[], limits: SuggestionLimits = {}) {
+  const excerpts: Array<{ reference: number; id: string; quote: string }> = [];
+  for (const source of sources) {
+    for (let start = 0; start < source.text.length && excerpts.length < 100; start += 240) {
+      const quote = source.text.slice(start, start + 300).trim();
+      if (quote.length >= 8) excerpts.push({ reference: excerpts.length, id: source.id, quote });
+    }
+    if (excerpts.length >= 100) break;
+  }
+  const schema = z.object({
+    answer: generatedSuggestionSchema.shape.answer,
+    references: z.array(z.number().int().min(0).max(Math.max(0, excerpts.length - 1))).max(4),
+    missing: generatedSuggestionSchema.shape.missing,
+  }).strict();
+  return {
+    excerpts, schema,
+    instructions: `Reassess the original question against the original professional evidence. Return only a JSON object with answer (string), references (an array of integer reference numbers from citationExcerpts), and missing (string).
+SUPPORTED: answer is nonempty, references contains 1-4 distinct reference numbers whose excerpts support every applicant fact in the answer, and missing is exactly "".
+MISSING: answer is exactly "", references is exactly [], and missing is one short clarifying question.
+Reference numbers are only citation pointers, not evidence of qualifications. Do not use an excerpt merely because it contains a technology name. Read its full source for negation, scope and context; do not omit qualifiers or infer recency, comparative usage, years, leadership or coaching. Never infer React is a programming language or Java from JavaScript. Summarize documented language usage without adding unsupported superlatives. All original question, exact-choice and length limits remain mandatory. Do not copy or salvage the rejected draft.`,
+    parse(raw: string) {
+      const result = schema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
+      if (new Set(result.references).size !== result.references.length || result.references.some(reference => !excerpts[reference]))
+        throw new Error("Draft evidence could not be verified.");
+      return parseSuggestion(JSON.stringify({ answer: result.answer, missing: result.missing,
+        evidence: result.references.map(reference => ({ id: excerpts[reference].id, quote: excerpts[reference].quote })),
+      }), sources, limits);
+    },
+  };
+}
 
 export function parseSuggestion(raw: string, sources: SuggestionEvidence[], limits: SuggestionLimits = {}) {
   const result = generatedSuggestionSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));

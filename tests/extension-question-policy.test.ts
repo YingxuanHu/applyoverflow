@@ -10,6 +10,9 @@ const professionalQuestions = [
   ["In 50 words or less, what have you built that you're proud of?", "draft"],
   ["Give an example of a project where you improved a process.", "draft"],
   ["Walk us through a technical achievement and its impact.", "draft"],
+  ["Tell us about a time you made a high-impact architectural decision that affected multiple teams.", "draft"],
+  ["Please describe a technical decision you made and its outcome.", "draft"],
+  ["Why do you want to join Sentry?", "draft"],
   ["What was your contribution to a recent project?", "draft"],
   ["How did you validate the output of your document classifier project?", "draft"],
   ["Professional accomplishments (maximum 200 characters)", "draft"],
@@ -22,6 +25,7 @@ const professionalQuestions = [
   ["Describe email delivery pipeline you built", "draft"],
   ["Describe an email notification service you built.", "draft"],
   ["Which programming languages have you used professionally?", "qualification"],
+  ["Which programming language(s) have you used most extensively in your recent roles?", "qualification"],
   ["What technologies do you have experience with?", "qualification"],
   ["Please select the tools with which you are proficient.", "qualification"],
   ["Which of the following skills do you have?", "qualification"],
@@ -121,6 +125,7 @@ for (const question of personalQuestions) {
       "Describe how you addressed race conditions in your project. ",
       "How did you address reliability issues in your project? ",
       "Describe email delivery pipeline you built. ",
+      "Tell us about a time you made a high-impact architectural decision that affected multiple teams. ",
     ]) {
       for (const label of [`${professional}${question}`, `${question} ${professional}`]) {
         assert.equal(questionAssistance(label), "personal", label);
@@ -131,7 +136,7 @@ for (const question of personalQuestions) {
 }
 
 test("unknown questions fail closed and labels tolerate common ATS formatting", () => {
-  for (const label of ["", "Additional information", "Choose an option", "Please specify", "How did you hear about us?"])
+  for (const label of ["", "Additional information", "Choose an option", "Please specify", "How did you hear about us?", "Tell us about a life decision you made."])
     assert.equal(questionAssistance(label), "personal", label);
   assert.equal(questionAssistance("  (Required)\nPlease\t DO YOU HAVE experience with SQL? *  "), "qualification");
 });

@@ -41,6 +41,8 @@ export function questionAssistance(label) {
       /\bwhat (?:have|did) you (?:build|built|deliver|achieve|accomplish)\b|\b(?:thing|product|application|feature|system|solution)\b.{0,50}\byou (?:have )?(?:built|delivered|implemented)\b/.test(text)) return "draft";
   if (/\b(?:what|which|share|describe|tell|outline|summari[sz]e|give|provide|walk)\b/.test(prompt) &&
       /\b(?:projects?|accomplishments?|achievements?|contributions?)\b/.test(text)) return "draft";
+  if (/\b(?:tell|describe|explain|share|outline|give|walk)\b/.test(prompt) &&
+      /\b(?:architectural|technical|system[ -]design) decisions?\b/.test(text)) return "draft";
   if (/\bhow\b.{0,70}\b(?:built|build|solved|solve|address|addressed|improved|improve|implemented|implement|delivered|deliver|measured|measure|validated|validate)\b/.test(text) &&
       /\b(?:project|work|team|system|application|product|process|results?|impact|outputs?)\b/.test(text)) return "draft";
   if (/(?:why|what).{0,65}(?:interest|join|work (?:at|for|with)|attract|motivat)|(?:tell|describe|explain|share|summari[sz]e|outline).{0,80}(?:experience|project|background|skill|challenge|accomplish|achievement|built|yourself)|what makes you.{0,35}(?:fit|candidate)|how.{0,40}(?:experience|background|skills).{0,40}(?:relate|prepare|align|apply)/i.test(text)) return "draft";

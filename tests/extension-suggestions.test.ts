@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { questionAssistance, parseSuggestion, suggestionAnswerInstructions, suggestionEvidence, suggestionOverviewFallback, suggestionRequestSchema, suggestionTask, suggestionTaskInstructions } from "../src/lib/extension-suggestions";
+import { questionAssistance, parseSuggestion, suggestionAnswerInstructions, suggestionCitationRepair, suggestionEvidence, suggestionOverviewFallback, suggestionRequestSchema, suggestionTask, suggestionTaskInstructions } from "../src/lib/extension-suggestions";
 import { buildProfileFormValues } from "../src/lib/profile";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { generatedSuggestionSchema } from "../src/lib/extension-suggestions";
@@ -196,6 +196,43 @@ test("every answered fact requires exact source identity, quote, option and leng
   assert.throws(() => parseSuggestion(JSON.stringify(output), sources, { maxLength: output.answer.length - 1 }), /limit/);
   const missing = { answer: "", evidence: [], missing: "Which degree have you completed?" };
   assert.deepEqual(parseSuggestion(JSON.stringify(missing), sources, { ...limits, maxLength: 1 }), missing);
+});
+
+test("citation repair resolves only bounded supplied excerpts and reuses the original output validator", () => {
+  const sources = [{ id: "skills", text: "Documented skills: Python, TypeScript, React" }];
+  const repair = suggestionCitationRepair(sources, { options: ["Python", "TypeScript"], maxLength: 10, maxWords: 1 });
+  const valid = { answer: "Python", references: [0], missing: "" };
+  const result = repair.parse(JSON.stringify(valid));
+  assert.deepEqual(result, { answer: "Python", evidence: [{ id: "skills", quote: sources[0].text }], missing: "" });
+  assert.deepEqual(parseSuggestion(JSON.stringify(result), sources), result);
+  assert.equal(zodResponseFormat(repair.schema, "repair").json_schema.strict, true);
+  for (const invalid of [
+    { ...valid, references: [] }, { ...valid, references: [1] }, { ...valid, references: [-1] },
+    { ...valid, references: [0, 0] }, { ...valid, references: [0.5] }, { ...valid, references: ["0"] },
+    { ...valid, references: [0, 0, 0, 0, 0] }, { ...valid, missing: "Which language?" },
+    { ...valid, answer: "", missing: "Which language?" }, { ...valid, answer: "python" },
+    { ...valid, answer: "Python and TypeScript" }, { ...valid, evidence: [{ id: "resume", quote: "invented" }] },
+  ]) assert.throws(() => repair.parse(JSON.stringify(invalid)), JSON.stringify(invalid));
+  assert.deepEqual(repair.parse(JSON.stringify({ answer: "", references: [], missing: "Which language?" })),
+    { answer: "", evidence: [], missing: "Which language?" });
+  assert.throws(() => suggestionCitationRepair([]).parse(JSON.stringify(valid)));
+  const longSources = [{ id: "experience-0", text: "No coaching experience. ".repeat(1600) }];
+  const bounded = suggestionCitationRepair(longSources);
+  assert.equal(bounded.excerpts.length, 100);
+  assert.ok(bounded.excerpts.every((ref, i) => ref.reference === i && ref.quote.length >= 8 && ref.quote.length <= 300 && longSources[0].text.includes(ref.quote)));
+  assert.match(bounded.instructions, /full source for negation, scope and context/);
+});
+
+test("live-style professional questions keep requested scope separate from inferred facts", () => {
+  const languages = "Which programming language(s) have you used most extensively in your recent roles?";
+  assert.equal(suggestionTask(languages), "qualification");
+  assert.match(suggestionTaskInstructions(languages), /skills list alone does not establish recent professional usage/);
+  assert.match(suggestionTaskInstructions(languages), /React is not a programming language/);
+  const architecture = "Tell us about a time you made a high-impact architectural decision that affected multiple teams.";
+  assert.equal(suggestionTask(architecture), "draft");
+  assert.match(suggestionTaskInstructions(architecture), /both the applicant's decision and its cross-team impact/);
+  assert.match(suggestionTaskInstructions(architecture), /coaching requires explicit coaching evidence/);
+  assert.match(suggestionTaskInstructions(architecture), /use MISSING/);
 });
 
 const overviewLabel = "(Optional) Is there anything about your experience that may not be apparent on your resume but would help us evaluate your fit for this role?";

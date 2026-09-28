@@ -7,6 +7,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { ZodError } from "zod";
 import { buildProfileFormValues } from "../src/lib/profile";
 import * as suggestions from "../src/lib/extension-suggestions";
+import { fillProfessionalAnswers } from "../extensions/chrome/answer-runner.mjs";
 
 // Execute the actual query with isolated imports: no database, server runtime,
 // credentials or network calls are needed to exercise admission and retry paths.
@@ -20,11 +21,15 @@ const profile = {
   skillsJson: [{ name: "Python" }],
   educationsJson: [{ degree: "Bachelor of Science", school: "Example College", description: "Awarded a Bachelor of Science." }],
 };
-type Request = { system: string; messages: { role: string; content: string }[]; signal: AbortSignal };
+type Request = { system: string; messages: { role: string; content: string }[]; signal: AbortSignal; responseFormat: ReturnType<typeof zodResponseFormat> };
 type Output = { answer: string; evidence: { id: string; quote: string }[]; missing: string };
-function harness(responses: Array<Output | string>, storedProfile: typeof profile | null = profile, latestRevision?: string) {
+type CitationOutput = { answer: string; references: number[]; missing: string };
+const withReferences = (output: Output, references = [0]): CitationOutput => ({ answer: output.answer, missing: output.missing, references: output.answer ? references : [] });
+type StoredProfile = Parameters<typeof buildProfileFormValues>[0] & { id: string; updatedAt: Date };
+function harness(responses: Array<Output | CitationOutput | string>, storedProfile: StoredProfile | null = profile, latestRevision?: string) {
   const calls: Request[] = [];
   const deadlines: number[] = [];
+  const warnings: unknown[][] = [];
   let reads = 0;
   const exports: { suggestApplicationAnswer?: (id: string, input: unknown) => Promise<{ suggestion: Output }> } = {};
   const imports: Record<string, unknown> = {
@@ -42,11 +47,11 @@ function harness(responses: Array<Output | string>, storedProfile: typeof profil
       return typeof response === "string" ? response : JSON.stringify(response);
     } },
   };
-  runInNewContext(compiled, { exports, AbortSignal: { timeout: (ms: number) => { deadlines.push(ms); return AbortSignal.timeout(ms); } }, console: { warn() {} }, require: (name: string) => {
+  runInNewContext(compiled, { exports, Error, AbortSignal: { timeout: (ms: number) => { deadlines.push(ms); return AbortSignal.timeout(ms); } }, console: { warn: (...args: unknown[]) => warnings.push(args) }, require: (name: string) => {
     assert.ok(name in imports, `Unexpected dependency: ${name}`);
     return imports[name];
   } });
-  return { suggest: exports.suggestApplicationAnswer!, calls, deadlines, reads: () => reads };
+  return { suggest: exports.suggestApplicationAnswer!, calls, deadlines, warnings, reads: () => reads };
 }
 
 test("server rejects mixed personal questions before reading a profile or invoking AI", async () => {
@@ -103,7 +108,7 @@ test("motivation over-abstention retries once using documented facts, not job-de
   const input = { ...baseRequest, label: "Why this role?", title: "Reporting Analyst",
     jobDescription: "Review reports and ensure reliability. Employer requirement: built a Rust billing platform that reduced costs by 40%.",
     maxLength: 200, maxWords: 30, options: [valid.answer] };
-  const api = harness([missing, valid], stored);
+  const api = harness([missing, withReferences(valid)], stored);
   assert.deepEqual((await api.suggest("user-fixture", input)).suggestion, valid);
   assert.equal(api.calls.length, 2);
   assert.deepEqual(api.deadlines, [18_000]);
@@ -131,7 +136,7 @@ test("motivation over-abstention retries once using documented facts, not job-de
 test("motivation retry preserves genuine abstention and cannot become a third generation", async () => {
   const input = { ...baseRequest, label: "Why this role?" };
   const missing = { answer: "", evidence: [], missing: "Which documented experience relates to this role?" };
-  const api = harness([missing, missing]);
+  const api = harness([missing, withReferences(missing)]);
   assert.deepEqual((await api.suggest("user-fixture", input)).suggestion, missing);
   assert.equal(api.calls.length, 2);
   const invalid = { answer: profile.summary, evidence: [{ id: "summary", quote: profile.summary }], missing: missing.missing };
@@ -159,13 +164,23 @@ test("invalid citations, choices and limits receive only one retry with the same
     [{ ...valid, missing: "What language do you know?" }, "answer_state"],
     ["not JSON: UNTRUSTED MODEL OUTPUT", "format"],
   ] as Array<[Output | string, string]>) {
-    const api = harness([invalid, valid]);
+    const api = harness([invalid, reason === "evidence" ? { answer: valid.answer, references: [1], missing: "" } : valid]);
     const result = await api.suggest("user-fixture", { ...baseRequest, label: "Which technologies have you used?", options: ["Python", "Java"], maxLength: 6, maxWords: 1 });
     assert.equal(result.suggestion.answer, "Python");
     assert.equal(api.calls.length, 2);
     assert.equal(api.calls[0].signal, api.calls[1].signal);
-    assert.deepEqual(api.calls[0].messages, api.calls[1].messages);
-    assert.ok(api.calls[1].system.includes(`previous output failed validation (${reason})`));
+    if (reason === "evidence") {
+      const retry = JSON.parse(api.calls[1].messages[0].content);
+      const { citationExcerpts, ...original } = retry;
+      assert.deepEqual(original, JSON.parse(api.calls[0].messages[0].content));
+      assert.deepEqual(citationExcerpts[1], { reference: 1, id: "skills", quote: "Documented skills: Python" });
+      assert.match(api.calls[1].system, /citation could not be verified/);
+      assert.doesNotMatch(api.calls[1].system, /evidence contains 1-4 exact supporting quotes/);
+      assert.equal(api.calls[1].responseFormat.json_schema.name, "application_answer_citation_repair");
+    } else {
+      assert.deepEqual(api.calls[0].messages, api.calls[1].messages);
+      assert.ok(api.calls[1].system.includes(`previous output failed validation (${reason})`));
+    }
     assert.doesNotMatch(api.calls[1].system, /UNTRUSTED MODEL OUTPUT/);
     assert.deepEqual(api.deadlines, [18_000]);
     const failure = harness([invalid, invalid]);
@@ -236,7 +251,7 @@ test("overview fallback retains original question, choices, grounding and limits
   const answer = "Built a reporting application in Python.";
   const api = harness([
     { answer: "", evidence: [], missing: "Do you have insurance industry experience?" },
-    { answer, evidence: [{ id: "summary", quote: answer }], missing: "" },
+    { answer, references: [0], missing: "" },
   ]);
   const label = "Is there anything about your experience that would help us evaluate your fit?";
   const result = await api.suggest("user-fixture", { ...baseRequest, label, options: [answer], maxLength: 50, maxWords: 7 });
@@ -260,7 +275,7 @@ test("two valid live-style overview abstentions use the exact summary without a 
   const stored = { ...profile, summary };
   const input = { ...baseRequest, label, jobDescription: "Requires three years managing fraud teams, hiring and developing direct reports.",
     maxLength: summary.length, maxWords: summary.split(/\s+/).length };
-  const api = harness([missing, missing], stored);
+  const api = harness([missing, withReferences(missing)], stored);
   const result = await api.suggest("user-fixture", input);
   assert.equal(result.suggestion.answer, summary);
   assert.equal(result.suggestion.missing, "");
@@ -286,15 +301,120 @@ test("two valid live-style overview abstentions use the exact summary without a 
     assert.equal(rejected.calls.length, 2, "a usable summary cannot override invalid or mixed model output");
   }
   for (const constraint of [{ maxLength: 20 }, { maxWords: 5 }, { options: [summary] }]) {
-    const limited = harness([missing, missing], stored);
+    const limited = harness([missing, withReferences(missing)], stored);
     assert.deepEqual((await limited.suggest("user-fixture", { ...input, ...constraint })).suggestion, missing);
     assert.equal(limited.calls.length, 2);
   }
   for (const extra of [" Do you have three years of fraud experience?", " Include specific metrics.", " Describe a new example not on your resume."]) {
-    const specific = harness([missing, missing], stored);
+    const specific = harness([missing, withReferences(missing)], stored);
     assert.deepEqual((await specific.suggest("user-fixture", { ...input, label: label + extra })).suggestion, missing);
     assert.equal(specific.calls.length, 2);
   }
-  const changed = harness([missing, missing], stored, "2026-05-01T12:00:01.000Z");
+  const changed = harness([missing, withReferences(missing)], stored, "2026-05-01T12:00:01.000Z");
   await assert.rejects(() => changed.suggest("user-fixture", input), /profile changed while drafting/);
+});
+
+const leverLanguages = "Which programming language(s) have you used most extensively in your recent roles?";
+const sentryArchitecture = "Tell us about a time you made a high-impact architectural decision that affected multiple teams.";
+const developerProfile = {
+  ...profile,
+  summary: "Built Python reporting tools and TypeScript web applications.",
+  skillsJson: [{ name: "Python" }, { name: "TypeScript" }, { name: "React" }],
+  experiencesJson: [{ title: "Software Engineer", company: "Example Software", description:
+    "In my recent roles, Python and TypeScript were the languages I used most extensively. I built a Python validation service and a TypeScript interface with React." }],
+  contactJson: { email: "private@example.test", phone: "5559991234" },
+};
+
+test("Lever, Sentry and overview citation failures repair through the real backend query and runner", async () => {
+  const sources = suggestions.suggestionEvidence(buildProfileFormValues(developerProfile), "");
+  const catalog = suggestions.suggestionCitationRepair(sources).excerpts;
+  for (const [label, answer, sourceId] of [
+    [leverLanguages, "Python and TypeScript were the languages I used most extensively in my recent roles.", "experience-0"],
+    ["Why do you want to join Sentry?", "My experience building Python reporting tools and TypeScript web applications aligns with the software engineering role at Sentry.", "summary"],
+    ["(Optional) Is there anything about your experience that may not be apparent on your resume but would help us evaluate your fit for this role?", developerProfile.summary, "summary"],
+  ]) {
+    const reference = catalog.findIndex(ref => ref.id === sourceId);
+    assert.ok(reference >= 0);
+    const invalid = { answer: "UNVERIFIED DRAFT: I led five teams.", evidence: [{ id: sourceId, quote: "Rewritten quotation not present in the original source." }], missing: "" };
+    const repaired = { answer, references: [reference], missing: "" };
+    const api = harness([invalid, repaired], developerProfile);
+    const fields = [{ id: "professional", label, kind: "text", state: "needed", canAnswer: true }];
+    const writes: string[] = [];
+    const result = await fillProfessionalAnswers({ fields,
+      inspect: async (mode: string, payload: { answer?: string } = {}) => {
+        if (mode === "autofill-answer") { writes.push(payload.answer!); fields[0].state = "filled"; }
+        return { fields: structuredClone(fields) };
+      },
+      suggest: async () => {
+        const response = await api.suggest("user-fixture", { ...baseRequest, label, title: "Senior Software Engineer", maxLength: 200, maxWords: 30 });
+        assert.deepEqual(suggestions.parseSuggestion(JSON.stringify(response.suggestion), sources), response.suggestion);
+        assert.deepEqual(response.suggestion.evidence, [{ id: sourceId, quote: catalog[reference].quote }]);
+        return response;
+      }, progress: async () => {},
+    });
+    assert.deepEqual(writes, [answer], label);
+    assert.equal(result[0].state, "filled");
+    assert.equal(api.calls.length, 2);
+    assert.equal(api.calls[0].signal, api.calls[1].signal);
+    assert.deepEqual(api.deadlines, [18_000]);
+    const retry = api.calls[1];
+    assert.equal(retry.responseFormat.json_schema.name, "application_answer_citation_repair");
+    const payload = JSON.parse(retry.messages[0].content);
+    assert.equal(payload.question, label);
+    assert.deepEqual(payload.evidence, sources);
+    assert.deepEqual(payload.citationExcerpts, catalog);
+    assert.match(retry.system, /200 characters and 30 words/);
+    assert.doesNotMatch(JSON.stringify(api.calls), /private@example.test|5559991234|UNVERIFIED DRAFT|Rewritten quotation/);
+    assert.deepEqual(api.warnings, []);
+  }
+});
+
+test("citation repair can abstain, rejects unknown references and never retries a third time", async () => {
+  const invalid = { answer: "Private invalid output", evidence: [{ id: "invented", quote: "Private invalid quote" }], missing: "" };
+  const missing = { answer: "", references: [], missing: "Which languages did you use most extensively in recent roles?" };
+  const api = harness([invalid, missing]);
+  assert.deepEqual((await api.suggest("user-fixture", { ...baseRequest, label: leverLanguages })).suggestion,
+    { answer: "", evidence: [], missing: missing.missing });
+  assert.equal(api.calls.length, 2);
+  const failed = harness([invalid, { answer: "Python", references: [999], missing: "" }]);
+  await assert.rejects(() => failed.suggest("user-fixture", { ...baseRequest, label: leverLanguages }), /Could not prepare a supported draft/);
+  assert.equal(failed.calls.length, 2);
+  assert.ok(failed.warnings.length);
+  assert.doesNotMatch(JSON.stringify(failed.warnings), /Private invalid|Python|private@example/);
+  const changed = harness([invalid, { answer: "Python", references: [1], missing: "" }], profile, "2026-05-01T12:00:01.000Z");
+  await assert.rejects(() => changed.suggest("user-fixture", { ...baseRequest, label: leverLanguages }), /profile changed while drafting/);
+});
+
+test("missing recent usage, system-design years, coaching and cross-team facts remain unfilled", async () => {
+  for (const [label, missingFact] of [
+    [leverLanguages, "Which languages did you use most extensively in recent roles?"],
+    ["How many years of experience do you have leading system design?", "How many years have you led system design?"],
+    ["Describe your experience coaching engineers.", "What is an example of your coaching experience?"],
+    [sentryArchitecture, "What architectural decision did you make, and how did it affect multiple teams?"],
+  ]) {
+    // Skills and an unrelated reporting example do not establish these facts.
+    const api = harness([{ answer: "", evidence: [], missing: missingFact }]);
+    const fields = [{ id: "missing", label, kind: "text", state: "needed", canAnswer: true }];
+    let writes = 0;
+    const result = await fillProfessionalAnswers({ fields,
+      inspect: async (mode: string) => { if (mode === "autofill-answer") writes++; return { fields: structuredClone(fields) }; },
+      suggest: async () => api.suggest("user-fixture", { ...baseRequest, label, jobDescription: "Lead system design, coach engineers and make architectural decisions affecting multiple teams." }),
+      progress: async () => {},
+    });
+    assert.equal(api.calls.length, 1, label);
+    assert.equal(writes, 0);
+    assert.equal(result[0].state, "needed");
+    assert.ok(result[0].reason.includes(missingFact));
+    if (label === sentryArchitecture) assert.match(api.calls[0].system, /both the applicant's decision and its cross-team impact/);
+  }
+});
+
+test("a documented cross-team architectural decision can be drafted without added metrics", async () => {
+  const description = "Chose a shared event schema for the reporting service. The data team and application team adopted it to use the same event definitions.";
+  const stored = { ...developerProfile, experiencesJson: [{ title: "Engineer", company: "Example", description }] };
+  const answer = "I chose a shared event schema for the reporting service. The data team and application team adopted it to use the same event definitions.";
+  const api = harness([{ answer, evidence: [{ id: "experience-0", quote: description }], missing: "" }], stored);
+  assert.equal((await api.suggest("user-fixture", { ...baseRequest, label: sentryArchitecture })).suggestion.answer, answer);
+  assert.equal(api.calls.length, 1);
+  assert.match(api.calls[0].system, /Do not invent metrics/);
 });
