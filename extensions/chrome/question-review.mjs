@@ -7,11 +7,12 @@ export function createQuestionReview(classify) {
     states.set(container, state);
     const pending = fields.filter(field => field.state === "needed");
     const ids = new Set(pending.map(field => field.id));
+    const draftable = f => f.canAnswer && !f.profileKey && !f.aiRestricted && ((f.kind === "text" && classify(f.label) !== "personal") || classify(f.label) === "qualification");
     for (const id of state.drafts.keys()) if (!ids.has(id)) state.drafts.delete(id);
     container.replaceChildren();
     for (const [key, title, members] of [
-      ["draft", "Answer drafts", pending.filter(f => f.canAnswer && !f.profileKey && f.kind === "text" && classify(f.label) !== "personal")],
-      ["input", "Needs your input", pending.filter(f => !(f.canAnswer && !f.profileKey && f.kind === "text" && classify(f.label) !== "personal"))],
+      ["draft", "Answer drafts", pending.filter(draftable)],
+      ["input", "Needs your input", pending.filter(f => !draftable(f))],
     ]) {
       if (!members.length) continue;
       const group = state.groups[key] ||= { id: members[0].id, open: key === "draft" };
@@ -28,6 +29,10 @@ export function createQuestionReview(classify) {
       const question = document.createElement("p"); question.className = "question-title";
       question.textContent = clean(field.title || field.label); section.append(question);
       const draft = state.drafts.get(field.id) || { value: "", note: "", evidence: [], missing: "" };
+      if (field.suggestion && !draft.value && !draft.receivedSuggestion) {
+        draft.value = field.suggestion.answer || ""; draft.evidence = field.suggestion.evidence || []; draft.missing = field.suggestion.missing || "";
+        draft.receivedSuggestion = true;
+      }
       state.drafts.set(field.id, draft);
       const action = (label, fn) => {
         const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = label;
@@ -35,6 +40,7 @@ export function createQuestionReview(classify) {
       };
       if (field.canAnswer) {
         const form = document.createElement("form"); form.className = "answer-row";
+        if (field.reason) { const reason = document.createElement("p"); reason.className = "question-hint"; reason.textContent = field.reason; form.append(reason); }
         const control = document.createElement(field.options?.length ? "select" : "textarea");
         control.setAttribute("aria-label", `Answer: ${clean(field.label)}`); control.required = true;
         if (field.options?.length) control.replaceChildren(new Option("Choose an answer", ""), ...field.options.map(option => new Option(option, option)));
@@ -109,6 +115,22 @@ export function createQuestionReview(classify) {
       const jump = action("Show on form", () => run("autofill-focus", { id: field.id, label: field.label }));
       jump.className = "field-link secondary"; section.append(jump);
       container.append(section);
+    }
+    const readyDrafts = pending.filter(field => draftable(field) && state.drafts.get(field.id)?.value);
+    if (readyDrafts.length > 1) {
+      const apply = document.createElement("button"); apply.type = "button"; apply.className = "secondary"; apply.textContent = `Use these ${readyDrafts.length} drafts`;
+      apply.addEventListener("click", async event => {
+        if (!event.isTrusted) return;
+        apply.disabled = true;
+        for (const field of readyDrafts) {
+          const answer = state.drafts.get(field.id)?.value;
+          if (!answer) continue;
+          const result = await run("autofill-answer", { id: field.id, label: field.label, answer, remember: false });
+          if (!result || result.error) break;
+        }
+        if (apply.isConnected) apply.disabled = false;
+      });
+      container.append(apply);
     }
   };
 }

@@ -13,6 +13,7 @@ export const suggestionRequestSchema = z.object({
   revision: z.string().datetime(),
   maxLength: z.number().int().min(1).max(3000).optional(),
   maxWords: z.number().int().min(1).max(1000).optional(),
+  options: z.array(z.string().trim().min(1).max(500)).max(80).optional(),
 }).strict();
 export type SuggestionEvidence = { id: string; text: string };
 
@@ -36,7 +37,7 @@ export const generatedSuggestionSchema = z.object({
   missing: z.string().trim().max(240),
 }).strict();
 
-export function parseSuggestion(raw: string, sources: SuggestionEvidence[], limits: { maxLength?: number; maxWords?: number } = {}) {
+export function parseSuggestion(raw: string, sources: SuggestionEvidence[], limits: { maxLength?: number; maxWords?: number; options?: string[] } = {}) {
   const result = generatedSuggestionSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
   if (result.answer && (!result.evidence.length || result.evidence.some(ref =>
     !sources.some(source => source.id === ref.id && source.text.includes(ref.quote)))))
@@ -44,5 +45,7 @@ export function parseSuggestion(raw: string, sources: SuggestionEvidence[], limi
   if ((limits.maxLength && result.answer.length > limits.maxLength) ||
       (limits.maxWords && result.answer.trim().split(/\s+/).length > limits.maxWords))
     throw new Error("Draft exceeds the employer's answer limit.");
+  if (result.answer && limits.options?.length && !limits.options.includes(result.answer))
+    throw new Error("Draft does not match an available answer choice.");
   return result;
 }

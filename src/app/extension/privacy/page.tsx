@@ -99,7 +99,7 @@ export default function ExtensionPrivacyPage() {
           Profile details, stored resumes and application reviews use
           ApplyOverflow&apos;s database and document storage. The
           extension&apos;s contact-fill, question-capture and resume-transfer
-          actions do not send those contents to an AI service. Choosing Suggest answer sends
+          actions do not send contact details or files to an AI service. When Autofill prepares answer drafts, or you choose Suggest answer, it sends
           the question, a bounded excerpt of the job description, your optional note and
           relevant professional profile evidence to OpenAI through ApplyOverflow.
           Contact details and optional demographic answers are excluded from that profile evidence.

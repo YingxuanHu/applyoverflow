@@ -35,6 +35,7 @@ export function createHistoryInspector() {
     "qualification name": "degree",
     "field of study": "fieldOfStudy",
     major: "fieldOfStudy",
+    discipline: "fieldOfStudy",
     location: "location",
     description: "description",
     summary: "description",
@@ -48,6 +49,10 @@ export function createHistoryInspector() {
     "start month": "startMonth",
     "end year": "endYear",
     "end month": "endMonth",
+    "start date year": "startYear",
+    "start date month": "startMonth",
+    "end date year": "endYear",
+    "end date month": "endMonth",
     "is current": "current",
     "i currently work here": "current",
     "currently employed here": "current",
@@ -67,20 +72,25 @@ export function createHistoryInspector() {
   const custom = (field) => field.matches('[role="combobox"], button[aria-haspopup="listbox"]');
   const read = (field) => {
     if (field.type === "checkbox") return field.checked ? "true" : "";
+    const selected = custom(field) && field.closest('.select__value-container')?.querySelector('.select__single-value');
+    if (selected) return selected.textContent.trim();
     if (!custom(field) || field instanceof HTMLInputElement) return field.value || "";
     const text = field.textContent.trim();
     return field.value === "" && /^(select(?: one)?|choose(?: one)?|none|--?)$/i.test(text) ? "" : text;
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, 25));
-  // Never infer a popup from its position or choose from another question's
-  // options. A reversible, explicitly associated single-select is required.
-  async function choose(field, label, safe, visible, restoreLabel) {
+  // Never infer a popup from its position or choose another question's options.
+  async function choose(field, label, safe, visible, restoreLabel, alternatives = []) {
     if (!safe() || !visible(field) ||
         (field instanceof HTMLButtonElement && field.type !== "button") ||
-        !(field.getAttribute("aria-controls") || field.getAttribute("aria-owns")) ||
         field.matches(':disabled, [aria-disabled="true"], [aria-readonly="true"]')) return null;
     const expandedBefore = field.getAttribute("aria-expanded") === "true";
     if (!expandedBefore) field.click();
+    if (field.getAttribute("aria-expanded") !== "true") {
+      field.focus();
+      field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
+      field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+    }
     let list;
     for (let attempt = 0; attempt < 20 && safe(); attempt++) {
       const ids = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean);
@@ -92,20 +102,29 @@ export function createHistoryInspector() {
       await wait();
     }
     const close = () => {
-      if (safe() && !expandedBefore && field.getAttribute("aria-expanded") === "true") field.click();
+      if (safe() && !expandedBefore) {
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); field.blur();
+        if (field.getAttribute("aria-expanded") === "true") field.click();
+      }
     };
     if (!safe() || !list || list.getAttribute("aria-multiselectable") === "true") { close(); return null; }
-    const options = [...list.querySelectorAll('[role="option"]')].filter((option) =>
-      option.closest('[role="listbox"]') === list && visible(option) &&
-      !option.matches(':disabled, [aria-disabled="true"]'));
+    let options = [];
+    for (let attempt = 0; attempt < 60 && safe() && list.isConnected; attempt++) {
+      options = [...list.querySelectorAll('[role="option"]')].filter((option) =>
+        option.closest('[role="listbox"]') === list && visible(option) &&
+        !option.matches(':disabled, [aria-disabled="true"]'));
+      if (options.length) break;
+      await wait();
+    }
     const empty = options.filter((option) => option.getAttribute("data-value") === "" || option.getAttribute("value") === "");
-    const matches = options.filter((option) => normalize(option.textContent) === normalize(label));
-    if (matches.length !== 1 || (!restoreLabel && empty.length !== 1)) { close(); return null; }
-    const beforeLabel = restoreLabel || empty[0].textContent.trim();
+    let matches = options.filter((option) => normalize(option.textContent) === normalize(label));
+    if (!matches.length) matches = options.filter(option => alternatives.some(value => normalize(option.textContent) === normalize(value)));
+    if (matches.length !== 1) { close(); return null; }
+    const beforeLabel = restoreLabel || (empty.length === 1 ? empty[0].textContent.trim() : undefined);
     if (!safe() || !list.isConnected || !matches[0].isConnected) { close(); return null; }
     matches[0].click();
     await wait();
-    return { beforeLabel };
+    return { beforeLabel, value: matches[0].textContent.trim() };
   }
   function clear() {
     clearTimeout(expiryTimer);
@@ -118,6 +137,7 @@ export function createHistoryInspector() {
     undo = [];
   }
   const kindOf = (group) => {
+    if (/^(?:job-)?boards(?:\.eu)?\.greenhouse\.io$/.test(location.hostname) && group.matches('.education--form,.education--container')) return "education";
     const label = normalize(group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4")?.textContent || group.getAttribute("aria-label") || "");
     const auto = group.getAttribute("data-automation-id") || "";
     const bob = group.matches('careers-ui-experience-edit-item') ? group.parentElement : group;
@@ -134,7 +154,7 @@ export function createHistoryInspector() {
       clear();
     const groups = [
       ...form.querySelectorAll(
-        'fieldset, section, [role="group"], [data-automation-id], careers-ui-experience-edit-item',
+        'fieldset, section, [role="group"], [data-automation-id], careers-ui-experience-edit-item, .education--form',
       ),
     ]
       .flatMap((group) => {
@@ -154,9 +174,9 @@ export function createHistoryInspector() {
           )
           .map((field) => ({ field, key: keys[normalize(labelFor(field))] }))
           .filter((entry) => entry.key && (entry.field.type !== "checkbox" || entry.key === "current") && (!custom(entry.field) ||
-            /^(degree|startMonth|endMonth|startYear|endYear)$/.test(entry.key)));
+            /^(school|degree|fieldOfStudy|startMonth|endMonth|startYear|endYear)$/.test(entry.key)));
         const required =
-          kind === "experience" ? ["title", "company"] : ["school"];
+          kind === "experience" ? ["title", "company"] : group.matches('.education--form') && !fields.some(f => f.key === "school") ? ["degree"] : ["school"];
         if (
           !required.every(
             (key) => fields.filter((entry) => entry.key === key).length === 1,
@@ -182,7 +202,7 @@ export function createHistoryInspector() {
             ? field.checked
             : field.value.trim())),
       );
-    const repeaters = [...form.querySelectorAll('fieldset,section,[role="group"],careers-ui-experience-form-control')]
+    const repeaters = [...form.querySelectorAll('fieldset,section,[role="group"],careers-ui-experience-form-control,.education--container')]
       .flatMap(group => {
         const kind = kindOf(group);
         if (!kind || !visible(group)) return [];
@@ -199,6 +219,7 @@ export function createHistoryInspector() {
       !entry.field.matches(':disabled, [aria-disabled="true"], [readonly], [aria-readonly="true"]') &&
       entry.group.contains(entry.field) &&
       read(entry.field) === entry.value &&
+      (!entry.custom || Boolean(entry.beforeLabel)) &&
       groups.some(
         (item) =>
           item.group === entry.group &&
@@ -237,13 +258,13 @@ export function createHistoryInspector() {
     const fingerprint = JSON.stringify([payload.entry?.title, payload.entry?.company, payload.entry?.school, payload.entry?.degree, payload.entry?.dates]);
     const knownSaved = repeaters.some(item => item.kind === payload.kind && saved.get(item.group)?.has(fingerprint));
     if (
-      knownSaved || matching.some((item) =>
+      knownSaved || matching.some((item) => saved.get(item.group)?.has(fingerprint)) || matching.some((item) =>
         item.required.every((key) => {
           const value = payload.entry?.[key];
           return (
             value &&
             normalize(
-              item.fields.find((field) => field.key === key).field.value,
+              read(item.fields.find((field) => field.key === key).field),
             ) === normalize(value)
           );
         }),
@@ -260,6 +281,8 @@ export function createHistoryInspector() {
     const target =
       payload.automatic ? empty[0] : empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
     if (!target && payload.automatic && !payload.addAttempted) {
+      if (matching.some(item => !emptyGroup(item) && item.required.some(key => !read(item.fields.find(f => f.key === key).field).trim())))
+        return { filled: 0, skipped: 1, warning: "Complete the partially filled history row before adding another." };
       const candidates = repeaters.filter(item => item.kind === payload.kind &&
         !item.group.querySelector('careers-ui-experience-edit-item'));
       if (candidates.length === 1) {
@@ -271,11 +294,11 @@ export function createHistoryInspector() {
         if (identity.every(value => typeof value === "string" && value.trim() && text.includes(normalize(value))))
           return { filled: 0, skipped: 1, warning: "A matching history entry is already on the form. Review it before adding another." };
         const atUrl = location.href;
-        const before = new Set(repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item'));
+        const before = new Set(repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item,.education--form'));
         repeater.button.click();
         for (let attempt = 0; attempt < 40; attempt++) {
           if (location.href !== atUrl || !form.isConnected || !repeater.group.isConnected) return { filled: 0, skipped: 1 };
-          const added = [...repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item')].filter(node => !before.has(node));
+          const added = [...repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item,.education--form')].filter(node => !before.has(node));
           if (added.some(node => node.querySelector("input"))) {
             for (const group of added) created.add(group);
             return inspectHistory(mode, { ...payload, addAttempted: true }, form, labelFor, visible);
@@ -420,8 +443,12 @@ export function createHistoryInspector() {
       if (custom(field)) {
         const safe = () => location.href === atUrl && field.isConnected &&
           target.group.contains(field) && !read(field).trim() && !entry.edited;
-        const selected = await choose(field, value, safe, visible);
+        if (/Month$/.test(key)) value = months[Number(value) - 1] || value;
+        // Exact common degree aliases, never choose a higher qualification.
+        const degreeAlias = { bsc: "Bachelor's Degree", bs: "Bachelor's Degree", ba: "Bachelor's Degree", beng: "Bachelor's Degree", msc: "Master's Degree", ms: "Master's Degree", ma: "Master's Degree", mba: "Master of Business Administration (M.B.A.)", phd: "Doctor of Philosophy (Ph.D.)" };
+        const selected = await choose(field, value, safe, visible, undefined, key === "degree" && degreeAlias[normalize(value)] ? [degreeAlias[normalize(value)]] : []);
         if (!selected) { skipped++; continue; }
+        value = selected.value;
         entry.custom = true;
         entry.beforeLabel = selected.beforeLabel;
         entry.value = read(field);
@@ -441,9 +468,14 @@ export function createHistoryInspector() {
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
+    if (location.href !== atUrl || !form.isConnected)
+      return { filled: 0, skipped: writes.length, warning: "The application changed during filling. Review the current form.", historyUndoAvailable: false };
     for (const entry of writes) {
-      if (validUndo(entry) && (!entry.field.validity || entry.field.validity.valid)) filled++;
+      if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && (!entry.field.validity || entry.field.validity.valid)) filled++;
       else skipped++;
+    }
+    if (filled) {
+      const entries = saved.get(target.group) || new Set(); entries.add(fingerprint); saved.set(target.group, entries);
     }
     // HiBob requires Save for each row before Add is available again. Only save
     // rows we opened and only after every required value validates.

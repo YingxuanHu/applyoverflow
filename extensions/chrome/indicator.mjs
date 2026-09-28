@@ -53,13 +53,14 @@ export function installIndicator(buildId, renderQuestions) {
   }
   async function run(type, data = {}) {
     if (busy) return;
+    let prepareDrafts = false;
     busy = true;
     notice =
       type === "connect"
         ? "Connect in the ApplyOverflow window..."
         : type === "resume"
           ? "Choose and approve a resume in ApplyOverflow..."
-          : "Working...";
+          : type === "autofill-drafts" ? "Saved facts filled. Preparing answer drafts..." : "Working...";
     noticeUntil = Date.now() + 120_000;
     await scan();
     const atUrl = location.href;
@@ -78,6 +79,7 @@ export function installIndicator(buildId, renderQuestions) {
       if (response.error) throw new Error(response.error);
       connection = response.connected;
       notice = response.message;
+      prepareDrafts = type === "autofill" && response.prepareDrafts === true;
       if (response.fields) {
         remaining = response.fields.filter(field => field.state === "needed");
         renderRemaining();
@@ -90,6 +92,7 @@ export function installIndicator(buildId, renderQuestions) {
       noticeUntil = Date.now() + 15_000;
       await scan();
       setTimeout(schedule, 15_100);
+      if (prepareDrafts && location.href === atUrl) setTimeout(() => void run("autofill-drafts"), 100);
     }
   }
   function renderRemaining() {
@@ -152,6 +155,8 @@ export function installIndicator(buildId, renderQuestions) {
         () => void run("connect"),
       );
       const fill = button("Autofill", () => void run("autofill"));
+      const aiDisclosure = document.createElement("p");
+      aiDisclosure.textContent = "AI drafts use your professional profile and this job description. Review before use.";
       const resume = button("Change resume", () => void run("resume"), true);
       const remainingFields = document.createElement("div");
       const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
@@ -160,7 +165,7 @@ export function installIndicator(buildId, renderQuestions) {
       const more = document.createElement("details");
       const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
       more.append(moreLabel, undo);
-      content.append(summary, connect, fill, resume, status, remainingFields, more);
+      content.append(summary, connect, fill, aiDisclosure, resume, status, remainingFields, more);
       section.append(content);
       root.append(section);
       view = {

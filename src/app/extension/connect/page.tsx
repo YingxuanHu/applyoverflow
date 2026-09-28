@@ -59,7 +59,7 @@ export default async function ExtensionConnectPage({
           Answer remaining questions in the assistant without leaving the employer form.
           Saving an answer is optional. Record an application as applied only after your explicit confirmation.
         </li>
-        <li>Suggest answer uses OpenAI to draft from your professional profile, the job description and an optional note. You edit and approve each draft before inserting it.</li>
+        <li>Autofill also prepares optional OpenAI answer drafts from your professional profile and the job description. Suggest answer can include your note. You edit and approve drafts before inserting them; eligibility, consent and demographic answers are never inferred.</li>
         <li>
           No access to passwords or application submission. Resume sharing is off
           by default. Enable default-resume sharing in Profile or approve a file each time.
