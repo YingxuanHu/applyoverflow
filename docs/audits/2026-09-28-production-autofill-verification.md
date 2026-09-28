@@ -32,7 +32,7 @@ to the extension. No contact values, resume content or credentials are recorded 
 | [Synpulse / HiBob](https://synpulse.careers.hibob.com/jobs/fdf3f02f-4c3b-472d-bf53-305dc0296650/apply) | 13 filled, 5 existing, 7 empty; 14 history fields, 2 education records saved; three grounded professional narratives actually inserted on the form | First work record blocked by required-field validation despite visible populated core fields. Eligibility dropdown selection and custom resume widget incomplete. |
 | [BioAge / Rippling](https://ats.rippling.com/bioage-labs/jobs/d522f490-bd87-43a0-9383-b81c4bc91c44/apply) | Toolbar access worked; contact, location and one resume file remained after employer parsing. Closing popup did not cancel the run | Employer parser also populated company/phone data; not counted as extension-only writes. Unset pronouns/SMS consent and cover letter stayed blank. |
 | [Mission Lane / Greenhouse](https://job-boards.greenhouse.io/missionlane/jobs/8848599002) | 10 filled, 18 empty; contact/preferred name, phone country, city, professional link, resume and saved sponsorship verified | Overview answer validation failed; one demographic option unmatched. Employer relationships, visa details, source and SMS preferences unset. No invented US state or leadership history. |
-| [Recursion / Greenhouse](https://job-boards.greenhouse.io/recursionpharmaceuticals/jobs/8214932) | 11 filled, 9 empty; contact/link/resume, Canada-only work authorization and matching saved selections verified | Unmatched veteran option; ambiguous multi-country sponsorship. Clinical leadership not invented; unset personal facts and legal consent untouched. |
+| [Recursion / Greenhouse](https://job-boards.greenhouse.io/recursionpharmaceuticals/jobs/8214932) | 11 filled, 9 empty; contact/link/resume, Canada-only work authorization and matching saved selections verified | Unmatched veteran option; hiring-location extraction missed the explicit US posting location, leaving sponsorship blank. Clinical-experience screening did not analyze documented employment duration; unset personal facts and legal consent untouched. |
 | [TD / authenticated Workday](https://td.wd3.myworkdayjobs.com/en-US/TD_Bank_Careers/job/Toronto-Ontario/Finance-Analyst_R_1510129/apply/applyManually) | 0 filled, 2 existing, 12 empty on My Information | Contact fields incorrectly classified as work/history fields. Stayed on this step; no Save and Continue. |
 
 ## Deployment Incident
@@ -65,5 +65,14 @@ qualification fields. Their earlier explicit source preference (Other,
 ApplyOverflow) was saved through the production Profile UI. Another extension
 Autofill click selected Other and filled its dependent text field with ApplyOverflow;
 the visible count increased from 11 to 13 filled without replacing existing values.
-The application country and specific clinical-experience fact were requested
-instead of guessing jurisdiction or interpreting absent experience as No.
+An initial request for country clarification was unnecessary: checking the posting
+header showed "Remote Opportunity - United States; Salt Lake City, Utah". Company
+office locations elsewhere must not override this hiring-location evidence.
+The user's follow-up also required professional screening to analyze the recorded
+employment history, rather than requesting facts already derivable from it.
+The saved employment intervals total about 16 non-overlapping months, including
+one duplicated interval. Including all seven dated projects increases the union
+to 33 calendar months, still below a five-year requirement. This supplies a
+documented-history upper bound; it does not establish clinical experience or
+guarantee that the user's recorded work history is exhaustive. Derived screening
+answers must be marked for review, never saved as lifetime qualification facts.
