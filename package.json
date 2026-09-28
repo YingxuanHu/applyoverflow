@@ -25,7 +25,7 @@
     "extension:test": "node scripts/test-application-extension.mjs",
     "extension:test:autofill": "node scripts/test-application-extension-autofill.mjs",
     "extension:test:semantic": "node scripts/test-application-extension-semantic.mjs",
-    "extension:test:shared": "node scripts/test-extension-shared-controls.mjs && node scripts/test-extension-choice-confirmation.mjs && node scripts/test-application-extension-context.mjs && node scripts/test-application-extension-custom-choices.mjs && node scripts/test-application-extension-history-reliability.mjs && node scripts/test-extension-contact-scope.mjs && node scripts/test-extension-compound-fields.mjs && node scripts/test-extension-history-degrees.mjs && node scripts/test-extension-history-validation.mjs",
+    "extension:test:shared": "node scripts/test-extension-shared-controls.mjs && node scripts/test-extension-choice-confirmation.mjs && node scripts/test-application-extension-context.mjs && node scripts/test-application-extension-custom-choices.mjs && node scripts/test-application-extension-history-reliability.mjs && node scripts/test-extension-contact-scope.mjs && node scripts/test-extension-compound-fields.mjs && node scripts/test-extension-history-degrees.mjs && node scripts/test-extension-history-validation.mjs && node scripts/test-extension-structural-history.mjs",
     "extension:test:live": "node --import tsx scripts/test-extension-live-forms.mjs",
     "extension:test:questions": "node scripts/test-application-extension-questions.mjs",
     "extension:test:progress": "node scripts/test-extension-progress.mjs",

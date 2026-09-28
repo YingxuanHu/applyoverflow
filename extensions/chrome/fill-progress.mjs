@@ -35,7 +35,7 @@ export function createFillProgress() {
         const status = document.createElement("small");
         status.textContent = field.processing ? "Answering..." : field.queued ? "Waiting" :
           field.state === "filled" ? field.reviewReason || "Filled" : field.state === "kept" ? "Already complete" :
-          field.state === "not-applicable" ? "Not applicable" : field.reason || "Missing information. Complete this field on the form.";
+          field.state === "not-applicable" ? "Not applicable" : field.reason || "No supported answer matched this question. Review it on the form.";
         item.append(label, status);
         if (key === "empty") {
           const focus = document.createElement("button"); focus.type = "button";

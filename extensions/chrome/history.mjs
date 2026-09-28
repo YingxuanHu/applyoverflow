@@ -77,6 +77,32 @@ export function createHistoryInspector() {
     return match && /\b(university|college|institute|polytechnic)\b/i.test(match[1]) &&
       !/\b(university|institute|polytechnic|campus)\b/i.test(match[2]) ? match[1].trim() : text;
   };
+  let regions;
+  const regionName = value => {
+    if (!regions) {
+      regions = new Set();
+      const names = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" });
+      for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
+        const name = names.of(String.fromCharCode(a, b));
+        if (name) regions.add(normalize(name));
+      }
+      regions.add("united states of america");
+    }
+    return regions.has(normalize(value));
+  };
+  const optionLabel = (option, key) => {
+    const full = option.textContent.trim();
+    if (key !== "school") return full;
+    const walker = document.createTreeWalker(option, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    let node;
+    while ((node = walker.nextNode())) if (node.textContent.trim()) parts.push(node.textContent.trim());
+    // Rich school options present Name / Country / Domain. Strip only this
+    // unambiguous metadata shape; never discard a campus, city or qualification.
+    if (parts.length === 3 && regionName(parts[1]) &&
+        /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(parts[2])) return parts[0];
+    return full;
+  };
   const optionMatches = (options, value, key, textOf) => {
     const exact = options.filter(option => normalize(textOf(option)) === normalize(value));
     if (exact.length) return exact;
@@ -217,11 +243,11 @@ export function createHistoryInspector() {
     if (!safeSearch() || !list || !options.length || Date.now() - stableSince < 200 ||
         list.getAttribute("aria-busy") === "true" || field.getAttribute("aria-busy") === "true") return fail();
     const empty = options.filter((option) => option.getAttribute("data-value") === "" || option.getAttribute("value") === "");
-    let matches = optionMatches(options, label, key, option => option.textContent);
+    let matches = optionMatches(options, label, key, option => optionLabel(option, key));
     if (!matches.length) matches = options.filter(option => alternatives.some(value => normalize(option.textContent) === normalize(value)));
     if (matches.length !== 1) return fail();
     const beforeLabel = restoreLabel || (empty.length === 1 ? empty[0].textContent.trim() : undefined);
-    const option = matches[0], value = option.textContent.trim();
+    const option = matches[0], value = optionLabel(option, key);
     if (!safeSearch() || !list.isConnected || !option.isConnected ||
         option.closest('button:not([type="button"]),a[href],input[type="submit"]')) return fail();
     let changed = false;
@@ -234,6 +260,7 @@ export function createHistoryInspector() {
       const selected = option.getAttribute("aria-selected") === "true" ||
         Boolean(field.closest('.select__value-container')?.querySelector('.select__single-value'));
       accepted = normalize(read(field)) === normalize(value) &&
+        (key !== "school" || field.getAttribute("aria-expanded") === "false") &&
         (!(field instanceof HTMLInputElement) || selected ||
           (field.getAttribute("aria-expanded") === "false" && (changed || read(field) !== query)));
       if (accepted) break;
@@ -259,7 +286,13 @@ export function createHistoryInspector() {
     if (/^(?:job-)?boards(?:\.eu)?\.greenhouse\.io$/.test(location.hostname) && group.matches('.education--form,.education--container')) return "education";
     const labelled = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
       .map(id => document.getElementById(id)?.textContent || "").join(" ");
-    const label = normalize(group.getAttribute("aria-label") || labelled || group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header > h2,:scope > header > h3")?.textContent || "");
+    const localLabel = group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header > h2,:scope > header > h3,:scope > label");
+    const first = group.firstElementChild;
+    // A heading/label immediately owns the following record controls even when
+    // a framework renders plain divs instead of semantic sections/fieldsets.
+    const heading = localLabel && !localLabel.querySelector(controlsSelector) ? localLabel :
+      first && !first.querySelector(controlsSelector) ? first.querySelector("h2,h3,h4,label") : null;
+    const label = normalize(group.getAttribute("aria-label") || labelled || heading?.textContent || "");
     const auto = group.getAttribute("data-automation-id") || "";
     const bob = group.matches('careers-ui-experience-edit-item') ? group.parentElement : group;
     const bobType = bob.matches('careers-ui-experience-form-control') && bob.getAttribute("data-testid");
@@ -270,15 +303,22 @@ export function createHistoryInspector() {
   const actionLabel = (button, verb) =>
     new RegExp(`^(?:\\+\\s*)?${verb}(?: (?:another|more))?(?: (?:work |employment |education )?(?:experience|entry|education|record|qualification))?$`, "i")
       .test((button.getAttribute("aria-label") || button.textContent).trim());
-  const action = (button, verb) => button.matches('button[type="button"]') && actionLabel(button, verb);
+  const action = (button, verb) => button instanceof HTMLButtonElement &&
+    (button.type === "button" || (!button.form && !button.closest("form"))) && actionLabel(button, verb);
   const savesIn = (group, visible, includeUnsafe = false) => [...group.querySelectorAll("button")]
     .filter(button => visible(button) && actionLabel(button, "save") && (includeUnsafe || button.type === "button"));
   const controlFields = (group, visible) => [...group.querySelectorAll(controlsSelector)].filter(field =>
     visible(field) && (!["hidden", "submit", "button", "reset"].includes(field.type) || custom(field)));
   function discover(form, labelFor, visible) {
-    const sections = [...form.querySelectorAll(containersSelector)].filter(group => visible(group) && kindOf(group));
-    const ownerOf = group => sections.filter(section => section === group || section.contains(group)).at(-1);
+    const structural = [...form.querySelectorAll("div")];
+    const sections = [...new Set([...form.querySelectorAll(containersSelector), ...structural])]
+      .filter(group => kindOf(group) && visible(group));
+    const ownerOf = group => sections.filter(section => section === group || section.contains(group))
+      .reduce((owner, section) => !owner || owner.contains(section) ? section : owner, null);
+    const inline = new Set(sections.filter(section => !savesIn(section, visible, true).length)
+      .flatMap(section => [...section.querySelectorAll("div")]));
     const candidates = [...new Set([...form.querySelectorAll(containersSelector),
+      ...sections, ...inline,
       ...sections.flatMap(section => [...section.querySelectorAll("div")].filter(group => savesIn(group, visible, true).length === 1))])];
     const groups = candidates.flatMap(group => {
       const owner = ownerOf(group);
@@ -305,10 +345,18 @@ export function createHistoryInspector() {
       // containing school row instead of deduplicating unrelated institutions.
       const required = kind === "experience" ? ["title", "company"] : ["school"];
       if (!required.every(key => fields.filter(entry => entry.key === key).length === 1)) return [];
+      // A single School field wrapper is not the record. Structural rows need
+      // corroborating history fields, otherwise sibling dates/major get lost.
+      if (inline.has(group) && !kindOf(group) && !group.matches(containersSelector) && new Set(fields.map(entry => entry.key)).size < 2) return [];
       return [{ group, owner, kind, fields, required }];
-    }).filter((item, _, all) => !all.some(other => other !== item && item.group.contains(other.group)));
+    }).filter((item, _, all) => !all.some(other => other !== item && (
+      // Prefer the tightest scope that retains every recognized field belonging
+      // to this identity. A name-only inner wrapper must not lose sibling dates.
+      (item.group.contains(other.group) && item.fields.every(entry => other.fields.some(field => field.field === entry.field))) ||
+      (other.group.contains(item.group) && other.fields.length > item.fields.length && item.fields.every(entry => other.fields.some(field => field.field === entry.field)))
+    )));
     const repeaters = sections.flatMap(group => {
-      const buttons = [...group.querySelectorAll('button[type="button"]')].filter(button =>
+      const buttons = [...group.querySelectorAll('button')].filter(button =>
         visible(button) && action(button, "add") && !groups.some(item => item.group !== group && item.group.contains(button)));
       return buttons.length === 1 ? [{ group, kind: kindOf(group), button: buttons[0] }] : [];
     }).filter((item, _, all) => !all.some(other => other !== item && item.group.contains(other.group) && item.button === other.button));
@@ -325,6 +373,7 @@ export function createHistoryInspector() {
     )
       clear();
     const { groups, repeaters } = discover(form, labelFor, visible);
+    if (mode === "history-fields") return groups.flatMap(group => group.fields.map(entry => ({ ...entry, kind: group.kind })));
     const emptyGroup = ({ group, fields }) =>
       fields.every(({ field }) => !read(field).trim()) &&
       ![...group.querySelectorAll(controlsSelector)].some(

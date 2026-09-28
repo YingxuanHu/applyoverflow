@@ -146,27 +146,45 @@ export function createAutofillInspector() {
     const radioLabel = group => {
       const labels = group ? [...group.querySelectorAll(':scope > label')] : [];
       const ownLabel = labels.length === 1 && !labels[0].control && !labels[0].querySelector('input,select,textarea,button') ? labels[0].textContent.trim() : "";
+      const heading = group?.firstElementChild;
+      const structural = heading && !heading.matches('input,select,textarea,button') &&
+        !heading.querySelector('input,select,textarea,button,[role="combobox"],[role="radio"]') ? heading.textContent.trim() : "";
       return group?.querySelector(':scope > legend')?.textContent?.trim() || group?.getAttribute('aria-label') || ownLabel ||
-        (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '');
+        (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '') ||
+        (structural.length <= 500 ? structural : "");
+    };
+    const nativeGroup = radios => {
+      if (radios.length < 2 || !radios[0].field.name) return null;
+      const members = new Set(radios.map(item => item.field));
+      for (let group = radios[0].field.parentElement, depth = 0; group && group !== form && depth < 8; group = group.parentElement, depth++) {
+        if (!radios.every(item => group.contains(item.field))) continue;
+        // Lowest common ownership plus a local question title, not CSS from a
+        // particular ATS. Never borrow a neighbouring question's controls.
+        if ([...group.querySelectorAll('input,select,textarea,[role="combobox"],[role="radio"],button[aria-pressed]')]
+          .some(field => visible(field) && field.type !== "hidden" && !members.has(field))) return null;
+        if (radioLabel(group)) return group;
+      }
+      return null;
     };
     const groupedEntries = entries.flatMap(entry => {
       if (entry.ariaChoice) return [entry];
       if (!["radio", "checkbox"].includes(entry.field.type)) return [entry];
-      const group = entry.field.closest('fieldset,[role="radiogroup"],.application-question');
+      const radios = entries.filter(item => item.field.type === entry.field.type && item.field.name === entry.field.name);
+      const explicit = entry.field.closest('fieldset,[role="radiogroup"],.application-question');
+      const group = explicit && radioLabel(explicit) ? explicit : nativeGroup(radios);
       const groupLabel = radioLabel(group);
       if (!group || !groupLabel || !entry.field.name) return [entry];
-      const radios = entries.filter(item => item.field.type === entry.field.type && item.field.name === entry.field.name);
       if (!radios.every(item => group.contains(item.field))) return [entry];
       if (radios[0].field !== entry.field) return [];
       return [{ ...entry, label: groupLabel, originalLabel: entry.label,
-        radioFields: radios.map(item => item.field), radioGroup: group }];
+        radioFields: radios.map(item => item.field), radioLabels: radios.map(item => labelFor(item.field)), radioGroup: group }];
     });
     const current = groupedEntries.filter(({ field, label, ariaChoice }) => label && label.length <= 500 &&
       (ariaChoice || !["hidden", "password", "submit", "reset", "file"].includes(field.type)) &&
       (!(field instanceof HTMLButtonElement) || custom(field) || field.matches('[role="checkbox"],[role="switch"]')));
     const safe = item => location.href === operationUrl && pageUrl === operationUrl && form.isConnected && form.contains(item.field) &&
       item.field.isConnected && visible(item.field) && (item.ariaChoice ? item.ariaChoice.valid() : (labelFor(item.field) === (item.originalLabel || item.label) &&
-      (!item.radioFields || (item.radioFields.every(field => field.isConnected && form.contains(field) && visible(field) && !field.disabled) &&
+      (!item.radioFields || (item.radioFields.every((field, index) => field.isConnected && form.contains(field) && visible(field) && !field.disabled && labelFor(field) === item.radioLabels[index]) &&
         radioLabel(item.radioGroup) === item.label)) &&
       !item.field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]')));
     const items = current.slice(0, 80).map(entry => {
@@ -217,7 +235,7 @@ export function createAutofillInspector() {
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
         required,
         kind: radio ? checkbox ? "checkbox-group" : "radio" : checkbox ? "checkbox" : select ? "select" : widget ? "combobox" : "text",
-        reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
+        reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? entry.historyKind ? `This ${entry.historyKind === "education" ? "education" : "work"} record could not be completed. Check the saved record and the form's available choices.` : "Review work, education or reference details on the form." :
           manual ? "Review this field on the employer form." : issues.get(field)?.label === label ? issues.get(field).reason : profileGuidance.get(norm(label))?.reason || "",
       };
       targets.set(id, item);

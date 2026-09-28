@@ -115,6 +115,28 @@ try {
     });
   });
 
+  for (const reject of [false, true]) await test(`explicit non-submit pressed choices ${reject ? "report rejected writes" : "fill saved answers and preserve existing selections"}`, async () => {
+    await fixture(`<div role="tabpanel">${primary.replaceAll('<button aria-pressed', '<button type="button" aria-pressed')}</div>`, async (page, inspect) => {
+      if (!reject) await page.evaluate(() => {
+        for (const button of document.querySelectorAll('button[aria-pressed]')) button.onclick = () => {
+          for (const sibling of button.parentElement.querySelectorAll('button')) sibling.setAttribute('aria-pressed', String(sibling === button));
+        };
+      });
+      const result = await inspect("autofill", { commonAnswers: [
+        { label: authorization, answerKey: "authorizedCA", answer: "Yes" },
+        { label: sponsorship, answerKey: "sponsorshipCA", answer: "No" },
+        { label: consent, answerKey: "consent", answer: "Yes" },
+      ] });
+      for (const [id, value] of [["authorization", "yes"], ["sponsorship", "no"]])
+        assert.equal(await page.locator(`#${id}-buttons button[data-option="${value}"]`).getAttribute('aria-pressed'), String(!reject));
+      assert.equal(await page.locator('#office-buttons [data-option="yes"]').getAttribute('aria-pressed'), "true");
+      assert.equal(await page.locator('#consent-buttons [aria-pressed="true"]').count(), 0);
+      const field = result.fields.find(f => f.label === authorization);
+      assert.equal(field.state, reject ? "needed" : "filled");
+      if (reject) assert.match(field.reason, /did not confirm/);
+    });
+  });
+
   const labelCases = [
     ["one compound control", '<div><label for="missing">Current location</label><div><input id="target"><button type="button">Open</button></div></div>', "Current location"],
     ["competing controls", '<div><label for="missing">Current location</label><div><input id="target"><input></div></div>', ""],

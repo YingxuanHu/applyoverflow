@@ -31,6 +31,9 @@ try {
   assert.ok(await page.getByText("Based on documented work history; review", { exact: true }).isVisible());
   assert.equal(await page.locator("textarea,input,select,form").count(), 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.evaluate(() => window.showProgress([{ id: "unmatched", label: "Unrecognized wording", state: "needed" }]));
+  assert.ok(await page.getByText("No supported answer matched this question. Review it on the form.", { exact: true }).isVisible());
+  assert.equal(await page.getByText(/Missing information/).count(), 0, "an unsupported mapping is not evidence of absent profile data");
   await mkdir("output/playwright", { recursive: true });
   await page.screenshot({ path: "output/playwright/extension-progress-320.png", fullPage: true });
   console.log("PASS progress-only assistant: no answer controls or values, live states, show-field action, 320px layout");

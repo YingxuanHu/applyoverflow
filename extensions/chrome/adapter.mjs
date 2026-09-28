@@ -573,10 +573,15 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
       return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext };
     };
     const manualChoices = detection.manualChoices(forms[0], labelFor);
+    const historyFields = history ? await history("history-fields", {}, forms[0], labelFor, visible) : [];
     for (const { field } of manualChoices) if (!manualChoiceIds.has(field)) manualChoiceIds.set(field, crypto.randomUUID());
     // Custom choices share the write engine, never their hidden native inputs.
     // A mixed visible-native/custom subgroup is still reported, but not writable.
-    const entries = fields.filter(field => !manualChoices.some(choice => choice.field === field || choice.field.contains(field))).map(contactEntry);
+    const entries = fields.filter(field => !manualChoices.some(choice => choice.field === field || choice.field.contains(field))).map(field => {
+      const entry = contactEntry(field);
+      const record = historyFields.find(item => item.field === field);
+      return record ? { ...entry, key: undefined, profileKey: undefined, inHistory: true, historyKind: record.kind } : entry;
+    });
     if (autofill) entries.push(...manualChoices.map(choice => ({ ...choice,
       inHistory: detection.groupContext(choice.field, forms[0], choice.label).unsafe,
       ...(choice.kind === "radio" ? { radioFields: choice.ariaChoice.fields } : {}),

@@ -174,8 +174,8 @@ export function createFormDetection() {
         state: selected ? "kept" : "needed",
         ariaChoice: { fields: choices, labels: options, valid, writable } });
     }
-    // Pressed buttons are not necessarily radios, and may be submit buttons.
-    // Report a bounded Yes/No question, but never promote it to a write target.
+    // Explicit non-submit Yes/No buttons can implement a single choice. Default
+    // submit buttons remain detection-only even if their labels look identical.
     for (const node of form.querySelectorAll('button[aria-pressed]')) {
       if (!visible(node) || node.closest('[role="listbox"],[role="tree"],[role="menu"]') || result.some(item => item.field.contains(node))) continue;
       const group = parent(node);
@@ -191,10 +191,16 @@ export function createFormDetection() {
       const valid = () => group.isConnected && form.contains(group) && visible(group) && titleFor() === title &&
         group.querySelectorAll('button[aria-pressed]').length === choices.length && choices.every((choice, index) =>
           choice.isConnected && parent(choice) === group && visible(choice) && (label(choice) || text(choice)) === options[index]);
+      const writable = () => valid() && choices.every(choice => choice.type === "button" &&
+        ["true", "false"].includes(choice.getAttribute("aria-pressed")) &&
+        !choice.closest(':disabled,[disabled],[aria-disabled="true"],[aria-readonly="true"],[aria-busy="true"]') &&
+        !choice.querySelector('input,select,textarea,button,a[href],[contenteditable="true"]')) &&
+        ![...group.querySelectorAll('input,select,textarea,[role="combobox"]')].some(control => visible(control)) &&
+        choices.filter(choice => choice.getAttribute("aria-pressed") === "true").length <= 1;
       result.push({ field: group, focus: choices[0], label: title, kind: "radio", options,
         required: group.getAttribute("aria-required") === "true",
         state: choices.filter(choice => choice.getAttribute("aria-pressed") === "true").length === 1 ? "kept" : "needed",
-        ariaChoice: { fields: choices, labels: options, checkedAttribute: "aria-pressed", valid, writable: () => false } });
+        ariaChoice: { fields: choices, labels: options, checkedAttribute: "aria-pressed", valid, writable } });
     }
     return result;
   }
