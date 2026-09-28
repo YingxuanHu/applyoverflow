@@ -1,8 +1,42 @@
 # Application Assistant Preview
 
+## Recurring answers and live-form coverage (0.9.0)
+
+- Profile has grouped optional work eligibility, availability, pay, relocation,
+  job-source, recruiting-message and voluntary self-identification answers.
+  Missing values never become No. Employer relationships and referrals are scoped
+  to one verified application tenant, not reused across employers.
+- Greenhouse multi-value choices accept one explicit saved answer when empty;
+  existing selections are preserved. Professional-link alternatives, sponsorship
+  wording and demographic decline variants map to supported profile semantics.
+  Conditional source details require the actual parent selection to be Other.
+- Lever custom labels and grouped radio questions are inspected. Greenhouse's
+  degree-only education rows support degree/month/year selection and do not create
+  duplicate partially filled rows on repeated clicks.
+- Autofill can prepare professional drafts without a separate generation click.
+  Qualification suggestions require evidence for every condition; missing evidence
+  is not No. Legal attestations stay manual, and explicit employer prohibitions
+  disable AI-written answers. No generated draft is inserted until the user approves.
+- Toolbar-only installations show a prominent Enable on-page assistant action.
+  It requests Chrome's optional supported-site access; it does not grant all-sites
+  access or fetch a profile merely to detect an application.
+- `tests/integration/extension-live-coverage.ts <URLs...>` uses a disposable local
+  profile and blocks employer writes before filling. It records actual DOM values,
+  screenshots, missing fields and repeat-fill checks in `output/playwright/coverage`.
+  Wait for real form controls before blocking traffic, including delayed SPAs.
+- `EXTENSION_LIVE_COVERAGE=1` on the authenticated `--autofill` browser integration
+  tests Mission Lane using native MV3, the real local API and live model requests.
+  It verifies dropdown writes, reviewed draft insertion, no false US-state mapping
+  for a Canadian profile, no invented management qualification and no submission.
+
+Residual limits: arbitrary async option catalogs, unsupported multi-select groups,
+detached file widgets and employer-specific work-history editors can still need
+manual input. Workday/iCIMS authenticated histories are not certified by these
+public-form checks. Store publication remains separate from the downloadable preview.
+
 This is an unpacked Manifest V3 preview, not a Chrome Web Store release.
-The 0.8.0 extension requires the matching backend deployment for answer limits,
-profile skills and precise history dates.
+The 0.9.0 extension requires the matching backend deployment for recurring
+application answers, bounded answer drafts and profile guidance.
 The extension supports direct Greenhouse (US/EU), Lever (US/EU), and Ashby pages,
 plus recognized forms on those hosts embedded in an employer page. Greenhouse's
 `/embed/job_app` requires both a company identifier and a numeric job token.
@@ -74,8 +108,10 @@ to an employer automatically. Neither feature depends on the public job board.
   work-eligibility answers require explicit Profile values and a separate opt-in.
   Only supported labels and exact answer options match; there is no inference.
 - The compact question view has an editable draft queue and a separate queue for
-  personal decisions. Suggest answer is explicit, uses professional profile evidence
-  and bounded job text, and requires review before Use answer. Personal reasons need
+  personal decisions. Autofill prepares up to three professional answer drafts after
+  saved facts finish filling; Suggest answer can regenerate an individual draft.
+  Both use professional profile evidence and bounded job text, and require review
+  before Use answer. Personal reasons need
   a note; eligibility, availability, referrals and consent are not guessed. No new
   employer-specific answer-saving checkbox is shown. Fixed facts can be saved to Profile.
   Existing exact saved answers still work. Optional demographic answers never enter AI prompts.
@@ -190,10 +226,11 @@ not a one-click consumer installation or an automatically updated store release.
 - History: Autofill fills empty rows in profile order; More actions can
   target one saved entry to an unambiguous or focused row.
   Populated rows and probable duplicates are preserved. Dates retain their exact
-  precision; native degree/month selects require one exact match. Reversible
-  ARIA history single-selects require an explicitly linked listbox, one exact
-  match and an enabled blank option for Undo. Ambiguous or irreversible custom
-  controls and Next stay manual. Clearly labelled current-role checkboxes use only
+  precision; native degree/month selects require one exact match. ARIA history
+  single-selects require an explicitly linked listbox and one exact match (including
+  bounded degree aliases). Undo additionally requires an enabled blank option;
+  otherwise the choice stays filled for manual review. Ambiguous custom controls
+  and Next stay manual. Clearly labelled current-role checkboxes use only
   an explicit saved current flag. Add is bounded to one identified work/education
   section; Save is restricted to newly opened, complete HiBob row editors.
   Undo history preserves user edits and expires after ten minutes. Profile
@@ -340,8 +377,8 @@ For example, the resume batch was verified with
 on the browser integration command, approving the native site-access prompt
 once, then rerunning headlessly. Never point these tests at a personal profile.
 
-Deploy the matching web/backend revision before distributing 0.8.0: earlier
-backends reject answer-limit metadata and lack the additional profile fields. Installed unpacked
+Deploy the matching web/backend revision before distributing 0.9.0: earlier
+backends lack recurring-answer mappings and answer-choice validation. Installed unpacked
 previews require Reload in Chrome and an employer-page refresh.
 
 Before public release: broader real-form compatibility validation (with

@@ -1,5 +1,8 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
+import { questionAssistance } from "./question-policy.mjs";
+const canDraft = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
+  ((field.kind === "text" && questionAssistance(field.label) === "draft") || questionAssistance(field.label) === "qualification");
 
 const supportedOrigin = (url) => {
   try {
@@ -379,6 +382,7 @@ async function handle(type, sender, message = {}) {
       "autofill-focus",
       "autofill-options",
       "autofill-suggest",
+      "autofill-drafts",
       "autofill-undo",
       "review",
       "resume",
@@ -498,6 +502,7 @@ async function handle(type, sender, message = {}) {
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
     if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
     if (scan.manualResume) note += " Review the resume on the form; this site's upload button needs manual attachment.";
     if (scan.resumeAvailable) {
@@ -517,6 +522,7 @@ async function handle(type, sender, message = {}) {
     const final = await inspect(target, ["inspect", {}, scan.url]);
     const response = report(final.result, note);
     response.revision = plan.revision;
+    response.prepareDrafts = response.fields.some(canDraft);
     // Save only document identity/revision. Profile and answer values stay transient.
     await chrome.storage.session.set({ [`autofill:${tab.id}`]: {
       url: scan.url, documentId: inspection.documentId, revision: plan.revision,
@@ -524,6 +530,39 @@ async function handle(type, sender, message = {}) {
       expires: Date.now() + 10 * 60_000,
     } });
     return response;
+  }
+  if (type === "autofill-drafts") {
+    const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+    if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
+      throw new Error("Click Autofill to check the current application step first.");
+    const fields = (scan.fields || []).filter(canDraft).slice(0, 3);
+    if (!fields.length) return report(scan);
+    const context = await inspect(target, ["autofill-context", {}, scan.url]);
+    const drafts = new Map();
+    for (const field of fields) if (field.kind === "combobox" && !field.options?.length) {
+      const loaded = await inspect(target, ["autofill-options", { id: field.id, label: field.label }, scan.url]);
+      field.options = loaded.result.fields.find(f => f.id === field.id)?.options || [];
+    }
+    // Bounded concurrency: contact filling finishes before this optional AI work.
+    for (let offset = 0; offset < fields.length; offset += 2) await Promise.all(fields.slice(offset, offset + 2).map(async field => {
+      try {
+        if (field.kind !== "text" && !field.options?.length) throw new Error("Choose on the form; its answer choices could not be read.");
+        const result = await api("autofill-suggest", { url: scan.url, label: field.label,
+          title: scan.title || "", jobDescription: context.result.jobDescription || "", note: "", revision: saved.revision,
+          maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token);
+        drafts.set(field.id, result.suggestion);
+      } catch (error) {
+        if (error.reconnect) throw error;
+        drafts.set(field.id, { answer: "", evidence: [], missing: error.message || "A draft could not be prepared. Try Suggest answer." });
+      }
+    }));
+    const current = await inspect(target, ["inspect", {}, scan.url]);
+    const result = report(current.result);
+    result.fields = result.fields.map(field => field.state === "needed" && fields.some(f => f.id === field.id && f.label === field.label)
+      ? { ...field, suggestion: drafts.get(field.id) } : field);
+    const count = [...drafts.values()].filter(draft => draft.answer).length;
+    result.message = count ? `${count} answer ${count === 1 ? "draft is" : "drafts are"} ready to review. Nothing submitted.` : "Saved facts filled. Remaining questions need your input.";
+    return result;
   }
   if (["autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest"].includes(type)) {
     const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
@@ -533,13 +572,20 @@ async function handle(type, sender, message = {}) {
       (type === "autofill-answer" && (typeof message.answer !== "string" || message.answer.length > 3000)))
       throw new Error("Check your answer and try again.");
     if (type === "autofill-suggest") {
-      const field = scan.fields?.find(field => field.id === message.id && field.label === message.label && field.state === "needed" && field.canAnswer && !field.profileKey && field.kind === "text");
+      if (scan.aiRestricted) throw new Error("This employer disallows AI-written answers. Write these responses yourself; saved facts can still be filled.");
+      const field = scan.fields?.find(field => field.id === message.id && field.label === message.label && field.state === "needed" && field.canAnswer && !field.profileKey &&
+        (field.kind === "text" || questionAssistance(field.label) === "qualification"));
       if (!field || typeof message.note !== "string" || message.note.length > 1200)
         throw new Error("This question changed. Autofill again to check the form.");
       const context = await inspect(target, ["autofill-context", {}, scan.url]);
+      if (field.kind === "combobox" && !field.options?.length) {
+        const loaded = await inspect(target, ["autofill-options", { id: field.id, label: field.label }, scan.url]);
+        field.options = loaded.result.fields.find(f => f.id === field.id)?.options || [];
+      }
+      if (field.kind !== "text" && !field.options?.length) throw new Error("Choose on the form; its answer choices could not be read.");
       const result = await api("autofill-suggest", { url: scan.url, label: field.label,
         title: scan.title || "", jobDescription: context.result.jobDescription || "", note: message.note, revision: saved.revision,
-        maxLength: field.maxLength, maxWords: field.maxWords }, connection.token);
+        maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token);
       const current = await inspect(target, ["inspect", {}, scan.url]);
       if (!current.result.fields?.some(f => f.id === field.id && f.label === field.label && f.state === "needed"))
         throw new Error("The form changed while drafting. Your existing answers were not changed.");
@@ -716,7 +762,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-drafts", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )

@@ -51,6 +51,16 @@ test("suggestion requests are bounded, job scoped and reject extra form answers"
   assert.equal(suggestionRequestSchema.safeParse({ ...input, url: "http://localhost/private" }).success, false);
 });
 
+test("professional qualification drafts require exact offered choices; personal questions remain protected", () => {
+  assert.equal(questionAssistance("Do you have at least 3 years of experience directly managing a team in customer operations, risk, or fraud, including hiring, coaching, and developing direct reports?"), "qualification");
+  assert.equal(questionAssistance("(Optional) Is there anything about your experience that may not be apparent on your resume but would help us evaluate your fit for this role?"), "draft");
+  assert.equal(questionAssistance("Do you have experience and authorization to work in Canada?"), "personal");
+  const sources = [{ id: "summary", text: "I have five years of Python experience." }];
+  const output = { answer: "Yes", evidence: [{ id: "summary", quote: sources[0].text }], missing: "" };
+  assert.equal(parseSuggestion(JSON.stringify(output), sources, { options: ["Yes", "No"] }).answer, "Yes");
+  assert.throws(() => parseSuggestion(JSON.stringify({ ...output, answer: "Yes, five years" }), sources, { options: ["Yes", "No"] }), /choice/);
+});
+
 test("draft generation uses the same bounded schema as response validation", () => {
   const format = zodResponseFormat(generatedSuggestionSchema, "application_answer");
   assert.equal(format.json_schema.strict, true);

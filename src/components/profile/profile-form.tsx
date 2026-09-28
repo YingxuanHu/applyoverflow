@@ -1,6 +1,7 @@
 "use client";
 
-import { applicationAnswerFields, normalizeApplicationAnswers } from "@/lib/profile-application-answers";
+import { normalizeApplicationAnswers } from "@/lib/profile-application-answers";
+import { ApplicationAnswersFields } from "@/components/profile/application-answers-fields";
 
 import { HistoryDatesFields } from "./history-dates-fields";
 
@@ -628,34 +629,8 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               </label>
             </div>
           </section>
-          <details className="sm:col-span-2 border-t border-border pt-4">
-            <summary className="cursor-pointer text-sm font-semibold">Optional application answers</summary>
-            <p className="mt-3 text-sm text-muted-foreground">Only answers you choose are saved. Leaving a field blank means no answer, not &quot;No&quot;. These answers are not used for job matching or AI-generated materials.</p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {applicationAnswerFields.map(field => (
-                <label key={field.key} className="space-y-1.5 text-sm">
-                  <span>{field.label}</span>
-                  <select className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3"
-                    value={contact.applicationAnswers?.values[field.key] ?? ""}
-                    onChange={event => setContact(current => ({ ...current, applicationAnswers: {
-                      ...normalizeApplicationAnswers(current.applicationAnswers),
-                      values: { ...normalizeApplicationAnswers(current.applicationAnswers).values, [field.key]: event.target.value },
-                    } }))}>
-                    <option value="">Not provided</option>
-                    {field.options.map(option => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                </label>
-              ))}
-              <label className="flex items-start gap-3 text-sm sm:col-span-2">
-                <input type="checkbox" className="mt-1 size-4 shrink-0" checked={contact.applicationAnswers?.enabled === true}
-                  onChange={event => setContact(current => ({ ...current, applicationAnswers: {
-                    ...normalizeApplicationAnswers(current.applicationAnswers), enabled: event.target.checked,
-                  } }))} />
-                <span>Share these answers with matching employer fields when I click Autofill</span>
-              </label>
-              <p className="text-sm text-muted-foreground sm:col-span-2">Referrals, relatives at an employer and government relationships depend on the employer. Answer them on that application; you can choose to remember an exact question for that employer. Communication consent, legal agreements and signatures stay manual.</p>
-            </div>
-          </details>
+          <ApplicationAnswersFields value={normalizeApplicationAnswers(contact.applicationAnswers)}
+            onChange={applicationAnswers => setContact(current => ({ ...current, applicationAnswers }))} />
         </div>
       </ProfileSection>
 

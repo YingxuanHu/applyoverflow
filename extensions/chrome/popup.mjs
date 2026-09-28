@@ -33,6 +33,7 @@ function showFields(fields) {
   }));
 }
 async function run(type, data = {}) {
+  let prepareDrafts = false;
   clearTimeout(refreshTimer);
   for (const button of document.querySelectorAll("button"))
     button.disabled = true;
@@ -42,7 +43,7 @@ async function run(type, data = {}) {
         ? "Complete the connection in ApplyOverflow..."
         : type === "resume"
           ? "Choose and approve a resume in ApplyOverflow..."
-          : "Working...";
+          : type === "autofill-drafts" ? "Saved facts filled. Preparing answer drafts..." : "Working...";
   try {
     // Check even after initial load: an unpacked build may have changed while
     // this popup was open. Older workers must never receive the mutation first.
@@ -67,6 +68,7 @@ async function run(type, data = {}) {
     }
     if (result.error) throw new Error(result.error);
     if (result.fields) showFields(result.fields);
+    prepareDrafts = type === "autofill" && result.prepareDrafts === true;
     if (result.history) {
       history = result.history;
       const select = document.getElementById("history-entry");
@@ -133,6 +135,7 @@ async function run(type, data = {}) {
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.
     if (activeAction && !needsReload) refreshTimer = setTimeout(() => void run("status"), 1500);
+    else if (prepareDrafts && !needsReload) refreshTimer = setTimeout(() => void run("autofill-drafts"), 100);
   }
 }
 for (const type of [
@@ -185,17 +188,17 @@ async function updateAccess() {
   ).length;
   detection.checked = count === SITE_ORIGINS.length;
   detection.indeterminate = count > 0 && count < SITE_ORIGINS.length;
+  document.getElementById("detection-reminder").hidden = detection.checked;
   document.getElementById("access-state").textContent = !count
     ? "Toolbar only"
     : detection.checked
       ? "Supported sites enabled"
       : "Some sites enabled";
   document.getElementById("access-help").textContent = count
-    ? "Greenhouse, Lever, Ashby, Workday, iCIMS & Workable. Other application sites: use the toolbar."
+    ? "Greenhouse, Lever, Ashby, Workday, iCIMS, Workable & HiBob. Other application sites: use the toolbar."
     : "Automatic hints are off until site access is granted. Filling always requires your click.";
 }
-detection.addEventListener("change", async () => {
-  const enable = detection.checked;
+async function changeDetection(enable) {
   detection.disabled = true;
   try {
     // request() must run directly from this user gesture, not in the worker.
@@ -214,5 +217,7 @@ detection.addEventListener("change", async () => {
     await updateAccess();
     detection.disabled = false;
   }
-});
+}
+detection.addEventListener("change", () => void changeDetection(detection.checked));
+document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true));
 void updateAccess();

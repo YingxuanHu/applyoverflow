@@ -5,7 +5,7 @@ import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey
 import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
-import { commonApplicationAnswers } from "@/lib/profile-application-answers";
+import { applicationAnswerPlan } from "@/lib/profile-application-answers";
 
 export async function getAutofillPlan(userId: string, raw: unknown) {
   const input = autofillPlanSchema.parse(raw);
@@ -30,10 +30,12 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   // A single full-address field must not receive only a street or a guessed city.
   fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
+  fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
+  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
     skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),
-    commonAnswers: commonApplicationAnswers(contact.applicationAnswers, input.questions),
+    commonAnswers: common.answers, answerDetails: common.details,
     answers: reusableAutofillAnswers(parseAnswerLibrary(profile.preferences[0]?.value), applicationContext(input.url, true)!.companyKey, revision, input.questions),
     history: input.history ? [
       ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry })),

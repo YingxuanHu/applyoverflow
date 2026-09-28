@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const origin = process.env.ASSISTANT_TEST_ORIGIN || "http://127.0.0.1:3004";
@@ -10,6 +11,9 @@ assert.match(process.env.ASSISTANT_TEST_EMAIL || "", /^extension-browser-.*@exam
 assert.ok(profile.startsWith(resolve("output/playwright") + "/"));
 assert.match(id, /^[a-p]{32}$/);
 const extension = resolve("output/extension/local");
+// Keep native permission grants but do not test an imported module cached from
+// a prior build of this disposable unpacked package.
+await rm(resolve(profile, "Default/Service Worker"), { recursive: true, force: true });
 const launch = () => chromium.launchPersistentContext(profile, { channel: "chromium", headless: process.env.EXTENSION_HEADED !== "1",
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
 let context = await launch();
@@ -51,7 +55,6 @@ try {
   assert.equal(await form.locator("#email").inputValue(), process.env.ASSISTANT_TEST_EMAIL);
   assert.equal(await form.locator("#first_name").inputValue(), "Jordan");
   const assistant = form.locator("#applyoverflow-assistant");
-  await assistant.getByRole("button", { name: "Suggest answer", exact: true }).click();
   const draft = assistant.getByRole("textbox", { name: "Answer: Why this role?" });
   await form.waitForFunction(() => document.querySelector('#applyoverflow-assistant')?.shadowRoot?.querySelector('textarea[aria-label="Answer: Why this role?"]')?.value.length > 10, null, { timeout: 25_000 });
   assert.equal(await form.locator("#why").inputValue(), "", "Suggestions require approval");
@@ -63,6 +66,51 @@ try {
   assert.equal(await form.evaluate(() => window.submits), 0);
   await form.screenshot({ path: "output/playwright/extension-profile-backed-flow.png" });
   console.log("PASS MV3 -> authenticated API -> profile-backed contact fill -> real AI draft -> edit -> approve -> employer field, no submission");
+  if (process.env.EXTENSION_LIVE_COVERAGE === "1") {
+    const live = await context.newPage();
+    await live.goto("https://job-boards.greenhouse.io/missionlane/jobs/8848599002", { waitUntil: "load" });
+    await live.locator("#first_name").waitFor();
+    await live.waitForTimeout(1000);
+    // Employer traffic is isolated before any test profile values are inserted.
+    // The extension's authenticated localhost API calls remain available.
+    await live.route("**/*", route => route.abort());
+    await live.routeWebSocket("**/*", socket => socket.close());
+    await live.evaluate(() => {
+      window.submits = 0;
+      document.addEventListener("submit", event => { event.preventDefault(); event.stopImmediatePropagation(); window.submits++; }, true);
+    });
+    await live.getByRole("button", { name: "Autofill available", exact: true }).click();
+    const ui = live.locator("#applyoverflow-assistant");
+    await ui.getByRole("button", { name: "Autofill", exact: true }).click();
+    await live.waitForFunction(() => document.querySelector('#first_name')?.value === "Jordan");
+    const nativeValues = () => live.locator('input,textarea').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => ({
+      label: n.labels?.[0]?.textContent || n.getAttribute('aria-label') || '',
+      value: n.closest('.select__value-container')?.querySelector('.select__single-value')?.textContent || n.value,
+    })));
+    await ui.getByRole('status').filter({ hasText: /ready to review|Remaining questions/ }).waitFor({ timeout: 50000 });
+    const values = await nativeValues();
+    assert.equal(values.find(f => /How did you hear/.test(f.label))?.value, 'Other');
+    assert.equal(values.find(f => /Please provide a link/.test(f.label))?.value, 'https://www.linkedin.com/in/example');
+    assert.equal(values.find(f => /Are you related/.test(f.label))?.value, 'No');
+    assert.equal(values.find(f => /require Mission Lane/.test(f.label))?.value, 'Yes');
+    assert.equal(values.find(f => /In which US state/.test(f.label))?.value, '', 'Canadian province must not map to a US state');
+    assert.equal(values.find(f => /at least 3 years/.test(f.label))?.value, '', 'Unsupported leadership qualifications must not be inferred');
+    const question = live.getByRole('textbox', { name: /^\(Optional\) Is there anything about your experience/ });
+    assert.equal(await question.inputValue(), '', 'AI draft must wait for review');
+    const draftPicker = ui.getByRole('combobox', { name: 'Answer drafts: choose a field' });
+    await draftPicker.selectOption({ label: (await draftPicker.locator('option').allTextContents()).find(text => text.includes('(Optional)')) });
+    const generated = ui.getByRole('textbox', { name: /^Answer: \(Optional\)/ });
+    assert.ok((await generated.inputValue()).length > 15, 'Non-generic draft prepared automatically from database profile');
+    const approved = await generated.inputValue();
+    await ui.getByRole('button', { name: 'Use answer', exact: true }).click();
+    await live.waitForFunction(text => [...document.querySelectorAll('textarea')].some(n => n.value === text), approved);
+    assert.equal(await question.inputValue(), approved);
+    assert.equal(await live.evaluate(() => window.submits), 0);
+    assert.equal(await live.locator('input[type=file]').evaluateAll(nodes => nodes.reduce((sum, n) => sum + n.files.length, 0)), 0);
+    await question.scrollIntoViewIfNeeded();
+    await live.screenshot({ path: 'output/playwright/coverage/native-mission-lane.png' });
+    console.log('PASS live Mission Lane: native MV3, authenticated profile, real dropdowns, automatic AI draft, reviewed insertion; Canadian address preserved, no upload/submission');
+  }
   if (process.env.EXTENSION_LIVE_NARRATIVE_URL) {
     const liveUrl = process.env.EXTENSION_LIVE_NARRATIVE_URL;
     assert.match(liveUrl, /^https:\/\/job-boards\.greenhouse\.io\/figma\/jobs\/\d+$/);

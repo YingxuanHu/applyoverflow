@@ -18,11 +18,16 @@
         <div><dt>Profile</dt><dd id="connection-state">Checking...</dd></div>
         <div><dt>Site access</dt><dd id="access-state">Checking...</dd></div>
       </dl>
+      <div id="detection-reminder" hidden>
+        <p class="question-hint">Show the assistant directly on application pages.</p>
+        <button id="enable-detection" type="button" class="secondary">Enable on-page assistant</button>
+      </div>
       <p id="page-status" hidden></p>
       <button id="connect" type="button">Connect to ApplyOverflow</button>
       <button id="reload-extension" type="button" hidden>Reload extension</button>
       <div id="actions" hidden>
         <button id="fill" type="button">Autofill</button>
+        <p class="question-hint">AI drafts use your professional profile and this job description. Review them before use.</p>
         <button id="resume" type="button" class="secondary">Change resume</button>
         <section id="fill-progress" hidden aria-label="Autofill results">
           <h2 id="progress-heading">Needs your attention</h2>
