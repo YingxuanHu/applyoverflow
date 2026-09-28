@@ -16,6 +16,7 @@ export type ProfileExperience = ProfileHistory & {
 export type ProfileEducation = ProfileHistory & {
   school: string;
   degree: string;
+  fieldOfStudy?: string;
   time: string;
   location: string;
   description: string;
@@ -253,6 +254,7 @@ export function normalizeEducations(value: unknown): ProfileEducation[] {
     const entry = {
       school: trimmedText(objectValue.school, 160),
       degree: trimmedText(objectValue.degree, 160),
+      ...(trimmedText(objectValue.fieldOfStudy, 160) ? { fieldOfStudy: trimmedText(objectValue.fieldOfStudy, 160) } : {}),
       time: profileDateText(objectValue),
       ...(readHistoryDates(objectValue.dates) ? { dates: readHistoryDates(objectValue.dates) } : {}),
       location: trimmedText(objectValue.location, 140),

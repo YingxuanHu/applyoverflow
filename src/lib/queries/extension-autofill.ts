@@ -14,13 +14,15 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
     select: {
       contactJson: true, updatedAt: true, phone: true, location: true,
       linkedinUrl: true, githubUrl: true, portfolioUrl: true,
+      skillsJson: true, skillsText: true,
       experiencesJson: input.history, educationsJson: input.history,
       authUser: { select: { name: true, email: true } },
       preferences: { where: { key: ANSWER_LIBRARY_KEY }, select: { value: true } },
     },
   });
   if (!profile) throw new AssistantError("Complete your ApplyOverflow profile first.");
-  const contact = buildProfileFormValues(profile, profile.authUser ?? undefined).contact;
+  const values = buildProfileFormValues(profile, profile.authUser ?? undefined);
+  const contact = values.contact;
   const revision = profile.updatedAt.toISOString();
   // Only explicitly enabled voluntary answers matching this form are exported.
   const fields = Object.fromEntries((Object.keys(autofillProfileFields) as Array<keyof typeof autofillProfileFields>)
@@ -30,6 +32,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
+    skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),
     commonAnswers: commonApplicationAnswers(contact.applicationAnswers, input.questions),
     answers: reusableAutofillAnswers(parseAnswerLibrary(profile.preferences[0]?.value), applicationContext(input.url, true)!.companyKey, revision, input.questions),
     history: input.history ? [

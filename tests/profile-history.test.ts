@@ -39,7 +39,8 @@ test("invalid history dates and contradictory periods cannot be saved", () => {
   for (const dates of [
     { start: "2020-00", end: "", current: false },
     { start: "2020-13", end: "", current: false },
-    { start: "2020-01-01", end: "", current: false },
+    { start: "2020-02-30", end: "", current: false },
+    { start: "2021-02-29", end: "", current: false },
     { start: "20", end: "", current: false },
     { start: "September 2020", end: "", current: false },
     { start: "2020", end: "2019", current: false },
@@ -60,6 +61,16 @@ test("invalid history dates and contradictory periods cannot be saved", () => {
     true,
   );
   assert.equal(historyValidationError([{ time: "2020 - Present" }]), null);
+});
+
+test("exact history dates and field of study survive profile normalization without inventing days", () => {
+  const dates = { start: "2020-02-29", end: "2021-03-01", current: false };
+  assert.equal(historyDatesSchema.safeParse(dates).success, true);
+  assert.equal(historyDatesSchema.safeParse({ start: "2020-09-30", end: "2020-09", current: false }).success, true);
+  assert.equal(historyDatesSchema.safeParse({ start: "2020-09-30", end: "2020-09-29", current: false }).success, false);
+  const education = normalizeEducations([{ school: "Fixture University", degree: "BSc", fieldOfStudy: "Computer Science", dates }])[0];
+  assert.equal(education.fieldOfStudy, "Computer Science");
+  assert.deepEqual(education.dates, dates);
 });
 
 test("legacy history is not silently converted or treated as precise dates", () => {
