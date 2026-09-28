@@ -167,6 +167,101 @@ try {
   assert.equal(await page.evaluate(() => window.submissions), 0);
   console.log("PASS bounded generic repeaters, complete multi-row history, idempotence and no submission");
 
+  for (const [type, placeholder, start, end, expectedStart, expectedEnd] of [
+    ["date", "", "2024-02", "2024-02", "2024-02-01", "2024-02-29"],
+    ["text", "dd-mm-yyyy", "2023-02", "2023-02", "01-02-2023", "28-02-2023"],
+    ["text", "mm/dd/yyyy", "2024-04", "2024-04", "04/01/2024", "04/30/2024"],
+    ["text", "dd/mm/yyyy", "2024-08-12", "2024-08-21", "12/08/2024", "21/08/2024"],
+    ["month", "", "2024-02", "2024-03", "2024-02", "2024-03"],
+    ["date", "", "2020", "2021", "", ""],
+  ]) {
+    await load(`${base}<fieldset><legend>Work experience</legend>${field('Title')}${field('Company')}${field('Start date', `type="${type}" placeholder="${placeholder}" required`)}${field('End date', `type="${type}" placeholder="${placeholder}"`)}</fieldset></form>`);
+    await inspect("autofill", { contact, history: [{ kind: "experience", entry: { title: "Engineer", company: "Example", dates: { start, end, current: false } } }] });
+    assert.equal(await page.getByLabel('Start date').inputValue(), expectedStart);
+    assert.equal(await page.getByLabel('End date').inputValue(), expectedEnd);
+  }
+  console.log('PASS month boundaries, leap years, exact-day preservation, year-only exclusion and date formats');
+
+  const bobHistory = `<style>careers-ui-experience-form-control,careers-ui-experience-edit-item{display:block}</style>
+    <careers-ui-job-ad-application-form>${base}
+    <careers-ui-experience-form-control data-testid="efc-education"><button type="button">Add</button></careers-ui-experience-form-control>
+    <careers-ui-experience-form-control data-testid="efc-experiences"><button type="button">Add</button></careers-ui-experience-form-control>
+    <button type="submit">Apply</button></form></careers-ui-job-ad-application-form>
+    <script>
+      window.savedRows=[]; window.submissions=0; window.failSave=false; window.changeDuringFill=false;
+      document.querySelector('form').onsubmit=e=>{e.preventDefault();window.submissions++};
+      for(const section of document.querySelectorAll('careers-ui-experience-form-control')) {
+        const add=section.querySelector('button');
+        add.onclick=()=>{
+          add.disabled=true;const row=document.createElement('careers-ui-experience-edit-item');
+          const edu=section.dataset.testid==='efc-education';
+          const labels=edu?['School','Field of study','Degree']:['Title','Company'];
+          row.innerHTML=labels.map(l=>'<label>'+l+'<input required></label>').join('')+
+            '<label>Start date<input required placeholder="dd-mm-yyyy"></label><label>End date<input placeholder="dd-mm-yyyy"></label>'+
+            (edu?'':'<label>Is current<input type="checkbox" required></label>')+
+            (window.requiresConsent?'<label>I certify these facts<input type="checkbox" required></label>':'')+
+            '<button type="button" data-testid="save-btn">Save</button>';
+          section.append(row);
+          row.querySelectorAll('input')[labels.length].oninput=()=>{if(window.changeDuringFill) row.querySelector('input').value='User correction'};
+          row.querySelector('button').onclick=()=>{
+            if(window.failSave||[...row.querySelectorAll('input')].some(i=>i.type!=='checkbox'&&!i.checkValidity()))return;
+            const values=[...row.querySelectorAll('input')].map(i=>i.type==='checkbox'?i.checked:i.value);
+            setTimeout(()=>{window.savedRows.push({kind:edu?'education':'experience',values});const summary=document.createElement('div');summary.textContent=values.join(' | ');section.append(summary);row.remove();add.disabled=false},30);
+          };
+        };
+      }
+    </script>`;
+  const multiHistory = [
+    { kind: 'experience', entry: { title: 'Engineer', company: 'Fixture One', dates: { start: '2020-01', end: '2020-08', current: false } } },
+    { kind: 'experience', entry: { title: 'Analyst', company: 'Fixture Two', dates: { start: '2021-02', end: '2021-04', current: false } } },
+    { kind: 'experience', entry: { title: 'Developer', company: 'Fixture Three', dates: { start: '2024-02', end: '', current: true } } },
+    { kind: 'education', entry: { school: 'First University', degree: 'Bachelor of Computer Science', fieldOfStudy: 'Computer Science', dates: { start: '2016-09', end: '2020-06', current: false } } },
+    { kind: 'education', entry: { school: 'Second University', degree: 'Master of Engineering', fieldOfStudy: 'Computer Engineering', dates: { start: '2025-09', end: '', current: true } } },
+  ];
+  await load(bobHistory, bobUrl);
+  report = await inspect('autofill', { contact, history: multiHistory });
+  assert.equal(report.historySaved, 5, JSON.stringify(report));
+  assert.equal(report.historyDateAdjusted, 8);
+  assert.equal(await page.locator('careers-ui-experience-edit-item').count(), 0);
+  const records = await page.evaluate(()=>window.savedRows);
+  assert.deepEqual(records[0].values, ['Engineer','Fixture One','01-01-2020','31-08-2020',false]);
+  assert.deepEqual(records[2].values, ['Developer','Fixture Three','01-02-2024','',true]);
+  assert.deepEqual(records[4].values, ['Second University','Computer Engineering','Master of Engineering','01-09-2025','']);
+  await page.evaluate(code=>{window.inspect=(0,eval)(code)},source);
+  await inspect('autofill', { contact, history: multiHistory });
+  assert.equal(await page.evaluate(()=>window.savedRows.length),5,'reload/repeat does not duplicate saved rows');
+  assert.equal(await page.evaluate(()=>window.submissions),0);
+
+  await load(bobHistory, bobUrl);
+  await page.locator('[data-testid="efc-education"] > button').click();
+  await page.getByLabel('School', {exact:true}).fill('First University');
+  await page.getByLabel('Degree', {exact:true}).fill('Bachelor of Computer Science');
+  assert.equal((await inspect()).historyAvailable,true,'partially filled editor stays detectable');
+  report=await inspect('autofill',{contact,history:multiHistory.slice(3)});
+  assert.equal(report.historySaved,2,'finish a matching old editor then add next education');
+
+  for(const failure of ['missing','year','conflict','change','save','consent']) {
+    await load(bobHistory,bobUrl);
+    const entry=structuredClone(multiHistory[3]);
+    if(failure==='missing') delete entry.entry.fieldOfStudy;
+    if(failure==='year') entry.entry.dates.start='2016';
+    if(failure==='change') await page.evaluate(()=>window.changeDuringFill=true);
+    if(failure==='save') await page.evaluate(()=>window.failSave=true);
+    if(failure==='consent') await page.evaluate(()=>window.requiresConsent=true);
+    if(failure==='conflict') {
+      await page.locator('[data-testid="efc-education"] > button').click();
+      await page.getByLabel('School',{exact:true}).fill('First University');
+      await page.getByLabel('Degree',{exact:true}).fill('Bachelor of Computer Science');
+      await page.getByLabel('Field of study',{exact:true}).fill('User chosen major');
+    }
+    await inspect('autofill',{contact,history:[entry,multiHistory[4]]});
+    assert.equal(await page.evaluate(()=>window.savedRows.length),0,failure);
+    assert.equal(await page.locator('careers-ui-experience-edit-item').count(),1,'blocked editor never creates additional rows');
+    assert.equal(await page.evaluate(()=>window.submissions),0);
+    if(failure==='conflict') assert.equal(await page.getByLabel('Field of study',{exact:true}).inputValue(),'User chosen major');
+  }
+  console.log('PASS five complete saved history records, partial-row recovery, reload idempotence, missing facts, user edits and failed Save guards');
+
   if (process.argv.includes("--live-hibob")) {
     // Exercise the live Angular form in an isolated browser. Block ALL outbound
     // requests before writing synthetic test values. Never press Apply.
@@ -178,9 +273,10 @@ try {
     await live.evaluate(code => { window.inspect = (0, eval)(code); }, source);
     const scan = (mode = "inspect", plan = {}) => live.evaluate(({ mode, plan }) => window.inspect(mode, plan, location.href), { mode, plan });
     const history = [
-      { kind: "experience", entry: { title: "Test Engineer", company: "Fixture One", description: "Synthetic offline test record", dates: { start: "2020-01-02", end: "2021-02-03", current: false } } },
-      { kind: "experience", entry: { title: "Test Analyst", company: "Fixture Two", dates: { start: "2022-03-04", end: "2023-04-05", current: false } } },
-      { kind: "education", entry: { school: "Fixture University", degree: "Bachelor of Science", fieldOfStudy: "Computer Science", dates: { start: "2016-09-01", end: "2020-06-01", current: false } } },
+      { kind: "experience", entry: { title: "Test Engineer", company: "Fixture One", description: "Synthetic offline test record", dates: { start: "2020-01", end: "2021-02", current: false } } },
+      { kind: "experience", entry: { title: "Test Analyst", company: "Fixture Two", dates: { start: "2022-03", end: "2023-04", current: false } } },
+      { kind: "education", entry: { school: "Fixture University", degree: "Bachelor of Science", fieldOfStudy: "Computer Science", dates: { start: "2016-09", end: "2020-06", current: false } } },
+      { kind: "education", entry: { school: "Second University", degree: "Master of Engineering", fieldOfStudy: "Computer Engineering", dates: { start: "2025-09", end: "", current: true } } },
     ];
     const before = await scan();
     assert.equal(before.employmentCountry, "CA");
@@ -193,10 +289,13 @@ try {
     assert.match(await live.locator('[id="/candidate/country"]').innerText(), /Canada/);
     assert.equal(await live.locator('b-chip-input b-chip').count(), 2, "profile skills accepted as chips");
     assert.equal(await live.locator('careers-ui-experience-edit-item').count(), 0, "all complete history editors saved");
-    assert.equal(result.historyFilled, 14);
+    assert.equal(result.historyFilled, 18);
+    assert.equal(result.historySaved, 4);
+    assert.equal(result.historyDateAdjusted, 7);
     assert.match(await live.locator('[data-testid="efc-experiences"]').innerText(), /Fixture One/);
     assert.match(await live.locator('[data-testid="efc-experiences"]').innerText(), /Fixture Two/);
     assert.match(await live.locator('[data-testid="efc-education"]').innerText(), /Fixture University/);
+    assert.match(await live.locator('[data-testid="efc-education"]').innerText(), /Second University/);
     const questionnaire = result.fields.filter(f => f.label.includes("AI project"));
     assert.equal(questionnaire.length, 1, "questionnaire is included despite separate form elements");
     assert.equal(await live.locator('[name="extendedConsent"]').isChecked(), false);

@@ -87,6 +87,32 @@ export function autofillHistoryDates(entry: ProfileHistory): ProfileHistoryDates
   return start && end !== undefined ? readHistoryDates({ start, end, current }) : undefined;
 }
 
+// Recover a missing major only from explicit program wording, not a school's
+// reputation, coursework, or an unrelated minor. User-entered values win.
+export function educationFieldOfStudy(entry: { school: string; degree: string; fieldOfStudy?: string }): string {
+  if (entry.fieldOfStudy?.trim()) return entry.fieldOfStudy.trim();
+  const degree = entry.degree.trim();
+  const clean = (value: string) => value.trim().replace(/[.)]+$/, "").trim();
+  const explicit = degree.match(/(?:^|[,;(]\s*)(?:major(?:ing)?|field of study|concentration|emphasis|speciali[sz]ation)(?:\s+in)?\s*:?\s+([^;()]+)\)?$/i);
+  if (explicit) return clean(explicit[1]).slice(0, 160);
+  const parts = degree.split(/\s+(?:&|and|\/)\s+(?=(?:bachelor|master|doctor|BBA|BSc|BA|MBA|MSc)\b)/i);
+  const award = "(?:Bachelor(?:'s)?|Master(?:'s)?|Doctor)(?: of)? (?:Science|Arts|Engineering|Business Administration|Commerce|Education|Philosophy)";
+  const short = "(?:B\\.?Sc\\.?|B\\.?S\\.?|B\\.?A\\.?|B\\.?Eng\\.?|BBA|M\\.?Sc\\.?|M\\.?S\\.?|M\\.?A\\.?|M\\.?Eng\\.?|MBA|Ph\\.?D\\.?)";
+  const qualified = new RegExp(`^(?:${award}|${short})(?:\\s+in\\s+|\\s*[,:(-]\\s*)([^;()]+)\\)?$`, "i");
+  const direct = /^(?:Bachelor(?:'s)?|Master(?:'s)?|Doctor) of ([^;(),]+)$/i;
+  const subject = (value: string) => {
+    const match = value.match(qualified) || value.match(direct);
+    if (!match) return "";
+    const result = clean(match[1]);
+    return /^(?:arts|science|engineering|philosophy|business administration|commerce|education)$/i.test(result) ||
+      /\b(?:minor|gpa|honou?rs|university|college|bachelor|master|doctor)\b/i.test(result) ? "" : result;
+  };
+  if (parts.length === 1) return subject(degree).slice(0, 160);
+  const schoolSubject = entry.school.match(/(?:school|department|faculty) of (.+)$/i)?.[1]?.trim().toLowerCase();
+  const matches = parts.map(subject).filter(value => value && value.toLowerCase() === schoolSubject);
+  return matches.length === 1 ? matches[0].slice(0, 160) : "";
+}
+
 export function formatHistoryDates(dates: ProfileHistoryDates): string {
   const label = (part: string) =>
     part.length >= 7

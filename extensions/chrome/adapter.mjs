@@ -700,12 +700,16 @@ export function createInspector(resolveContext, history, autofill) {
       }
       if (mode === "autofill" && history) {
         result.historyFilled = 0;
+        result.historySaved = 0;
+        result.historyDateAdjusted = 0;
         result.historyNeedsReview = 0;
         result.historyWarnings = [];
         for (const entry of (contact.history || []).slice(0, 20)) {
           if (location.href !== expectedUrl || !forms[0].isConnected) break;
           const filled = await history("fill-history", { ...entry, automatic: true }, forms[0], labelFor, visible);
           result.historyFilled += filled.filled || 0;
+          result.historySaved += filled.saved || 0;
+          result.historyDateAdjusted += filled.dateAdjusted || 0;
           result.historyNeedsReview += filled.skipped || 0;
           const warning = filled.warning || filled.error;
           if (warning && !result.historyWarnings.includes(warning)) result.historyWarnings.push(warning);
