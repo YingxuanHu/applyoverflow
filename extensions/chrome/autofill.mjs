@@ -3,10 +3,14 @@
 export function createAutofillInspector() {
   let pageUrl = "", targets = new Map(), undo = [], expires = 0, expiryTimer;
   let completed = new WeakMap();
+  let issues = new WeakMap();
   const ids = new WeakMap();
   const norm = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[aria-autocomplete="list"][aria-haspopup="listbox"]');
+  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
+  const chipText = chip => chip.querySelector('.chip-text')?.textContent.trim() || "";
   const read = field => {
+    const chips = field.closest('b-chip-input');
+    if (chips) return [...chips.querySelectorAll('b-chip')].map(chipText).join(", ") || field.value || "";
     // React Select keeps its search input empty after selecting a value.
     const container = custom(field) && field.closest('.select__value-container');
     if (container && container.querySelectorAll('[role="combobox"]').length === 1) {
@@ -22,7 +26,7 @@ export function createAutofillInspector() {
         return values[0].textContent.trim();
       }
     }
-    return field instanceof HTMLSelectElement && field.selectedOptions[0]?.disabled ? "" : field instanceof HTMLButtonElement ?
+    return field instanceof HTMLSelectElement && field.selectedOptions[0]?.disabled ? "" : field instanceof HTMLButtonElement || (custom(field) && !(field instanceof HTMLInputElement)) ?
       (/^(select|choose)( one| an? .+)?[.\u2026]*$/i.test(field.textContent.trim()) ? "" : field.textContent.trim()) : field.value || "";
   };
   const restricted = label => /disab|veteran|gender|race|ethnic|sexual|religio|birth|social security|ssn|criminal|convict|consent|agree|certify|signature|authoriz|sponsor|visa|citizen|eligible to work|right to work/i.test(label);
@@ -56,7 +60,7 @@ export function createAutofillInspector() {
     clearTimeout(expiryTimer);
     for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
       item.field.removeEventListener(event, item.onEdit);
-    undo = []; targets.clear(); completed = new WeakMap(); choiceCache = new WeakMap(); confirmedQuestions.clear(); expires = Date.now() + 10 * 60_000;
+    undo = []; targets.clear(); completed = new WeakMap(); issues = new WeakMap(); choiceCache = new WeakMap(); confirmedQuestions.clear(); expires = Date.now() + 10 * 60_000;
     pageUrl = location.href;
     expiryTimer = setTimeout(() => {
       for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
@@ -77,7 +81,7 @@ export function createAutofillInspector() {
       .filter(answer => typeof answer.label === "string" && typeof answer.answer === "string")
       .map(answer => [norm(answer.label), answer.answer]));
     const operationUrl = location.href;
-    const deadline = performance.now() + 5000;
+    const deadline = performance.now() + 12000;
     const groupedEntries = entries.flatMap(entry => {
       if (entry.field.type !== "radio") return [entry];
       const group = entry.field.closest('fieldset,[role="radiogroup"]');
@@ -104,10 +108,10 @@ export function createAutofillInspector() {
       const key = entry.profileKey;
       const group = field.closest('fieldset,[role="group"],section');
       const heading = group?.querySelector('legend,h2,h3')?.textContent || group?.getAttribute("aria-label") || "";
-      const inHistory = /work experience|employment|education|reference|emergency|supervisor/i.test(heading) ||
+      const inHistory = entry.inHistory || /work experience|employment|education|reference|emergency|supervisor/i.test(heading) ||
         !!field.closest('[data-automation-id^="workExperience-"],[data-automation-id^="education-"]');
       const scalar = field instanceof HTMLTextAreaElement ||
-        (field instanceof HTMLInputElement && ["text", "email", "tel", "url", "number"].includes(field.type));
+        (field instanceof HTMLInputElement && ["text", "email", "tel", "url", "number", "date"].includes(field.type));
       const select = field instanceof HTMLSelectElement && !field.multiple;
       const radio = entry.radioFields?.length > 1;
       const widget = custom(field) && (!(field instanceof HTMLButtonElement) || field.type === "button");
@@ -119,13 +123,21 @@ export function createAutofillInspector() {
       const options = select ? [...field.options].filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
         .slice(0, 250).map(option => option.textContent.trim()) : radio ? entry.radioFields.map(labelFor) :
         choiceCache.get(field)?.label === label ? choiceCache.get(field).options : [];
-      const item = { ...entry, id, field, label, profileKey: key, manual, options,
-        canRemember: !manual && key !== "fullAddress" && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
+      const help = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent || "").join(" ");
+      const limitText = `${label} ${help}`;
+      const wordLimit = limitText.match(/(?:max(?:imum)?(?: of)?|up to|limit(?: of|:)?|no more than)\s*(\d{1,4})\s*words\b/i)?.[1] ||
+        limitText.match(/\b(\d{1,4})\s*words?\s*(?:max(?:imum)?|limit)\b/i)?.[1];
+      const charLimit = limitText.match(/(?:max(?:imum)?(?: of)?|up to|limit(?: of|:)?|no more than)\s*(\d{1,5})\s*characters?\b/i)?.[1];
+      const maxLength = Math.min(3000, field.maxLength >= 0 ? field.maxLength : 3000, Number(charLimit) || 3000);
+      const maxWords = wordLimit ? Math.min(1000, Number(wordLimit)) : undefined;
+      const item = { ...entry, id, field, label, profileKey: key, manual, options, maxLength, maxWords,
+        canRemember: !manual && !["fullAddress", "skills"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
         required: field.required || field.getAttribute("aria-required") === "true",
         kind: radio ? "radio" : select ? "select" : widget ? "combobox" : "text",
         reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
-          manual ? "Review this field on the employer form." : "",
+          manual ? "Review this field on the employer form." : issues.get(field)?.label === label ? issues.get(field).reason : "",
       };
       targets.set(id, item);
       return item;
@@ -140,7 +152,17 @@ export function createAutofillInspector() {
       const field = item.field;
       const hasValue = item.radioFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : Boolean(read(field).trim());
       const invalid = hasValue && field.validity?.valid === false;
+      const today = new Date();
+      const date = [String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")];
+      const availability = /^(?:date available|availability date|earliest (?:start|starting) date|available from)\s*[*:]?$/i.test(item.label);
+      const dateValue = availability && !item.manual ? field.type === "date" ? date.join("-") :
+        /^dd-mm-yyyy$/i.test(field.placeholder || "") ? [...date].reverse().join("-") :
+        /^mm\/dd\/yyyy$/i.test(field.placeholder || "") ? `${date[1]}/${date[2]}/${date[0]}` : "" : "";
+      const discovery = /^(?:how did you (?:learn about|hear about|find) (?:this (?:job(?: opening)?|position|role)|us))\s*[?*]*$/i.test(item.label);
+      const sourceValue = discovery && item.options.includes("Other") ? "Other" : "";
       return { id: item.id, label: item.label, title: item.title, profileKey: item.profileKey, required: item.required,
+        maxLength: item.maxLength, maxWords: item.maxWords,
+        ...(dateValue ? { suggestedAnswer: dateValue, suggestionLabel: "Use today's date" } : sourceValue ? { suggestedAnswer: sourceValue, suggestionLabel: "Use Other as job source" } : {}),
         kind: item.kind, options: item.options, canAnswer: !item.manual && !invalid,
         canRemember: item.canRemember && !invalid,
         state: invalid ? "needed" : hasValue ? completed.get(field)?.label === item.label && completed.get(field)?.value === readItem(item) ? "filled" : "kept" : "needed",
@@ -164,15 +186,26 @@ export function createAutofillInspector() {
       }
       if (search && field instanceof HTMLInputElement) { field.focus(); setValue(field, search); }
       let options = [];
+      let searched = false;
       for (let attempt = 0; attempt < (search ? 64 : 16) && safe(item); attempt++) {
-        const lists = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)
+        const bob = field.matches('b-single-select > [role="button"]');
+        const lists = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || (bob ? `list__${field.id}` : "")).split(/\s+/).filter(Boolean)
           .flatMap(id => [...document.querySelectorAll(`#${CSS.escape(id)}`)])
-          .filter(node => node.matches('[role="listbox"]') && visible(node));
+          .filter(node => node.matches('[role="listbox"],[role="tree"]') && visible(node) &&
+            (!bob || node.getAttribute("aria-labelledby") === field.getAttribute("aria-labelledby")));
         const list = lists.length === 1 ? lists[0] : null;
+        if (list && bob && search && !searched) {
+          const searchBox = list.closest('.cdk-overlay-pane')?.querySelector('input[type="search"][aria-controls]');
+          if (searchBox?.getAttribute("aria-controls") === list.id) {
+            setValue(searchBox, search);
+            searchBox.dispatchEvent(new KeyboardEvent("keyup", { key: search.at(-1), bubbles: true }));
+            searched = true; await delay(100);
+          }
+        }
         options = list && list.getAttribute("aria-multiselectable") !== "true" ?
-          [...list.querySelectorAll('[role="option"]')].filter(option => visible(option) &&
-            option.closest('[role="listbox"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
-        if (options.length) break;
+          [...list.querySelectorAll('[role="option"],[role="treeitem"]')].filter(option => visible(option) &&
+            option.closest('[role="listbox"],[role="tree"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
+        if (options.length && (!search || options.some(option => norm(option.textContent).includes(norm(search))))) break;
         await delay(25);
       }
       item.options = options.map(option => option.textContent.trim()).slice(0, 250);
@@ -184,7 +217,9 @@ export function createAutofillInspector() {
     async function write(item, value) {
       if (performance.now() > deadline) { item.reason = "Click Autofill again to continue on this long form."; return false; }
       if (!safe(item) || item.manual || readItem(item).trim() || typeof value !== "string" || !value.trim()) return false;
-      if (value.length > 3000 || (item.field.maxLength >= 0 && value.length > item.field.maxLength)) return false;
+      if (value.length > item.maxLength || (item.maxWords && value.trim().split(/\s+/).length > item.maxWords)) {
+        item.reason = `Shorten this answer to ${item.maxWords ? `${item.maxWords} words and ` : ""}${item.maxLength} characters.`; return false;
+      }
       const field = item.field, before = readItem(item), originalValue = field.value;
       if (item.kind === "radio") {
         const matches = item.radioFields.filter(field => equivalent(labelFor(field), value));
@@ -207,7 +242,9 @@ export function createAutofillInspector() {
         let edited = false;
         const onEdit = event => { if (event.isTrusted) edited = true; };
         field.addEventListener("input", onEdit);
-        const options = await loadOptions(item, true, citySearch ? value : "");
+        const bobSearch = field.matches('b-single-select > [role="button"]') ?
+          (["country", "phoneCountry"].includes(item.profileKey) ? ({ CA: "Canada", US: "United States" })[value] || value : value) : "";
+        const options = await loadOptions(item, true, citySearch ? value : bobSearch);
         field.removeEventListener("input", onEdit);
         const matches = options.filter(option => matchesValue(option.textContent));
         if (!safe(item) || edited || read(field) !== (citySearch ? value : before) || matches.length !== 1) {
@@ -228,6 +265,7 @@ export function createAutofillInspector() {
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
       }
       completed.set(field, { label: item.label, value: readItem(item) });
+      issues.delete(field);
       if (!["combobox", "radio"].includes(item.kind)) {
         const record = { ...item, before: originalValue, value: read(field), edited: false };
         record.onEdit = event => { if (event.isTrusted) record.edited = true; };
@@ -248,11 +286,35 @@ export function createAutofillInspector() {
         return { error: answerTarget.reason || "This field already has a value or needs entry on the form." };
       }
     }
-    if (mode === "autofill") for (const item of items) {
-      const value = item.profileKey ? payload.contact?.[item.profileKey] :
+    // Fast scalar fields first: a slow remote dropdown must not starve contact fields.
+    if (mode === "autofill") for (const item of [...items].sort((a, b) => Number(a.kind === "combobox") - Number(b.kind === "combobox"))) {
+      if (item.profileKey === "skills" && item.field.closest('b-chip-input')) {
+        const field = item.field;
+        if (!safe(item) || item.manual || readItem(item).trim()) continue;
+        for (const skill of (payload.skills || []).slice(0, 25)) {
+          if (!safe(item) || typeof skill !== "string" || !skill.trim() || skill.length > 120 || performance.now() > deadline) break;
+          const widget = field.closest('b-chip-input');
+          if ([...widget.querySelectorAll('b-chip')].some(chip => norm(chipText(chip)) === norm(skill))) continue;
+          field.focus();
+          setValue(field, skill);
+          await delay(35);
+          field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+          field.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+          await delay(35);
+          if (!safe(item) || ![...widget.querySelectorAll('b-chip')].some(chip => norm(chipText(chip)) === norm(skill))) {
+            if (safe(item) && field.value === skill) setValue(field, "");
+            item.reason = "Some skills need entry on the form."; issues.set(field, { label: item.label, reason: item.reason }); break;
+          }
+          completed.set(field, { label: item.label, value: readItem(item) });
+        }
+        continue;
+      }
+      const value = item.profileKey === "skills" && item.kind === "text" ? payload.skills?.join(", ") : item.profileKey ? payload.contact?.[item.profileKey] :
         confirmedQuestions.get(norm(item.label)) ||
         (item.canRemember ? payload.answers?.find(answer => norm(answer.label) === norm(item.label))?.answer : undefined);
       if (value) await write(item, value);
+      else if (item.profileKey && !readItem(item).trim() && !item.manual) item.reason = "Add this detail to your ApplyOverflow profile, or enter it here.";
+      if (item.reason) issues.set(item.field, { label: item.label, reason: item.reason });
     }
     // Some ATS resume parsers overwrite contact fields after upload. Restore
     // only our own previously empty scalar fields, never a user's edits.

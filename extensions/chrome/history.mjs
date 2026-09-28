@@ -1,9 +1,12 @@
-// Serialized alongside the inspector. Only existing, explicit history groups
-// are eligible; this never clicks Add, Next, or Submit.
+// Serialized alongside the inspector. Add is restricted to a single identified
+// history section. Save is allowed only in a verified HiBob row editor, never
+// the application's submit/continue control.
 export function createHistoryInspector() {
   let undo = [],
     lastUrl = "",
     expiryTimer;
+  const created = new WeakSet();
+  const saved = new WeakMap();
   const normalize = (value) =>
     value
       .trim()
@@ -14,15 +17,28 @@ export function createHistoryInspector() {
   const keys = {
     "job title": "title",
     "position title": "title",
+    title: "title",
+    position: "title",
+    role: "title",
     company: "company",
     "company name": "company",
     employer: "company",
     school: "school",
     "school name": "school",
     university: "school",
+    institution: "school",
+    "institution name": "school",
+    "school / university": "school",
+    "college/university": "school",
     degree: "degree",
+    qualification: "degree",
+    "qualification name": "degree",
+    "field of study": "fieldOfStudy",
+    major: "fieldOfStudy",
     location: "location",
     description: "description",
+    summary: "description",
+    responsibilities: "description",
     "role description": "description",
     "start date": "start",
     from: "start",
@@ -32,6 +48,10 @@ export function createHistoryInspector() {
     "start month": "startMonth",
     "end year": "endYear",
     "end month": "endMonth",
+    "is current": "current",
+    "i currently work here": "current",
+    "currently employed here": "current",
+    "currently studying here": "current",
   };
   const setter = (field, value) => {
     const proto =
@@ -46,6 +66,7 @@ export function createHistoryInspector() {
   };
   const custom = (field) => field.matches('[role="combobox"], button[aria-haspopup="listbox"]');
   const read = (field) => {
+    if (field.type === "checkbox") return field.checked ? "true" : "";
     if (!custom(field) || field instanceof HTMLInputElement) return field.value || "";
     const text = field.textContent.trim();
     return field.value === "" && /^(select(?: one)?|choose(?: one)?|none|--?)$/i.test(text) ? "" : text;
@@ -96,7 +117,16 @@ export function createHistoryInspector() {
     }
     undo = [];
   }
-  return async (mode, payload, form, labelFor, visible) => {
+  const kindOf = (group) => {
+    const label = normalize(group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4")?.textContent || group.getAttribute("aria-label") || "");
+    const auto = group.getAttribute("data-automation-id") || "";
+    const bob = group.matches('careers-ui-experience-edit-item') ? group.parentElement : group;
+    const bobType = bob.matches('careers-ui-experience-form-control') && bob.getAttribute("data-testid");
+    if (/^(?:work experience|work history|career history|employment(?: history)?)(?: \d+)?$/.test(label) || /^workExperience-\d+$/.test(auto) || bobType === "efc-experiences") return "experience";
+    if (/^(?:education|education history|highest education qualification)(?: \d+)?$/.test(label) || /^education-\d+$/.test(auto) || bobType === "efc-education") return "education";
+    return null;
+  };
+  return async function inspectHistory(mode, payload, form, labelFor, visible) {
     if (
       lastUrl !== location.href ||
       undo.some((entry) => entry.expires <= Date.now())
@@ -104,25 +134,11 @@ export function createHistoryInspector() {
       clear();
     const groups = [
       ...form.querySelectorAll(
-        'fieldset, [role="group"], [data-automation-id]',
+        'fieldset, section, [role="group"], [data-automation-id], careers-ui-experience-edit-item',
       ),
     ]
       .flatMap((group) => {
-        const label = normalize(
-          group.querySelector(":scope > legend")?.textContent ||
-            group.getAttribute("aria-label") ||
-            "",
-        );
-        const auto = group.getAttribute("data-automation-id") || "";
-        const kind =
-          /^(?:work experience|employment(?: history)?)(?: \d+)?$/.test(
-            label,
-          ) || /^workExperience-\d+$/.test(auto)
-            ? "experience"
-            : /^(?:education|education history)(?: \d+)?$/.test(label) ||
-                /^education-\d+$/.test(auto)
-              ? "education"
-              : null;
+        const kind = kindOf(group);
         if (!kind || !visible(group)) return [];
         const fields = [...group.querySelectorAll('input,textarea,select,button[aria-haspopup="listbox"]')]
           .filter(
@@ -134,10 +150,10 @@ export function createHistoryInspector() {
               (!field.hasAttribute("aria-autocomplete") || custom(field)) &&
               (custom(field) || field instanceof HTMLTextAreaElement ||
                 field instanceof HTMLSelectElement ||
-                ["text", "month", "number"].includes(field.type)),
+                ["text", "month", "date", "number", "checkbox"].includes(field.type)),
           )
           .map((field) => ({ field, key: keys[normalize(labelFor(field))] }))
-          .filter((entry) => entry.key && (!custom(entry.field) ||
+          .filter((entry) => entry.key && (entry.field.type !== "checkbox" || entry.key === "current") && (!custom(entry.field) ||
             /^(degree|startMonth|endMonth|startYear|endYear)$/.test(entry.key)));
         const required =
           kind === "experience" ? ["title", "company"] : ["school"];
@@ -152,7 +168,7 @@ export function createHistoryInspector() {
       .filter(
         (item, _, all) =>
           !all.some(
-            (other) => other !== item && other.group.contains(item.group),
+            (other) => other !== item && item.group.contains(other.group),
           ),
       );
     const emptyGroup = ({ group, fields }) =>
@@ -166,7 +182,15 @@ export function createHistoryInspector() {
             ? field.checked
             : field.value.trim())),
       );
-    const available = groups.some(emptyGroup);
+    const repeaters = [...form.querySelectorAll('fieldset,section,[role="group"],careers-ui-experience-form-control')]
+      .flatMap(group => {
+        const kind = kindOf(group);
+        if (!kind || !visible(group)) return [];
+        const buttons = [...group.querySelectorAll('button[type="button"]')].filter(button =>
+          visible(button) && !button.disabled && /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work |employment |education )?(?:experience|entry|education))?$/i.test(button.textContent.trim()));
+        return buttons.length === 1 ? [{ group, kind, button: buttons[0] }] : [];
+      });
+    const available = groups.some(emptyGroup) || repeaters.length > 0;
     const validUndo = (entry) =>
       lastUrl === location.href &&
       !entry.edited &&
@@ -206,9 +230,14 @@ export function createHistoryInspector() {
       };
     if (!payload || !["experience", "education"].includes(payload.kind))
       return { error: "Choose a saved work or education entry first." };
+    const requiredIdentity = payload.kind === "experience" ? ["title", "company"] : ["school"];
+    if (!requiredIdentity.every(key => typeof payload.entry?.[key] === "string" && payload.entry[key].trim()))
+      return { error: "Complete this entry's title and employer, or school, in your profile first." };
     const matching = groups.filter((item) => item.kind === payload.kind);
+    const fingerprint = JSON.stringify([payload.entry?.title, payload.entry?.company, payload.entry?.school, payload.entry?.degree, payload.entry?.dates]);
+    const knownSaved = repeaters.some(item => item.kind === payload.kind && saved.get(item.group)?.has(fingerprint));
     if (
-      matching.some((item) =>
+      knownSaved || matching.some((item) =>
         item.required.every((key) => {
           const value = payload.entry?.[key];
           return (
@@ -230,6 +259,31 @@ export function createHistoryInspector() {
     );
     const target =
       payload.automatic ? empty[0] : empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
+    if (!target && payload.automatic && !payload.addAttempted) {
+      const candidates = repeaters.filter(item => item.kind === payload.kind &&
+        !item.group.querySelector('careers-ui-experience-edit-item'));
+      if (candidates.length === 1) {
+        const repeater = candidates[0];
+        // An existing row with the same employer/title (or school/degree) needs
+        // review, not another copy, including after an extension reload.
+        const identity = payload.kind === "experience" ? [payload.entry?.title, payload.entry?.company] : [payload.entry?.school, payload.entry?.degree];
+        const text = normalize(repeater.group.textContent);
+        if (identity.every(value => typeof value === "string" && value.trim() && text.includes(normalize(value))))
+          return { filled: 0, skipped: 1, warning: "A matching history entry is already on the form. Review it before adding another." };
+        const atUrl = location.href;
+        const before = new Set(repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item'));
+        repeater.button.click();
+        for (let attempt = 0; attempt < 40; attempt++) {
+          if (location.href !== atUrl || !form.isConnected || !repeater.group.isConnected) return { filled: 0, skipped: 1 };
+          const added = [...repeater.group.querySelectorAll('fieldset,[role="group"],careers-ui-experience-edit-item')].filter(node => !before.has(node));
+          if (added.some(node => node.querySelector("input"))) {
+            for (const group of added) created.add(group);
+            return inspectHistory(mode, { ...payload, addAttempted: true }, form, labelFor, visible);
+          }
+          await wait();
+        }
+      }
+    }
     if (!target)
       return {
         error:
@@ -251,11 +305,11 @@ export function createHistoryInspector() {
         part === "end" && values.dates?.current ? "" : values.dates?.[part];
       if (
         typeof value === "string" &&
-        /^(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2]))?$/.test(value)
+        /^(?:19|20|21)\d{2}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)?$/.test(value)
       ) {
         values[part] = value;
         values[`${part}Year`] = value.slice(0, 4);
-        if (value.length === 7) values[`${part}Month`] = value.slice(5);
+        if (value.length >= 7) values[`${part}Month`] = value.slice(5, 7);
       }
     }
     const months = [
@@ -274,21 +328,35 @@ export function createHistoryInspector() {
     ];
     let filled = 0,
       skipped = 0;
+    const warnings = [];
     const writes = [];
     const atUrl = location.href;
     for (const { field, key } of target.fields) {
+      if (location.href !== atUrl || !form.isConnected || !target.group.contains(field)) break;
       let value = values[key];
+      if (key === "current") {
+        if (values.dates?.current === true && !field.checked && field.isConnected && visible(field) && !field.matches(':disabled,[aria-disabled="true"]')) {
+          field.click();
+          if (field.checked) filled++; else skipped++;
+        }
+        continue;
+      }
       if (
         typeof value !== "string" ||
         !value.trim() ||
         target.fields.filter((entry) => entry.key === key).length !== 1
       ) {
         skipped++;
+        if (field.required && key !== "end") warnings.push(`${labelFor(field)} is missing from this profile entry.`);
         continue;
       }
       if (key === "start" || key === "end") {
-        if (field.type === "month" && value.length === 7) {
-          /* Exact month precision. */
+        if (field.type === "month" && value.length >= 7) {
+          value = value.slice(0, 7);
+        } else if (value.length === 10 && field.type === "date") {
+          /* Explicit day precision only; never manufacture an employment date. */
+        } else if (value.length === 10 && /^dd-mm-yyyy$/i.test(field.placeholder || "")) {
+          value = `${value.slice(8)}-${value.slice(5, 7)}-${value.slice(0, 4)}`;
         } else if (
           /^MM\s*\/\s*YYYY$/i.test(field.placeholder || "") &&
           value.length === 7
@@ -296,6 +364,7 @@ export function createHistoryInspector() {
           value = `${value.slice(5)}/${value.slice(0, 4)}`;
         else {
           skipped++;
+          if (field.required) warnings.push(`${labelFor(field)} needs an exact date; your profile only supplies a year or month.`);
           continue;
         }
       }
@@ -376,6 +445,22 @@ export function createHistoryInspector() {
       if (validUndo(entry) && (!entry.field.validity || entry.field.validity.valid)) filled++;
       else skipped++;
     }
-    return { filled, skipped, historyUndoAvailable: undo.some(validUndo) };
+    // HiBob requires Save for each row before Add is available again. Only save
+    // rows we opened and only after every required value validates.
+    if (payload.automatic && created.has(target.group) && target.group.matches('careers-ui-experience-edit-item')) {
+      const controls = [...target.group.querySelectorAll('input,textarea,select')].filter(visible);
+      const complete = controls.every(field => field.type === "checkbox" ? true :
+        (!field.required || read(field).trim()) && field.validity?.valid !== false && field.getAttribute("aria-invalid") !== "true");
+      const saves = target.group.querySelectorAll('button[type="button"][data-testid="save-btn"]');
+      if (complete && filled && saves.length === 1 && !saves[0].disabled && location.href === atUrl) {
+        const owner = target.group.parentElement;
+        saves[0].click();
+        for (let attempt = 0; attempt < 40 && target.group.isConnected && location.href === atUrl; attempt++) await wait();
+        if (!target.group.isConnected && owner.isConnected && location.href === atUrl) {
+          const entries = saved.get(owner) || new Set(); entries.add(fingerprint); saved.set(owner, entries);
+        } else warnings.push("The history row was filled but Save needs review on the form.");
+      }
+    }
+    return { filled, skipped, warning: warnings[0], historyUndoAvailable: undo.some(validUndo) };
   };
 }
