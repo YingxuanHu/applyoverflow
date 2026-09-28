@@ -37,6 +37,7 @@ jobs:
       - run: npm run extension:test:semantic
       - run: node scripts/test-application-extension-rippling.mjs
       - run: npm run extension:test:questions
+      - run: npm run extension:test:progress
       - name: Verify profile-backed answer drafts
         run: node --conditions=react-server --import tsx tests/integration/extension-semantic-drafts.ts
         env:

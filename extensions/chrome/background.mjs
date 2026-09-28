@@ -1,6 +1,7 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
+import { fillProfessionalAnswers } from "./answer-runner.mjs";
 const canDraft = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
   ((field.kind === "text" && questionAssistance(field.label) === "draft") || questionAssistance(field.label) === "qualification");
 
@@ -227,6 +228,7 @@ async function connect() {
 }
 
 let working = null;
+let autofillProgress = null;
 function workingMessage() {
   if (working === "connect") return "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue.";
   if (working === "resume") return "Resume approval in progress. Complete or close the resume selection window to continue.";
@@ -308,7 +310,14 @@ async function handle(type, sender, message = {}) {
       });
     return {
       connected,
-      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? { fields: current.result.fields } : {}),
+      tabId: tab?.id,
+      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? {
+        fields: current.result.fields?.map(field => {
+          const previous = autofillProgress?.tabId === tab.id && autofillProgress.documentId === current.documentId
+            ? autofillProgress.fields?.find(f => f.id === field.id && f.label === field.label) : null;
+          return field.state === "needed" && previous ? { ...field, queued: previous.queued, processing: previous.processing, reason: previous.reason } : field;
+        }),
+      } : {}),
       activeAction: working,
       undoAvailable: current?.result.undoAvailable === true,
       historyUndoAvailable: current?.result.historyUndoAvailable === true,
@@ -331,7 +340,7 @@ async function handle(type, sender, message = {}) {
             current.result.questions.length && `${current.result.questions.length} questions`,
           ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
         : inspectionError || "Open an employer application form to check available fields.",
-      message: working ? workingMessage() : connected
+      message: working && autofillProgress?.tabId === tab?.id ? autofillProgress.message : working ? workingMessage() : connected
         ? current
           ? "Review the employer form after filling."
           : "Open an application form. Some fields need manual entry."
@@ -366,6 +375,7 @@ async function handle(type, sender, message = {}) {
     // Keep the local token if revocation fails so disconnect can be retried.
     await api("disconnect", {}, connection.token);
     await clearAccountSession();
+    autofillProgress = null;
     return { connected: false, message: "Disconnected." };
   }
   if (type === "history")
@@ -494,6 +504,13 @@ async function handle(type, sender, message = {}) {
     };
   };
   if (type === "autofill") {
+    const publish = async (fields, message, active = true) => {
+      autofillProgress = { type: "autofill-progress", buildId: BUILD_ID, tabId: tab.id, documentId: inspection.documentId,
+        url: scan.url, fields, message, active, connected: true };
+      void chrome.tabs.sendMessage(tab.id, autofillProgress, { documentId: inspection.documentId }).catch(() => {});
+      void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
+    };
+    await publish((scan.fields || []).map(field => ({ ...field, queued: field.state === "needed" })), "Reading your saved profile...");
     const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
       .map(field => field.label))].slice(0, 40) : scan.questions;
     const plan = await api("autofill-plan", {
@@ -501,6 +518,7 @@ async function handle(type, sender, message = {}) {
     }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);
+    await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
     if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
     if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
@@ -522,13 +540,29 @@ async function handle(type, sender, message = {}) {
     const final = await inspect(target, ["inspect", {}, scan.url]);
     const response = report(final.result, note);
     response.revision = plan.revision;
-    response.prepareDrafts = response.fields.some(canDraft);
     // Save only document identity/revision. Profile and answer values stay transient.
     await chrome.storage.session.set({ [`autofill:${tab.id}`]: {
       url: scan.url, documentId: inspection.documentId, revision: plan.revision,
       pageUrl: tab.url,
       expires: Date.now() + 10 * 60_000,
     } });
+    try {
+      const context = response.fields.some(field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted)
+        ? await inspect(target, ["autofill-context", {}, scan.url]) : null;
+      response.fields = await fillProfessionalAnswers({ fields: response.fields,
+        inspect: async (mode, payload = {}) => (await inspect(target, [mode, payload, scan.url])).result,
+        suggest: field => api("autofill-suggest", { url: scan.url, label: field.label, title: scan.title || "",
+          jobDescription: context?.result.jobDescription || "", note: "", revision: plan.revision,
+          maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token),
+        progress: (fields, message) => publish(fields, message),
+      });
+      response.message = `Autofill complete.${note} Nothing submitted.`;
+    } catch (error) {
+      response.fields = (autofillProgress?.fields || response.fields).map(field => ({ ...field, queued: false, processing: false }));
+      response.message = `Some fields were filled. ${error.message || "Autofill stopped; check the form."}`;
+      if (error.reconnect) { response.connected = false; response.reconnect = true; }
+    }
+    await publish(response.fields, response.message, false);
     return response;
   }
   if (type === "autofill-drafts") {
@@ -795,13 +829,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return handle(message?.type, sender, message);
     })
     .then(result => respond({ ...result, buildId: BUILD_ID }))
-    .catch((error) =>
+    .catch((error) => {
+      if (message?.type === "autofill" && autofillProgress?.active) {
+        autofillProgress = { ...autofillProgress, active: false,
+          fields: autofillProgress.fields.map(field => ({ ...field, queued: false, processing: false })),
+          message: error.message || "Autofill stopped. Check the form before continuing." };
+        void chrome.tabs.sendMessage(autofillProgress.tabId, autofillProgress, { documentId: autofillProgress.documentId }).catch(() => {});
+        void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
+      }
       respond({
         error: error.message || "Could not complete the action.",
         reconnect: error.reconnect === true,
         buildId: BUILD_ID,
-      }),
-    )
+      });
+    })
     .finally(() => {
       if (!readOnly) working = null;
     });

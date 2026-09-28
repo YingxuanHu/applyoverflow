@@ -31,8 +31,10 @@ for (const [args, name] of [
     Object.keys(files).sort(),
     [
       "adapter-runtime.js",
+      "answer-runner.mjs",
       "background.mjs",
       "config.mjs",
+      "fill-progress.mjs",
       "icon.png",
       "indicator.js",
       "manifest.json",

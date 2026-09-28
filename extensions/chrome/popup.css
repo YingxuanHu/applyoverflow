@@ -157,3 +157,9 @@ button.field-link { width: auto; background: transparent; color: inherit; border
 .question-group textarea { width: 100%; min-width: 0; resize: vertical; }
 .question-group details { border: 0; padding: 0; }
 .question-group .field-link { border: 0; box-shadow: none; padding: 4px; }
+.fill-counts { font-weight: 600; line-height: 1.5; }
+.fill-events { list-style: none; padding: 0; margin: 0; }
+.fill-events li { padding: 8px 0; border-bottom: 1px solid #8883; overflow-wrap: anywhere; }
+.fill-label, .fill-events small { display: block; }
+.fill-events small { color: #85868e; margin-top: 3px; line-height: 1.4; }
+.fill-group .field-link { width: auto; padding: 3px 0; margin: 0; border: 0; background: transparent; font-size: 12px; }

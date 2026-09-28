@@ -355,7 +355,7 @@ export function createAutofillInspector() {
         confirmedQuestions.get(norm(item.label))?.answer ||
         (item.canRemember ? payload.answers?.find(answer => norm(answer.label) === norm(item.label))?.answer : undefined);
       if (value) await write(item, value);
-      else if (item.profileKey && !readItem(item).trim() && !item.manual) item.reason = "Add this detail to your ApplyOverflow profile, or enter it here.";
+      else if (item.profileKey && !readItem(item).trim() && !item.manual) item.reason = "Add this detail to your ApplyOverflow profile, or enter it on the form.";
       if (item.reason) issues.set(item.field, { label: item.label, reason: item.reason });
     }
     // Some ATS resume parsers overwrite contact fields after upload. Restore

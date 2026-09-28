@@ -6,8 +6,7 @@ import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
-import { createQuestionReview } from "../extensions/chrome/question-review.mjs";
-import { questionAssistance } from "../extensions/chrome/question-policy.mjs";
+import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
 import {
   SITE_ORIGINS,
   applicationContext,
@@ -60,6 +59,8 @@ for (const file of [
   "popup.css",
   "popup.mjs",
   "question-review.mjs",
+  "fill-progress.mjs",
+  "answer-runner.mjs",
   "question-policy.mjs",
 ])
   await cp(`extensions/chrome/${file}`, `${destination}/${file}`);
@@ -74,7 +75,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/indicator.js`,
-  `(${installIndicator.toString()})(${JSON.stringify(buildId)}, (${createQuestionReview.toString()})(${questionAssistance.toString()}));\n`,
+  `(${installIndicator.toString()})(${JSON.stringify(buildId)}, (${createFillProgress.toString()})());\n`,
 );
 await writeFile(
   `${destination}/manifest.json`,
@@ -86,7 +87,7 @@ await writeFile(
       ...(storeTest ? { key: storeRelease.publicKey } : !local && !store ? { key: release.publicKey } : {}),
       minimum_chrome_version: "120",
       description:
-        "Fill confirmed contact details and review application questions. Never submits applications.",
+        "Autofill applications from your profile, with on-form answers and clear progress. Never submits applications.",
       permissions: ["activeTab", "scripting", "storage", "identity"],
       host_permissions: [`${origin}/*`],
       optional_host_permissions: SITE_ORIGINS,

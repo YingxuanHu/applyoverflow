@@ -56,7 +56,9 @@ async function main() {
     assert.ok(result.suggestion.answer.length <= 400);
     assert.doesNotMatch(result.suggestion.answer, /held[- ]out|cross[- ]validation|accuracy|train[-/ ]test split/i, "Do not invent a validation method absent from this synthetic profile");
     const preference = "If AI coding tools were unavailable tomorrow, how comfortable would you be building an application yourself and what would you build?";
-    await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: preference }), /short note/);
+    const proposed = await suggestApplicationAnswer(user.id, { ...request, label: preference });
+    assert.ok(proposed.suggestion.answer, "Professional hypotheticals can be proposed from documented projects");
+    await assert.rejects(() => suggestApplicationAnswer(user.id, { ...request, label: "Why are you interested in part-time employment?" }), /personal circumstance/);
     const withNote = await suggestApplicationAnswer(user.id, { ...request, label: preference, note: "I am comfortable building Python applications without AI tools. I would build a document classifier." });
     assert.ok(withNote.suggestion.answer);
 

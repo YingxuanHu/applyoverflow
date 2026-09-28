@@ -103,7 +103,8 @@ export default function ExtensionPrivacyPage() {
           the question, a bounded excerpt of the job description, your optional note and
           relevant professional profile evidence to OpenAI through ApplyOverflow.
           Contact details and optional demographic answers are excluded from that profile evidence.
-          Drafts are not saved as reusable answers and are inserted only after you choose Use answer.
+          Clicking Autofill can insert supported professional answers directly into the employer form.
+          You can review and edit them there before submitting. Generated answers are not saved as reusable profile facts.
           No answers already entered on the employer form are sent for drafting. Normal
           authentication and service requests may also produce operational logs,
           such as request time, status and network address.
