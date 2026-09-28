@@ -4,7 +4,7 @@ import { buildProfileFormValues } from "../src/lib/profile";
 import { documentedWorkScreening, professionalThreshold, screeningHistoryComplete } from "../src/lib/extension-screening";
 
 const now = new Date("2026-09-28T12:00:00Z");
-const label = "Do you have at least 5 years of experience with clinical supply chains/projects within the pharmaceutical or biotechnology industry?";
+const label = "Do you have at least 5 years of experience specifically managing clinical supply chains or clinical projects within the pharmaceutical or biotechnology industry?";
 const input = { label, options: ["Yes", "No"] };
 const roleTimes = ["Jan–Aug2025", "Sep–Dec2023", "Jan–Apr2023", "Jan–Aug2025"];
 const projectTimes = ["Jun2026-Present", "Feb2026-Present", "Sep2025-Sep2026", "Sep-Dec2025", "Sep-Dec2025", "Apr-Aug2023", "Sep-Dec2025"];
@@ -47,6 +47,8 @@ test("only positive minimum professional thresholds qualify, never skills or per
   for (const question of [
     "Do you have fewer than 5 years of professional experience?", "Do you have up to 5 years of professional experience?",
     "Do you have at most 5 years of professional experience?", "Do you have no more than 5 years of professional experience?",
+    "Do you have 5 years or less of professional experience?", "Do you have 5 years or fewer of professional experience?",
+    "Do you have 5 years of professional experience maximum?",
     "Do you have 5 years of Python experience?", "How many years of professional experience do you have?",
     "Do you have 5 years of Python experience gained through professional work or personal projects?",
     "Do you have 5 years of professional or academic experience?", "Do you have 5 years of professional or volunteer experience?",
@@ -78,6 +80,8 @@ test("greater or unparsed tenure claims anywhere in supplied professional text b
   for (const claim of [
     "I have twelve years of professional Python experience.", "I have a decade of professional Python experience.",
     "I have a 10-year professional Python career.", "I have 5+ years of clinical supply experience.",
+    "I have 10+ yrs of professional Python experience.", "I have 120 mos of professional Python experience.",
+    "I have twelve yrs of professional experience.", "I have 120 mths of professional experience.",
     "I have five years of professional experience.", "Earlier employment included clinical supply management.",
     "Worked in clinical logistics since 2010.", "My professional career dates from 2010.",
   ]) for (const source of ["summary", "role", "project"] as const) {

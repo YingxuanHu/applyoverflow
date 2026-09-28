@@ -9,7 +9,7 @@ export function professionalThreshold(input: Input) {
   if (questionAssistance(input.label) !== "qualification") return null;
   const label = input.label.toLowerCase().replace(/\s+/g, " ").replace(/^(?:(?:please|\((?:required|optional)\))\s*)+/, "");
   if (!/^do you have\b/.test(label) ||
-      /\b(?:degree|diploma|certif\w*|licen[cs]\w*|consecutive|continuous|recent|between|under|less than|at most|no more than|personal|hobby|hobbies|academic|coursework|study|studies|volunteer\w*|unpaid|informal|equivalent)\b|\b(?:within|in|over) (?:the )?(?:last|past|previous)\b/.test(label)) return null;
+      /\b(?:degree|diploma|certif\w*|licen[cs]\w*|consecutive|continuous|recent|between|under|less than|at most|no more than|maximum|personal|hobby|hobbies|academic|coursework|study|studies|volunteer\w*|unpaid|informal|equivalent)\b|\b(?:or|and) (?:less|fewer|under|below)\b|\b(?:within|in|over) (?:the )?(?:last|past|previous)\b/.test(label)) return null;
   // Employment tenure does not bound skills learned in education or hobbies.
   // Clinical supply operations are professional work, unlike generic projects.
   const workScoped = /\b(?:professional|employment|employed|work experience|paid work)\b/.test(label) ||
@@ -74,12 +74,12 @@ export function documentedWorkScreening(profile: ProfileFormValues, input: Input
   if (texts.reduce((size, text) => size + text.length, 0) > 100_000) return null;
   for (const text of texts) {
     if (/\b(?:prior|previous|additional|earlier|unlisted|undocumented) (?:roles?|employment|work|professional experience)\b|\b(?:since|from|before|dating back to)\s+(?:19|20)\d{2}\b/i.test(text)) return null;
-    const duration = /\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*[+-]?\s*(years?|months?)\b/g;
+    const duration = /\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*[+-]?\s*(y(?:ears?|rs?)|months?|mos?|mths?)\b/g;
     for (const match of text.toLowerCase().matchAll(duration)) {
-      const value = (numberWords[match[1]] ?? Number(match[1])) * (match[2].startsWith("year") ? 12 : 1);
+      const value = (numberWords[match[1]] ?? Number(match[1])) * (match[2].startsWith("y") ? 12 : 1);
       if (value > upperMonths) return null;
     }
-    if (/\b(?:years?|months?|decades?|centur(?:y|ies))\b/.test(text.toLowerCase().replace(duration, ""))) return null;
+    if (/\b(?:y(?:ears?|rs?)|months?|mos?|mths?|decades?|centur(?:y|ies))\b/.test(text.toLowerCase().replace(duration, ""))) return null;
   }
   const quote = `The supplied employment and project entries cover at most ${upperMonths} calendar months after overlapping dates are merged. This is not a claim about lifetime experience.`;
   const evidence = [{ id: "documented-work-history", text: quote }];
