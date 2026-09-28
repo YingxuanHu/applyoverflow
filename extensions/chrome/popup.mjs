@@ -1,8 +1,7 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS } from "./sites.mjs";
-import { createQuestionReview } from "./question-review.mjs";
-import { questionAssistance } from "./question-policy.mjs";
-const renderQuestions = createQuestionReview(questionAssistance);
+import { createFillProgress } from "./fill-progress.mjs";
+const renderQuestions = createFillProgress();
 const status = document.getElementById("status");
 function clearQuestions() {
   renderQuestions(document.getElementById("remaining-fields"), [], run);
@@ -16,6 +15,13 @@ let history, preview;
 let activeAction = null;
 let refreshTimer;
 let needsReload = false;
+let activeTabId;
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (sender.id !== chrome.runtime.id || sender.tab || message?.type !== "autofill-progress" ||
+    message.buildId !== BUILD_ID || message.tabId !== activeTabId) return;
+  showFields(message.fields || []);
+  status.textContent = message.message;
+});
 function checkVersion(result) {
   if (!result) throw new Error("Open ApplyOverflow from the Chrome toolbar and try again.");
   activeAction = result.activeAction ?? null;
@@ -26,13 +32,12 @@ function checkVersion(result) {
 function showFields(fields) {
   const pending = fields.filter(field => field.state === "needed");
   document.getElementById("fill-progress").hidden = false;
-  document.getElementById("progress-heading").textContent = pending.length ? `${pending.length} to review` : "Supported fields complete";
+  document.getElementById("progress-heading").textContent = pending.some(f => f.queued || f.processing) ? "Autofill in progress" : "Autofill results";
   renderQuestions(document.getElementById("remaining-fields"), fields, run);
-  document.getElementById("completed-list").replaceChildren(...fields.filter(field => field.state !== "needed").map(field => {
-    const item = document.createElement("li"); item.textContent = `${field.label.replace(/[*]/g, "").trim()}: ${field.state === "filled" ? "Filled" : "Kept"}`; return item;
-  }));
+  document.getElementById("completed-fields").hidden = true;
 }
 async function run(type, data = {}) {
+  let prepareDrafts = false;
   clearTimeout(refreshTimer);
   for (const button of document.querySelectorAll("button"))
     button.disabled = true;
@@ -42,7 +47,7 @@ async function run(type, data = {}) {
         ? "Complete the connection in ApplyOverflow..."
         : type === "resume"
           ? "Choose and approve a resume in ApplyOverflow..."
-          : "Working...";
+          : type === "autofill-drafts" ? "Saved facts filled. Preparing answer drafts..." : "Working...";
   try {
     // Check even after initial load: an unpacked build may have changed while
     // this popup was open. Older workers must never receive the mutation first.
@@ -66,7 +71,9 @@ async function run(type, data = {}) {
       document.getElementById("account").hidden = true;
     }
     if (result.error) throw new Error(result.error);
+    if (result.tabId !== undefined) activeTabId = result.tabId;
     if (result.fields) showFields(result.fields);
+    prepareDrafts = type === "autofill" && result.prepareDrafts === true;
     if (result.history) {
       history = result.history;
       const select = document.getElementById("history-entry");
@@ -133,6 +140,7 @@ async function run(type, data = {}) {
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.
     if (activeAction && !needsReload) refreshTimer = setTimeout(() => void run("status"), 1500);
+    else if (prepareDrafts && !needsReload) refreshTimer = setTimeout(() => void run("autofill-drafts"), 100);
   }
 }
 for (const type of [
@@ -185,17 +193,17 @@ async function updateAccess() {
   ).length;
   detection.checked = count === SITE_ORIGINS.length;
   detection.indeterminate = count > 0 && count < SITE_ORIGINS.length;
+  document.getElementById("detection-reminder").hidden = detection.checked;
   document.getElementById("access-state").textContent = !count
     ? "Toolbar only"
     : detection.checked
       ? "Supported sites enabled"
       : "Some sites enabled";
   document.getElementById("access-help").textContent = count
-    ? "Greenhouse, Lever, Ashby, Workday, iCIMS & Workable. Other application sites: use the toolbar."
+    ? "Greenhouse, Lever, Ashby, Workday, iCIMS, Workable & HiBob. Other application sites: use the toolbar."
     : "Automatic hints are off until site access is granted. Filling always requires your click.";
 }
-detection.addEventListener("change", async () => {
-  const enable = detection.checked;
+async function changeDetection(enable) {
   detection.disabled = true;
   try {
     // request() must run directly from this user gesture, not in the worker.
@@ -214,5 +222,7 @@ detection.addEventListener("change", async () => {
     await updateAccess();
     detection.disabled = false;
   }
-});
+}
+detection.addEventListener("change", () => void changeDetection(detection.checked));
+document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true));
 void updateAccess();

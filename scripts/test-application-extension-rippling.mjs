@@ -64,8 +64,12 @@ try {
   await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "User edit");
   await load();
   await page.locator("#first").evaluate(field => field.setAttribute("data-testid", "custom-first"));
-  await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "");
+  await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "Jordan", "Clear applicant labels survive internal ID changes");
   await load("https://unknown.fixture/application");
-  await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "", "Provider-specific IDs do not relax generic-site rules");
-  console.log("PASS Rippling paired identifiers, exact asynchronous location, unlabeled-ID resume widget, preservation, reference exclusion and zero submissions");
+  await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "Jordan", "Generic application labels do not require vendor IDs");
+  assert.equal(await page.locator("#reference").inputValue(), "");
+  await load();
+  await page.locator("#first-label").evaluate(label => { label.textContent = "Referrer's first name"; });
+  await inspect("autofill", { contact }); assert.equal(await page.locator("#first").inputValue(), "", "Vendor IDs cannot override a contradictory label");
+  console.log("PASS Rippling identifier drift, semantic generic fallback, exact asynchronous location, resume widget, preservation, reference exclusion and zero submissions");
 } finally { await browser.close(); }

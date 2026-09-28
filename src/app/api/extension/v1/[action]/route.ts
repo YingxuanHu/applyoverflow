@@ -77,7 +77,9 @@ export async function POST(
     if (action === "autofill-answer")
       return json(await rememberAutofillAnswer(identity.userId, body.data));
     if (action === "autofill-suggest") {
-      if (!consumeUserRateLimit(identity.userId, "extension:suggest", { limit: 10, windowMs: 300_000 }).allowed)
+      // A single long form can contain up to 40 bounded answer requests. The
+      // shared hourly AI budget and concurrency lease still apply to every call.
+      if (!consumeUserRateLimit(identity.userId, "extension:suggest", { limit: 40, windowMs: 300_000 }).allowed)
         return json({ error: "Draft limit reached. Try again in a few minutes." }, 429);
       const result = await suggestApplicationAnswer(identity.userId, body.data);
       await authenticateExtension(request);

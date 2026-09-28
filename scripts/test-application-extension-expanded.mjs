@@ -167,7 +167,8 @@ try {
       await page.locator("#company").inputValue(),
       "User correction",
     );
-    assert.match((await inspect("fill-history", selected)).error, /empty work/);
+    assert.match((await inspect("fill-history", selected)).error, /already be present/);
+    assert.equal(await page.locator("#company").inputValue(), "User correction");
     const educationResult = await inspect("fill-history", {
       kind: "education",
       entry: {
@@ -298,8 +299,28 @@ try {
       if (mutation === "irreversible") list.children[0].setAttribute("aria-disabled", "true");
       if (mutation === "submit-button") document.getElementById("degree").type = "submit";
     }, mutation);
-    assert.equal((await inspect("fill-history", degreePayload)).filled, 1, mutation);
-    assert.equal(await page.locator("#degree").textContent(), "Select One", mutation);
+    assert.equal((await inspect("fill-history", degreePayload)).filled, mutation === "irreversible" ? 2 : 1, mutation);
+    assert.equal(await page.locator("#degree").textContent(), mutation === "irreversible" ? "Bachelor of Science" : "Select One", mutation);
+    if (mutation === "irreversible") {
+      assert.equal((await inspect("undo-history")).undone, 1, "Only the reversible school field is undone");
+      assert.equal(await page.locator("#degree").textContent(), "Bachelor of Science", "No unsupported clear operation is attempted");
+    }
+  }
+  for (const widget of ["native", "custom"]) {
+    for (const [savedDegree, expected] of [["Bachelor of Computer Science & BBA (Finance)", "Bachelor's Degree"],
+      ["Bachelor of Science", "Bachelor's Degree"], ["B.Sc.", "Bachelor's Degree"],
+      ["Master of Computer Science", "Master's Degree"], ["BA / Master of Science", ""], ["Associate degree", ""]]) {
+      const controls = widget === "native" ? education : customEducation;
+      await load("generic", controls);
+      await page.locator(widget === "native" ? "#degree" : "#degrees").evaluate((list, native) => {
+        list.innerHTML = native
+          ? `<option value="">Select One</option><option value="bachelor">Bachelor's Degree</option><option value="master">Master's Degree</option>`
+          : `<div role="option" data-value="">Select One</div><div role="option" data-value="bachelor">Bachelor's Degree</div><div role="option" data-value="master">Master's Degree</div>`;
+      }, widget === "native");
+      await inspect("fill-history", { kind: "education", entry: { school: "Fixture University", degree: savedDegree } });
+      const actual = await page.locator("#degree").evaluate(field => field instanceof HTMLSelectElement ? field.selectedOptions[0].textContent : field.textContent);
+      assert.equal(actual, expected || "Select One", `${widget}: ${savedDegree}`);
+    }
   }
   await load("generic", customEducation);
   await page.locator("#education").evaluate((group) => group.insertAdjacentHTML("beforeend", '<label>Field of study<button type="button" aria-haspopup="listbox" value="existing">Already selected</button></label>'));
@@ -319,7 +340,7 @@ try {
     fullPage: true,
   });
   console.log(
-    "PASS: Workday/iCIMS/generic contact, privacy, selected history, native and reversible ARIA selects, disabled/ambiguous/irreversible/submit-button exclusions, user-edit preservation, Undo, dates, DOM/navigation races, mobile, zero Next/Submit clicks",
+    "PASS: Workday/iCIMS/generic contact, privacy, selected history, native and ARIA selects, disabled/ambiguous/submit-button exclusions, irreversible-choice preservation, user-edit preservation, Undo, dates, DOM/navigation races, mobile, zero Next/Submit clicks",
   );
   // The native popup layout is rendered separately; runtime behavior is covered
   // by the MV3 and backend suites, not this screenshot.

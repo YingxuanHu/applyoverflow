@@ -1,5 +1,5 @@
 import "server-only";
-import { historyPeriodsMatch } from "@/lib/profile-history";
+import { educationFieldOfStudy, historyPeriodsMatch } from "@/lib/profile-history";
 
 import { toFile } from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
@@ -79,6 +79,7 @@ const resumeExtractionSchema = z.object({
     z.object({
       school: z.string(),
       degree: z.string(),
+      fieldOfStudy: z.string(),
       time: z.string(),
       location: z.string(),
       description: z.string(),
@@ -155,6 +156,7 @@ Rules:
 - If a field is missing or uncertain, return an empty string or empty array.
 - Separate each work experience into its own entry.
 - Separate each education item into its own entry.
+- Put the explicitly stated major/program in fieldOfStudy separately from the degree. Leave it empty if unknown; do not substitute a minor or infer it from the school.
 - Separate each project into its own entry.
 - Put bullet points, accomplishments, and responsibilities only in description.
 - Do not place bullets into company, title, school, degree, project name, time, or location fields.
@@ -627,6 +629,7 @@ function sanitizeExtraction(parsed: ResumeExtractionResult): ResumeExtractionRes
     educations: normalizeEducations(parsed.educations).map((entry) => ({
       school: entry.school,
       degree: entry.degree,
+      fieldOfStudy: educationFieldOfStudy(entry),
       time: entry.time,
       location: entry.location,
       description: normalizeDescription(entry.description, 3000),
@@ -889,6 +892,7 @@ function mergeEducation(existing: ProfileEducation, incoming: ProfileEducation):
     ...existing,
     school: mergeField(existing.school, incoming.school),
     degree: mergeField(existing.degree, incoming.degree),
+    fieldOfStudy: existing.fieldOfStudy?.trim() || incoming.fieldOfStudy?.trim() || undefined,
     time: existing.dates ? existing.time : mergeField(existing.time, incoming.time),
     location: mergeField(existing.location, incoming.location),
     description: mergeLongText(existing.description, incoming.description),
@@ -1205,6 +1209,7 @@ function parseEducationBlock(block: string) {
   return {
     school: cleanedLine(lines[0] ?? ""),
     degree: cleanedLine(lines[1] ?? ""),
+    fieldOfStudy: educationFieldOfStudy({ school: cleanedLine(lines[0] ?? ""), degree: cleanedLine(lines[1] ?? "") }),
     time,
     location,
     description: normalizeDescription(

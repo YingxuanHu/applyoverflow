@@ -143,7 +143,7 @@ try {
   await load("greenhouse");
   await page.evaluate(() => { window.poll = setInterval(() => void window.inspect(), 10); });
   result = await inspect("autofill", plan);
-  assert.equal(result.fields.filter(item => item.state === "filled").length, 10, "read-only scans must not lose fill results");
+  assert.equal(result.fields.filter(item => item.state === "filled").length, 10, `read-only scans must not lose fill results: ${JSON.stringify(result.fields)}`);
   await page.evaluate(() => clearInterval(window.poll));
   await load("greenhouse");
   await page.getByLabel("First name", { exact: true }).evaluate(input => input.addEventListener("change", () => {
@@ -182,7 +182,7 @@ try {
   });
   await popup.addInitScript(report => {
     window.calls = [];
-    window.chrome = { permissions: { getAll: async () => ({ origins: [] }) }, runtime: { sendMessage: async message => {
+    window.chrome = { permissions: { getAll: async () => ({ origins: [] }) }, runtime: { onMessage: { addListener() {} }, sendMessage: async message => {
       window.calls.push(message);
       return { buildId: "fixture", connected: true, email: "jordan@example.test", message: `${report.fields.filter(field => field.state === "filled").length} filled · ${report.fields.filter(field => field.state === "needed").length} to review. Nothing submitted.`, ...(message.type !== "status" ? { fields: report.fields } : {}) };
     } } };
@@ -190,7 +190,8 @@ try {
   await popup.goto("https://extension.fixture/popup.html");
   await popup.getByRole("button", { name: "Autofill", exact: true }).click();
   await popup.locator("#fill-progress").waitFor();
-  await popup.getByText(/^Needs your input \(/).click();
+  assert.ok(await popup.getByText(/^Left empty \(/).isVisible());
+  assert.equal(await popup.locator("#remaining-fields textarea,#remaining-fields select,#remaining-fields input").count(), 0);
   assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.equal(await popup.getByRole("button", { name: "Change resume" }).isVisible(), true);
   assert.equal(await popup.evaluate(() => window.calls.some(call => call.type === "autofill")), true);

@@ -43,8 +43,10 @@ jobs:
       - name: Test autofill, questions, and packaging
         run: |
           npm run extension:test:autofill
+          npm run extension:test:semantic
           node scripts/test-application-extension-rippling.mjs
           npm run extension:test:questions
+          npm run extension:test:progress
           npm run extension:test:expanded
           npm run extension:test:compatibility
           npm run extension:test:undo
@@ -81,7 +83,7 @@ jobs:
           NODE_PATH: ./node_modules/next/dist/compiled
           NODE_OPTIONS: --conditions=react-server
         run: |
-          for test in resource-budget storage-deletion ingestion-feed application-assistant extension-autofill extension-resume extension-suggestions profile-setup-import; do
+          for test in resource-budget storage-deletion ingestion-feed application-assistant extension-autofill extension-resume extension-suggestions extension-semantic-drafts profile-setup-import; do
             node --import tsx "tests/integration/$test.ts"
           done
 

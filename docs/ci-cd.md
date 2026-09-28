@@ -5,11 +5,13 @@
 `Verify` runs on every pull request and every push to `dev` or `main`:
 
 - **quality:** lint, TypeScript, unit tests, and deployment failure/rollback tests.
-- **extension:** isolated Chromium autofill, custom questions, stale-worker readiness,
-  undo, packaging, and detection-policy fixtures. Failed screenshots
+- **extension:** isolated Chromium autofill, semantic history completion, on-form
+  answer progress, custom questions, stale-worker readiness, undo, packaging, and
+  detection-policy fixtures. Failed screenshots
   are retained for seven days. No personal Chrome profiles or live applications.
 - **integration:** fresh PostgreSQL 18 migrations, repeatability, ingestion/storage,
-  profile import, extension authorization, resume sharing, and mocked AI suggestions.
+  profile import, extension authorization, resume sharing, and mocked AI suggestions,
+  including profile-backed semantic answer drafts.
 - **build:** standalone production build, PDF parser smoke, database-backed health
   check, anonymous auth redirect, and downloadable extension ZIP validation.
 

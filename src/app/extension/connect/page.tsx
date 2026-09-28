@@ -56,10 +56,10 @@ export default async function ExtensionConnectPage({
         <li>Autofill can fill existing work and education rows and answers you explicitly enabled for the same question and employer. It never submits an application.</li>
         <li>Optional demographic and work-eligibility answers stay private unless you separately enable sharing them in Profile. Legal agreements and signatures stay manual.</li>
         <li>
-          Answer remaining questions in the assistant without leaving the employer form.
-          Saving an answer is optional. Record an application as applied only after your explicit confirmation.
+          See which fields were filled or still need information, then edit directly on the employer form.
+          Record an application as applied only after your explicit confirmation.
         </li>
-        <li>Suggest answer uses OpenAI to draft from your professional profile, the job description and an optional note. You edit and approve each draft before inserting it.</li>
+        <li>When you click Autofill, OpenAI can prepare and fill professional answers from your profile and the job description. Review and edit them directly on the employer form before submitting. Eligibility, consent and demographic answers are never inferred.</li>
         <li>
           No access to passwords or application submission. Resume sharing is off
           by default. Enable default-resume sharing in Profile or approve a file each time.
