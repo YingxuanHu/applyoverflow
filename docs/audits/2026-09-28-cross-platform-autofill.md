@@ -72,9 +72,10 @@ latency guarantee for other sites or larger forms.
 
 ## Release Gates
 
-This work is not deployed or installed in the user's Chrome. A matching backend
-and extension release, followed by Chrome reload and live account verification,
-is required before calling production updated.
+Version 0.11.0 was subsequently deployed at `30179ad` and installed in the user's
+normal Chrome. Production-profile verification and the issues it uncovered are
+recorded in [the production audit](2026-09-28-production-autofill-verification.md).
+The synthetic results above are not substituted for that live-account evidence.
 
 The native test extension reached the authenticated API and inserted a real AI
 answer after its assistant was closed. After fixing unnecessary abstention and
