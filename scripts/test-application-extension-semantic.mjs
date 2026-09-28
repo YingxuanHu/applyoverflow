@@ -198,12 +198,13 @@ try {
           const labels=edu?['School','Field of study','Degree']:['Title','Company'];
           row.innerHTML=labels.map(l=>'<label>'+l+'<input required></label>').join('')+
             '<label>Start date<input required placeholder="dd-mm-yyyy"></label><label>End date<input placeholder="dd-mm-yyyy"></label>'+
-            (edu?'':'<label>Is current<input type="checkbox"></label>')+
+            (edu?'':'<label>Is current<input type="checkbox" required></label>')+
+            (window.requiresConsent?'<label>I certify these facts<input type="checkbox" required></label>':'')+
             '<button type="button" data-testid="save-btn">Save</button>';
           section.append(row);
           row.querySelectorAll('input')[labels.length].oninput=()=>{if(window.changeDuringFill) row.querySelector('input').value='User correction'};
           row.querySelector('button').onclick=()=>{
-            if(window.failSave||[...row.querySelectorAll('input')].some(i=>!i.checkValidity()))return;
+            if(window.failSave||[...row.querySelectorAll('input')].some(i=>i.type!=='checkbox'&&!i.checkValidity()))return;
             const values=[...row.querySelectorAll('input')].map(i=>i.type==='checkbox'?i.checked:i.value);
             setTimeout(()=>{window.savedRows.push({kind:edu?'education':'experience',values});const summary=document.createElement('div');summary.textContent=values.join(' | ');section.append(summary);row.remove();add.disabled=false},30);
           };
@@ -239,13 +240,14 @@ try {
   report=await inspect('autofill',{contact,history:multiHistory.slice(3)});
   assert.equal(report.historySaved,2,'finish a matching old editor then add next education');
 
-  for(const failure of ['missing','year','conflict','change','save']) {
+  for(const failure of ['missing','year','conflict','change','save','consent']) {
     await load(bobHistory,bobUrl);
     const entry=structuredClone(multiHistory[3]);
     if(failure==='missing') delete entry.entry.fieldOfStudy;
     if(failure==='year') entry.entry.dates.start='2016';
     if(failure==='change') await page.evaluate(()=>window.changeDuringFill=true);
     if(failure==='save') await page.evaluate(()=>window.failSave=true);
+    if(failure==='consent') await page.evaluate(()=>window.requiresConsent=true);
     if(failure==='conflict') {
       await page.locator('[data-testid="efc-education"] > button').click();
       await page.getByLabel('School',{exact:true}).fill('First University');

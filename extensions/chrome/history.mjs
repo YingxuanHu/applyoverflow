@@ -508,7 +508,8 @@ export function createHistoryInspector() {
     // our rows or compatible profile-matching editors, after validated readback.
     if (payload.automatic && isHiBob() && (created.has(target.group) || resumable.includes(target)) && target.group.matches('careers-ui-experience-edit-item')) {
       const controls = [...target.group.querySelectorAll('input,textarea,select')].filter(visible);
-      const complete = controls.every(field => field.type === "checkbox" ? !field.required || field.checked :
+      const complete = controls.every(field => field.type === "checkbox" ?
+        target.fields.some(entry => entry.field === field && entry.key === "current") || !field.required || field.checked :
         (!field.required || read(field).trim()) && field.validity?.valid !== false && field.getAttribute("aria-invalid") !== "true");
       const unchanged = controls.every(field => {
         const write = writes.find(entry => entry.field === field);
