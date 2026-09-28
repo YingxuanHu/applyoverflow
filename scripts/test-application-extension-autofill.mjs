@@ -143,7 +143,7 @@ try {
   await load("greenhouse");
   await page.evaluate(() => { window.poll = setInterval(() => void window.inspect(), 10); });
   result = await inspect("autofill", plan);
-  assert.equal(result.fields.filter(item => item.state === "filled").length, 10, "read-only scans must not lose fill results");
+  assert.equal(result.fields.filter(item => item.state === "filled").length, 10, `read-only scans must not lose fill results: ${JSON.stringify(result.fields)}`);
   await page.evaluate(() => clearInterval(window.poll));
   await load("greenhouse");
   await page.getByLabel("First name", { exact: true }).evaluate(input => input.addEventListener("change", () => {

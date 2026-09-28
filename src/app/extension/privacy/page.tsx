@@ -30,7 +30,7 @@ export default function ExtensionPrivacyPage() {
         </h2>
         <p>
           Connecting requires sign-in and your approval. The connection can read
-          your confirmed name, address, email, phone, preferred name, pronouns and professional links. Filling
+          your confirmed name, address, email, phone, preferred name, pronouns, professional links and skills. Filling
           happens only after you choose it; existing answers, passwords, legal
           consent and signatures stay unchanged. Optional demographic and work-eligibility
           answers are shared only after you enter them and separately enable their use in Profile.
@@ -38,8 +38,10 @@ export default function ExtensionPrivacyPage() {
         </p>
         <p>
           Autofill shares up to ten work entries and ten education entries to fill
-          existing empty rows. You can also select a single entry in More actions.
-          Unknown dates and unsupported controls remain manual; no history rows are added automatically.
+          empty rows and add rows in supported work/education sections. Complete
+          HiBob row editors can be saved before the next row is added. You can also
+          select a single entry in More actions. Unknown dates and unsupported
+          controls remain manual; applications are never submitted automatically.
         </p>
         <p>
           Resume sharing is off by default. You can explicitly enable sharing your
@@ -54,7 +56,7 @@ export default function ExtensionPrivacyPage() {
         <h2 className="text-base font-semibold">What stays in your browser</h2>
         <p>
           Optional site access lets the extension inspect recognized Greenhouse,
-          Lever, Ashby, Workday, iCIMS and Workable forms for supported fields. On other
+          Lever, Ashby, Workday, iCIMS, Workable and HiBob forms for supported fields. On other
           sites, inspection starts only when you open the toolbar. This inspection does not
           fetch your profile or send form contents to ApplyOverflow. In an
           embedded form, inspection is limited to the permitted ATS frame, not

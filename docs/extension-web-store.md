@@ -209,7 +209,7 @@ Detailed description:
 | `storage` | Session-scoped connection credential and local hint preference; no Chrome profile sync. |
 | `identity` | Sign-in/consent and separate resume-approval redirects with state and PKCE. |
 | `https://applyoverflow.com/*` | Authenticate and call the narrow extension API. |
-| Optional Greenhouse, Lever, Ashby, Workday, iCIMS and Workable host patterns | Show local form hints after the user grants access, including matching frames. No arbitrary employer-parent host permission. |
+| Optional Greenhouse, Lever, Ashby, Workday, iCIMS, Workable and HiBob host patterns | Show local form hints after the user grants access, including matching frames. No arbitrary employer-parent host permission. |
 
 Public data-use notice: `https://applyoverflow.com/extension/privacy` after deploy.
 It covers contact facts, account identity, selected work/education entries,
