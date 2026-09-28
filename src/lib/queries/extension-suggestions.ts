@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { aiComplete } from "@/lib/ai/provider";
 import { buildProfileFormValues } from "@/lib/profile";
 import { AssistantError } from "@/lib/queries/application-assistant";
+import { documentedWorkScreening, screeningHistoryComplete } from "@/lib/extension-screening";
 import { generatedSuggestionSchema, parseSuggestion, questionAssistance, suggestionAnswerInstructions, suggestionCitationRepair, suggestionEvidence, suggestionOutputInstructions, suggestionOverviewFallback, suggestionRequestSchema, suggestionRetryFeedback, suggestionTask, suggestionTaskInstructions } from "@/lib/extension-suggestions";
 
 export async function suggestApplicationAnswer(userId: string, raw: unknown) {
@@ -16,7 +17,16 @@ export async function suggestApplicationAnswer(userId: string, raw: unknown) {
   const profile = await prisma.userProfile.findUnique({ where: { authUserId: userId } });
   if (!profile || profile.updatedAt.toISOString() !== input.revision)
     throw new AssistantError("Your profile changed. Click Autofill again to use the latest details.", 409);
-  const evidence = suggestionEvidence(buildProfileFormValues(profile), input.note);
+  const values = buildProfileFormValues(profile);
+  const inferred = screeningHistoryComplete(profile.experiencesJson, values.experiences) &&
+    screeningHistoryComplete(profile.projectsJson, values.projects) ? documentedWorkScreening(values, input) : null;
+  if (inferred) {
+    const latest = await prisma.userProfile.findUnique({ where: { id: profile.id }, select: { updatedAt: true } });
+    if (latest?.updatedAt.toISOString() !== input.revision)
+      throw new AssistantError("Your profile changed while drafting. Autofill again before trying a new draft.", 409);
+    return { suggestion: inferred };
+  }
+  const evidence = suggestionEvidence(values, input.note);
   if (!evidence.length) throw new AssistantError("Add experience or a professional summary to Profile, or provide a short note here.");
   let suggestion;
   const generationDeadline = AbortSignal.timeout(18_000);

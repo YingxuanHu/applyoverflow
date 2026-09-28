@@ -34,7 +34,7 @@ export function createFillProgress() {
         label.title = name;
         const status = document.createElement("small");
         status.textContent = field.processing ? "Answering..." : field.queued ? "Waiting" :
-          field.state === "filled" ? "Filled" : field.state === "kept" ? "Already complete" :
+          field.state === "filled" ? field.reviewReason || "Filled" : field.state === "kept" ? "Already complete" :
           field.state === "not-applicable" ? "Not applicable" : field.reason || "Missing information. Complete this field on the form.";
         item.append(label, status);
         if (key === "empty") {

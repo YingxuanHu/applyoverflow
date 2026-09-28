@@ -7,6 +7,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { ZodError } from "zod";
 import { buildProfileFormValues } from "../src/lib/profile";
 import * as suggestions from "../src/lib/extension-suggestions";
+import * as screening from "../src/lib/extension-screening";
 import { fillProfessionalAnswers } from "../extensions/chrome/answer-runner.mjs";
 
 // Execute the actual query with isolated imports: no database, server runtime,
@@ -22,7 +23,7 @@ const profile = {
   educationsJson: [{ degree: "Bachelor of Science", school: "Example College", description: "Awarded a Bachelor of Science." }],
 };
 type Request = { system: string; messages: { role: string; content: string }[]; signal: AbortSignal; responseFormat: ReturnType<typeof zodResponseFormat> };
-type Output = { answer: string; evidence: { id: string; quote: string }[]; missing: string };
+type Output = { answer: string; evidence: { id: string; quote: string }[]; missing: string; inferred?: boolean; reviewRequired?: boolean; assessment?: { documentedMonthsUpperBound: number } };
 type CitationOutput = { answer: string; references: number[]; missing: string };
 const withReferences = (output: Output, references = [0]): CitationOutput => ({ answer: output.answer, missing: output.missing, references: output.answer ? references : [] });
 type StoredProfile = Parameters<typeof buildProfileFormValues>[0] & { id: string; updatedAt: Date };
@@ -35,6 +36,9 @@ function harness(responses: Array<Output | CitationOutput | string>, storedProfi
   const imports: Record<string, unknown> = {
     "server-only": {}, "openai/helpers/zod": { zodResponseFormat }, zod: { ZodError },
     "@/lib/profile": { buildProfileFormValues }, "@/lib/extension-suggestions": suggestions,
+    "@/lib/extension-screening": { ...screening,
+      documentedWorkScreening: (values: Parameters<typeof screening.documentedWorkScreening>[0], input: Parameters<typeof screening.documentedWorkScreening>[1]) =>
+        screening.documentedWorkScreening(values, input, new Date("2026-09-28T12:00:00Z")) },
     "@/lib/db": { prisma: { userProfile: { findUnique: async () => {
       reads++;
       return reads > 1 && latestRevision && storedProfile ? { ...storedProfile, updatedAt: new Date(latestRevision) } : storedProfile;
@@ -417,4 +421,53 @@ test("a documented cross-team architectural decision can be drafted without adde
   assert.equal((await api.suggest("user-fixture", { ...baseRequest, label: sentryArchitecture })).suggestion.answer, answer);
   assert.equal(api.calls.length, 1);
   assert.match(api.calls[0].system, /Do not invent metrics/);
+});
+
+test("documented professional threshold No reaches the runner without AI and remains editable", async () => {
+  const label = "Do you have at least 5 years of experience with clinical supply chains/projects within the pharmaceutical or biotechnology industry?";
+  const stored = { ...profile, summary: "Built telecom software and data pipelines.",
+    experiencesJson: ["Jan–Aug2025", "Sep–Dec2023", "Jan–Apr2023", "Jan–Aug2025"].map(time => ({ title: "Engineer", company: "Synthetic Technology", time,
+      description: "Built software and machine learning tools. ".repeat(65) })),
+    projectsJson: ["Jun2026-Present", "Feb2026-Present", "Sep2025-Sep2026", "Sep-Dec2025", "Sep-Dec2025", "Apr-Aug2023", "Sep-Dec2025"]
+      .map(time => ({ name: "Software application", description: "Built a software application.", time })),
+  };
+  for (const userEdited of [false, true]) {
+    const api = harness([], stored);
+    const fields = [{ id: "screening", label, kind: "select", options: ["Yes", "No"], state: "needed", canAnswer: true }];
+    const writes: string[] = [];
+    const result = await fillProfessionalAnswers({ fields,
+      inspect: async (mode: string, payload: { answer?: string } = {}) => {
+        if (mode === "autofill-answer") { writes.push(payload.answer!); fields[0].state = "filled"; }
+        return { fields: structuredClone(fields) };
+      },
+      suggest: async () => {
+        const result = await api.suggest("user-fixture", { ...baseRequest, label, options: ["Yes", "No"] });
+        assert.equal(result.suggestion.answer, "No");
+        assert.equal(result.suggestion.assessment?.documentedMonthsUpperBound, 33);
+        assert.equal(result.suggestion.inferred, true);
+        assert.equal(result.suggestion.reviewRequired, true);
+        if (userEdited) fields[0].state = "kept";
+        return result;
+      }, progress: async () => {},
+    });
+    assert.deepEqual(writes, userEdited ? [] : ["No"]);
+    assert.equal(result[0].state, userEdited ? "kept" : "filled");
+    assert.equal(result[0].reviewReason, userEdited ? undefined : "Based on documented work history; review");
+    assert.equal(api.calls.length, 0);
+    assert.deepEqual(api.deadlines, []);
+    assert.equal(api.reads(), 2);
+  }
+  const changed = harness([], stored, "2026-05-01T12:00:01.000Z");
+  await assert.rejects(() => changed.suggest("user-fixture", { ...baseRequest, label }), /profile changed while drafting/);
+  for (const override of [
+    { summary: "I have twelve years of professional experience." },
+    { experiencesJson: stored.experiencesJson.map((row, index) => index ? row : { ...row, time: "Unknown" }) },
+    { projectsJson: [...stored.projectsJson, { name: "Independent consulting", description: "Delivered paid software to business clients.", time: "" }] },
+    { experiencesJson: stored.experiencesJson.map((row, index) => index ? row : { ...row, description: "x".repeat(3100) + " I have a decade of clinical supply experience." }) },
+  ]) {
+    const missing = { answer: "", evidence: [], missing: "Review the documented dates and professional experience." };
+    const api = harness([missing], { ...stored, ...override });
+    assert.deepEqual((await api.suggest("user-fixture", { ...baseRequest, label })).suggestion, missing);
+    assert.equal(api.calls.length, 1, "Uncertain or clipped evidence must not trigger deterministic No");
+  }
 });

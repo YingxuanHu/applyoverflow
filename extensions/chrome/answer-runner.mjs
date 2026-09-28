@@ -44,10 +44,11 @@ export const canPrepareAnswer = field => field.state === "needed" && field.canAn
 // Generation can overlap; DOM writes stay serialized and recheck live values.
 export async function fillProfessionalAnswers({ fields, inspect, suggest, progress }) {
   const candidates = fields.filter(canPrepareAnswer).slice(0, 40);
-  const waiting = new Set(candidates.map(f => f.id)), processing = new Set(), outcomes = new Map();
+  const waiting = new Set(candidates.map(f => f.id)), processing = new Set(), outcomes = new Map(), reviews = new Map();
   const deadline = Date.now() + 240_000;
   let current = fields;
   const display = () => current.map(field => ({ ...field,
+    ...(field.state === "filled" && reviews.has(field.id) ? { reviewReason: reviews.get(field.id) } : {}),
     ...(field.state === "needed" ? { queued: waiting.has(field.id), processing: processing.has(field.id),
       ...(outcomes.has(field.id) ? { reason: outcomes.get(field.id) } : {}) } : {}),
   }));
@@ -76,7 +77,7 @@ export async function fillProfessionalAnswers({ fields, inspect, suggest, progre
         const answer = result.suggestion?.answer;
         if (!answer || result.suggestion?.missing) return { field, reason: result.suggestion?.missing || "Your profile does not include enough information for this question." };
         if (field.kind !== "text" && !field.options.includes(answer)) return { field, reason: "No exact supported choice. Choose on the form." };
-        return { field, answer };
+        return { field, answer, reviewReason: result.suggestion.inferred && result.suggestion.reviewRequired ? "Based on documented work history; review" : "" };
       } catch (error) {
         if (error.reconnect) throw error;
         return { field, reason: error.status === 429 ? "Answer generation is temporarily limited. Try Autofill again in a few minutes." :
@@ -84,7 +85,7 @@ export async function fillProfessionalAnswers({ fields, inspect, suggest, progre
           "Could not prepare a supported answer. Retry Autofill or complete this field on the form." };
       }
     }));
-    for (const { field, answer, reason } of prepared) {
+    for (const { field, answer, reason, reviewReason } of prepared) {
       const latest = await inspect("inspect");
       const target = latest.fields?.find(f => f.id === field.id && f.label === field.label);
       if (answer && target?.state === "needed" && canPrepareAnswer(target)) {
@@ -93,6 +94,8 @@ export async function fillProfessionalAnswers({ fields, inspect, suggest, progre
       } else if (reason) outcomes.set(field.id, reason);
       waiting.delete(field.id); processing.delete(field.id);
       current = (await inspect("inspect")).fields || [];
+      if (reviewReason && target?.state === "needed" && current.some(f => f.id === field.id && f.label === field.label && f.state === "filled"))
+        reviews.set(field.id, reviewReason);
       await progress(display(), target?.state !== "needed" ? `Kept your answer: ${field.label}` :
         current.some(f => f.id === field.id && f.state === "filled") ? `Filled: ${field.label}` : `Left empty: ${field.label}`);
     }
