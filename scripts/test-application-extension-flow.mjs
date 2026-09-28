@@ -18,6 +18,13 @@ const launch = () => chromium.launchPersistentContext(profile, { channel: "chrom
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
 let context = await launch();
 let connection;
+const suggestionDiagnostics = [];
+context.on("response", async response => {
+  if (response.url() !== `${origin}/api/extension/v1/autofill-suggest`) return;
+  const data = await response.json().catch(() => ({}));
+  suggestionDiagnostics.push({ status: response.status(), answerLength: data.suggestion?.answer?.length,
+    missing: data.suggestion?.missing, error: data.error });
+});
 try {
   context.setDefaultTimeout(30_000);
   let popup = await context.newPage(); await popup.goto(`chrome-extension://${id}/popup.html`);
@@ -35,6 +42,10 @@ try {
   await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
   const auth = await authPagePromise;
   await auth.getByRole("button", { name: "Allow connection" }).waitFor(); await auth.waitForTimeout(800);
+  // Compile the local development route before timing the actual connection.
+  // This unauthenticated probe cannot read or change profile data.
+  const probe = await context.request.post(`${origin}/api/extension/v1/autofill-plan`, { data: {} });
+  assert.equal(probe.status(), 401);
   await auth.getByRole("button", { name: "Allow connection" }).click();
   await popup.getByText("Connected. Open an employer application form.").waitFor();
   connection = await popup.evaluate(async () => (await chrome.storage.local.get("connection")).connection);
@@ -101,7 +112,7 @@ try {
     assert.equal(await live.locator('input[type=file]').evaluateAll(nodes => nodes.reduce((sum, n) => sum + n.files.length, 0)), 0);
     await question.scrollIntoViewIfNeeded();
     await live.screenshot({ path: 'output/playwright/coverage/native-mission-lane.png' });
-    console.log('PASS live Mission Lane: native MV3, authenticated profile, real dropdowns and direct AI answer; Canadian address preserved, no upload/submission');
+    console.log('PASS live Mission Lane: native MV3, authenticated profile, real dropdowns and direct profile-backed overview; Canadian address preserved, no upload/submission');
   }
   if (process.env.EXTENSION_LIVE_NARRATIVE_URL) {
     const liveUrl = process.env.EXTENSION_LIVE_NARRATIVE_URL;
@@ -141,6 +152,7 @@ try {
   assert.equal((await context.request.post(`${origin}/api/extension/v1/contact`, { headers: { Authorization: `Bearer ${connection.token}` } })).status(), 401);
   console.log("PASS actual browser restart retains grant; explicit disconnect clears storage and revokes server access");
 } catch (error) {
+  console.log("Synthetic suggestion diagnostics", suggestionDiagnostics);
   for (const page of context.pages()) {
     if (page.url().startsWith("chrome-extension:")) console.log("Popup diagnostic", await page.locator("#status").textContent().catch(() => ""));
     if (page.url().startsWith("https://job-boards.greenhouse.io/"))

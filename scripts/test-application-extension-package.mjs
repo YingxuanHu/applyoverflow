@@ -23,7 +23,8 @@ for (const [args, name] of [
   ]);
   const zip = await readFile(`${root}/${name}.zip`);
   assert.ok(
-    zip.length < 150 * 1024,
+    // Shared detection, location context and record handling remain dependency-free.
+    zip.length < 160 * 1024,
     "Keep the package small; no dependencies or extra resume storage",
   );
   const files = unzipSync(zip);

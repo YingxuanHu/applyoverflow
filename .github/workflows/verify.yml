@@ -35,11 +35,16 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run extension:test:autofill
       - run: npm run extension:test:semantic
+      - run: npm run extension:test:shared
       - run: node scripts/test-application-extension-rippling.mjs
       - run: npm run extension:test:questions
       - run: npm run extension:test:progress
       - name: Verify profile-backed answer drafts
         run: node --conditions=react-server --import tsx tests/integration/extension-semantic-drafts.ts
+        env:
+          NODE_PATH: ./node_modules/next/dist/compiled
+      - name: Verify shared profile across application controls
+        run: node --conditions=react-server --import tsx tests/integration/extension-cross-platform.ts
         env:
           NODE_PATH: ./node_modules/next/dist/compiled
       - run: npm run extension:test:package

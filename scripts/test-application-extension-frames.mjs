@@ -84,15 +84,17 @@ try {
     (await context.waitForEvent("serviceworker"));
   const id = new URL(worker.url()).host;
   const popup = await context.newPage();
-  await worker.evaluate(async () =>
-    chrome.storage.session.set({
+  await worker.evaluate(async origin => {
+    await chrome.storage.session.clear();
+    await chrome.storage.local.set({
       connection: {
         token: "frame-test-token",
         email: "synthetic@example.test",
         expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        origin,
       },
-    }),
-  );
+    });
+  }, APP_ORIGIN);
   await popup.goto(`chrome-extension://${id}/popup.html`);
   await popup.getByText("Connection & site access", { exact: true }).click();
   if (
@@ -159,7 +161,13 @@ try {
   await frame
     .getByRole("button", { name: "Autofill", exact: true })
     .click();
-  await frame.getByRole("status").filter({ hasText: "4 filled" }).waitFor();
+  try {
+    await page.frames().find(frame => frame.url() === embed).waitForFunction(email =>
+      document.querySelector("#email")?.value === email, contact.email);
+  } catch (error) {
+    console.error("Synthetic embedded-form diagnostic", await frame.getByRole("status").allTextContents());
+    throw error;
+  }
   assert.equal(await frame.locator("#email").inputValue(), contact.email);
   assert.equal(await page.locator("#parent-email").inputValue(), "");
   for (let i = 1; i < 3; i++) {
@@ -191,22 +199,18 @@ try {
   await frame
     .getByRole("button", { name: "Undo Autofill", exact: true })
     .click();
-  await frame.getByRole("status").filter({ hasText: "4 fields cleared" }).waitFor();
+  await page.frames().find(frame => frame.url() === embed).waitForFunction(() =>
+    document.querySelector("#email")?.value === "");
   assert.equal(await frame.locator("#email").inputValue(), "");
   const pageCount = context.pages().length;
   const panel = frame.locator("#applyoverflow-assistant");
-  await panel.locator("summary").filter({ hasText: /^Needs your input/ }).click();
-  const picker = panel.getByRole("combobox", { name: "Needs your input: choose a field" });
-  const firstName = await picker.locator("option").filter({ hasText: /First name/i }).getAttribute("value");
-  await picker.selectOption(firstName);
-  await panel.getByRole("textbox", { name: /^Answer: First name/i }).fill("Jordan");
-  await panel.getByRole("button", { name: "Fill answer", exact: true }).click();
-  await frame.getByRole("status").filter({ hasText: "1 filled" }).waitFor();
+  assert.equal(await panel.locator("textarea,input,select,form").count(), 0, "Assistant displays progress, not a duplicate application form");
+  await frame.locator("#first_name").fill("Jordan");
   assert.equal(await frame.locator("#first_name").inputValue(), "Jordan");
   assert.equal(await frame.locator("#email").inputValue(), "");
   assert.equal(await page.locator("#parent-email").inputValue(), "");
-  assert.equal(captures.length, 0, "Inline answers do not capture a review session");
-  assert.equal(context.pages().length, pageCount, "Inline answers stay on the employer page");
+  assert.equal(captures.length, 0, "Editing the employer form does not capture a review session");
+  assert.equal(context.pages().length, pageCount, "Edits stay on the employer page");
   await page.setViewportSize({ width: 390, height: 844 });
   await frame
     .getByRole("button", { name: "Autofill", exact: true })
@@ -263,12 +267,13 @@ try {
     );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: supported cross-origin frames, registration upgrade, trusted clicks, document isolation, Undo, inline answers, 390px layout and permission revocation/re-enable; no submissions",
+    "PASS: supported cross-origin frames, registration upgrade, trusted clicks, document isolation, Undo, progress-only assistant, 390px layout and permission revocation/re-enable; no submissions",
   );
 } finally {
   await context
     .serviceWorkers()[0]
     ?.evaluate(() => chrome.storage.session.clear())
     .catch(() => {});
+  await context.serviceWorkers()[0]?.evaluate(() => chrome.storage.local.remove("connection")).catch(() => {});
   await context.close();
 }
