@@ -87,14 +87,20 @@ export function createHistoryInspector() {
   const degreeAlternatives = (value) => {
     const text = normalize(value).replace(/[\u2018\u2019]/g, "'");
     const short = text.replace(/[.\s]/g, "");
-    const bachelor = /^(?:bachelor(?:'s)?(?: of| degree|$))/.test(text) || /^(bsc|bs|ba|beng|bba|bcom|bcs)$/.test(short);
-    const master = /^master(?:'s)?(?: of| degree|$)/.test(text) || /^(msc|ms|ma|meng|mba)$/.test(short);
+    const abbreviations = {
+      bachelor: ["bsc", "bs", "ba", "beng", "basc", "bba", "bcom", "bcs"],
+      master: ["msc", "ms", "ma", "meng", "masc", "mba"],
+      doctorate: ["phd"],
+    };
+    const mentions = level => new RegExp(`\\b(?:${abbreviations[level].map(abbreviation => abbreviation.split("").join("[.\\s]*")).join("|")})\\b`, "i").test(text);
+    const bachelor = /^bachelor(?:'?s)?(?: of| degree|$)/.test(text) || abbreviations.bachelor.includes(short);
+    const master = /^master(?:'?s)?(?: of| degree|$)/.test(text) || abbreviations.master.includes(short);
     const doctorate = /^doctor(?:ate| of philosophy)(?:\b|$)/.test(text) || short === "phd";
     // Full program names can map down to their explicit qualification level,
     // never across subjects or from mixed-level credentials to a higher degree.
-    if (bachelor && !/\bmaster|\bdoctor|\bphd/.test(text)) return ["Bachelor's Degree", "Bachelor's", "Bachelors", "Bachelor", "Bachelor Degree"];
-    if (master && !/\bbachelor|\bdoctor|\bphd/.test(text)) return ["Master's Degree", "Master's", "Masters", "Master", ...(short === "mba" ? ["Master of Business Administration (M.B.A.)"] : [])];
-    if (doctorate && !/\bbachelor|\bmaster/.test(text)) return ["Doctor of Philosophy (Ph.D.)", "Doctorate", "Doctoral Degree", "PhD"];
+    if (bachelor && !/\bmaster|\bdoctor/.test(text) && !mentions("master") && !mentions("doctorate")) return ["Bachelor's Degree", "Bachelors Degree", "Bachelor's", "Bachelors", "Bachelor", "Bachelor Degree"];
+    if (master && !/\bbachelor|\bdoctor/.test(text) && !mentions("bachelor") && !mentions("doctorate")) return ["Master's Degree", "Masters Degree", "Master Degree", "Master's", "Masters", "Master", ...(short === "mba" ? ["Master of Business Administration (M.B.A.)"] : [])];
+    if (doctorate && !/\bbachelor|\bmaster/.test(text) && !mentions("bachelor") && !mentions("master")) return ["Doctor of Philosophy (Ph.D.)", "Doctorate", "Doctoral Degree", "PhD"];
     return [];
   };
   const setter = (field, value) => {
@@ -295,7 +301,9 @@ export function createHistoryInspector() {
         })
         .filter(entry => entry.key && (entry.field.type !== "checkbox" || entry.key === "current") &&
           (!custom(entry.field) || /^(school|degree|fieldOfStudy|startMonth|endMonth|startYear|endYear)$/.test(entry.key)));
-      const required = kind === "experience" ? ["title", "company"] : group.matches('.education--form') && !fields.some(f => f.key === "school") ? ["degree"] : ["school"];
+      // A degree-only wrapper is a field scope, not a school identity. Keep its
+      // containing school row instead of deduplicating unrelated institutions.
+      const required = kind === "experience" ? ["title", "company"] : ["school"];
       if (!required.every(key => fields.filter(entry => entry.key === key).length === 1)) return [];
       return [{ group, owner, kind, fields, required }];
     }).filter((item, _, all) => !all.some(other => other !== item && item.group.contains(other.group)));
@@ -425,6 +433,9 @@ export function createHistoryInspector() {
       group.contains(document.activeElement),
     );
     const unambiguousOwner = repeaters.filter(item => item.kind === payload.kind).length <= 1;
+    if (payload.automatic && repeaters.some(item => item.kind === payload.kind &&
+        controlFields(item.group, visible).some(field => !matching.some(row => row.group.contains(field)))))
+      return { filled: 0, skipped: 1, warning: "An existing history row cannot be identified safely. Review its school or employer before adding another." };
     if (payload.automatic && repeaters.some(item => item.kind === payload.kind && pending.has(item.group)))
       return { filled: 0, skipped: 1, warning: "The previous history record operation needs review before adding another record." };
     const blocked = matching.some(item => !emptyGroup(item) && !resumable.includes(item) &&
@@ -630,7 +641,8 @@ export function createHistoryInspector() {
     });
     const complete = !missing.length && target.required.every(key => read(target.fields.find(entry => entry.key === key).field).trim());
     if (!complete) {
-      warnings.push("Required history fields are incomplete or invalid. Review this record before continuing.");
+      const labels = [...new Set(missing.map(field => labelFor(field).replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean))].slice(0, 3);
+      warnings.push(`Required history fields are incomplete or invalid${labels.length ? ` (${labels.join(", ")})` : ""}. Review this record before continuing.`);
       skipped = Math.max(skipped, missing.length, 1);
     }
     if (complete && unchanged() && !target.editor) {
@@ -641,7 +653,12 @@ export function createHistoryInspector() {
     // Unknown questions, consent, or navigation controls disqualify that scope.
     if (payload.automatic && target.editor && (initiallyEmpty || created.has(target.group) || resumable.includes(target))) {
       const saves = savesIn(target.group, visible);
-      const bounded = controls.every(field => target.fields.some(entry => entry.field === field)) &&
+      // HiBob exposes optional Industry alongside career facts. It is not a
+      // profile inference: leave it blank, and only allow a valid optional field.
+      const blankOptionalIndustry = field => target.kind === "experience" && normalize(labelFor(field)) === "industry" &&
+        (custom(field) || field instanceof HTMLSelectElement || ["text", "search"].includes(field.type)) &&
+        !required(field) && !read(field).trim() && field.validity?.valid !== false && field.getAttribute("aria-invalid") !== "true";
+      const bounded = controls.every(field => target.fields.some(entry => entry.field === field) || blankOptionalIndustry(field)) &&
         !target.group.querySelector('button:not([type]),button[type="submit"],input[type="submit"],a[href]') &&
         ![...target.group.querySelectorAll("button")].some(button => /\b(apply|application|submit|continue|next|consent|agree|certify)\b/i.test(button.textContent));
       if (complete && unchanged() && bounded && (filled || resumable.includes(target)) && saves.length === 1 &&

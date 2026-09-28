@@ -143,8 +143,12 @@ export function createAutofillInspector() {
     }
     const operationUrl = location.href;
     const deadline = performance.now() + 12000;
-    const radioLabel = group => group?.querySelector('legend')?.textContent?.trim() || group?.getAttribute('aria-label') ||
-      (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '');
+    const radioLabel = group => {
+      const labels = group ? [...group.querySelectorAll(':scope > label')] : [];
+      const ownLabel = labels.length === 1 && !labels[0].control && !labels[0].querySelector('input,select,textarea,button') ? labels[0].textContent.trim() : "";
+      return group?.querySelector(':scope > legend')?.textContent?.trim() || group?.getAttribute('aria-label') || ownLabel ||
+        (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '');
+    };
     const groupedEntries = entries.flatMap(entry => {
       if (entry.ariaChoice) return [entry];
       if (!["radio", "checkbox"].includes(entry.field.type)) return [entry];
@@ -172,7 +176,9 @@ export function createAutofillInspector() {
       const id = ids.get(field);
       const key = entry.profileKey;
       const group = field.closest('fieldset,[role="group"],section');
-      const heading = group?.querySelector('legend,h2,h3')?.textContent || group?.getAttribute("aria-label") || "";
+      // A nested question or a section outside this form cannot label its contacts.
+      const heading = group && form.contains(group) ?
+        group.querySelector(':scope > legend,:scope > h2,:scope > h3')?.textContent || group.getAttribute("aria-label") || "" : "";
       const inHistory = entry.inHistory || /work experience|employment|education|reference|emergency|supervisor/i.test(heading) ||
         !!field.closest('[data-automation-id^="workExperience-"],[data-automation-id^="education-"]');
       const scalar = field instanceof HTMLTextAreaElement ||
@@ -218,7 +224,7 @@ export function createAutofillInspector() {
       return item;
     });
     targets = new Map(items.map(item => [item.id, item]));
-    const checked = (item, field) => item.ariaChoice ? field.getAttribute("aria-checked") === "true" : field.checked;
+    const checked = (item, field) => item.ariaChoice ? field.getAttribute(item.ariaChoice.checkedAttribute || "aria-checked") === "true" : field.checked;
     const choiceLabel = (item, field) => item.ariaChoice ? item.ariaChoice.labels[item.ariaChoice.fields.indexOf(field)] : labelFor(field);
     const savedChoice = item => {
       const saved = confirmedQuestions.get(norm(item.label));

@@ -1,7 +1,8 @@
 // Self-contained factory: adapter.mjs embeds it in the isolated-world runtime.
 export function createFormDetection() {
   const controls = 'input,textarea,select,button,[role="combobox"],[role="listbox"],[role="option"],[contenteditable]:not([contenteditable="false"])';
-  const groups = 'fieldset,section,[role="group"],[role="radiogroup"],careers-ui-experience-form-control';
+  const historyRows = 'careers-ui-experience-form-control,[data-automation-id^="workExperience-"],[data-automation-id^="education-"]';
+  const groups = `fieldset,section,[role="group"],[role="radiogroup"],${historyRows}`;
   const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employer|employment|work experience|career history|education|billing|shipping)\b/i;
   const parent = node => node?.parentElement || node?.getRootNode()?.host;
   const clean = text => (text || "").replace(/\s+/g, " ").trim();
@@ -46,6 +47,27 @@ export function createFormDetection() {
     }
     return [...new Set(result)];
   }
+  function ownLabel(node) {
+    const labels = [...node.querySelectorAll(':scope > label')];
+    if (labels.length !== 1 || labels[0].querySelector(controls)) return "";
+    const label = labels[0];
+    const target = label.getAttribute("for");
+    // A label already bound to a different control is never borrowed.
+    if (target && node.getRootNode().querySelectorAll(`#${CSS.escape(target)}`).length) return "";
+    return text(label);
+  }
+  function compoundLabel(node) {
+    const valueControls = 'input,textarea,select,[role="combobox"],[role="radio"],[role="checkbox"],button[aria-pressed]';
+    if (node.closest('[role="listbox"],[role="tree"],[role="menu"]')) return "";
+    for (let branch = parent(node), depth = 0; branch && depth < 3; branch = parent(branch), depth++) {
+      if (branch.matches('form,[role="form"],body,html')) break;
+      if ([...branch.querySelectorAll(valueControls)].some(control => visible(control) && control !== node && !node.contains(control))) break;
+      const label = ownLabel(branch);
+      if (label) return label;
+      if (branch.matches(groups)) break;
+    }
+    return "";
+  }
   function labelFor(node, meaning) {
     if (node.hasAttribute("aria-labelledby")) {
       const parts = references(node);
@@ -61,6 +83,7 @@ export function createFormDetection() {
     }
     const labels = [...(node.labels || [])];
     if (labels.length > 8) return "";
+    if (!labels.length) return compoundLabel(node);
     const parts = [...new Set(labels.map(label => text(label)))];
     if (parts.some(part => !part)) return "";
     const label = parts.join(" ");
@@ -68,7 +91,8 @@ export function createFormDetection() {
   }
   function groupTitle(node) {
     if (node.hasAttribute("aria-labelledby")) return references(node)?.join(" ") || "";
-    return clean(node.getAttribute("aria-label")) || text(node.querySelector(':scope > legend,:scope > h1,:scope > h2,:scope > h3,:scope > h4'));
+    return clean(node.getAttribute("aria-label")) || text(node.querySelector(':scope > legend,:scope > h1,:scope > h2,:scope > h3,:scope > h4')) ||
+      (node.matches('fieldset,[role="group"],[role="radiogroup"]') ? ownLabel(node) : "");
   }
   function groupContext(field, form, fieldLabel = "") {
     const titles = [];
@@ -82,7 +106,7 @@ export function createFormDetection() {
           clean(title).toLowerCase() === clean(fieldLabel).toLowerCase() &&
           node.querySelectorAll('input,textarea,select,[role="combobox"]').length === 1;
         if ((!ownCurrentQuestion && foreign.test(title)) || (node.hasAttribute("aria-labelledby") && !title) ||
-            node.matches('careers-ui-experience-form-control')) unsafe = true;
+            node.matches(historyRows)) unsafe = true;
       }
       if (node === form) break;
     }
@@ -149,6 +173,28 @@ export function createFormDetection() {
         required: field.getAttribute("aria-required") === "true" || Boolean(field.querySelector('input[required]')),
         state: selected ? "kept" : "needed",
         ariaChoice: { fields: choices, labels: options, valid, writable } });
+    }
+    // Pressed buttons are not necessarily radios, and may be submit buttons.
+    // Report a bounded Yes/No question, but never promote it to a write target.
+    for (const node of form.querySelectorAll('button[aria-pressed]')) {
+      if (!visible(node) || node.closest('[role="listbox"],[role="tree"],[role="menu"]') || result.some(item => item.field.contains(node))) continue;
+      const group = parent(node);
+      if (!group || !form.contains(group) || reported.has(group)) continue;
+      const choices = [...group.querySelectorAll('button[aria-pressed]')];
+      if (choices.length !== 2 || !choices.every(choice => parent(choice) === group && visible(choice))) continue;
+      const options = choices.map(choice => label(choice) || text(choice));
+      if (options.map(value => value.toLowerCase()).sort().join("|") !== "no|yes") continue;
+      const titleFor = () => groupTitle(group) || compoundLabel(group);
+      const title = titleFor();
+      if (!title) continue;
+      reported.add(group);
+      const valid = () => group.isConnected && form.contains(group) && visible(group) && titleFor() === title &&
+        group.querySelectorAll('button[aria-pressed]').length === choices.length && choices.every((choice, index) =>
+          choice.isConnected && parent(choice) === group && visible(choice) && (label(choice) || text(choice)) === options[index]);
+      result.push({ field: group, focus: choices[0], label: title, kind: "radio", options,
+        required: group.getAttribute("aria-required") === "true",
+        state: choices.filter(choice => choice.getAttribute("aria-pressed") === "true").length === 1 ? "kept" : "needed",
+        ariaChoice: { fields: choices, labels: options, checkedAttribute: "aria-pressed", valid, writable: () => false } });
     }
     return result;
   }

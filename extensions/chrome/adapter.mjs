@@ -78,6 +78,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
       "address line 2": "addressLine2",
       "address 2": "addressLine2",
       city: "city",
+      "current location": "city",
       "city/town": "city",
       "location (city)": "city",
       "postal code": "postalCode",
@@ -175,7 +176,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
       !/^(?:search|filter)(?:\s+(?:options?|countries|locations?|results))?\s*[:*]?$/i.test(labelFor(field));
     const controlSelector =
       'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
-    const allControlSelector = `${controlSelector},[role="radio"],[role="checkbox"],[role="switch"]`;
+    const allControlSelector = `${controlSelector},[role="radio"],[role="checkbox"],[role="switch"],button[aria-pressed]`;
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
@@ -264,6 +265,20 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
         error:
           "A single application form was not found. Embedded or multi-form pages need manual review.",
       };
+    if (context.provider === "ashby") {
+      const panel = forms[0].closest('[role="tabpanel"]');
+      if (panel && visible(panel) && !panel.querySelector('form,[role="form"],input[type="password"]')) {
+        const containers = [...panel.querySelectorAll('.ashby-application-form-container')];
+        const primary = containers.filter(node => !node.closest('.ashby-survey-form-container'));
+        const surveys = containers.filter(node => node.closest('.ashby-survey-form-container'));
+        const unrelated = [...panel.querySelectorAll(allControlSelector)].some(node =>
+          !containers.some(container => container.contains(node)) &&
+          !node.matches('input[type="file"],input[type="hidden"],input[type="submit"]'));
+        if (primary.length === 1 && primary[0] === forms[0] && surveys.length &&
+            !unrelated && containers.every(node => node.closest('[role="tabpanel"]') === panel) &&
+            surveys.every(node => panel.contains(node.closest('.ashby-survey-form-container')))) forms[0] = panel;
+      }
+    }
     // Native containment is a write-safety invariant in the history/autofill
     // engines. A whole form inside an open root is safe; split-root controls are
     // not. Do not monkey-patch DOM queries or traverse closed roots/other frames.
@@ -499,10 +514,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
         key = undefined;
       if (flexible) {
         const section = field.closest('section, [role="group"]');
-        const heading =
-          section?.querySelector("h2,h3,legend")?.textContent ||
-          section?.getAttribute("aria-label") ||
-          "";
+        const heading = section && forms[0].contains(section) ? detection.groupTitle(section) : "";
         if (
           /reference|referr|emergency|supervisor|manager|work experience|education|employ(?:er|ment)/i.test(
             heading,
@@ -535,6 +547,9 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
       // A telephone's country code is not the applicant's address country.
       if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
       if (context.provider === "greenhouse" && field.id === "candidate-location" && candidate === "city") profileKey = "city";
+      if (context.provider === "ashby" && normalized === "location" &&
+          field.matches('input[role="combobox"][aria-autocomplete="list"]') &&
+          field.closest('[data-field-path="_systemfield_location"]')) profileKey = "city";
       if (rippling && normalized === "location" && field instanceof HTMLInputElement &&
         field.getAttribute("data-testid") === "input-undefined" &&
         field.getAttribute("aria-labelledby") === `${field.id}-label` &&
