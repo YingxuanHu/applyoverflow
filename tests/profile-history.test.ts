@@ -12,7 +12,26 @@ import {
   historyPeriodsMatch,
   historyValidationError,
   autofillHistoryDates,
+  educationFieldOfStudy,
 } from "../src/lib/profile-history";
+
+test("field of study uses explicit program evidence and preserves user-entered majors", () => {
+  for (const [degree, expected] of [
+    ["Bachelor of Computer Science", "Computer Science"],
+    ["B.Sc. in Computer Science", "Computer Science"],
+    ["Bachelor of Science (Computer Science)", "Computer Science"],
+    ["MSc, Applied Mathematics", "Applied Mathematics"],
+    ["Master of Engineering, Emphasis in Computer Engineering", "Computer Engineering"],
+    ["Bachelor of Arts; Major: History", "History"],
+    ["BSc", ""], ["Bachelor of Science", ""], ["MBA", ""],
+    ["Bachelor of Science, Minor in Economics", ""],
+    ["Bachelor of Computer Science & Master of Applied Mathematics", ""],
+  ]) assert.equal(educationFieldOfStudy({ school: "Fixture University", degree }), expected, degree);
+  assert.equal(educationFieldOfStudy({ school: "Fixture University, School of Computer Science", degree: "Bachelor of Computer Science & BBA (Finance, Other University)" }), "Computer Science");
+  assert.equal(educationFieldOfStudy({ school: "Fixture School of Business", degree: "BSc" }), "");
+  assert.equal(educationFieldOfStudy({ school: "Fixture", degree: "Bachelor of Computer Science", fieldOfStudy: "Applied Computing" }), "Applied Computing");
+  assert.equal(normalizeEducations([{ school: "Fixture", degree: "Master of Engineering, Emphasis in Computer Engineering" }])[0].fieldOfStudy, "Computer Engineering", "profile and extension share recovered program data");
+});
 
 test("autofill reads explicit legacy periods without changing stored profile data or inventing precision", () => {
   for (const [time, dates] of [
