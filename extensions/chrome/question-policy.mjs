@@ -13,7 +13,7 @@ export function questionAssistance(label) {
   const personal = [
     /disab|veteran|gender|\brace\b|ethnic|sexual|\bsex\b|religio|birth|\bage\b|\b18\b|social security|\bssn\b|indigenous|aboriginal|minority|identify as|marital|pregnan|accommodation/,
     /criminal|convict|consent|\bagree\w*|certify|signature|attest|acknowledge|background check|drug test|accept.{0,40}(?:terms|privacy|polic)|confirm.{0,40}(?:accurac|accurate|correct|truth)/,
-    /authoriz|sponsor|\bvisas?\b|citizen|eligible|eligibility|right to work|work permit|legally (?:able|allowed)|immigration|passport|nationality/,
+    /authori[sz]|sponsor|\bvisas?\b|citizen|eligible|eligibility|right to work|work permit|legally (?:able|allowed|entitled|permitted)|immigration|passport|nationality/,
     /referr|related to|relatives?\b|family|government|political|employed (?:by|with|at)|conflict of interest|non[ -]?compete|\b(?:spouse|partner|parents?|siblings?|friends?|relationships?)\b|know.{0,35}(?:anyone|employee|staff)|(?:worked|working|work) (?:here|for us|for this company)/,
     /residen|\bcountr(?:y|ies)\b|\b(?:address|zip|postal|phone|email|pronouns?)\b|relocat|commut|located in|based in|live in|(?:your|current|home) (?:city|state|province|location)|where (?:do you|are you|would you)/,
     /salary|compensation|\bpay\b|availability|\bavailable\b|schedule|saturday|sunday|weekdays|weekends|evenings|night shifts|hours per week|work hours|time off|start date|notice period|time ?zone|travel|driver'?s? licen[cs]e/,

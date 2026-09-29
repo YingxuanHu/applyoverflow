@@ -19,6 +19,57 @@ test("posting-relative eligibility uses a single known job country, not applican
   assert.equal(applicationAnswerPlan({ enabled: true, values: { authorizedUS: "Yes" } }, labels, undefined, "CA").answers.length, 0);
 });
 
+test("entitlement and repeated-tense sponsorship use the posting country with unchanged scope", () => {
+  const labels = [
+    "Are you legally entitled to work in the country you are applying for?",
+    "Do you now or will you in the future require sponsorship from an employer to work in the country for which you are applying?",
+    "Are you authorized to work in the country where this job is posted?",
+  ];
+  const saved = { enabled: true, values: { authorizedCA: "Yes", authorizedUS: "No", sponsorshipCA: "No", sponsorshipUS: "Yes" } };
+  assert.deepEqual(applicationAnswerPlan(saved, labels).answers, []);
+  assert.deepEqual(applicationAnswerPlan(saved, labels, undefined, "CA").answers.map(a => a.answer), ["Yes", "No", "Yes"]);
+  assert.deepEqual(applicationAnswerPlan(saved, labels, undefined, "US").answers.map(a => a.answer), ["No", "Yes", "No"]);
+  for (const label of [
+    "Are you legally entitled to work in the country you are applying for without sponsorship?",
+    "Are you legally entitled to work in the country you are applying for and Canada?",
+    "Do you now or will you in the future not require sponsorship from an employer to work in the country for which you are applying?",
+    "Do you now and will you in the future require sponsorship from an employer to work in Canada?",
+    "Do you now or will you in the future require financial sponsorship from an employer to work in Canada?",
+    "Do you now or will you in the future require sponsorship from an employer to work in Australia?",
+  ]) assert.equal(applicationAnswerKey(label, "CA"), undefined, label);
+});
+
+test("demographic instruction text does not prevent using explicitly saved identity answers", () => {
+  const labels = ["What gender do you identify as?", "I identify my ethnicity as Select all that apply"];
+  const saved = { enabled: true, values: { gender: "Man", ethnicity: "Prefer not to answer" } };
+  const plan = applicationAnswerPlan(saved, labels);
+  assert.deepEqual(plan.answers.map(a => [a.answerKey, a.answer]), [["gender", "Man"], ["ethnicity", "Prefer not to answer"]]);
+  assert.ok(plan.answers[0].alternatives?.includes("Male"));
+  assert.ok(plan.answers[1].alternatives?.includes("Prefer not to disclose"));
+  assert.deepEqual(applicationAnswerPlan({ ...saved, enabled: false }, labels).answers, []);
+  assert.deepEqual(applicationAnswerPlan({ enabled: true, values: {} }, labels).answers, []);
+  for (const label of [
+    "What gender do you identify as and what was your sex assigned at birth?",
+    "I identify my ethnicity as and my nationality as Select all that apply",
+    "I certify my gender identity Select all that apply",
+  ]) assert.equal(applicationAnswerKey(label), undefined, label);
+});
+
+test("named-employer source details require the source question and actual Other selection", () => {
+  const url = "https://jobs.ashbyhq.com/zip/b5242472-5679-4084-af77-238b6335b792/application";
+  const labels = ["How did you hear about Zip?", 'If you selected "Other", please let us know how you heard about Zip.'];
+  const saved = { enabled: true, values: { jobSource: "ApplyOverflow" } };
+  const plan = applicationAnswerPlan(saved, labels, url);
+  assert.equal(plan.answers.length, 2);
+  assert.equal(plan.answers[1].answer, "ApplyOverflow");
+  assert.equal(plan.answers[1].dependsOn?.answerKey, "jobSource");
+  assert.equal(plan.answers[1].dependsOn?.answer, "Other");
+  assert.equal(applicationAnswerPlan(saved, [labels[1]], url).answers.length, 0);
+  assert.equal(applicationAnswerPlan(saved, [labels[0], labels[1].replace("about Zip", "about Another Employer")], url).answers.length, 1);
+  assert.equal(applicationAnswerPlan(saved, labels, "https://jobs.ashbyhq.com/elsewhere/00000000-0000-4000-8000-000000000000").answers.length, 0);
+  assert.equal(applicationAnswerPlan({ enabled: true, values: { jobSource: "LinkedIn" } }, labels, url).answers.length, 1);
+});
+
 test("voluntary application answers require explicit opt-in and valid per-field values", () => {
   const values = { gender: "Woman", authorizedCA: "No", over18: "Yes" };
   assert.deepEqual(commonApplicationAnswers({ enabled: false, values }, ["Gender identity"]), []);

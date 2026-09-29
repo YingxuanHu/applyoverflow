@@ -50,7 +50,7 @@ export function createAutofillInspector() {
     return field instanceof HTMLSelectElement && field.selectedOptions[0]?.disabled ? "" : field instanceof HTMLButtonElement || (custom(field) && !(field instanceof HTMLInputElement)) ?
       (/^(select|choose)( one| an? .+)?[.\u2026]*$/i.test(field.textContent.trim()) ? "" : field.textContent.trim()) : field.value || "";
   };
-  const restricted = label => /disab|veteran|gender|race|ethnic|sexual|religio|birth|social security|ssn|criminal|convict|consent|agree|certify|signature|authoriz|sponsor|visa|citizen|eligible to work|right to work/i.test(label);
+  const restricted = label => /disab|veteran|gender|race|ethnic|sexual|religio|birth|social security|ssn|criminal|convict|consent|agree|certify|signature|authori[sz]|sponsor|visa|citizen|eligible to work|right to work|legally (?:able|allowed|entitled|permitted)/i.test(label);
   const legal = (label, saved, planningSaved = false) => /social security|\bssn\b|signature|certify|terms|privacy (?:policy|act)|criminal|convict|date of birth|confirm.{0,60}(?:accurate|truthful)/i.test(label) ||
     (/agree|consent/i.test(label) && !/receive (?:text |sms |email )?(?:messages|communications)|contact me (?:by|via) (?:sms|email|text)|\bjoin .{0,60}talent (?:community|network)|\breceive (?:email )?(?:job alerts|career newsletters)/i.test(label) &&
       !((planningSaved || saved?.answerKey === "smsUpdates") && /^check yes or no to indicate your agreement to receive text message updates from .{1,120} regarding your job application[.?]/i.test(label)));
@@ -143,14 +143,15 @@ export function createAutofillInspector() {
     }
     const operationUrl = location.href;
     const deadline = performance.now() + 12000;
+    const questionText = node => (node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
     const radioLabel = group => {
       const labels = group ? [...group.querySelectorAll(':scope > label')] : [];
-      const ownLabel = labels.length === 1 && !labels[0].control && !labels[0].querySelector('input,select,textarea,button') ? labels[0].textContent.trim() : "";
+      const ownLabel = labels.length === 1 && !labels[0].control && !labels[0].querySelector('input,select,textarea,button') ? questionText(labels[0]) : "";
       const heading = group?.firstElementChild;
       const structural = heading && !heading.matches('input,select,textarea,button') &&
-        !heading.querySelector('input,select,textarea,button,[role="combobox"],[role="radio"]') ? heading.textContent.trim() : "";
-      return group?.querySelector(':scope > legend')?.textContent?.trim() || group?.getAttribute('aria-label') || ownLabel ||
-        (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '') ||
+        !heading.querySelector('input,select,textarea,button,[role="combobox"],[role="radio"]') ? questionText(heading) : "";
+      return questionText(group?.querySelector(':scope > legend')) || group?.getAttribute('aria-label') || ownLabel ||
+        (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? questionText(group.querySelector('.application-label')) : '') ||
         (structural.length <= 500 ? structural : "");
     };
     const nativeGroup = radios => {

@@ -87,19 +87,20 @@ function eligibilityKey(text: string, employmentCountry?: EmploymentCountry): Ap
   let question = text.replace(/\b(?:the )?(?:united states(?: of america)?\b|u\.?s\.?a?\b\.?)/g, "{US}")
     .replace(/\bcanada\b/g, "{CA}");
   if (country) question = question
-    .replace(/\bthe country of employment(?: for this position)?\b|\bthe country (?:where|in which) (?:this|the) (?:role|position|job) is (?:based|located)\b|\bthe country (?:where|in which) you (?:are applying|will (?:work|be employed))\b/g, `{${country}}`)
+    .replace(/\bthe country of employment(?: for this position)?\b|\bthe country (?:where|in which) (?:this|the) (?:role|position|job) is (?:based|located|posted)\b|\bthe country (?:where|in which) you (?:are applying|will (?:work|be employed))\b|\bthe country (?:you are applying for|for which you are applying)\b/g, `{${country}}`)
     .replace(/\bwhere (?:this|the) (?:role|position|job) is based\b/g, `in {${country}}`);
   question = question.replace(/[?.!]$/, "").trim();
-  const authorization = /^(?:are you (?:currently )?(?:legally )?(?:authorized|authorised|eligible) to work|are you (?:currently )?legally (?:able|permitted) to work|do you (?:currently )?have (?:the )?(?:legal (?:right|authorization|authorisation)|authorization|authorisation) to work|can you legally work)(?: in (\{(?:US|CA)\}))?$/.exec(question);
+  const authorization = /^(?:are you (?:currently )?(?:legally )?(?:authorized|authorised|eligible) to work|are you (?:currently )?legally (?:able|permitted|entitled) to work|do you (?:currently )?have (?:the )?(?:legal (?:right|authorization|authorisation)|authorization|authorisation) to work|can you legally work)(?: in (\{(?:US|CA)\}))?$/.exec(question);
   if (authorization) {
     const target = authorization[1]?.slice(1, -1) || country;
     return target === "CA" ? "authorizedCA" : target === "US" ? "authorizedUS" : undefined;
   }
   // A now-or-future answer must not be reused for a now-only/future-only question.
+  question = question.replace(/^do you now or will you in the future (need|require)\b/, "will you now or in the future $1");
   const scope = /(?:, )?\b(?:now|currently),? or (?:(?:at any (?:time|point) )?in (?:the )?)?future\b,?/;
   if (!scope.test(question)) return;
   question = question.replace(scope, "").replace(/\s+/g, " ").trim();
-  const sponsorship = /^(?:will|do|would) you (?:need|require) (?:any )?(?:(?:visa|work visa|work authorization|immigration|employment|employment visa|employment[- ]based) )?sponsorship(?: (?:from (?:the|our|your) (?:company|employer)))?(?: (?:to work|for (?:employment(?: visa status)?|work authorization)))?(?: in (\{(?:US|CA)\}))?$/.exec(question);
+  const sponsorship = /^(?:will|do|would) you (?:need|require) (?:any )?(?:(?:visa|work visa|work authorization|immigration|employment|employment visa|employment[- ]based) )?sponsorship(?: (?:from (?:the|our|your|an) (?:company|employer)))?(?: (?:to work|for (?:employment(?: visa status)?|work authorization)))?(?: in (\{(?:US|CA)\}))?$/.exec(question);
   if (sponsorship) {
     const target = sponsorship[1]?.slice(1, -1) || country;
     return target === "CA" ? "sponsorshipCA" : target === "US" ? "sponsorshipUS" : undefined;
@@ -176,8 +177,9 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
   // Compound declarations and attestations are not a synonym for a profile fact.
   if (reviewOnly(text)) return;
   if (/^(?:(?:please )?(?:select|choose|indicate) (?:the |all )?(?:countries|country(?: \(or countries\)|\(ies\))?) (?:where|in which) you (?:\b(?:currently )?have work authori[sz]ation|are (?:currently )?(?:legally )?authori[sz]ed to work)|which countries are you (?:currently )?(?:legally )?authori[sz]ed to work in)[.!?]?(?: \(select all that apply\))?$/.test(text)) return "authorizedCountries";
-  if (/^(?:gender|gender identity|i identify my gender as|what is your gender(?: identity)?\??|which gender do you identify as\??|how (?:do|would) you (?:describe|identify) your gender(?: identity)?\??(?: \(mark all that apply\))?)$/.test(text)) return "gender";
-  if (/^(?:race|ethnicity|race\/ethnicity|race or ethnicity|racial or ethnic identity|i identify my ethnicity as|please indicate your race or ethnicity\??|what is your race and ethnicity\??|how would you describe your racial\/ethnic background\??(?: \(mark all that apply\))?)$/.test(text)) return "ethnicity";
+  const identity = text.replace(/\s+\(?(?:mark|select) all that apply\)?[.!]?$/, "");
+  if (/^(?:gender|gender identity|i identify my gender as|what is your gender(?: identity)?\??|(?:which|what) gender do you identify as\??|how (?:do|would) you (?:describe|identify) your gender(?: identity)?\??)$/.test(identity)) return "gender";
+  if (/^(?:race|ethnicity|race\/ethnicity|race or ethnicity|racial or ethnic identity|i identify my ethnicity as|please indicate your race or ethnicity\??|what is your race and ethnicity\??|how would you describe your racial\/ethnic background\??)$/.test(identity)) return "ethnicity";
   if (/^(?:do you identify as transgender|are you transgender|i identify as transgender)\??$/.test(text)) return "transgender";
   if (/^(?:sexual orientation|i identify my sexual orientation as|what is your sexual orientation|how would you describe your sexual orientation)(?:\?)?(?: \(mark all that apply\))?$/.test(text)) return "sexualOrientation";
   if (/^do you (?:currently )?have a disability (?:or chronic condition )?(?:\([^)]*\) )?that (?:substantially )?limits? (?:one or more of )?your (?:major )?(?:daily|life) activities(?:, including[^?]*)?\??$/.test(text)) return "limitingDisability";
@@ -208,8 +210,10 @@ export type CommonAnswer = { label: string; answer: string; answerKey: string; a
 export type CommonAnswerDetail = { label: string; profileLabel: string; reason: string; answerKey: string; notApplicable?: boolean; dependsOn?: CommonAnswerDependency };
 const otherSourceOptions = ["Other (please specify)", "Other - please specify"];
 
-function otherSourceFollowup(text: string): boolean {
+function otherSourceFollowup(text: string, tenant?: string): boolean {
   if (/^(?:if (?:you (?:selected|chose) )?["']?other[,"']* +)?please (?:specify(?: here)?|provide (?:more )?details|tell us more)[.!?]?$/.test(text)) return true;
+  const heard = /^if you (?:chose|selected) ["']?other["']?,? please let us know how you heard about (.+?)[.!?]?$/.exec(text);
+  if (heard) return heard[1] === "us" || Boolean(tenant && heard[1].replace(/[^a-z0-9]/g, "") === tenant);
   const conditional = /^if you (?:chose|selected) (.+?),? please specify(?: here)?[.!?]?$/.exec(text);
   if (!conditional) return false;
   // A combined follow-up can mention employee/event options. Only the actual
@@ -220,7 +224,7 @@ function otherSourceFollowup(text: string): boolean {
 
 function answerAlternatives(key: string, answer: string | undefined): string[] | undefined {
   if (key === "jobSource") return answer === "ApplyOverflow" ? ["Other", ...otherSourceOptions] : answer === "Other" ? otherSourceOptions : undefined;
-  if (answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer") return ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"];
+  if (answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer") return ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "Prefer not to disclose", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"];
   if (key === "gender") return ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""];
   if ((answer === "Yes" || answer === "No") && /^(?:authorized|sponsorship)(?:CA|US)$/.test(key)) {
     const country = key.endsWith("CA") ? "Canada" : "the United States";
@@ -298,7 +302,7 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       answer = matches?.length === 1 ? matches[0].willingness : undefined;
       if (!location) unavailableReason = "A single city and country for this posting could not be confirmed. Answer commute willingness on the form.";
     }
-    if (otherSourceFollowup(text) && commonKey(labels[index - 1] || "") === "jobSource") {
+    if (otherSourceFollowup(text, tenant) && commonKey(labels[index - 1] || "") === "jobSource") {
       key = "sourceDetails"; profileLabel = "Other job source";
       answer = saved.values.jobSource === "ApplyOverflow" ? "ApplyOverflow" : saved.values.jobSource === "Other" ? saved.values.sourceDetails : undefined;
       dependsOn = { answerKey: "jobSource", answer: "Other", alternatives: otherSourceOptions };

@@ -115,6 +115,29 @@ try {
     });
   });
 
+  await test("nested choice instructions remain separate words and explicit answers fill the actual controls", async () => {
+    const label = "I identify my ethnicity as Select all that apply";
+    await fixture(`<form><label for="name">Full name</label><input id="name"><label for="email">Email</label><input id="email" type="email">
+      <div class="application-question"><div><div class="application-label"><div>I identify my ethnicity as</div><div>Select all that apply</div></div></div>
+      <div><input type="checkbox" id="race-a" name="race"><label for="race-a">Asian</label></div>
+      <div><input type="checkbox" id="race-p" name="race"><label for="race-p">Prefer not to disclose</label></div></div>
+      ${radio("What gender do you identify as?", "gender", ["Male", "Female", "Prefer not to disclose"])}
+      <button type="submit">Submit application</button></form>`, async (page, inspect) => {
+      const before = await inspect();
+      const ethnicity = before.fields.find(f => f.label === label);
+      assert.equal(ethnicity?.kind, "checkbox-group");
+      assert.deepEqual(ethnicity.options, ["Asian", "Prefer not to disclose"]);
+      const result = await inspect("autofill", { commonAnswers: [
+        { label, answerKey: "ethnicity", answer: "Prefer not to answer", alternatives: ["Prefer not to disclose"] },
+        { label: "What gender do you identify as?", answerKey: "gender", answer: "Man", alternatives: ["Male"] },
+      ] });
+      assert.equal(await page.locator('#race-p').isChecked(), true);
+      assert.equal(await page.locator('#race-a').isChecked(), false);
+      assert.equal(await page.locator('#gender-0').isChecked(), true);
+      assert.equal(result.fields.find(f => f.label === label)?.state, "filled");
+    }, "https://jobs.lever.co/fixture/00000000-0000-4000-8000-000000000000/apply");
+  });
+
   for (const reject of [false, true]) await test(`explicit non-submit pressed choices ${reject ? "report rejected writes" : "fill saved answers and preserve existing selections"}`, async () => {
     await fixture(`<div role="tabpanel">${primary.replaceAll('<button aria-pressed', '<button type="button" aria-pressed')}</div>`, async (page, inspect) => {
       if (!reject) await page.evaluate(() => {
