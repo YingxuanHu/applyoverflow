@@ -79,6 +79,33 @@ Installed and reloaded version 0.11.5 in the user's existing unpacked Chrome
 extension. Chrome visibly confirmed the version and reload. The previous 0.11.4
 folder was backed up, and all 14 generated files were copied and verified.
 
-No production web deployment or public download update was performed for this
-change. These live results do not certify other employers, authenticated ATS
+At the initial verification, no production deployment had been performed.
+The subsequent release is recorded below. These live results do not certify other employers, authenticated ATS
 flows, closed shadow roots, inaccessible frames, or arbitrary rich editors.
+
+## Production Release: September 29
+
+- Committed and pushed release `40ce530ba5ed7727506864973e2afabdc5b11c57`.
+  [GitHub Verify](https://github.com/YingxuanHu/applyoverflow/actions/runs/36574291150)
+  passed all jobs before activation.
+- Confirmed that web source, dependency lockfile, schema, Dockerfile and Compose
+  configuration were unchanged from the running `9b4cb08` web revision. The
+  package.json difference only adds the new test command.
+- Built an immutable, download-only image layer on the exact running base image
+  `sha256:2fa029d6d0d209fd1d66e5607e64581eb5c8c6d86f0a838997bb60fee8fc5553`.
+  No full-image import or dependency rebuild was needed. Checked over 4 GiB
+  available on root and the actual Docker/containerd stores before building.
+  The only copied file is `/app/public/downloads/applyoverflow-assistant.zip`;
+  BUILD_SHA and revision labels identify this artifact release and its web base.
+- Preserved the old image as `applyoverflow-rollback:before-0.11.5-web`.
+  The release Dockerfile, ZIP and guarded activation/rollback script are retained
+  under the attached volume's `autoapplication/releases/40ce530ba5ed7727506864973e2afabdc5b11c57`.
+- Candidate PDF generation, parser and sandbox checks passed. Recreated only
+  the app with `--no-deps --no-build`, waiting for healthy status. No database
+  migration, image pruning, remote source synchronization or worker restart.
+- Public `/api/health` returned ready at the release revision. The public ZIP
+  manifest reports 0.11.5 and matches the tested package byte-for-byte:
+  SHA-256 `1fae7d1e22d2f02f31d6515a884c3cd665f174e885a5bc91a72d1324f37db6e0`.
+- PostgreSQL, Caddy and all three production workers retained their container
+  identities. Root retained about 5 GiB free and the attached volume about 82 GiB.
+  This small artifact release does not resolve the broader Docker storage issue.
