@@ -1,6 +1,9 @@
 # Application Assistant Preview
 
-## Shared application discovery (0.11.4, unreleased)
+## Shared application discovery (0.11.4)
+
+- Ashby domain-style tenant names such as `primer.io` are recognized by both
+  the extension and backend. Employer identity remains tenant-scoped.
 
 - Known ATS selectors are fast paths, not the only detection mechanism. The
   fallback combines local application context with independent applicant,
