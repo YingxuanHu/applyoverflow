@@ -170,7 +170,16 @@ try {
     assert.equal(await page.evaluate(() => window.clicks), 0, "explicit No confirms false without toggling");
     await load(`<div role="${role}" tabindex="0" aria-checked="false">${label}</div>`);
     await inspect();
+    await page.locator(`[role="${role}"]`).evaluate(node => {
+      node.onkeydown = event => {
+        if (event.code === "Space") {
+          event.preventDefault();
+          node.setAttribute("aria-checked", String(node.getAttribute("aria-checked") !== "true"));
+        }
+      };
+    });
     await page.locator(`[role="${role}"]`).focus();
+    await page.keyboard.press("Space");
     await page.keyboard.press("Space");
     await inspect("autofill", plan(label));
     assert.equal(await page.evaluate(() => window.clicks), 0, "trusted keyboard edits are preserved");

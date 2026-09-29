@@ -1,5 +1,36 @@
 # Application Assistant Preview
 
+## Profile Fact Intents (0.11.5)
+
+The shared resolver composes applicant-location and alternative professional-link
+intents without ATS names or field IDs. It projects the same profile fact into
+text, native choices, datalists, and associated custom dropdowns. Alternative
+links retain their allowed source types; a GitHub/portfolio question cannot
+silently fall back to LinkedIn. Geographic choices must match the saved city
+and any displayed region/country; ambiguous options remain unselected.
+
+Custom dropdowns without `aria-controls` can use a bounded, single-control
+wrapper to establish list ownership. Invalid explicit references are not
+bypassed. Plain-text editable textboxes and semantically labelled search inputs
+use the same fill/readback path. Rich editors, unowned portals, and ambiguous
+contexts still require review. No claim of universal website support is made.
+
+Edit tracking compares committed values, including ARIA choice state. Focusing,
+clicking into, or tabbing through an unchanged field no longer blocks Autofill
+or Undo; actual edits and deliberate clears remain protected.
+
+Choice buttons are checked against their actual HTML form ownership. A default
+button outside any form may be a choice; default buttons inside forms and
+explicit submit/form-associated buttons remain blocked.
+
+`npm run extension:test:intents` exercises these behaviors through real browser
+events on network-isolated fixtures. CI also runs it against the serialized ZIP
+runtime, in addition to the existing context, history, choices and discovery
+suites. Fixture tests are not live-employer verification.
+
+See `docs/audits/2026-09-28-profile-fact-intents.md` for local installation, live
+verification and remaining gaps. This does not establish universal coverage.
+
 ## Shared application discovery (0.11.4)
 
 - Ashby domain-style tenant names such as `primer.io` are recognized by both

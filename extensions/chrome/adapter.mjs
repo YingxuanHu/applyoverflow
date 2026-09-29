@@ -4,20 +4,21 @@ import { createAutofillInspector } from "./autofill.mjs";
 import { createFormDetection } from "./form-detection.mjs";
 import { createJobContext } from "./job-context.mjs";
 import { createFieldValidity } from "./field-validity.mjs";
+import { createFieldSemantics } from "./field-semantics.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
 export function createInspector(resolveContext, history, autofill) {
-  return createInspectorRuntime(resolveContext, history, autofill, createFormDetection(), createJobContext(), createFieldValidity());
+  return createInspectorRuntime(resolveContext, history, autofill, createFormDetection(), createJobContext(), createFieldValidity(), createFieldSemantics());
 }
 
 // Existing build/test callers serialize createInspector. Keep that public
 // contract self-contained without runtime imports or page-provided code.
 createInspector.toString = () => `(function(resolveContext, history, autofill) {
-  return (${createInspectorRuntime})(resolveContext, history, autofill, (${createFormDetection})(), (${createJobContext})(), (${createFieldValidity})());
+  return (${createInspectorRuntime})(resolveContext, history, autofill, (${createFormDetection})(), (${createJobContext})(), (${createFieldValidity})(), (${createFieldSemantics})());
 })`;
 
-function createInspectorRuntime(resolveContext, history, autofill, detection, jobContext, fieldValid) {
+function createInspectorRuntime(resolveContext, history, autofill, detection, jobContext, fieldValid, semantics) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
   const manualChoiceIds = new WeakMap();
@@ -129,6 +130,8 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
         .replace(/^(?:what is|what's)\s+/, "")
         .replace(/^(?:a link to\s+|link to\s+)?(?:your|applicant|candidate)\s+/, "");
       if (Object.hasOwn(aliases, text)) return aliases[text];
+      const intent = semantics.resolve(label);
+      if (intent) return intent.key;
       const link = detection.profileLink(text);
       if (link) return link;
       const rules = [
@@ -176,7 +179,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
     const applicationControl = field => !field.closest('[role="listbox"],[role="tree"],[role="menu"]') &&
       !/^(?:search|filter)(?:\s+(?:options?|countries|locations?|results))?\s*[:*]?$/i.test(labelFor(field));
     const controlSelector =
-      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
+      'input, textarea, select, [role="textbox"][contenteditable]:not([contenteditable="false"]), [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
     const allControlSelector = `${controlSelector},[role="radio"],[role="checkbox"],[role="switch"],button[aria-pressed]`;
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
@@ -534,14 +537,8 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
       // A telephone's country code is not the applicant's address country.
       if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
       if (context.provider === "greenhouse" && field.id === "candidate-location" && candidate === "city") profileKey = "city";
-      if (context.provider === "ashby" && normalized === "location" &&
-          field.matches('input[role="combobox"][aria-autocomplete="list"]') &&
-          field.closest('[data-field-path="_systemfield_location"]')) profileKey = "city";
-      if (rippling && normalized === "location" && field instanceof HTMLInputElement &&
-        field.getAttribute("data-testid") === "input-undefined" &&
-        field.getAttribute("aria-labelledby") === `${field.id}-label` &&
-        field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
       const inferred = meaning(label);
+      const intent = semantics.resolve(label);
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
       const currentEmployment = ["currentCompany", "currentTitle"].includes(inferred);
       const foreignContext = groupContext.unsafe || Boolean(inferred && !currentEmployment && foreign.test(label));
@@ -557,7 +554,8 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
         )
       )
         key = undefined;
-      return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext };
+      return { field, label, key, profileKey, intent: intent?.key === profileKey ? intent : undefined,
+        identityLabel: Boolean(inferred), inHistory: foreignContext };
     };
     const manualChoices = detection.manualChoices(forms[0], labelFor);
     const historyFields = history ? await history("history-fields", {}, forms[0], labelFor, visible) : [];

@@ -1,34 +1,76 @@
 import { createFieldValidity } from "./field-validity.mjs";
+import { createFieldSemantics } from "./field-semantics.mjs";
 
 // Serialized into the isolated world. Field tokens never come from the page and
 // every write is revalidated against the current document and visible label.
 export function createAutofillInspector() {
-  return createAutofillRuntime(createFieldValidity());
+  return createAutofillRuntime(createFieldValidity(), createFieldSemantics());
 }
 createAutofillInspector.toString = () => `(function() {
-  return (${createAutofillRuntime})((${createFieldValidity})());
+  return (${createAutofillRuntime})((${createFieldValidity})(), (${createFieldSemantics})());
 })`;
 
-function createAutofillRuntime(fieldValid) {
+function createAutofillRuntime(fieldValid, semantics) {
   let pageUrl = "", targets = new Map(), undo = [], expires = 0, expiryTimer;
   let completed = new WeakMap();
   let issues = new WeakMap();
   let userEdited = new WeakSet(), programmatic = 0;
   const editObservers = new Map();
-  const editEvents = ["input", "change", "pointerdown", "keydown"];
-  const observeEdits = field => {
-    if (editObservers.has(field)) return;
-    const onEdit = event => { if (event.isTrusted && !programmatic) userEdited.add(field); };
-    for (const event of editEvents) field.addEventListener(event, onEdit);
-    editObservers.set(field, onEdit);
+  const editEvents = ["input", "change", "pointerdown", "keydown", "click", "focusin"];
+  const editState = field => JSON.stringify([read(field),
+    ["checkbox", "radio"].includes(field.type) ? field.checked : null,
+    field.getAttribute("aria-checked"), field.getAttribute("aria-pressed")]);
+  const markEdited = field => {
+    userEdited.add(field);
+    for (const record of undo) if (record.field === field) record.edited = true;
   };
-  const edited = item => (item.ariaChoice?.fields || item.radioFields || [item.field]).some(field => userEdited.has(field));
+  const flushEdit = field => {
+    const observer = editObservers.get(field);
+    if (!observer?.pending) return;
+    if (editState(field) !== observer.pending.before) markEdited(field);
+    observer.pending = null;
+    observer.baseline = editState(field);
+  };
+  const observeEdits = field => {
+    if (editObservers.has(field)) { flushEdit(field); return; }
+    const observer = { baseline: editState(field), onEdit: null, pending: null };
+    observer.onEdit = event => {
+      const state = editState(field);
+      if (event.type === "input" || event.type === "change") {
+        if (event.isTrusted && !programmatic && state !== observer.baseline) markEdited(field);
+        observer.baseline = state;
+      } else if (event.type === "focusin") {
+        observer.baseline = state;
+      } else if (event.isTrusted && !programmatic) {
+        // Focus, pointer-down and keyboard navigation are not edits. Compare
+        // committed state after handlers, including ARIA-only choice buttons.
+        const before = state;
+        // Native checkboxes toggle before click listeners run, unlike custom
+        // ARIA buttons which commit their state in the click handler.
+        if (event.type === "click" && before !== observer.baseline) markEdited(field);
+        observer.baseline = before;
+        const pending = { before };
+        observer.pending = pending;
+        // A task (not a microtask) observes React/ARIA handlers after the event
+        // has finished propagating through all capture and bubble listeners.
+        setTimeout(() => {
+          if (editObservers.get(field) === observer && observer.pending === pending) flushEdit(field);
+        }, 0);
+      }
+    };
+    for (const event of editEvents) field.addEventListener(event, observer.onEdit, true);
+    editObservers.set(field, observer);
+  };
+  const edited = item => (item.ariaChoice?.fields || item.radioFields || [item.field]).some(field => {
+    flushEdit(field);
+    return userEdited.has(field);
+  });
   const clickChoice = field => {
     programmatic++;
     try { field.click(); } finally { programmatic--; }
   };
   const clearEditObservers = () => {
-    for (const [field, onEdit] of editObservers) for (const event of editEvents) field.removeEventListener(event, onEdit);
+    for (const [field, observer] of editObservers) for (const event of editEvents) field.removeEventListener(event, observer.onEdit, true);
     editObservers.clear(); userEdited = new WeakSet();
   };
   const ids = new WeakMap();
@@ -36,6 +78,7 @@ function createAutofillRuntime(fieldValid) {
   const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
   const chipText = chip => chip.querySelector('.chip-text')?.textContent.trim() || "";
   const read = field => {
+    if (field.isContentEditable && field.getAttribute("role") === "textbox") return field.textContent || "";
     const chips = field.closest('b-chip-input');
     if (chips) return [...chips.querySelectorAll('b-chip')].map(chipText).join(", ") || field.value || "";
     // React Select keeps its search input empty after selecting a value.
@@ -98,21 +141,20 @@ function createAutofillRuntime(fieldValid) {
   function reset() {
     clearTimeout(expiryTimer);
     clearEditObservers();
-    for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
-      item.field.removeEventListener(event, item.onEdit);
     undo = []; targets.clear(); completed = new WeakMap(); issues = new WeakMap(); choiceCache = new WeakMap(); confirmedQuestions.clear(); profileGuidance.clear(); expires = Date.now() + 10 * 60_000;
     pageUrl = location.href;
     expiryTimer = setTimeout(() => {
       clearEditObservers();
-      for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
-        item.field.removeEventListener(event, item.onEdit);
       undo = []; targets.clear(); completed = new WeakMap(); confirmedQuestions.clear(); profileGuidance.clear(); expires = 0;
     }, 10 * 60_000);
   }
   function setValue(field, value) {
-    const proto = field instanceof HTMLSelectElement ? HTMLSelectElement.prototype :
-      field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, "value").set.call(field, value);
+    if (field.isContentEditable && field.getAttribute("role") === "textbox") field.textContent = value;
+    else {
+      const proto = field instanceof HTMLSelectElement ? HTMLSelectElement.prototype :
+        field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(field, value);
+    }
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -209,8 +251,9 @@ function createAutofillRuntime(fieldValid) {
         group.querySelector(':scope > legend,:scope > h2,:scope > h3')?.textContent || group.getAttribute("aria-label") || "" : "";
       const inHistory = entry.inHistory || /work experience|employment|education|reference|emergency|supervisor/i.test(heading) ||
         !!field.closest('[data-automation-id^="workExperience-"],[data-automation-id^="education-"]');
-      const scalar = field instanceof HTMLTextAreaElement ||
-        (field instanceof HTMLInputElement && ["text", "email", "tel", "url", "number", "date"].includes(field.type));
+      const editor = field.isContentEditable && field.getAttribute("role") === "textbox" && !field.querySelector('*:not(br)');
+      const scalar = editor || field instanceof HTMLTextAreaElement ||
+        (field instanceof HTMLInputElement && ["text", "search", "email", "tel", "url", "number", "date"].includes(field.type));
       const select = field instanceof HTMLSelectElement;
       const radio = entry.ariaChoice ? entry.kind === "radio" : entry.radioFields?.length > 1;
       const checkbox = entry.ariaChoice ? entry.kind === "checkbox" : field instanceof HTMLInputElement && field.type === "checkbox";
@@ -239,7 +282,7 @@ function createAutofillRuntime(fieldValid) {
       const required = entry.required || field.required || field.getAttribute("aria-required") === "true" ||
         (field.matches('b-single-select > [role="button"]') && field.parentElement.hasAttribute("required")) || Boolean(field.closest('b-currency-value-select[required]'));
       const item = { ...entry, id, field, label, profileKey: key, manual, canPlan, options, maxLength, maxWords,
-        canRemember: !manual && !entry.ariaChoice && !["fullAddress", "professionalUrl", "skills", "currentCompany", "currentTitle"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
+        canRemember: !manual && !entry.ariaChoice && !entry.intent?.projection && !["fullAddress", "professionalUrl", "skills", "currentCompany", "currentTitle"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         profileLabel: profileGuidance.get(norm(label))?.profileLabel,
         notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !required,
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
@@ -306,6 +349,18 @@ function createAutofillRuntime(fieldValid) {
       field.blur();
       if (field.getAttribute("aria-expanded") === "true") field.click();
     };
+    const localLists = field => {
+      // Some custom controls omit aria-controls. Only use a list owned by a
+      // bounded wrapper containing this one control; never a document-wide menu.
+      for (let owner = field.parentElement, depth = 0; owner && owner !== form && depth < 4; owner = owner.parentElement, depth++) {
+        const controls = [...owner.querySelectorAll('input,select,textarea,[contenteditable]:not([contenteditable="false"]),[role="combobox"],button[aria-haspopup="listbox"]')]
+          .filter(node => visible(node) && node.type !== "hidden" && !node.closest('[role="listbox"],[role="tree"]'));
+        if (controls.length !== 1 || controls[0] !== field) return [];
+        const lists = [...owner.querySelectorAll('[role="listbox"],[role="tree"]')].filter(visible);
+        if (lists.length) return lists.length === 1 ? lists : [];
+      }
+      return [];
+    };
     async function loadOptions(item, keepOpen = false, search = "") {
       const field = item.field;
       if (!safe(item) || item.kind !== "combobox" || (read(field).trim() && read(field) !== search)) return [];
@@ -326,7 +381,7 @@ function createAutofillRuntime(fieldValid) {
         const owns = field.getAttribute("aria-owns") || field.ariaOwnsElements?.length;
         const lists = (controls ? rootReferences(field, "aria-controls", "ariaControlsElements") :
           owns ? rootReferences(field, "aria-owns", "ariaOwnsElements") :
-            bob ? rootReferences(field, "aria-controls", "ariaControlsElements", `list__${field.id}`) : [])
+            bob ? rootReferences(field, "aria-controls", "ariaControlsElements", `list__${field.id}`) : localLists(field))
           .filter(node => node.matches('[role="listbox"],[role="tree"]') && visible(node) &&
             (!bob || node.getAttribute("aria-labelledby") === field.getAttribute("aria-labelledby")));
         const list = lists.length === 1 ? lists[0] : null;
@@ -371,7 +426,7 @@ function createAutofillRuntime(fieldValid) {
       if (value.length > item.maxLength || (item.maxWords && value.trim().split(/\s+/).length > item.maxWords)) {
         item.reason = `Shorten this answer to ${item.maxWords ? `${item.maxWords} words and ` : ""}${item.maxLength} characters.`; return false;
       }
-      const field = item.field, before = readItem(item), originalValue = field.value;
+      const field = item.field, before = readItem(item), originalValue = field.isContentEditable ? before : field.value;
       const saved = confirmedQuestions.get(norm(item.label));
       if (item.ariaChoice && (!savedChoice(item) || saved.answer !== value || !item.ariaChoice.writable() ||
           (saved.selections?.length && (saved.selections.length !== 1 || saved.selections[0] !== value)))) {
@@ -457,8 +512,6 @@ function createAutofillRuntime(fieldValid) {
         issues.delete(field); item.reason = "";
         if (item.ariaChoice) return true;
         const record = { ...item, beforeChecked, value, edited: false };
-        record.onEdit = event => { if (event.isTrusted && !programmatic) record.edited = true; };
-        for (const event of ["input", "change", "pointerdown", "keydown"]) field.addEventListener(event, record.onEdit);
         undo.push(record);
         return true;
       }
@@ -479,10 +532,23 @@ function createAutofillRuntime(fieldValid) {
         else if (/dd\/mm\/yyyy/.test(format)) value = `${day}/${month}/${year}`;
         else if (/dd-mm-yyyy/.test(format)) value = `${day}-${month}-${year}`;
       }
-      const optionMatches = (text, candidate = value) => equivalent(text, candidate, item.profileKey || saved?.answerKey);
+      const locationMatches = text => {
+        const parts = String(text).split(",").map(part => part.trim());
+        if (!equivalent(parts[0], payload.contact?.city)) return false;
+        if (parts.length === 1) return true;
+        if (parts.length === 2) return Boolean(payload.contact?.region && equivalent(parts[1], payload.contact.region, "region") ||
+          payload.contact?.country && equivalent(parts[1], payload.contact.country, "country"));
+        return parts.length === 3 && Boolean(payload.contact?.region && payload.contact?.country) &&
+          equivalent(parts[1], payload.contact.region, "region") && equivalent(parts[2], payload.contact.country, "country");
+      };
+      const optionMatches = (text, candidate = value) => item.profileKey === "city" ? locationMatches(text) : equivalent(text, candidate, item.profileKey || saved?.answerKey);
       const optionText = option => option instanceof HTMLOptionElement ? option.label || option.value : option.textContent;
       const matchingOptions = options => {
         const exact = options.filter(option => optionMatches(optionText(option)));
+        if (exact.length && item.profileKey === "city") {
+          const specificity = Math.max(...exact.map(option => String(optionText(option)).split(",").length));
+          return exact.filter(option => String(optionText(option)).split(",").length === specificity);
+        }
         if (exact.length || !saved || saved.answer !== value) return exact;
         return options.filter(option => (saved.alternatives || []).some(alternative => optionMatches(optionText(option), alternative)));
       };
@@ -506,13 +572,7 @@ function createAutofillRuntime(fieldValid) {
         setValue(field, matches[0].value);
       } else if (item.kind === "combobox") {
         const expanded = field.getAttribute("aria-expanded") === "true";
-        const citySearch = item.profileKey === "city" && field instanceof HTMLInputElement && payload.contact?.region && payload.contact?.country;
-        const matchesValue = text => {
-          if (!citySearch) return equivalent(text, value, item.profileKey);
-          const parts = text.split(",").map(part => part.trim());
-          return parts.length === 3 && equivalent(parts[0], value) &&
-            equivalent(parts[1], payload.contact.region, "region") && equivalent(parts[2], payload.contact.country, "country");
-        };
+        const citySearch = item.profileKey === "city" && field instanceof HTMLInputElement;
         let edited = false;
         const onEdit = event => { if (event.isTrusted) edited = true; };
         field.addEventListener("input", onEdit);
@@ -520,11 +580,11 @@ function createAutofillRuntime(fieldValid) {
           item.profileKey === "region" ? aliases[norm(value)] || value : value;
         let activeSearch = citySearch ? value : field.matches('b-single-select > [role="button"]') ? searchValue : "";
         let options = await loadOptions(item, true, activeSearch);
-        let matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
+        let matches = matchingOptions(options);
         if (!matches.length && !activeSearch && !edited && safe(item) && read(field) === before) {
           activeSearch = searchValue;
           options = await loadOptions(item, true, activeSearch);
-          matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
+          matches = matchingOptions(options);
         }
         if (activeSearch && !matches.length && saved?.answer === value) {
           // Virtualized lists may not render "Other" until searched. Use only
@@ -595,8 +655,6 @@ function createAutofillRuntime(fieldValid) {
       item.reason = "";
       if (!["combobox", "radio", "checkbox-group"].includes(item.kind)) {
         const record = { ...item, before: originalValue, value: read(field), edited: false };
-        record.onEdit = event => { if (event.isTrusted && !programmatic) record.edited = true; };
-        for (const event of ["input", "change", "pointerdown", "keydown"]) field.addEventListener(event, record.onEdit);
         undo.push(record);
       }
       return true;
@@ -637,7 +695,7 @@ function createAutofillRuntime(fieldValid) {
         }
         continue;
       }
-      const value = item.profileKey === "skills" && item.kind === "text" ? payload.skills?.join(", ") : item.profileKey ? payload.contact?.[item.profileKey] :
+      const value = item.profileKey === "skills" && item.kind === "text" ? payload.skills?.join(", ") : item.intent ? semantics.value(item.intent, payload.contact, item.kind) : item.profileKey ? payload.contact?.[item.profileKey] :
         confirmedQuestions.get(norm(item.label))?.answer ||
         (item.canRemember ? payload.answers?.find(answer => norm(answer.label) === norm(item.label))?.answer : undefined);
       if (value) await write(item, value);
@@ -666,6 +724,8 @@ function createAutofillRuntime(fieldValid) {
       }
       reset();
     }
+    // Synchronize our own writes, including custom widgets that emit no events.
+    for (const [field, observer] of editObservers) observer.baseline = editState(field);
     // No filled values are returned to the popup or persisted in extension storage.
     return { fields: describe(), undone, answered: answerTarget ? {
       label: answerTarget.label, profileKey: answerTarget.profileKey, canRemember: answerTarget.canRemember,

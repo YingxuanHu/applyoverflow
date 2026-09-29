@@ -29,7 +29,7 @@ const primary = `<div class="ashby-application-form-container" id="primary"><h2>
   <input id="location-control" placeholder="Start typing..." role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false">
   <button aria-label="Toggle suggestions"></button></div></div>
   ${pressed(authorization, "authorization")}${pressed(sponsorship, "sponsorship")}
-  ${pressed("Can you attend the office?", "office", "yes")}${pressed(consent, "consent")}</div>`;
+  ${pressed("Can you attend the office?", "office", "yes")}${pressed(consent, "consent")}</div>`.replaceAll('<button aria-pressed', '<button type="submit" aria-pressed');
 const survey = `<div class="ashby-survey-form-container"><div class="ashby-application-form-container">
   ${radio("Gender", "gender", ["Male", "Female", "Decline to self-identify"])}
   ${radio("Race", "race", ["Asian", "White", "Decline to self-identify"], "Decline to self-identify")}
@@ -139,7 +139,7 @@ try {
   });
 
   for (const reject of [false, true]) await test(`explicit non-submit pressed choices ${reject ? "report rejected writes" : "fill saved answers and preserve existing selections"}`, async () => {
-    await fixture(`<div role="tabpanel">${primary.replaceAll('<button aria-pressed', '<button type="button" aria-pressed')}</div>`, async (page, inspect) => {
+    await fixture(`<div role="tabpanel">${primary.replaceAll('<button type="submit" aria-pressed', '<button type="button" aria-pressed')}</div>`, async (page, inspect) => {
       if (!reject) await page.evaluate(() => {
         for (const button of document.querySelectorAll('button[aria-pressed]')) button.onclick = () => {
           for (const sibling of button.parentElement.querySelectorAll('button')) sibling.setAttribute('aria-pressed', String(sibling === button));

@@ -88,6 +88,7 @@ for (const [args, name] of [
   );
 }
 execFileSync(process.execPath, ["scripts/test-extension-application-discovery.mjs", `--runtime=${root}/production/adapter-runtime.js`], { stdio: "inherit" });
+execFileSync(process.execPath, ["scripts/test-extension-field-intents.mjs", `--runtime=${root}/production/adapter-runtime.js`], { stdio: "inherit" });
 for (const flags of [
   ["--test-output", "--publish"],
   ["--store", "--publish"],

@@ -57,7 +57,7 @@ export function createFormDetection() {
     return text(label);
   }
   function compoundLabel(node) {
-    const valueControls = 'input,textarea,select,[role="combobox"],[role="radio"],[role="checkbox"],button[aria-pressed]';
+    const valueControls = 'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="combobox"],[role="radio"],[role="checkbox"],button[aria-pressed]';
     if (node.closest('[role="listbox"],[role="tree"],[role="menu"]')) return "";
     for (let branch = parent(node), depth = 0; branch && depth < 3; branch = parent(branch), depth++) {
       if (branch.matches('form,[role="form"],body,html')) break;
@@ -123,6 +123,8 @@ export function createFormDetection() {
     return { title: titles.find(Boolean) || "", unsafe };
   }
   function manualChoices(form, label) {
+    const nonSubmitting = node => !(node instanceof HTMLButtonElement) || node.type === "button" ||
+      (!node.hasAttribute("type") && !node.hasAttribute("form") && !node.form);
     const selector = '[role="radio"],[role="checkbox"],[role="switch"]';
     const nodes = [...form.querySelectorAll(selector)].filter(node => visible(node) && !node.closest('[role="listbox"],[role="tree"],[role="menu"]'));
     const reported = new Set(), result = [];
@@ -173,7 +175,7 @@ export function createFormDetection() {
         options.every(Boolean) && new Set(options.map(value => clean(value).normalize("NFKC").toLowerCase())).size === options.length &&
         choices.every(choice => ["true", "false"].includes(choice.getAttribute("aria-checked")) &&
           !choice.closest(':disabled,[disabled],[readonly],[aria-disabled="true"],[aria-readonly="true"],[aria-busy="true"]') &&
-          !(choice instanceof HTMLButtonElement && choice.type !== "button") && !choice.matches('a[href],input') &&
+          nonSubmitting(choice) && !choice.matches('a[href],input') &&
           ![...choice.querySelectorAll('input,button,select,textarea,a[href],[contenteditable="true"]')].some(control => visible(control))) &&
         (role !== "radio" || choices.filter(choice => choice.getAttribute("aria-checked") === "true").length <= 1);
       const checked = choices.filter(choice => choice.getAttribute("aria-checked") === "true");
@@ -184,8 +186,8 @@ export function createFormDetection() {
         state: selected ? "kept" : "needed",
         ariaChoice: { fields: choices, labels: options, valid, writable } });
     }
-    // Explicit non-submit Yes/No buttons can implement a single choice. Default
-    // submit buttons remain detection-only even if their labels look identical.
+    // Form-less applications often omit button type. Check actual form ownership
+    // on every write; default buttons inside/associated with a form stay manual.
     for (const node of form.querySelectorAll('button[aria-pressed]')) {
       if (!visible(node) || node.closest('[role="listbox"],[role="tree"],[role="menu"]') || result.some(item => item.field.contains(node))) continue;
       const group = parent(node);
@@ -201,7 +203,7 @@ export function createFormDetection() {
       const valid = () => group.isConnected && form.contains(group) && visible(group) && titleFor() === title &&
         group.querySelectorAll('button[aria-pressed]').length === choices.length && choices.every((choice, index) =>
           choice.isConnected && parent(choice) === group && visible(choice) && (label(choice) || text(choice)) === options[index]);
-      const writable = () => valid() && choices.every(choice => choice.type === "button" &&
+      const writable = () => valid() && choices.every(choice => nonSubmitting(choice) &&
         ["true", "false"].includes(choice.getAttribute("aria-pressed")) &&
         !choice.closest(':disabled,[disabled],[aria-disabled="true"],[aria-readonly="true"],[aria-busy="true"]') &&
         !choice.querySelector('input,select,textarea,button,a[href],[contenteditable="true"]')) &&
@@ -267,7 +269,7 @@ export function createFormDetection() {
     if (applicationText(form).some(value => unrelated.test(value))) return reject("unrelated-form");
     if (!form.matches('form,[role="form"]') && [...form.querySelectorAll('button,input[type="submit"]')].filter(node =>
       visible(node) && /^submit (?:your )?application$/i.test(node.tagName === "INPUT" ? node.value : text(node))).length > 1) return reject("multiple-applications");
-    const fields = [...form.querySelectorAll('input,textarea,select,[role="combobox"],[role="radiogroup"],button[aria-haspopup="listbox"]')]
+    const fields = [...form.querySelectorAll('input,textarea,select,[role="textbox"][contenteditable]:not([contenteditable="false"]),[role="combobox"],[role="radiogroup"],button[aria-haspopup="listbox"]')]
       .filter(field => visible(field) && !field.disabled && !field.closest('[role="listbox"],[role="menu"],[role="tree"]') &&
         !["hidden", "password", "submit", "button", "search", "reset"].includes(field.type));
     if (fields.length > 500) return reject("oversized");
@@ -312,7 +314,7 @@ export function createFormDetection() {
     // Search outward from real fields, not document-wide keyword matches. Do
     // not stop at a qualifying inner section and omit its sibling questions.
     const candidates = new Set(), visited = new Set();
-    for (const field of elements.filter(node => node.matches('input,textarea,select,[role="combobox"]') && visible(node))) {
+    for (const field of elements.filter(node => node.matches('input,textarea,select,[role="textbox"][contenteditable]:not([contenteditable="false"]),[role="combobox"]') && visible(node))) {
       if (field.closest('form,[role="form"],[role="listbox"],[role="menu"]')) continue;
       for (let root = field.parentElement, depth = 0; root && depth < 12; root = root.parentElement, depth++) {
         if (root.matches('body,html') || root.querySelector('form,[role="form"]')) break;

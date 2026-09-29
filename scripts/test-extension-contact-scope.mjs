@@ -96,7 +96,7 @@ try {
       assert.equal(await page.locator("#email").inputValue(), contact.email);
     });
   });
-  await test("Lever Current location uses saved city, without employer or authorization inference", async () => {
+  await test("Lever Current location uses saved location, without employer or authorization inference", async () => {
     await fixture(`<h1>Analyst application</h1><form>
       ${text("Full name", "name", 'name="name"')}${text("Email", "email", 'name="email" type="email"')}
       <div class="application-question"><div class="application-label">Current location</div><input name="location" id="location"></div>
@@ -106,8 +106,8 @@ try {
       <fieldset><legend>Are you authorized to work in the country where this role is located?</legend>
       <label><input type="radio" name="authorized">Yes</label><label><input type="radio" name="authorized">No</label></fieldset>
       <button id="next" type="button">Next</button><button type="submit">Submit application</button></form>`, lever, async (page, inspect) => {
-      const report = await inspect("autofill", { contact });
-      assert.equal(await page.locator("#location").inputValue(), "Toronto");
+      const report = await inspect("autofill", { contact: { ...contact, country: "CA" } });
+      assert.equal(await page.locator("#location").inputValue(), "Toronto, ON, Canada");
       assert.equal(report.fields.find(field => field.label === "Current location" && field.profileKey === "city")?.state, "filled");
       assert.equal(await page.locator("#company").inputValue(), "Ericsson");
       assert.equal(report.fields.find(field => field.label === "Current company")?.state, "kept", "resume-parser values are not extension-filled");
