@@ -1,6 +1,15 @@
+import { createFieldValidity } from "./field-validity.mjs";
+
 // Serialized alongside the inspector: keep helpers inside this factory. Record
 // actions require a history owner and a bounded editor, never the application.
 export function createHistoryInspector() {
+  return createHistoryRuntime(createFieldValidity());
+}
+createHistoryInspector.toString = () => `(function() {
+  return (${createHistoryRuntime})((${createFieldValidity})());
+})`;
+
+function createHistoryRuntime(fieldValid) {
   let undo = [],
     lastUrl = "",
     expiryTimer;
@@ -676,7 +685,7 @@ export function createHistoryInspector() {
       return { filled: 0, skipped: writes.length, warning: "The application changed during filling. Review the current form.", historyUndoAvailable: false };
     }
     for (const entry of writes) {
-      if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && (!entry.field.validity || entry.field.validity.valid)) {
+      if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && fieldValid(entry.field)) {
         filled++;
         if (["start", "end"].includes(entry.key) && values[entry.key]?.length === 7 && entry.value.length === 10) dateAdjusted++;
       }
@@ -686,7 +695,7 @@ export function createHistoryInspector() {
     const missing = controls.filter(field => {
       if (field.type === "checkbox" && target.fields.some(entry => entry.field === field && entry.key === "current"))
         return field.checked !== (values.dates?.current === true);
-      return (required(field) && !read(field).trim()) || field.validity?.valid === false || field.getAttribute("aria-invalid") === "true";
+      return (required(field) && !read(field).trim()) || !fieldValid(field) || field.getAttribute("aria-invalid") === "true";
     });
     const complete = !missing.length && target.required.every(key => read(target.fields.find(entry => entry.key === key).field).trim());
     if (!complete) {
@@ -706,7 +715,7 @@ export function createHistoryInspector() {
       // profile inference: leave it blank, and only allow a valid optional field.
       const blankOptionalIndustry = field => target.kind === "experience" && normalize(labelFor(field)) === "industry" &&
         (custom(field) || field instanceof HTMLSelectElement || ["text", "search"].includes(field.type)) &&
-        !required(field) && !read(field).trim() && field.validity?.valid !== false && field.getAttribute("aria-invalid") !== "true";
+        !required(field) && !read(field).trim() && fieldValid(field) && field.getAttribute("aria-invalid") !== "true";
       const bounded = controls.every(field => target.fields.some(entry => entry.field === field) || blankOptionalIndustry(field)) &&
         !target.group.querySelector('button:not([type]),button[type="submit"],input[type="submit"],a[href]') &&
         ![...target.group.querySelectorAll("button")].some(button => /\b(apply|application|submit|continue|next|consent|agree|certify)\b/i.test(button.textContent));

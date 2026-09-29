@@ -3,20 +3,21 @@ import { createHistoryInspector } from "./history.mjs";
 import { createAutofillInspector } from "./autofill.mjs";
 import { createFormDetection } from "./form-detection.mjs";
 import { createJobContext } from "./job-context.mjs";
+import { createFieldValidity } from "./field-validity.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
 export function createInspector(resolveContext, history, autofill) {
-  return createInspectorRuntime(resolveContext, history, autofill, createFormDetection(), createJobContext());
+  return createInspectorRuntime(resolveContext, history, autofill, createFormDetection(), createJobContext(), createFieldValidity());
 }
 
 // Existing build/test callers serialize createInspector. Keep that public
 // contract self-contained without runtime imports or page-provided code.
 createInspector.toString = () => `(function(resolveContext, history, autofill) {
-  return (${createInspectorRuntime})(resolveContext, history, autofill, (${createFormDetection})(), (${createJobContext})());
+  return (${createInspectorRuntime})(resolveContext, history, autofill, (${createFormDetection})(), (${createJobContext})(), (${createFieldValidity})());
 })`;
 
-function createInspectorRuntime(resolveContext, history, autofill, detection, jobContext) {
+function createInspectorRuntime(resolveContext, history, autofill, detection, jobContext, fieldValid) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
   const manualChoiceIds = new WeakMap();
@@ -892,7 +893,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
           location.href === target.url &&
           selected?.name === file.name &&
           selected?.size === file.size &&
-          resumeInput.validity.valid,
+          fieldValid(resumeInput),
       };
     }
     if (mode !== "fill") return result;
@@ -971,7 +972,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     for (const { field, value } of changed) {
-      if (field.isConnected && field.value === value && field.validity.valid)
+      if (field.isConnected && field.value === value && fieldValid(field))
         result.filled++;
       else result.missing++;
     }

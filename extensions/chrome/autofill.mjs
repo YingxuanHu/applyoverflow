@@ -1,6 +1,15 @@
+import { createFieldValidity } from "./field-validity.mjs";
+
 // Serialized into the isolated world. Field tokens never come from the page and
 // every write is revalidated against the current document and visible label.
 export function createAutofillInspector() {
+  return createAutofillRuntime(createFieldValidity());
+}
+createAutofillInspector.toString = () => `(function() {
+  return (${createAutofillRuntime})((${createFieldValidity})());
+})`;
+
+function createAutofillRuntime(fieldValid) {
   let pageUrl = "", targets = new Map(), undo = [], expires = 0, expiryTimer;
   let completed = new WeakMap();
   let issues = new WeakMap();
@@ -264,7 +273,7 @@ export function createAutofillInspector() {
         (completed.get(field)?.label === item.label && completed.get(field)?.value === "No") : field.type === "radio" ? field.checked : Boolean(read(field).trim());
       const partialChoice = issues.get(field)?.label === item.label && issues.get(field)?.reason === "The form did not confirm every saved choice. Review this field.";
       const choiceRejected = item.ariaChoice && issues.get(field)?.label === item.label && issues.get(field)?.reason === "The form did not confirm this value. Check it on the page.";
-      const invalid = choiceRejected || (hasValue && (field.validity?.valid === false || partialChoice));
+      const invalid = choiceRejected || (hasValue && (!fieldValid(field) || partialChoice));
       const retryable = !hasUserEdit && !hasValue && !item.manual && !choiceRejected && (completed.get(field)?.label === item.label ||
         issues.get(field)?.reason === "The form did not confirm this value. Check it on the page.") &&
         !undo.some(record => record.field === field && record.edited);
@@ -576,7 +585,7 @@ export function createAutofillInspector() {
       }
       await delay(35);
       const valid = safe(item) && (!item.ariaChoice || (item.ariaChoice.writable() && !edited(item))) && Boolean(readItem(item).trim()) &&
-        (item.kind === "select" ? field.selectedOptions.length === 1 && equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && field.validity?.valid !== false;
+        (item.kind === "select" ? field.selectedOptions.length === 1 && equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && fieldValid(field);
       if (!valid) {
         if (safe(item) && item.kind === "text" && read(field) === value) setValue(field, before);
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
@@ -644,7 +653,7 @@ export function createAutofillInspector() {
       if (!record || equivalent(read(item.field), record.value, item.profileKey)) continue;
       setValue(item.field, record.value);
       await delay(35);
-      if (safe(item) && !record.edited && read(item.field) === record.value && item.field.validity?.valid !== false)
+      if (safe(item) && !record.edited && read(item.field) === record.value && fieldValid(item.field))
         completed.set(item.field, { label: item.label, value: record.value });
     }
     let undone = 0;
