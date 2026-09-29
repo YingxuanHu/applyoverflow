@@ -109,3 +109,40 @@ flows, closed shadow roots, inaccessible frames, or arbitrary rich editors.
 - PostgreSQL, Caddy and all three production workers retained their container
   identities. Root retained about 5 GiB free and the attached volume about 82 GiB.
   This small artifact release does not resolve the broader Docker storage issue.
+
+## Full Web Rebuild: September 29
+
+On explicit request, rebuilt the full linux/amd64 web image from
+`ffacbcff1764d8644cc25bb7ead241c3e7e729f1`, rather than reusing the prior web
+bundle. [Verify](https://github.com/YingxuanHu/applyoverflow/actions/runs/36575345204)
+passed. The image is 943,329,985 bytes. Local compilation, TypeScript and PDF
+parser checks passed. Local runtime smoke tests passed using temporary-memory
+mounts after Docker storage pressure prevented normal temporary-file writes.
+
+With the user's approval, exported the unused before-0.11.0 web and worker
+rollback images to the attached volume's
+`autoapplication/image-archives/rollback-before-0.11.0-20260929.tar.gz`.
+Verified gzip integrity, both manifest tags, all referenced layers and SHA-256
+before removing only those two local image copies. Image inspection metadata
+and the checksum sidecar are retained beside the archive. Running and immediate
+rollback images were not removed.
+
+The import guard required 6,181,627,266 bytes; 10,138,161,152 bytes were available
+on the root-backed image stores. Streamed the image over SSH without staging a
+tarball on root. Candidate PDF generation, sandbox and parser checks passed on
+the server. Preserved the previous app image as
+`applyoverflow-rollback:before-full-rebuild-20260929-web`, then replaced only the
+app container with health-wait and automatic rollback on startup failure.
+
+Public health returned ready at `ffacbcff1764d8644cc25bb7ead241c3e7e729f1`.
+The jobs route returned HTTP 200 after normal redirects, and all 14 public ZIP
+files matched the tested 0.11.5 package. No sampled app startup errors. Database,
+Caddy and worker container identities were unchanged. Root retained about
+9.2 GiB free; the attached volume about 81 GiB.
+
+Separately committed and pushed the previously pending main-workspace changes
+as `c128ed0` on `codex/pending-product-updates`. That branch passed type checking,
+1,010 unit tests and lint (two pre-existing warnings). It contains separate UI,
+job-reporting schema and document-retention work and is not part of this rebuilt
+production release. Its browser and database integration tests were not rerun
+as part of this deployment.
