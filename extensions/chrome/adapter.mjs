@@ -43,7 +43,7 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
     if (!context)
       return {
         error:
-          "Open a supported application form. Sign-in pages and sensitive links need manual entry.",
+          "Open an application form. Sign-in pages and sensitive links need manual entry.",
       };
     if (expectedUrl && location.href !== expectedUrl)
       return { error: "The page changed. Open the extension again." };
@@ -243,28 +243,14 @@ function createInspectorRuntime(resolveContext, history, autofill, detection, jo
         (form, _, all) =>
           !all.some((other) => other !== form && form.contains(other)),
       );
-    // Form-less employer pages: require multiple applicant facts and a resume
-    // control inside one non-document container, plus explicit application text.
-    if (!forms.length && flexible) {
-      const inputs = dom.elements.filter(field => field.matches("input") && visible(field));
-      const emails = inputs.filter(field => meaning(labelFor(field)) === "email");
-      if (emails.length === 1) {
-        let root = emails[0].parentElement;
-        let depth = 0;
-        while (root && !root.matches("body,html") && ++depth <= 12) {
-          const keys = new Set([...root.querySelectorAll("input")].map(field => meaning(labelFor(field))));
-          if (keys.has("email") && (keys.has("givenName") || keys.has("fullName")) &&
-              root.querySelector('input[type="file"]') && !root.querySelector('input[type="password"]') &&
-              !root.querySelector("form") && detection.genericApplication(root, labelFor, meaning) &&
-              detection.applicationEvidence(root)) { forms.push(root); break; }
-          root = root.parentElement;
-        }
-      }
-    }
+    // Provider containers are fast-path hints. Employer markup drift, custom
+    // platforms and later steps all use the same evidence-based fallback.
+    if (!forms.length) forms.push(...detection.discoverApplications(dom.elements, labelFor, meaning));
     if (forms.length !== 1)
       return {
-        error:
-          "A single application form was not found. Embedded or multi-form pages need manual review.",
+        error: forms.length > 1
+          ? "More than one application form was found. Open the application you want to fill on its own page."
+          : "No application form was recognized on this step. If its fields are still loading, try Autofill again. Embedded forms may need site access.",
       };
     if (context.provider === "ashby") {
       const panel = forms[0].closest('[role="tabpanel"]');

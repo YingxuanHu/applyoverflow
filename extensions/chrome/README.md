@@ -1,5 +1,28 @@
 # Application Assistant Preview
 
+## Shared application discovery (0.11.4, unreleased)
+
+- Known ATS selectors are fast paths, not the only detection mechanism. The
+  fallback combines local application context with independent applicant,
+  eligibility, availability, compensation and history signals. It does not need
+  an email or resume field on every step, and works with bounded custom
+  containers as well as native forms.
+- Nearby short question text can label a single-control wrapper when native
+  labels and ARIA are absent. Explicit conflicting/invalid labels, ambiguous
+  wrappers and third-party contact sections are not overridden.
+- The on-page assistant rescans when question text, labels or ARIA relationships
+  arrive after initial rendering. Detection does not fetch profile data, choose
+  answers, upload files or advance application steps.
+- Automatic access remains limited to granted supported origins. Custom HTTPS
+  sites use the toolbar's active-tab permission; no all-sites permission was added.
+- `npm run extension:test:discovery` verifies 34 network-isolated scenarios with
+  DOM readback, including custom forms and later education/work steps. The package
+  check repeats these against the serialized release runtime, and CI runs the
+  discovery suite. These are regression tests, not live employer certification.
+- Closed or split shadow roots, inaccessible frames, unlabelled/ambiguous widgets
+  and some employer-specific editors still need compatibility work. Discovering
+  a form does not guarantee that every widget can be filled and verified.
+
 ## Direct answers and progress (0.10.1)
 
 - One Autofill click fills saved facts, the opted-in default resume and supported

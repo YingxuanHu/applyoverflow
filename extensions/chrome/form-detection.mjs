@@ -64,6 +64,16 @@ export function createFormDetection() {
       if ([...branch.querySelectorAll(valueControls)].some(control => visible(control) && control !== node && !node.contains(control))) break;
       const label = ownLabel(branch);
       if (label) return label;
+      if (branch.querySelector(':scope > label')) break;
+      // Custom forms often render a short question beside a wrapper instead of
+      // a bound label. Only borrow text inside a single-control field boundary.
+      const helpIds = new Set((node.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+      const candidates = [...branch.children].filter(child =>
+        child.matches('span,p,div,h1,h2,h3,h4,h5,h6') && !child.contains(node) &&
+        !child.querySelector(`${controls},a,label`) && visible(child) && !helpIds.has(child.id) &&
+        !child.matches('[role="alert"],[role="status"],[aria-live]'));
+      const values = candidates.map(child => text(child, 200)).filter(Boolean);
+      if (values.length === 1) return values[0];
       if (branch.matches(groups)) break;
     }
     return "";
@@ -99,7 +109,7 @@ export function createFormDetection() {
     let unsafe = false;
     for (let node = parent(field), depth = 0; node; node = parent(node)) {
       if (++depth > 80) { unsafe = true; break; }
-      if (node.matches(groups)) {
+      if (node.matches(groups) || node.querySelector(':scope > h1,:scope > h2,:scope > h3,:scope > h4,:scope > legend')) {
         const title = groupTitle(node);
         titles.push(title);
         const ownCurrentQuestion = /^(?:current (?:company|employer|job title)|company you currently work for)\s*[*:]?$/i.test(title) &&
@@ -221,7 +231,7 @@ export function createFormDetection() {
     }
     return { elements, roots, oversized: false };
   }
-  function applicationEvidence(form) {
+  function applicationText(form) {
     const candidates = [groupTitle(form)];
     candidates.push(...[...form.querySelectorAll('h1,h2,h3,h4,button,input[type="submit"]')].slice(0, 60)
       .filter(node => visible(node) && !node.closest('fieldset,[role="group"]'))
@@ -236,19 +246,82 @@ export function createFormDetection() {
       }
       if (!node.parentElement || node.parentElement.matches('body,main,section,article')) break;
     }
-    if (candidates.some(value => /\b(?:loan|credit|grant|rental|coupon|newsletter|subscribe|sign in|sign up)\b/i.test(value))) return false;
-    return candidates.some(value => /\b(?:job application|application(?: form)?$|apply for (?:this|the) (?:job|role|position)|submit application|my information|my experience)\b/i.test(value) || /^(?:apply|apply now)$/i.test(value));
+    return candidates;
+  }
+  const unrelated = /\b(?:newsletter|job alerts?|subscribe|sign[- ]?in|sign[- ]?up|log[- ]?in|contact us|request (?:a )?(?:demo|quote)|support request|checkout|payment|(?:loan|credit|grant|rental|coupon) application)\b/i;
+  function applicationEvidence(form) {
+    const candidates = applicationText(form);
+    return !candidates.some(value => unrelated.test(value)) && candidates.some(value =>
+      /\b(?:job application|employment application|application (?:form|questions|details|information)|application$|apply for (?:a|this|the) (?:job|role|position)|submit (?:your )?application|my information|my experience)\b/i.test(value) || /^(?:apply|apply now)$/i.test(value));
+  }
+  function applicationAssessment(form, label, meaning) {
+    const reject = reason => ({ accepted: false, reason, signals: [] });
+    if (!visible(form)) return reject("hidden");
+    // A small subtree must not escape its reference/contact-owner heading just
+    // because an application heading exists further up the page.
+    for (let ancestor = form.parentElement, depth = 0; ancestor && depth < 12; ancestor = ancestor.parentElement, depth++) {
+      if (ancestor.matches('body,html,form,[role="form"]')) break;
+      if (/\b(?:references?|emergency contact|billing|shipping|referrer|supervisor contact)\b/i.test(groupTitle(ancestor))) return reject("third-party-section");
+    }
+    if (form.querySelector('input[type="password"],input[autocomplete^="cc-"],input[autocomplete$=" cc-number"]')) return reject("sensitive-form");
+    if (applicationText(form).some(value => unrelated.test(value))) return reject("unrelated-form");
+    if (!form.matches('form,[role="form"]') && [...form.querySelectorAll('button,input[type="submit"]')].filter(node =>
+      visible(node) && /^submit (?:your )?application$/i.test(node.tagName === "INPUT" ? node.value : text(node))).length > 1) return reject("multiple-applications");
+    const fields = [...form.querySelectorAll('input,textarea,select,[role="combobox"],[role="radiogroup"],button[aria-haspopup="listbox"]')]
+      .filter(field => visible(field) && !field.disabled && !field.closest('[role="listbox"],[role="menu"],[role="tree"]') &&
+        !["hidden", "password", "submit", "button", "search", "reset"].includes(field.type));
+    if (fields.length > 500) return reject("oversized");
+    const keys = new Set(fields.filter(field => !groupContext(field, form, label(field)).unsafe).map(field => meaning(label(field))));
+    const labels = new Set(fields.map(field => label(field)).filter(Boolean));
+    for (const group of form.querySelectorAll('fieldset,[role="group"],[role="radiogroup"]')) {
+      if (visible(group) && group.querySelector('input,textarea,select,[role="combobox"],[role="radio"],button[aria-pressed]')) labels.add(groupTitle(group));
+    }
+    const signals = new Set();
+    if (["givenName", "familyName", "fullName"].some(key => keys.has(key))) signals.add("identity");
+    if (keys.has("email") || keys.has("phone")) signals.add("contact");
+    // A file input can be clipped behind an accessible upload button. It is
+    // evidence only; this does not grant permission or select an upload target.
+    if ([...form.querySelectorAll('input[type="file"]')].some(field => !field.disabled &&
+      (visible(field) || [...(field.labels || [])].some(visible)) &&
+      /\b(?:resume|r\u00e9sum\u00e9|curriculum vitae|cv)\b/i.test(label(field)))) signals.add("resume");
+    const jobSignals = [
+      ["authorization", /\b(?:authori[sz](?:ed|ation)|eligib(?:le|ility)|right)\b.{0,70}\bwork\b|\bwork authori[sz]ation\b/i],
+      ["sponsorship", /\b(?:visa|immigration) sponsorship\b|\brequire.{0,60}sponsor/i],
+      ["compensation", /\b(?:salary|compensation|pay) (?:expectations?|requirements?)\b|\b(?:desired|expected|minimum) (?:salary|compensation|pay)\b/i],
+      ["availability", /\b(?:notice period|date available|availability to (?:start|work)|(?:earliest|available|ideal) start date|when can you start)\b/i],
+      ["motivation", /\bwhy\b.{0,80}\b(?:this|the) (?:job|role|position|company)\b|\b(?:relevant|professional|work) experience\b/i],
+      ["source", /\bhow did you\b.{0,40}\b(?:hear|learn|find)\b.{0,50}\b(?:job|role|position|opportunity)\b/i],
+    ];
+    for (const [signal, pattern] of jobSignals) if ([...labels].some(value => pattern.test(value))) signals.add(signal);
+    const has = pattern => [...labels].some(value => pattern.test(clean(value).replace(/[*:]/g, "").trim()));
+    if (has(/^(?:school|university|institution)$/i) && has(/^(?:degree|field of study|major)$/i)) signals.add("education");
+    if (has(/^(?:company|employer)$/i) && has(/^(?:job title|position|title)$/i) && has(/^start date$/i)) signals.add("experience");
+    const jobCount = [...signals].filter(signal => !["identity", "contact", "resume"].includes(signal)).length;
+    const anchored = applicationEvidence(form);
+    const accepted = (anchored && ((signals.has("identity") && signals.has("contact")) || jobCount >= 2 ||
+      signals.has("education") || signals.has("experience") || (signals.has("resume") && signals.size >= 2))) ||
+      (signals.has("resume") && signals.has("identity") && keys.has("email"));
+    return { accepted, reason: accepted ? "application-evidence" : "insufficient-evidence", signals: [...signals] };
   }
   function genericApplication(form, label, meaning) {
-    if (!visible(form) || form.querySelector('input[type="password"]')) return false;
-    const title = groupTitle(form);
-    if (/\b(?:newsletter|job alerts?|subscribe|sign in|sign up|contact us|request (?:a )?(?:demo|quote)|support|loan|credit|grant|rental)\b/i.test(title)) return false;
-    const inputs = [...form.querySelectorAll('input')].filter(field => visible(field) && !field.disabled &&
-      !groupContext(field, form, label(field)).unsafe && !["hidden", "password", "submit", "button"].includes(field.type));
-    const keys = new Set(inputs.map(field => meaning(label(field))));
-    const resume = inputs.some(field => field.type === "file" && /^(?:upload |attach )?(?:your )?(?:resume|r\u00e9sum\u00e9|cv|resume\s*\/\s*cv)\s*[*:]?$/i.test(label(field)));
-    const identity = keys.has("givenName") || keys.has("familyName") || keys.has("fullName");
-    return keys.has("email") && (identity || resume) && (applicationEvidence(form) || (resume && identity));
+    return applicationAssessment(form, label, meaning).accepted;
+  }
+  function discoverApplications(elements, label, meaning) {
+    const semantic = elements.filter(node => node.matches('form,[role="form"]') && genericApplication(node, label, meaning));
+    if (semantic.length) return semantic.filter(node => !semantic.some(other => other !== node && node.contains(other)));
+    // Search outward from real fields, not document-wide keyword matches. Do
+    // not stop at a qualifying inner section and omit its sibling questions.
+    const candidates = new Set(), visited = new Set();
+    for (const field of elements.filter(node => node.matches('input,textarea,select,[role="combobox"]') && visible(node))) {
+      if (field.closest('form,[role="form"],[role="listbox"],[role="menu"]')) continue;
+      for (let root = field.parentElement, depth = 0; root && depth < 12; root = root.parentElement, depth++) {
+        if (root.matches('body,html') || root.querySelector('form,[role="form"]')) break;
+        if (visited.has(root)) break;
+        visited.add(root);
+        if (genericApplication(root, label, meaning)) candidates.add(root);
+      }
+    }
+    return [...candidates].filter(node => ![...candidates].some(other => other !== node && other.contains(node)));
   }
   function profileLink(value) {
     const text = value.replace(/[.]$/, "").replace(/^a link to (?:your )?/, "");
@@ -259,5 +332,5 @@ export function createFormDetection() {
     if (/\bor\b|\//.test(text) && /^linkedin(?: (?:profile|url|link))?\s*(?:,\s*|\/\s*|or\s+)(?:github(?: profile)?|portfolio|(?:personal |professional )?(?:website|profile))(?:\s*(?:,\s*|\/\s*|or\s+)(?:github|portfolio|(?:personal |professional )?(?:website|profile)))*(?: (?:url|link))?$/.test(choice)) return "professionalUrl";
     return undefined;
   }
-  return { scan, text, visible, labelFor, groupTitle, groupContext, manualChoices, genericApplication, applicationEvidence, profileLink, parent };
+  return { scan, text, visible, labelFor, groupTitle, groupContext, manualChoices, genericApplication, applicationAssessment, discoverApplications, applicationEvidence, profileLink, parent };
 }

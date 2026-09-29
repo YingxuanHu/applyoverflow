@@ -23,8 +23,8 @@ for (const [args, name] of [
   ]);
   const zip = await readFile(`${root}/${name}.zip`);
   assert.ok(
-    // Includes same-country location parsing and review metadata; still dependency-free.
-    zip.length < 165 * 1024,
+    // Includes shared application discovery; still dependency-free and bounded.
+    zip.length < 170 * 1024,
     "Keep the package small; no dependencies or extra resume storage",
   );
   const files = unzipSync(zip);
@@ -87,6 +87,7 @@ for (const [args, name] of [
     `PASS: ${name} package, ${zip.length} bytes, fixed origin and minimal permissions`,
   );
 }
+execFileSync(process.execPath, ["scripts/test-extension-application-discovery.mjs", `--runtime=${root}/production/adapter-runtime.js`], { stdio: "inherit" });
 for (const flags of [
   ["--test-output", "--publish"],
   ["--store", "--publish"],

@@ -96,11 +96,14 @@ function eligibilityKey(text: string, employmentCountry?: EmploymentCountry): Ap
     return target === "CA" ? "authorizedCA" : target === "US" ? "authorizedUS" : undefined;
   }
   // A now-or-future answer must not be reused for a now-only/future-only question.
-  question = question.replace(/^do you now or will you in the future (need|require)\b/, "will you now or in the future $1");
+  question = question.replace(/^do you (?:now|currently),? or will you in the future,? (need|require)\b/, "will you now or in the future $1");
+  // Accept informational examples only when the question itself explicitly
+  // names the US. Never infer the job country from a visa mentioned in help text.
+  question = question.replace(/( in \{US\})\? examples include h-1b, tn, o-1, employment-based green card sponsorship, or continued employment after f-1 opt$/, "$1");
   const scope = /(?:, )?\b(?:now|currently),? or (?:(?:at any (?:time|point) )?in (?:the )?)?future\b,?/;
   if (!scope.test(question)) return;
   question = question.replace(scope, "").replace(/\s+/g, " ").trim();
-  const sponsorship = /^(?:will|do|would) you (?:need|require) (?:any )?(?:(?:visa|work visa|work authorization|immigration|employment|employment visa|employment[- ]based) )?sponsorship(?: (?:from (?:the|our|your|an) (?:company|employer)))?(?: (?:to work|for (?:employment(?: visa status)?|work authorization)))?(?: in (\{(?:US|CA)\}))?$/.exec(question);
+  const sponsorship = /^(?:will|do|would) you (?:need|require) (?:any )?(?:(?:visa|work visa|work authorization|immigration|employment|employer|employment visa|employment[- ]based) )?sponsorship(?: (?:from (?:the|our|your|an) (?:company|employer)))?(?: (?:to work|for (?:employment(?: visa status)?|work authorization)))?(?: in (\{(?:US|CA)\}))?$/.exec(question);
   if (sponsorship) {
     const target = sponsorship[1]?.slice(1, -1) || country;
     return target === "CA" ? "sponsorshipCA" : target === "US" ? "sponsorshipUS" : undefined;

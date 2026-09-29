@@ -5,6 +5,21 @@ import { normalizeContact } from "../src/lib/profile";
 import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, currentEmploymentFields } from "../src/lib/extension-autofill";
 import { normalizeLocationSubdivision } from "../src/lib/location-search";
 
+test("employer sponsorship wording and explicit US examples preserve country and time scope", () => {
+  const question = "Do you currently, or will you in the future, require employer sponsorship to work in the United States? Examples include H-1B, TN, O-1, employment-based green card sponsorship, or continued employment after F-1 OPT.";
+  assert.equal(applicationAnswerKey(question, "CA"), "sponsorshipUS");
+  const saved = { enabled: true, values: { sponsorshipUS: "Yes", sponsorshipCA: "No" } };
+  assert.deepEqual(applicationAnswerPlan(saved, [question], undefined, "CA").answers.map(a => a.answer), ["Yes"]);
+  assert.equal(applicationAnswerKey("Do you currently or will you in the future require employer sponsorship to work in Canada?"), "sponsorshipCA");
+  for (const label of [
+    question.replace("currently, or will you in the future,", "currently"),
+    question.replace("require employer", "not require employer"),
+    question.replace("United States", "Australia"),
+    question + " I certify that I am eligible.",
+    "Are you legally authorized to work for any employer in the United States?",
+  ]) assert.equal(applicationAnswerKey(label, "US"), undefined, label);
+});
+
 test("posting-relative eligibility uses a single known job country, not applicant residence", () => {
   const labels = ["Are you legally authorized to work in the country of employment for this position?",
     "Will you require visa sponsorship now or in future to work where this role is based?"];

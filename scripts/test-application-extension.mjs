@@ -139,12 +139,12 @@ try {
       .querySelector("form")
       .after(document.querySelector("form").cloneNode(true));
   });
-  assert.match((await fill()).error, /single application form/);
+  assert.match((await fill()).error, /More than one application form/);
   await page.goto("https://unrelated.example/jobs/123");
   assert.match(
     (await page.evaluate((source) => (0, eval)(source)(), inspectorSource))
       .error,
-    /single application form/,
+    /No application form/,
   );
   await page.goto(fixtureUrl);
   const mismatch = await page.evaluate(

@@ -110,7 +110,7 @@ try {
   await test("multiple Ashby applications remain ambiguous", async () => {
     const second = `<div class="ashby-application-form-container"><label for="other-email">Email</label><input id="other-email" type="email"></div>`;
     await fixture(`<div role="tabpanel">${primary}${second}${survey}</div>`, async (page, inspect) => {
-      assert.match((await inspect("autofill", { contact: { email: "fixture@example.test" } })).error, /single application form/);
+      assert.match((await inspect("autofill", { contact: { email: "fixture@example.test" } })).error, /More than one application form/);
       assert.equal(await page.locator('input[type="email"]').evaluateAll(nodes => nodes.some(node => node.value)), false);
     });
   });

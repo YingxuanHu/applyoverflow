@@ -326,9 +326,9 @@ export function installIndicator(buildId, renderQuestions) {
         (record) =>
           record.target !== host &&
           !host?.contains(record.target) &&
-          (record.type === "attributes" ||
+          (record.type === "attributes" || record.type === "characterData" ||
             [...record.addedNodes, ...record.removedNodes].some(
-              (node) => node.nodeType === 1 && node !== host,
+              (node) => [1, 3].includes(node.nodeType) && node !== host,
             )),
       )
     )
@@ -336,6 +336,7 @@ export function installIndicator(buildId, renderQuestions) {
   });
   observer.observe(document.documentElement, {
     childList: true,
+    characterData: true,
     subtree: true,
     attributes: true,
     attributeFilter: [
@@ -349,6 +350,12 @@ export function installIndicator(buildId, renderQuestions) {
       "id",
       "name",
       "type",
+      "role",
+      "for",
+      "aria-label",
+      "aria-labelledby",
+      "aria-describedby",
+      "autocomplete",
     ],
   });
   document.addEventListener("input", schedule, true);

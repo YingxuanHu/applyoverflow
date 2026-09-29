@@ -309,6 +309,29 @@ test("Lever and Ashby identities merge application steps without crossing tenant
   ])
     assert.equal(applicationContext(url), null);
 });
+test("Ashby domain-style tenants are recognized without crossing employers", () => {
+  const id = "21366dd4-a653-42b5-81f2-482e1b9a67ee";
+  const base = `https://jobs.ashbyhq.com/primer.io/${id}`;
+  const context = applicationContext(`${base}/application`)!;
+  assert.equal(context.provider, "ashby");
+  assert.equal(context.tenant, "primer.io");
+  assert.equal(context.companyKey, "ashby:us:primer.io");
+  assert.equal(context.url, base);
+  assert.equal(applicationContext(`${base}/application`, true)?.url, base);
+  assert.equal(applicationContext(base.replace("primer.io", "PRIMER.IO"))?.url, base);
+  assert.equal(captureSchema.safeParse({ url: `${base}/application`, title: "Engineer", questions: [] }).success, true);
+  assert.notEqual(applicationContext(base.replace("primer.io", "primer"))?.companyKey, context.companyKey);
+  for (const tenant of [".primer", "primer.", "primer..io", "primer%2Fio", "primer%2Eio"]) {
+    assert.equal(applicationContext(base.replace("primer.io", tenant)), null);
+  }
+  for (const url of [
+    `${base}/application/extra`,
+    `${base}/apply`,
+    base.replace("jobs.ashbyhq.com", "jobs.ashbyhq.com.evil.test"),
+    base.replace("jobs.ashbyhq.com", "jobs.lever.co"),
+  ]) assert.equal(applicationContext(url), null);
+});
+
 test("capture and answers are bounded and cannot impersonate an owner", () => {
   const input = {
     url: "https://boards.greenhouse.io/acme/jobs/123",

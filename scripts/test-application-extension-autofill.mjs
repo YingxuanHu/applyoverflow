@@ -10,7 +10,7 @@ const source = `(${createInspector.toString()})(${applicationContext.toString()}
 const urls = {
   greenhouse: "https://job-boards.greenhouse.io/fixture/jobs/123",
   lever: "https://jobs.lever.co/fixture/00000000-0000-4000-8000-000000000000/apply",
-  ashby: "https://jobs.ashbyhq.com/fixture/00000000-0000-4000-8000-000000000000/application",
+  ashby: "https://jobs.ashbyhq.com/fixture.example/00000000-0000-4000-8000-000000000000/application",
   workday: "https://fixture.wd1.myworkdayjobs.com/en-US/External/job/Toronto/Analyst_R123/apply/myInformation",
   icims: "https://careers-fixture.icims.com/jobs/123/analyst/job?mode=apply",
   workable: "https://apply.workable.com/fixture/j/ABCD123456/apply/",
