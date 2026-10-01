@@ -52,9 +52,9 @@ export function parseJobFilters(
   );
   const locationSearch = normalizeLocationSearch(
     params.has("locationSearch")
-      ? many("locationSearch")
+      ? params.getAll("locationSearch").join(";")
       : ((selectedScope === "location" ? legacyText : undefined) ??
-          many("location")),
+          params.getAll("location").join(";")),
   );
   let salaryMin = positiveNumber(first("salaryMin"));
   let salaryMax = positiveNumber(first("salaryMax"));
@@ -79,9 +79,7 @@ export function parseJobFilters(
         ? "title"
         : companySearch
           ? "company"
-          : locationSearch
-            ? "location"
-            : "title"),
+          : "title"),
     titleSearch,
     companySearch,
     locationSearch,

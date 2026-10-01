@@ -22,6 +22,8 @@ type SubdivisionTuple = [
 ];
 
 const MAX_EXPANDED_LOCATION_TERMS = 48;
+export const MAX_LOCATION_SEARCH_ENTRIES = 10;
+export const MAX_LOCATION_SEARCH_LENGTH = 1000;
 
 function buildSubdivisionEntries(
   region: LocationSearchRegion,
@@ -229,13 +231,14 @@ function matchEntries(raw: string, entries: LocationDictionaryEntry[]) {
 export function splitLocationSearchValues(value?: string | null): string[] {
   if (!value) return [];
   const result: string[] = [];
-  for (const alternative of value.slice(0, 1000).split(";")) {
+  for (const alternative of value.slice(0, MAX_LOCATION_SEARCH_LENGTH).split(";")) {
     let current = "";
     for (const raw of alternative.split(",")) {
       const part = raw.replace(/\s+/g, " ").trim();
       if (!part) continue;
       const qualifier = /^(?:CA|US|USA)$/i.test(part) || matchEntries(part, [...COUNTRY_ENTRIES, ...SUBDIVISION_ENTRIES]).length > 0;
-      if (current && qualifier) current += `, ${part}`;
+      const currentIsCountry = matchEntries(current, COUNTRY_ENTRIES).length > 0;
+      if (current && qualifier && !currentIsCountry) current += `, ${part}`;
       else {
         if (current) addUnique(result, current);
         current = part;
@@ -243,7 +246,7 @@ export function splitLocationSearchValues(value?: string | null): string[] {
     }
     if (current) addUnique(result, current);
   }
-  return result.slice(0, 10);
+  return result.slice(0, MAX_LOCATION_SEARCH_ENTRIES);
 }
 
 export function normalizeLocationSearch(value?: string | null) {
@@ -251,11 +254,46 @@ export function normalizeLocationSearch(value?: string | null) {
 }
 
 type LocationWhere = {
-  location?: { contains: string; mode: "insensitive" };
-  region?: LocationSearchRegion;
+  location?: { contains: string; mode: "insensitive" } | { in: string[]; mode: "insensitive" };
+  region?: LocationSearchRegion | null;
+  workMode?: "REMOTE";
   AND?: LocationWhere[];
   OR?: LocationWhere[];
 };
+
+function locationLabelVariants(labels: string[]) {
+  return labels.flatMap((label) => [
+    label, `Remote - ${label}`, `${label} - Remote`, `Remote (${label})`,
+    `${label} (Remote)`, `Remote, ${label}`, `${label}, Remote`,
+  ]);
+}
+
+const CROSS_BORDER_LOCATIONS = locationLabelVariants([
+  "US & Canada", "US/Canada", "US and Canada", "Canada / US", "Canada/US",
+  "United States or Canada", "United States and Canada", "Canada and United States",
+  "United States, Canada", "Canada, United States", "US, Canada", "Canada, US",
+]);
+const BROAD_REMOTE_LOCATIONS = locationLabelVariants([
+  "North America", "Americas", "Worldwide", "Global", "Anywhere", "Everywhere",
+]);
+
+function countryPredicate(region: LocationSearchRegion): LocationWhere {
+  const country = COUNTRY_ENTRIES.find((entry) => entry.region === region)!;
+  return {
+    OR: [
+      { region },
+      // Some source locations are explicit but have not acquired a region yet.
+      { AND: [{ region: null }, { OR: [
+        ...country.containsTerms.filter((term) => term.length > 3).map((term): LocationWhere => ({ location: { contains: term, mode: "insensitive" } })),
+        { location: { in: locationLabelVariants(country.aliases), mode: "insensitive" } },
+      ] }] },
+      { location: { in: CROSS_BORDER_LOCATIONS, mode: "insensitive" } },
+      // Unknown "Remote" is not evidence of eligibility. Only broad, explicit
+      // remote locations with no conflicting country assignment are included.
+      { AND: [{ region: null }, { workMode: "REMOTE" }, { location: { in: BROAD_REMOTE_LOCATIONS, mode: "insensitive" } }] },
+    ],
+  };
+}
 
 /** Identical geographic predicates for the canonical pool, index and Picks. */
 export function buildLocationSearchPredicate(value?: string | null): LocationWhere | null {
@@ -263,10 +301,10 @@ export function buildLocationSearchPredicate(value?: string | null): LocationWhe
     const parts = place.split(",").map((part) => part.trim());
     const constraints: LocationWhere[] = parts.map((part, index) => {
       const isCaliforniaCode = /^CA$/i.test(part);
-      if (/^(?:US|USA)$/i.test(part)) return { region: "US" };
-      if (isCaliforniaCode && index === parts.length - 1 && parts.length > 2) return { region: "CA" };
+      if (/^(?:US|USA)$/i.test(part)) return countryPredicate("US");
+      if (isCaliforniaCode && index === parts.length - 1 && parts.length > 2) return countryPredicate("CA");
       const expanded = expandLocationSearchTerm(isCaliforniaCode ? "California" : part);
-      if (expanded.region) return { region: expanded.region };
+      if (expanded.region) return countryPredicate(expanded.region);
       const terms = expanded.containsTerms.length ? expanded.containsTerms : [part.length <= 2 ? `, ${part}` : part];
       const clauses: LocationWhere[] = terms.map((term) => ({ location: { contains: term.replace(/[%_\\]/g, "\\$&"), mode: "insensitive" } }));
       const textWhere = clauses.length === 1 ? clauses[0]! : { OR: clauses };

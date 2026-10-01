@@ -1,5 +1,6 @@
 import { buildJobsSearchHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
+import { JobsLocationFilter } from "@/components/jobs/jobs-location-filter";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -20,7 +21,7 @@ import { splitFilterValues } from "@/lib/filter-values";
 import { EXPERIENCE_LEVEL_GROUP_OPTIONS } from "@/lib/job-metadata";
 import { formatPostedAge } from "@/lib/job-display";
 import { normalizeJobsStateQuery } from "@/lib/jobs/search-state";
-import { parseJobFilters, parseTopPicksFilters } from "@/lib/jobs/search-params";
+import { countActiveJobFilters, parseJobFilters, parseTopPicksFilters } from "@/lib/jobs/search-params";
 import { splitLocationSearchValues } from "@/lib/location-search";
 import { getTopPicksForUser } from "@/lib/queries/top-picks";
 import type { JobSearchScope } from "@/lib/queries/jobs";
@@ -95,7 +96,6 @@ function buildFilterPanelHiddenFields(filters: TopPicksFilters) {
   return buildHiddenFields([
     ["titleSearch", filters.titleSearch],
     ["companySearch", filters.companySearch],
-    ["locationSearch", filters.locationSearch],
     ["searchScope", hasActiveSearch(filters) ? filters.searchScope : undefined],
   ]);
 }
@@ -367,10 +367,7 @@ export default async function JobsTopPicksPage({
     filters,
     resolvedSearchParams,
   );
-  const activeFilterCount = activeFilterGroups.reduce(
-    (count, group) => count + group.items.length,
-    0,
-  );
+  const activeFilterCount = countActiveJobFilters(filters);
   const hasScopedResults = activeFilterCount > 0 || hasActiveSearch(filters);
   const shouldLoadInitialPicks =
     result.total === 0 &&
@@ -456,6 +453,7 @@ export default async function JobsTopPicksPage({
                     />
                   ))}
                   <div className="grid gap-2">
+                    <JobsLocationFilter defaultValue={filters.locationSearch} />
                     <JobsFilterDropdownField
                       columnsClassName="sm:grid-cols-2"
                       emptyLabel="Any work mode"

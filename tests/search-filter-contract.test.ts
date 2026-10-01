@@ -19,7 +19,8 @@ import { buildJobsSearchHref } from "../src/lib/jobs/search-navigation";
 
 type Row = {
   location?: string;
-  region?: string;
+  region?: string | null;
+  workMode?: string;
   salaryMin?: number | null;
   salaryMax?: number | null;
   salaryCurrency?: string | null;
@@ -82,6 +83,7 @@ function matches(row: Row, predicate: unknown): boolean {
         gte?: number;
         lte?: number;
         notIn?: string[];
+        in?: string[];
       };
       if (condition.contains)
         return (
@@ -90,6 +92,8 @@ function matches(row: Row, predicate: unknown): boolean {
         );
       if (condition.notIn)
         return typeof actual === "string" && !condition.notIn.includes(actual);
+      if (condition.in)
+        return typeof actual === "string" && condition.in.some((value) => value.toLowerCase() === actual.toLowerCase());
       if (typeof actual !== "number") return false;
       return (
         (condition.gte === undefined || actual >= condition.gte) &&
@@ -217,6 +221,53 @@ test("qualified places use AND, alternative places use OR, and abbreviations nev
     ),
     false,
   );
+});
+
+test("separate country and city entries retain OR semantics through forms, URLs and Picks", () => {
+  assert.equal(parseJobFilters("locationSearch=Canada").searchScope, "title", "a location filter does not take over the keyword input");
+  assert.equal(parseJobFilters("searchScope=location&locationSearch=Canada").searchScope, "location", "explicit location search is preserved");
+  for (const input of [
+    "locationSearch=Canada&locationSearch=United+States",
+    { locationSearch: ["Canada", "United States"] },
+    "location=Canada&location=United+States",
+    "locationSearch=Canada%2C+United+States",
+  ]) {
+    const parsed = parseJobFilters(input);
+    assert.equal(parsed.locationSearch, "Canada;United States");
+    assert.equal(parseJobFilters(normalizeJobsStateQuery(input)).locationSearch, parsed.locationSearch);
+    assert.equal(parseTopPicksFilters(input).locationSearch, parsed.locationSearch);
+  }
+  assert.equal(parseJobFilters({ locationSearch: ["Toronto, ON", "Seattle, WA", "toronto, ON"] }).locationSearch, "Toronto, ON;Seattle, WA");
+  assert.deepEqual(splitLocationSearchValues("Canada;Toronto;Seattle"), ["Canada", "Toronto", "Seattle"]);
+  const predicate = buildLocationSearchPredicate("Canada;Seattle, WA");
+  assert.equal(matches({ location: "Iqaluit, NU", region: "CA" }, predicate), true);
+  assert.equal(matches({ location: "Seattle, WA", region: "US" }, predicate), true);
+  assert.equal(matches({ location: "Boston, MA", region: "US" }, predicate), false);
+});
+
+test("country filters include all assigned cities and explicit eligible remote geography, not every remote job", () => {
+  const canada = buildLocationSearchPredicate("canada");
+  for (const row of [
+    { location: "Iqaluit, NU", region: "CA", workMode: "ONSITE" },
+    { location: "Toronto", region: "CA", workMode: "HYBRID" },
+    { location: "Remote", region: "CA", workMode: "REMOTE" },
+    { location: "Remote - Canada", region: null, workMode: "REMOTE" },
+    { location: "US & Canada", region: "US", workMode: "REMOTE" },
+    { location: "Remote - North America", region: null, workMode: "REMOTE" },
+    { location: "Worldwide", region: null, workMode: "REMOTE" },
+  ]) assert.equal(matches(row, canada), true, row.location);
+  for (const row of [
+    { location: "Remote - US", region: "US", workMode: "REMOTE" },
+    { location: "Remote", region: null, workMode: "REMOTE" },
+    { location: "London, UK", region: null, workMode: "REMOTE" },
+    { location: "North America - US only", region: null, workMode: "REMOTE" },
+    { location: "Worldwide", region: "US", workMode: "REMOTE" },
+    { location: "North America", region: null, workMode: "ONSITE" },
+  ]) assert.equal(matches(row, canada), false, row.location);
+  assert.equal(matches({ location: "Remote - North America", region: null, workMode: "REMOTE" }, buildLocationSearchPredicate("United States")), true);
+  assert.equal(matches({ location: "Remote - Canada", region: "CA", workMode: "REMOTE" }, buildLocationSearchPredicate("United States")), false);
+  assert.equal(matches({ location: "Jerusalem", region: null, workMode: "REMOTE" }, buildLocationSearchPredicate("USA")), false);
+  assert.equal(matches({ location: "Remote - US", region: null, workMode: "REMOTE" }, buildLocationSearchPredicate("United States")), true);
 });
 
 test("annual salary bounds overlap correctly without pretending unknown currencies are USD", () => {

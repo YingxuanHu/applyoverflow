@@ -5,8 +5,14 @@ type LocationPredicate = NonNullable<ReturnType<typeof buildLocationSearchPredic
 
 function renderLocationPredicate(where: LocationPredicate): Prisma.Sql {
   const clauses: Prisma.Sql[] = [];
-  if (where.location) clauses.push(Prisma.sql`jfi.location ILIKE ${`%${where.location.contains}%`}`);
-  if (where.region) clauses.push(Prisma.sql`jfi.region = ${where.region}::"Region"`);
+  if (where.location) {
+    clauses.push("contains" in where.location
+      ? Prisma.sql`jfi.location ILIKE ${`%${where.location.contains}%`}`
+      : Prisma.sql`LOWER(jfi.location) IN (${Prisma.join(where.location.in.map((value) => value.toLowerCase()))})`);
+  }
+  if (where.region === null) clauses.push(Prisma.sql`jfi.region IS NULL`);
+  else if (where.region) clauses.push(Prisma.sql`jfi.region = ${where.region}::"Region"`);
+  if (where.workMode) clauses.push(Prisma.sql`jfi."workMode" = ${where.workMode}::"WorkMode"`);
   if (where.AND) clauses.push(Prisma.sql`(${Prisma.join(where.AND.map(renderLocationPredicate), " AND ")})`);
   if (where.OR) clauses.push(Prisma.sql`(${Prisma.join(where.OR.map(renderLocationPredicate), " OR ")})`);
   return Prisma.sql`(${Prisma.join(clauses, " AND ")})`;
