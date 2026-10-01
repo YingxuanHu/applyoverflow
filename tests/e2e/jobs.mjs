@@ -162,7 +162,7 @@ if (!['localhost', '127.0.0.1'].includes(new URL(root).hostname)) throw new Erro
     assert.equal((await filtersButton.innerText()).trim(), 'Filters', 'no phantom default filter');
     await filtersButton.click();
     const filterDialog = page.getByRole('dialog', { name: 'Refine jobs' });
-    await filterDialog.getByLabel('Location', { exact: true }).fill('Toronto, ON');
+    await filterDialog.getByLabel('City, province, state or country', { exact: true }).fill('Toronto, ON');
     await filterDialog.getByText('Work mode', { exact: true }).click();
     await filterDialog.getByRole('checkbox', { name: 'Remote', exact: true }).check();
     await filterDialog.getByRole('checkbox', { name: 'Hybrid', exact: true }).check();
@@ -170,13 +170,14 @@ if (!['localhost', '127.0.0.1'].includes(new URL(root).hostname)) throw new Erro
     await filterDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.has('workMode'), false, 'cancel does not apply draft');
     await filtersButton.click();
-    assert.equal(await filterDialog.getByLabel('Location', { exact: true }).inputValue(), '', 'reopen discards draft');
+    assert.equal(await filterDialog.getByLabel('City, province, state or country', { exact: true }).inputValue(), '', 'reopen discards draft');
     await page.keyboard.press('Escape');
     await filterDialog.waitFor({ state: 'hidden' });
     assert.equal(await filtersButton.evaluate((el) => el === document.activeElement), true, 'Escape returns focus');
     await page.goto(`${root}/jobs?titleSearch=Engineer&locationSearch=Toronto&page=1&sortBy=newest`, { waitUntil: 'networkidle' });
     await filtersButton.click();
-    await filterDialog.getByLabel('Location', { exact: true }).fill('Seattle, WA');
+    await filterDialog.getByRole('button', { name: 'Remove Toronto', exact: true }).click();
+    await filterDialog.getByLabel('City, province, state or country', { exact: true }).fill('Seattle, WA');
     await filterDialog.getByText('Work mode', { exact: true }).click();
     await filterDialog.getByRole('checkbox', { name: 'Remote', exact: true }).check();
     await filterDialog.getByRole('checkbox', { name: 'Hybrid', exact: true }).check();
@@ -217,7 +218,8 @@ if (!['localhost', '127.0.0.1'].includes(new URL(root).hostname)) throw new Erro
     assert.equal(new URL(page.url()).searchParams.get('locationSearch'), 'Seattle, WA', 'Forward restores the edited filters');
     await page.reload({ waitUntil: 'networkidle' });
     await filtersButton.click();
-    assert.equal(await filterDialog.getByLabel('Location', { exact: true }).inputValue(), 'Seattle, WA', 'reload restores committed filters');
+    await filterDialog.getByRole('button', { name: 'Remove Seattle, WA', exact: true }).waitFor();
+    assert.equal(await filterDialog.getByLabel('City, province, state or country', { exact: true }).inputValue(), '', 'reload restores committed chips with a blank add input');
     await page.setViewportSize({ width: 390, height: 844 });
     const dialogRect = await filterDialog.boundingBox();
     assert.ok(dialogRect.x >= 0 && dialogRect.x + dialogRect.width <= 391 && dialogRect.y >= 0 && dialogRect.y + dialogRect.height <= 845, 'mobile dialog fits viewport');

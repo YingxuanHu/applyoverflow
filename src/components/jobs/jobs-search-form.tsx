@@ -107,7 +107,7 @@ const SEARCH_FIELD_PARAM_NAMES = new Set([
 const PLACEHOLDER_BY_SCOPE: Record<SearchMode, string> = {
   ai: "Describe a role, location, level, or work style",
   company: "Search companies by keyword",
-  location: "Search locations by keyword",
+  location: "Search a city, province, state or country",
   title: "Search job titles by keyword",
 };
 

@@ -73,7 +73,7 @@ test("guided job search preserves unrelated saved filters", () => {
       "locationSearch=Toronto&careerStage=ENTRY_LEVEL&hideApplied=1",
       { posted: "7d" }
     ),
-    "/jobs?searchScope=location&locationSearch=Toronto&hideApplied=1&careerStage=ENTRY_JUNIOR&posted=7d"
+    "/jobs?searchScope=title&locationSearch=Toronto&hideApplied=1&careerStage=ENTRY_JUNIOR&posted=7d"
   );
 });
 
@@ -84,7 +84,7 @@ test("guided job search can retain the Top Picks route", () => {
       { jobFunction: "Software Engineering" },
       { basePath: "/jobs/top-picks" }
     ),
-    "/jobs/top-picks?searchScope=location&locationSearch=Toronto&jobFunction=SOFTWARE_ENGINEERING&sortBy=newest"
+    "/jobs/top-picks?searchScope=title&locationSearch=Toronto&jobFunction=SOFTWARE_ENGINEERING&sortBy=newest"
   );
 });
 

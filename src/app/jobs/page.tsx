@@ -1,5 +1,6 @@
 import { buildJobsSearchHref as buildJobsHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
+import { JobsLocationFilter } from "@/components/jobs/jobs-location-filter";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -13,7 +14,6 @@ import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chip
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import {
   JobsFilterDropdownField,
-  JobsTextFilterField,
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsBoardActivity } from "@/components/jobs/jobs-board-activity";
@@ -275,12 +275,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           title="Job function"
                         />
 
-                        <JobsTextFilterField
+                        <JobsLocationFilter
                           defaultValue={filters.locationSearch}
                           key={`location:${filters.locationSearch ?? ""}`}
-                          name="locationSearch"
-                          placeholder="Toronto, ON; Seattle, WA"
-                          title="Location"
                         />
 
                         <JobsFilterDropdownField
