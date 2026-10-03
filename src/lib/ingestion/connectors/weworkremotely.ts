@@ -206,10 +206,10 @@ function extractTag(body: string, tag: string): string {
   const m = body.match(re);
   if (!m) return "";
   const raw = m[1] ?? m[2] ?? "";
-  return decodeXmlEntities(raw).trim();
+  return unescapeXmlEntities(raw).trim();
 }
 
-function decodeXmlEntities(text: string): string {
+function unescapeXmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
