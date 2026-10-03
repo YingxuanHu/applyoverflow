@@ -22,6 +22,7 @@ type SignInFormProps = {
   passwordReset?: boolean;
   googleEnabled?: boolean;
   localDevelopmentAccount?: boolean;
+  reauthenticate?: boolean;
 };
 
 const subscribeToHydration = () => () => {};
@@ -45,6 +46,7 @@ export function SignInForm({
   passwordReset,
   googleEnabled = false,
   localDevelopmentAccount = false,
+  reauthenticate = false,
 }: SignInFormProps) {
   const hydrated = useSyncExternalStore(subscribeToHydration, clientReady, serverReady);
   const safeCallbackUrl = getSafeSignInCallback(callbackUrl);
@@ -91,10 +93,10 @@ export function SignInForm({
   return (
     <Card className="w-full rounded-[24px] border-border/60 bg-card/95 py-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:rounded-[28px] sm:py-5 dark:shadow-none">
       <CardHeader className="gap-2 px-4 sm:px-6">
-        <p className="section-label">Welcome back</p>
-        <CardTitle role="heading" aria-level={1} className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">Sign in</CardTitle>
+        <p className="section-label">{reauthenticate ? "Connect your extension" : "Welcome back"}</p>
+        <CardTitle role="heading" aria-level={1} className="text-[1.7rem] font-semibold tracking-tight sm:text-3xl">{reauthenticate ? "Confirm your sign-in" : "Sign in"}</CardTitle>
         <CardDescription className="max-w-sm leading-6">
-          Continue to your job workspace.
+          {reauthenticate ? "Confirm your account to finish connecting. No need to sign out." : "Continue to your job workspace."}
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 sm:px-6">

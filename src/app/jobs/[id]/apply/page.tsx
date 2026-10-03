@@ -57,9 +57,9 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
     : "Not submitted";
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+    <div className="app-page app-page-focused">
       {/* Breadcrumb + external link */}
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
         <Link
           href={`/jobs/${job.id}`}
           className="text-sm text-muted-foreground hover:text-foreground"
@@ -81,10 +81,10 @@ export default async function JobApplyPage({ params }: JobApplyPageProps) {
       </div>
 
       {/* Header */}
-      <div className="pb-3">
+      <div className="pb-6">
         <p className="mb-0.5 text-xs text-muted-foreground">Application</p>
-        <h1 className="text-xl font-semibold tracking-tight">{job.title}</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
+        <h1 className="page-title [overflow-wrap:anywhere]">{job.title}</h1>
+        <p className="page-description">
           {job.company}
           <Sep />
           {job.location}

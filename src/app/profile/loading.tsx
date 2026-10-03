@@ -1,6 +1,6 @@
 export default function ProfileLoading() {
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-focused space-y-6">
       <div className="space-y-2">
         <div className="h-8 w-32 animate-pulse rounded bg-muted" />
         <div className="h-4 w-96 max-w-full animate-pulse rounded bg-muted" />

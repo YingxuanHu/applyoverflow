@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   exchangeExtensionResume,
   requestExtensionResume,
+  getDefaultExtensionResume,
 } from "@/lib/queries/extension-resume";
 import {
   AssistantError,
@@ -21,6 +22,8 @@ import {
   confirmExtensionApplication,
 } from "@/lib/queries/application-assistant";
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
+import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
+import { suggestApplicationAnswer } from "@/lib/queries/extension-suggestions";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -43,6 +46,10 @@ export async function POST(
         "resume-request",
         "resume",
         "resume-cancel",
+        "resume-default",
+        "autofill-plan",
+        "autofill-answer",
+        "autofill-suggest",
       ].includes(action)
     )
       return json({ error: "Not found" }, 404);
@@ -65,6 +72,19 @@ export async function POST(
       return json({ error: "Too many requests. Try again shortly." }, 429);
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
+    if (action === "autofill-plan")
+      return json(await getAutofillPlan(identity.userId, body.data));
+    if (action === "autofill-answer")
+      return json(await rememberAutofillAnswer(identity.userId, body.data));
+    if (action === "autofill-suggest") {
+      // A single long form can contain up to 40 bounded answer requests. The
+      // shared hourly AI budget and concurrency lease still apply to every call.
+      if (!consumeUserRateLimit(identity.userId, "extension:suggest", { limit: 40, windowMs: 300_000 }).allowed)
+        return json({ error: "Draft limit reached. Try again in a few minutes." }, 429);
+      const result = await suggestApplicationAnswer(identity.userId, body.data);
+      await authenticateExtension(request);
+      return json(result);
+    }
     if (action === "history")
       return json(await getExtensionHistory(identity.userId));
     if (action === "history-entry")
@@ -90,6 +110,8 @@ export async function POST(
         );
       if (action === "resume-request")
         return json(await requestExtensionResume(identity, body.data));
+      if (action === "resume-default")
+        return json(await getDefaultExtensionResume(identity, body.data));
       if (action === "resume")
         return json(await exchangeExtensionResume(identity, body.data));
       const { id } = z

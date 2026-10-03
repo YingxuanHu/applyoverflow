@@ -1,6 +1,6 @@
 export default function SettingsLoading() {
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-focused space-y-6">
       <div className="page-header">
         <div className="space-y-2">
           <div className="h-8 w-24 animate-pulse rounded bg-muted" />

@@ -5,6 +5,12 @@ import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
 import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
 
+const root = "output/extension/package-test";
+const installedPaths = ["production", "store", "store-test"].map(name => `output/extension/${name}/config.mjs`);
+const before = await Promise.all(installedPaths.map(path => readFile(path).catch(error => {
+  if (error.code === "ENOENT") return null;
+  throw error;
+})));
 for (const [args, name] of [
   [[], "production"],
   [["--store"], "store"],
@@ -12,9 +18,10 @@ for (const [args, name] of [
 ]) {
   execFileSync(process.execPath, [
     "scripts/build-application-extension.mjs",
+    "--test-output",
     ...args,
   ]);
-  const zip = await readFile(`output/extension/${name}.zip`);
+  const zip = await readFile(`${root}/${name}.zip`);
   assert.ok(
     zip.length < 150 * 1024,
     "Keep the package small; no dependencies or extra resume storage",
@@ -24,14 +31,18 @@ for (const [args, name] of [
     Object.keys(files).sort(),
     [
       "adapter-runtime.js",
+      "answer-runner.mjs",
       "background.mjs",
       "config.mjs",
+      "fill-progress.mjs",
       "icon.png",
       "indicator.js",
       "manifest.json",
       "popup.css",
       "popup.html",
       "popup.mjs",
+      "question-policy.mjs",
+      "question-review.mjs",
       "sites.mjs",
     ].sort(),
   );
@@ -60,7 +71,7 @@ for (const [args, name] of [
       .slice(0, 32)
       .replace(/[0-9a-f]/g, (char) => String.fromCharCode(97 + parseInt(char, 16)));
     assert.equal(id, "mhkkioknljkgnhgnhcamilkgbadjnmil");
-    const upload = unzipSync(await readFile("output/extension/store.zip"));
+    const upload = unzipSync(await readFile(`${root}/store.zip`));
     const withoutKey = { ...manifest };
     delete withoutKey.key;
     assert.deepEqual(withoutKey, JSON.parse(strFromU8(upload["manifest.json"])));
@@ -76,6 +87,7 @@ for (const [args, name] of [
   );
 }
 for (const flags of [
+  ["--test-output", "--publish"],
   ["--store", "--publish"],
   ["--store", "--local=http://127.0.0.1:3004"],
   ["--store-test", "--publish"],
@@ -89,3 +101,9 @@ for (const flags of [
     ]).status,
     0,
   );
+for (const [index, path] of installedPaths.entries())
+  assert.deepEqual(await readFile(path).catch(error => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }), before[index], `${path} changed while testing packages`);
+console.log("PASS package tests leave installed extension builds untouched");

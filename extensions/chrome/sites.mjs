@@ -8,6 +8,8 @@ export const SITE_ORIGINS = [
   "https://jobs.ashbyhq.com/*",
   "https://*.myworkdayjobs.com/*",
   "https://*.icims.com/*",
+  "https://apply.workable.com/*",
+  "https://*.careers.hibob.com/*",
 ];
 
 // Shared by the server, worker and isolated scanner. Tenant and region are part
@@ -17,6 +19,20 @@ export function applicationContext(raw, allowGeneric = false) {
     const url = new URL(raw);
     if (url.protocol !== "https:" || url.username || url.password || url.port)
       return null;
+    if (url.hostname === "apply.workable.com") {
+      const match = /^\/([a-zA-Z0-9_-]+)\/j\/([a-f0-9]{10})(?:\/apply)?\/?$/i.exec(
+        url.pathname,
+      );
+      if (
+        !match || url.hash || [...url.searchParams.keys()].some(key =>
+          /token|session|secret|password|email|auth|code|signature/i.test(key))
+      ) return null;
+      const tenant = match[1].toLowerCase();
+      return {
+        provider: "workable", tenant, companyKey: `workable:${tenant}`,
+        url: `https://apply.workable.com/${tenant}/j/${match[2].toUpperCase()}/`,
+      };
+    }
     const workday = /^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/.exec(
       url.hostname,
     );
@@ -80,10 +96,12 @@ export function applicationContext(raw, allowGeneric = false) {
     const lever = /^(jobs(?:\.eu)?)\.lever\.co$/.exec(url.hostname);
     const ashby = url.hostname === "jobs.ashbyhq.com";
     if (!lever && !ashby) {
-      // Only explicit toolbar inspection uses this fallback. Never register an
-      // all-sites content script or send generic URLs containing auth material.
+      // Unknown sites require explicit toolbar inspection. HiBob has a narrow
+      // optional origin grant; never register an all-sites content script.
+      const knownGeneric = /^[a-z0-9-]+\.careers\.hibob\.com$/.test(url.hostname) &&
+        /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(url.pathname);
       if (
-        !allowGeneric ||
+        (!allowGeneric && !knownGeneric) ||
         !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(url.hostname) ||
         /(?:^|\.)(?:localhost|local|internal|myworkdayjobs\.com|icims\.com|greenhouse\.io|lever\.co|ashbyhq\.com|applyoverflow\.com)$/.test(
           url.hostname,

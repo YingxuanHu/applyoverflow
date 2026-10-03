@@ -1,5 +1,6 @@
 import { buildJobsSearchHref as buildJobsHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
+import { JobsLocationFilter } from "@/components/jobs/jobs-location-filter";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -13,9 +14,9 @@ import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chip
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import {
   JobsFilterDropdownField,
-  JobsTextFilterField,
 } from "@/components/jobs/jobs-filter-field";
 import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
+import { JobsBoardActivity } from "@/components/jobs/jobs-board-activity";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { JobsSavedFiltersControl } from "@/components/jobs/jobs-saved-filters-control";
 import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
@@ -37,7 +38,6 @@ import {
   NORMALIZED_INDUSTRY_OPTIONS,
   NORMALIZED_ROLE_CATEGORY_OPTIONS,
 } from "@/lib/job-metadata";
-import { formatPostedAge } from "@/lib/job-display";
 import {
   normalizeJobsStateQuery,
   JOBS_SEARCH_STATE_STORAGE_KEY,
@@ -178,7 +178,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   return (
     <JobsSearchCountProvider key={jobCountCacheKey(filters, viewerProfileId, currentProfile.feedStateVersion)} initialTotal={jobsResult.total} pending={jobsResult.countPending ?? false} query={navigationKey} page={currentPage} pageSize={jobsResult.pageSize}>
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-workspace space-y-6">
       <UserTimeZoneCookie
         cookieName={USER_TIME_ZONE_COOKIE}
         currentTimeZone={userTimeZone}
@@ -197,30 +197,21 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
-      <header className="page-header">
+      <header className="page-header items-center justify-start gap-x-10 gap-y-3">
         <div>
           <h1 className="page-title">Jobs</h1>
         </div>
+        <JobsSectionTabs active="jobs" />
       </header>
 
-      <JobsSectionTabs active="jobs" />
-
-      <section aria-label="Job search" className="border-y border-border/60 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <section aria-label="Job search" className="border-b border-border/60 pb-4">
+          <JobsBoardActivity
+            addedToday={jobsResult.summary.addedTodayCount}
+            closedToday={jobsResult.summary.expiredTodayCount + jobsResult.summary.removedTodayCount}
+            updatedAt={ingestionStatus.lastUpdatedAt}
+          >
             <JobsSearchCountHeadline scoped={hasScopedResults} liveJobCount={jobsResult.summary.liveJobCount} />
-            <details className="group min-w-0 text-xs text-muted-foreground sm:text-right">
-              <summary className="flex min-h-7 cursor-pointer list-none items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:justify-end [&::-webkit-details-marker]:hidden">
-                Board activity <ChevronDown aria-hidden="true" className="size-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4 gap-y-1.5">
-                <dt>Live jobs</dt><dd className="tabular-nums">{jobsResult.summary.liveJobCount.toLocaleString()}</dd>
-                <dt>New today</dt><dd className="tabular-nums">{jobsResult.summary.addedTodayCount.toLocaleString()}</dd>
-                <dt>Closed today</dt><dd className="tabular-nums">{(jobsResult.summary.expiredTodayCount + jobsResult.summary.removedTodayCount).toLocaleString()}</dd>
-                <dt>Active connectors</dt><dd className="tabular-nums">{ingestionStatus.activeSourceCount.toLocaleString()}</dd>
-                {ingestionStatus.lastUpdatedAt ? <><dt>Updated</dt><dd>{formatPostedAge(ingestionStatus.lastUpdatedAt)}</dd></> : null}
-              </dl>
-            </details>
-          </div>
+          </JobsBoardActivity>
 
           <div className="mt-3 space-y-3">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -284,12 +275,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           title="Job function"
                         />
 
-                        <JobsTextFilterField
+                        <JobsLocationFilter
                           defaultValue={filters.locationSearch}
                           key={`location:${filters.locationSearch ?? ""}`}
-                          name="locationSearch"
-                          placeholder="Toronto, ON; Seattle, WA"
-                          title="Location"
                         />
 
                         <JobsFilterDropdownField
@@ -344,7 +332,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     </JobsFilterPanel>
 
                   <details className="group static self-start sm:relative lg:self-auto" name="jobs-toolbar-dropdown">
-                    <summary className="inline-flex h-10 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
+                    <summary className="inline-flex h-11 w-full list-none items-center justify-center gap-2 rounded-[14px] border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-muted sm:w-auto sm:px-4 [&::-webkit-details-marker]:hidden">
                       <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                       Sort
                       <span className="truncate text-muted-foreground">{currentSortLabel}</span>
@@ -405,6 +393,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               hasNextPage={jobsResult.hasNextPage}
               pageError={pageJumpError}
               placement="top"
+              separator={false}
               searchParams={resolvedSearchParams}
             />
           ) : null}

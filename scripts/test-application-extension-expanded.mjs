@@ -108,6 +108,32 @@ try {
     ).filled,
     7,
   );
+  // Authenticated TD My Information exposes email as text, not an input.
+  await page.locator('[id="emailAddress--emailAddress"]').evaluate((input) => {
+    const email = document.createElement("p");
+    email.textContent = "signed-in@example.test";
+    input.replaceWith(email);
+  });
+  assert.equal((await inspect()).preserved, 0);
+  await inspect("undo");
+  const authenticated = await inspect();
+  assert.equal(authenticated.available, 6, "static email must not hide the contact form");
+  assert.equal(JSON.stringify(authenticated).includes("signed-in@example.test"), false);
+  assert.equal((await inspect("fill", {
+    givenName: "Jordan", familyName: "Example", streetAddress: "123 Example",
+    city: "Toronto", postalCode: "M5V 1A1", phone: "4165550100",
+  })).filled, 6);
+  await page.locator('[data-automation-id="applyFlowPage"]').evaluate((form) => {
+    form.innerHTML = '<h3>Application Questions</h3><label>Describe a relevant project<textarea>Keep my answer</textarea></label>';
+  });
+  assert.equal((await inspect()).available, 0);
+  assert.deepEqual((await inspect()).questions, ["Describe a relevant project"]);
+  assert.match((await inspect("fill", { givenName: "Jordan" })).error, /No supported contact fields/);
+  assert.equal(await page.locator("textarea").inputValue(), "Keep my answer");
+  await page.locator('[data-automation-id="applyFlowPage"]').evaluate((form) => {
+    form.insertAdjacentHTML("beforeend", '<label>Password<input type="password"></label>');
+  });
+  assert.match((await inspect()).error, /single application/, "sign-in is still excluded");
   await load("generic");
   await page
     .locator("#first")
@@ -141,7 +167,8 @@ try {
       await page.locator("#company").inputValue(),
       "User correction",
     );
-    assert.match((await inspect("fill-history", selected)).error, /empty work/);
+    assert.match((await inspect("fill-history", selected)).error, /already be present/);
+    assert.equal(await page.locator("#company").inputValue(), "User correction");
     const educationResult = await inspect("fill-history", {
       kind: "education",
       entry: {
@@ -272,8 +299,28 @@ try {
       if (mutation === "irreversible") list.children[0].setAttribute("aria-disabled", "true");
       if (mutation === "submit-button") document.getElementById("degree").type = "submit";
     }, mutation);
-    assert.equal((await inspect("fill-history", degreePayload)).filled, 1, mutation);
-    assert.equal(await page.locator("#degree").textContent(), "Select One", mutation);
+    assert.equal((await inspect("fill-history", degreePayload)).filled, mutation === "irreversible" ? 2 : 1, mutation);
+    assert.equal(await page.locator("#degree").textContent(), mutation === "irreversible" ? "Bachelor of Science" : "Select One", mutation);
+    if (mutation === "irreversible") {
+      assert.equal((await inspect("undo-history")).undone, 1, "Only the reversible school field is undone");
+      assert.equal(await page.locator("#degree").textContent(), "Bachelor of Science", "No unsupported clear operation is attempted");
+    }
+  }
+  for (const widget of ["native", "custom"]) {
+    for (const [savedDegree, expected] of [["Bachelor of Computer Science & BBA (Finance)", "Bachelor's Degree"],
+      ["Bachelor of Science", "Bachelor's Degree"], ["B.Sc.", "Bachelor's Degree"],
+      ["Master of Computer Science", "Master's Degree"], ["BA / Master of Science", ""], ["Associate degree", ""]]) {
+      const controls = widget === "native" ? education : customEducation;
+      await load("generic", controls);
+      await page.locator(widget === "native" ? "#degree" : "#degrees").evaluate((list, native) => {
+        list.innerHTML = native
+          ? `<option value="">Select One</option><option value="bachelor">Bachelor's Degree</option><option value="master">Master's Degree</option>`
+          : `<div role="option" data-value="">Select One</div><div role="option" data-value="bachelor">Bachelor's Degree</div><div role="option" data-value="master">Master's Degree</div>`;
+      }, widget === "native");
+      await inspect("fill-history", { kind: "education", entry: { school: "Fixture University", degree: savedDegree } });
+      const actual = await page.locator("#degree").evaluate(field => field instanceof HTMLSelectElement ? field.selectedOptions[0].textContent : field.textContent);
+      assert.equal(actual, expected || "Select One", `${widget}: ${savedDegree}`);
+    }
   }
   await load("generic", customEducation);
   await page.locator("#education").evaluate((group) => group.insertAdjacentHTML("beforeend", '<label>Field of study<button type="button" aria-haspopup="listbox" value="existing">Already selected</button></label>'));
@@ -293,7 +340,7 @@ try {
     fullPage: true,
   });
   console.log(
-    "PASS: Workday/iCIMS/generic contact, privacy, selected history, native and reversible ARIA selects, disabled/ambiguous/irreversible/submit-button exclusions, user-edit preservation, Undo, dates, DOM/navigation races, mobile, zero Next/Submit clicks",
+    "PASS: Workday/iCIMS/generic contact, privacy, selected history, native and ARIA selects, disabled/ambiguous/submit-button exclusions, irreversible-choice preservation, user-edit preservation, Undo, dates, DOM/navigation races, mobile, zero Next/Submit clicks",
   );
   // The native popup layout is rendered separately; runtime behavior is covered
   // by the MV3 and backend suites, not this screenshot.

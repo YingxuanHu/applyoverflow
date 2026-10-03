@@ -62,7 +62,7 @@ export default async function ResumeBuilderPage() {
   ]);
 
   return (
-    <section className="app-page">
+    <section className="app-page app-page-workspace">
       <ResumeBuilder
         builds={builds.map((build) => ({
           id: build.id,

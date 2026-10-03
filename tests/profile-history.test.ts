@@ -11,7 +11,47 @@ import {
   historyDatesSchema,
   historyPeriodsMatch,
   historyValidationError,
+  autofillHistoryDates,
+  educationFieldOfStudy,
 } from "../src/lib/profile-history";
+
+test("field of study uses explicit program evidence and preserves user-entered majors", () => {
+  for (const [degree, expected] of [
+    ["Bachelor of Computer Science", "Computer Science"],
+    ["B.Sc. in Computer Science", "Computer Science"],
+    ["Bachelor of Science (Computer Science)", "Computer Science"],
+    ["MSc, Applied Mathematics", "Applied Mathematics"],
+    ["Master of Engineering, Emphasis in Computer Engineering", "Computer Engineering"],
+    ["Bachelor of Arts; Major: History", "History"],
+    ["BSc", ""], ["Bachelor of Science", ""], ["MBA", ""],
+    ["Bachelor of Science, Minor in Economics", ""],
+    ["Bachelor of Computer Science & Master of Applied Mathematics", ""],
+  ]) assert.equal(educationFieldOfStudy({ school: "Fixture University", degree }), expected, degree);
+  assert.equal(educationFieldOfStudy({ school: "Fixture University, School of Computer Science", degree: "Bachelor of Computer Science & BBA (Finance, Other University)" }), "Computer Science");
+  assert.equal(educationFieldOfStudy({ school: "Fixture School of Business", degree: "BSc" }), "");
+  assert.equal(educationFieldOfStudy({ school: "Fixture", degree: "Bachelor of Computer Science", fieldOfStudy: "Applied Computing" }), "Applied Computing");
+  assert.equal(normalizeEducations([{ school: "Fixture", degree: "Master of Engineering, Emphasis in Computer Engineering" }])[0].fieldOfStudy, "Computer Engineering", "profile and extension share recovered program data");
+});
+
+test("autofill reads explicit legacy periods without changing stored profile data or inventing precision", () => {
+  for (const [time, dates] of [
+    ["Jan 2020 - June 2023", { start: "2020-01", end: "2023-06", current: false }],
+    ["September 2020\u2013Present", { start: "2020-09", end: "", current: true }],
+    ["2018 - 2022", { start: "2018", end: "2022", current: false }],
+    ["Jan 2, 2020 to Mar 4, 2021", { start: "2020-01-02", end: "2021-03-04", current: false }],
+    ["2020-09-12 -- 2021-10-15", { start: "2020-09-12", end: "2021-10-15", current: false }],
+    ["Jan \u2013 Aug 2025", { start: "2025-01", end: "2025-08", current: false }],
+    ["Sep - Dec 2023", { start: "2023-09", end: "2023-12", current: false }],
+  ] as const) {
+    const entry = { time };
+    assert.deepEqual(autofillHistoryDates(entry), dates, time);
+    assert.deepEqual(entry, { time });
+  }
+  for (const time of ["Fall 2020 - Spring 2023", "01/02/2020 - 03/04/2021", "2024 - 2020", "2020", "2020 - Unknown", "Expected Jun 2027", "Jan 2020 - Jun 2023 (part time)", "Feb 30, 2020 - Jun 2023", "Nov - Feb 2025"])
+    assert.equal(autofillHistoryDates({ time }), undefined, time);
+  const dates = { start: "2024", end: "", current: true };
+  assert.deepEqual(autofillHistoryDates({ time: "2018 - 2022", dates }), dates, "structured dates take precedence");
+});
 import {
   setupProfileSchema,
   parseOnboardingState,
@@ -39,7 +79,8 @@ test("invalid history dates and contradictory periods cannot be saved", () => {
   for (const dates of [
     { start: "2020-00", end: "", current: false },
     { start: "2020-13", end: "", current: false },
-    { start: "2020-01-01", end: "", current: false },
+    { start: "2020-02-30", end: "", current: false },
+    { start: "2021-02-29", end: "", current: false },
     { start: "20", end: "", current: false },
     { start: "September 2020", end: "", current: false },
     { start: "2020", end: "2019", current: false },
@@ -60,6 +101,16 @@ test("invalid history dates and contradictory periods cannot be saved", () => {
     true,
   );
   assert.equal(historyValidationError([{ time: "2020 - Present" }]), null);
+});
+
+test("exact history dates and field of study survive profile normalization without inventing days", () => {
+  const dates = { start: "2020-02-29", end: "2021-03-01", current: false };
+  assert.equal(historyDatesSchema.safeParse(dates).success, true);
+  assert.equal(historyDatesSchema.safeParse({ start: "2020-09-30", end: "2020-09", current: false }).success, true);
+  assert.equal(historyDatesSchema.safeParse({ start: "2020-09-30", end: "2020-09-29", current: false }).success, false);
+  const education = normalizeEducations([{ school: "Fixture University", degree: "BSc", fieldOfStudy: "Computer Science", dates }])[0];
+  assert.equal(education.fieldOfStudy, "Computer Science");
+  assert.deepEqual(education.dates, dates);
 });
 
 test("legacy history is not silently converted or treated as precise dates", () => {

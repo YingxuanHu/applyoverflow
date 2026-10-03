@@ -14,11 +14,11 @@ export default async function DocumentComparePage() {
   const { documents } = await getComparableDocuments();
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <div className="flex flex-wrap items-start justify-between gap-4 pb-6">
+    <div className="app-page app-page-workspace space-y-6">
+      <div className="page-header">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Compare Documents</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="page-title">Compare Documents</h1>
+          <p className="page-description">
             Review the exact differences between stored resumes, cover letters, and templates.
           </p>
         </div>

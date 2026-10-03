@@ -91,7 +91,7 @@ export function JobsFilterPanel({
     >
       <DialogTrigger
         render={
-          <Button className="h-10 w-full gap-2 sm:w-auto" variant="outline" />
+          <Button className="h-11 w-full gap-2 sm:w-auto" variant="outline" />
         }
       >
         <SlidersHorizontal className="size-4 text-muted-foreground" />

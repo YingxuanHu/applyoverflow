@@ -98,7 +98,7 @@ export default async function ProfilePage() {
   const completeness = buildCompleteness(initialValues);
 
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-focused space-y-6">
       <header className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 max-w-full">
           <h1 className="page-title">Profile</h1>

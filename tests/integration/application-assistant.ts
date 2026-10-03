@@ -91,6 +91,16 @@ async function main() {
       false,
     );
     assert.equal((await getExtensionContact(user.id)).givenName, "Test");
+    await prisma.userProfile.update({
+      where: { authUserId: user.id },
+      data: { contactJson: { fullName: "New Profile Name", email: "updated@example.test", phone: "+14165550100" } },
+    });
+    const updatedContact = await getExtensionContact(user.id);
+    assert.equal(updatedContact.email, "updated@example.test", "fill must read the latest saved profile, not the account email or a stale copy");
+    assert.equal(updatedContact.phone, "+14165550100");
+    assert.equal(updatedContact.givenName, "", "never guess separate names from a full name");
+    assert.equal(updatedContact.familyName, "");
+    assert.equal(updatedContact.streetAddress, "", "never invent missing address facts");
     const history = await getExtensionHistory(user.id);
     assert.ok(history.entries);
     if (!history.entries) throw new Error("Missing entries");

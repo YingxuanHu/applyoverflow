@@ -1,14 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ApplicationProfileReference, ReferenceField } from "@/lib/application-profile-reference";
 
+const subscribeToHydration = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
+
 export function ProfileReference({ reference }: { reference: ApplicationProfileReference }) {
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientReady, serverReady);
   const [copied, setCopied] = useState("");
   const [message, setMessage] = useState("");
   const attempt = useRef(0);
@@ -21,7 +26,7 @@ export function ProfileReference({ reference }: { reference: ApplicationProfileR
           <dd className="col-start-1 row-start-2 min-w-0 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{value}</dd>
           <div className="col-start-2 row-span-2 row-start-1">
             <Tooltip>
-              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Copy ${label.toLowerCase()}`} onClick={async () => {
+              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" disabled={!hydrated} aria-label={`Copy ${label.toLowerCase()}`} onClick={async () => {
                 const current = ++attempt.current;
                 try {
                   await navigator.clipboard.writeText(value);
@@ -43,7 +48,8 @@ export function ProfileReference({ reference }: { reference: ApplicationProfileR
       })}
     </dl>;
   }
-  return <details className="group/reference min-w-0 border-y py-4">
+  // The browser owns the native disclosure's open state, even before hydration.
+  return <details suppressHydrationWarning className="group/reference min-w-0 border-y py-4">
     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
       Profile reference
       <ChevronDown className="size-4 shrink-0 transition-transform group-open/reference:rotate-180" />
@@ -57,9 +63,9 @@ export function ProfileReference({ reference }: { reference: ApplicationProfileR
         }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList variant="line" aria-label="Profile sections">
-              <TabsTrigger value="contact">Contact</TabsTrigger>
-              <TabsTrigger value="experience">Work</TabsTrigger>
-              <TabsTrigger value="education">Education</TabsTrigger>
+              <TabsTrigger value="contact" disabled={!hydrated}>Contact</TabsTrigger>
+              <TabsTrigger value="experience" disabled={!hydrated}>Work</TabsTrigger>
+              <TabsTrigger value="education" disabled={!hydrated}>Education</TabsTrigger>
             </TabsList>
             <Link href="/profile" target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">Edit profile</Link>
           </div>

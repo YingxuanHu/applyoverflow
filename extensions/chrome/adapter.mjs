@@ -33,6 +33,24 @@ export function createInspector(resolveContext, history, autofill) {
       };
     if (expectedUrl && location.href !== expectedUrl)
       return { error: "The page changed. Open the extension again." };
+    const rippling = context.provider === "generic" && location.hostname === "ats.rippling.com" &&
+      /^\/[a-z0-9_-]+\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
+    const hibob = /\.careers\.hibob\.com$/.test(location.hostname) &&
+      /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(location.pathname);
+    // Bind country-relative eligibility questions to the posting, never the
+    // applicant address or arbitrary text elsewhere on the page.
+    let employmentCountry;
+    if (hibob) {
+      const locations = [...document.querySelectorAll('careers-ui-job-ad-header .job-ad-subtitle')];
+      if (locations.length === 1) {
+        const place = locations[0].textContent.trim().split("\u00b7")[0].trim();
+        const parts = place.split(",").map(part => part.trim().toLowerCase());
+        const country = { canada: "CA", "united states": "US", "united states of america": "US", usa: "US", us: "US" }[parts.at(-1)];
+        if (country && !/\b(?:or|and|uk|united kingdom|mexico)\b|[;/]/i.test(place) &&
+            !(country === "CA" && /\bunited states\b|\busa?\b/i.test(place)) &&
+            !(country === "US" && /\bcanada\b/i.test(place))) employmentCountry = country;
+      }
+    }
     const aliases = {
       "first name": "givenName",
       "given name": "givenName",
@@ -60,6 +78,7 @@ export function createInspector(resolveContext, history, autofill) {
       "address 2": "addressLine2",
       city: "city",
       "city/town": "city",
+      "location (city)": "city",
       "postal code": "postalCode",
       province: "region",
       state: "region",
@@ -80,14 +99,47 @@ export function createInspector(resolveContext, history, autofill) {
       "github url": "githubUrl",
       portfolio: "portfolioUrl",
       "portfolio url": "portfolioUrl",
+      skills: "skills",
+      "technical skills": "skills",
     };
     const normalize = (value) =>
       value
+        .normalize("NFKC")
         .replace(/[*\u2731\u2217]|\(required\)|\(optional\)/gi, "")
         .replace(/:$/, "")
         .trim()
         .replace(/\s+/g, " ")
         .toLowerCase();
+    // Match a bounded vocabulary of applicant facts, not edit-distance guesses.
+    // "Employer email" and "LinkedIn experience" must never become contact data.
+    const meaning = (label) => {
+      const text = normalize(label).replace(/[?]$/, "").trim()
+        .replace(/^(?:please\s+)?(?:enter|provide|share|paste)\s+(?:a\s+)?/, "")
+        .replace(/^(?:what is|what's)\s+/, "")
+        .replace(/^(?:a link to\s+|link to\s+)?(?:your|applicant|candidate)\s+/, "");
+      if (Object.hasOwn(aliases, text)) return aliases[text];
+      if (/\b(?:link|url|website|profile)\b/.test(text) && /\bor\b/.test(text) &&
+        /linkedin/i.test(text) && /github|portfolio|professional (?:profile|website)/.test(text) &&
+        !/experience|describe|explain|employer|reference|referr|company|team/.test(text)) return "professionalUrl";
+      const rules = [
+        ["givenName", /^(?:legal )?(?:first|given) name(?:\(s\)|s)?$/],
+        ["familyName", /^(?:legal )?(?:last|family) name(?:\(s\)|s)?$/],
+        ["fullName", /^(?:legal|complete|first and last) (?:full )?name$/],
+        ["email", /^(?:personal|preferred|contact) e[- ]?mail(?: address)?$/],
+        ["phone", /^(?:contact|mobile|cell|cellphone|telephone|primary phone)(?: number)?$/],
+        ["linkedInUrl", /^(?:link to (?:your )?)?linked[ -]?in(?: (?:profile|public profile))?(?: (?:url|link|address))?$/],
+        ["githubUrl", /^github(?: profile)?(?: (?:url|link|address))?$/],
+        ["portfolioUrl", /^(?:personal )?(?:portfolio|website)(?: (?:url|link|address))?$/],
+        ["region", /^(?:state|province)(?:\s*[/,]\s*(?:state|province|region)){1,2}$/],
+        ["region", /(?:^|[.!]\s*)(?:in )?which (?:us |u\.s\. |canadian )?(?:state|province) do you (?:reside|live)(?: in)?\??$|^(?:state|province) of residence$/],
+        ["city", /^(?:current |home )?city(?: of residence)?$|^city\s*\/\s*town$|^location\s*\(city\)$/],
+        ["country", /^(?:current |home )?country(?: of residence)?$/],
+        ["postalCode", /^(?:zip|postal)(?:\s*\/\s*(?:zip|postal))?(?: code)?$/],
+        ["streetAddress", /^(?:home |mailing )?street address(?: line 1)?$/],
+        ["addressLine2", /^(?:apartment|apt|unit)(?:\s*(?:\/|or)\s*(?:apartment|unit|suite))?(?: number)?$/],
+      ];
+      return rules.find(([, pattern]) => pattern.test(text))?.[0];
+    };
     const visible = (element) =>
       !!element.getClientRects().length &&
       !element.closest("[hidden], [inert], [aria-hidden='true']") &&
@@ -96,6 +148,18 @@ export function createInspector(resolveContext, history, autofill) {
     const valueControls =
       'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
     const labelFor = (element) => {
+      const salary = hibob && element.closest('b-currency-value-select');
+      if (salary && salary.querySelectorAll('input').length === 1 &&
+          salary.querySelectorAll('b-single-select > [role="button"]').length === 1 &&
+          normalize(salary.querySelector('label')?.textContent || "") === "desired salary") {
+        if (element.matches('input')) return "Desired salary (amount)";
+        if (element.matches('b-single-select > [role="button"]')) return "Desired salary (currency)";
+      }
+      if (context.provider === "lever" && !["radio", "checkbox"].includes(element.type)) {
+        const question = element.closest('.application-question');
+        const headings = question?.querySelectorAll('.application-label');
+        if (headings?.length === 1 && !headings[0].contains(element)) return headings[0].textContent.trim();
+      }
       const label = element.labels?.[0]?.cloneNode(true);
       label
         ?.querySelectorAll(valueControls)
@@ -130,7 +194,7 @@ export function createInspector(resolveContext, history, autofill) {
         .replace(/\s+/g, " ");
     };
     const controlSelector =
-      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"]';
+      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
@@ -138,7 +202,7 @@ export function createInspector(resolveContext, history, autofill) {
       /\b(application|apply|my information|my experience)\b/i.test(
         [
           ...document.querySelectorAll(
-            "h1,h2,h3,[data-automation-id='pageHeaderTitle']",
+            "h1,h2,h3,h4,[role='tab'][aria-selected='true'],[data-automation-id='pageHeaderTitle']",
           ),
         ]
           .map((node) => node.textContent)
@@ -150,21 +214,24 @@ export function createInspector(resolveContext, history, autofill) {
       };
     const forms = [
       ...document.querySelectorAll(
-        context.provider === "ashby"
+        hibob ? "careers-ui-job-ad-application-form" : context.provider === "ashby"
           ? ".ashby-application-form-container"
           : context.provider === "workable"
             ? 'form[data-ui="application-form"]'
             : context.provider === "workday"
               ? 'form, [data-automation-id="applyFlowPage"]'
-              : "form",
+              : 'form, [role="form"]',
       ),
     ]
       .filter(
         (form) =>
           visible(form) &&
           (!flexible || !form.querySelector('input[type="password"]')) &&
+          (!flexible || !/\b(newsletter|job alerts?|subscribe|sign in|sign up)\b/i.test(
+            [form.getAttribute("aria-label"), form.querySelector(":scope > h1,:scope > h2,:scope > h3,:scope > legend")?.textContent].filter(Boolean).join(" "),
+          )) &&
           ([...form.querySelectorAll("input")].some(
-            (field) => aliases[normalize(labelFor(field))] === "email",
+            (field) => meaning(labelFor(field)) === "email",
           ) ||
             // Signed-in Workday candidates have a read-only email, and later
             // steps can contain questions only. Require the ATS apply container;
@@ -185,13 +252,29 @@ export function createInspector(resolveContext, history, autofill) {
               ))) &&
           (!flexible ||
             context.provider === "workable" ||
-            applicationHeading ||
+            applicationHeading || hibob ||
             form.querySelector('input[type="file"][accept*="pdf"]')),
       )
       .filter(
         (form, _, all) =>
           !all.some((other) => other !== form && form.contains(other)),
       );
+    // Form-less employer pages: require multiple applicant facts and a resume
+    // control inside one non-document container, plus explicit application text.
+    if (!forms.length && flexible && applicationHeading) {
+      const inputs = [...document.querySelectorAll("input")].filter(field => visible(field));
+      const emails = inputs.filter(field => meaning(labelFor(field)) === "email");
+      if (emails.length === 1) {
+        let root = emails[0].parentElement;
+        while (root && !root.matches("body,html")) {
+          const keys = new Set([...root.querySelectorAll("input")].map(field => meaning(labelFor(field))));
+          if (keys.has("email") && (keys.has("givenName") || keys.has("fullName")) &&
+              root.querySelector('input[type="file"]') && !root.querySelector('input[type="password"]') &&
+              !root.querySelector("form")) { forms.push(root); break; }
+          root = root.parentElement;
+        }
+      }
+    }
     if (forms.length !== 1)
       return {
         error:
@@ -209,6 +292,16 @@ export function createInspector(resolveContext, history, autofill) {
       // Workable has separate resume/import/photo widgets. Keep file uploads
       // manual until the complete upload lifecycle is verified.
       if (context.provider === "workable") return false;
+      if (rippling) {
+        const widget = field.closest('label[data-testid="resume"]');
+        const labels = (widget?.getAttribute("aria-labelledby") || "").split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent || "");
+        return field.getAttribute("data-testid") === "input-resume" &&
+          forms[0].querySelectorAll('input[type="file"][data-testid="input-resume"]').length === 1 &&
+          widget && visible(widget) && !field.disabled && !field.multiple &&
+          !field.closest('[hidden],[inert],[aria-hidden="true"],[aria-busy="true"]') &&
+          labels.some(label => /^(resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(label)));
+      }
       if (
         [...document.querySelectorAll("input")].filter(
           (item) => item.id === field.id,
@@ -393,7 +486,12 @@ export function createInspector(resolveContext, history, autofill) {
           ["email", "tel"].includes(tokens[1])
         ) tokens.shift();
         const token = tokens.length === 1 ? tokens[0] : "";
-        if (!token || standard[token] !== key) key = undefined;
+        const ripplingFields = { first_name: "givenName", last_name: "familyName", email: "email", phone_number: "phone" };
+        const input = field.getAttribute("data-input");
+        const confirmedRipplingField = rippling && ripplingFields[input] === key && key &&
+          field.getAttribute("data-testid") === `input-${input}` &&
+          field.getAttribute("aria-labelledby") === `${field.id}-label`;
+        if ((!token || standard[token] !== key) && !confirmedRipplingField) key = undefined;
       }
       const group = field
         .closest("fieldset")
@@ -446,13 +544,33 @@ export function createInspector(resolveContext, history, autofill) {
       }
       // A telephone's country code is not the applicant's address country.
       if (candidate === "country" && /phone|telephone/i.test(group || "")) profileKey = "phoneCountry";
+      if (context.provider === "greenhouse" && field.id === "candidate-location" && candidate === "city") profileKey = "city";
+      if (rippling && normalized === "location" && field instanceof HTMLInputElement &&
+        field.getAttribute("data-testid") === "input-undefined" &&
+        field.getAttribute("aria-labelledby") === `${field.id}-label` &&
+        field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
+      const inferred = meaning(label);
+      const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
+      let foreignContext = Boolean(inferred && foreign.test(label));
+      for (let node = field.parentElement; node && node !== forms[0]; node = node.parentElement) {
+        if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control')) {
+          const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4')?.textContent || "";
+          if (foreign.test(title) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+        }
+      }
+      const autoTokens = (field.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+      const declared = semantic[autoTokens.at(-1)];
+      const conflict = declared && inferred && declared !== inferred && !(inferred === "fullAddress" && declared === "streetAddress");
+      if (foreignContext || conflict || autoTokens.some(token => foreign.test(token))) { profileKey = undefined; key = undefined; }
+      else if (!profileKey && inferred) profileKey = inferred;
+      if (key === "skills") key = undefined;
       if (
         field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
         )
       )
         key = undefined;
-      return { field, label, key, profileKey, identityLabel: Boolean(aliases[normalized]) };
+      return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext };
     };
     const entries = fields.map(contactEntry);
     const isContactField = ({ field, key }) =>
@@ -512,13 +630,17 @@ export function createInspector(resolveContext, history, autofill) {
           .filter((label) => label && label.length <= 500),
       ),
     ];
+    const aiRestricted = [...forms[0].querySelectorAll('label,legend,p')].some(node =>
+      /(?:ai|artificial intelligence|chatgpt)[- ]?(?:generated|written)?[\s\S]{0,180}(?:disqualif|not (?:permitted|allowed)|prohibited)|(?:do not|must not|cannot|may not) use[\s\S]{0,100}(?:artificial intelligence|chatgpt|\bAI\b)/i.test(node.textContent || ""));
     const result = {
+      aiRestricted,
+      employmentCountry,
       url: location.href,
       title: (
         (context.provider === "workday" &&
           document.querySelector('[data-automation-id="jobTitleHeading"]')
             ?.textContent) ||
-        document.querySelector("h1, .posting-headline h2")?.textContent ||
+        document.querySelector("h1, .posting-headline h2, careers-ui-job-ad-section h3")?.textContent ||
         document.title
       )
         .trim()
@@ -532,6 +654,8 @@ export function createInspector(resolveContext, history, autofill) {
       review: questions.length,
       resumeAvailable,
       resumeDetected: Boolean(resumeInput),
+      manualResume: hibob && !resumeInput && [...forms[0].querySelectorAll('careers-ui-upload-document-control')]
+        .some(widget => visible(widget) && /\b(resume|cv)\b/i.test(widget.textContent)),
       undoAvailable: undoEntries.some(
         (entry) =>
           !entry.edited &&
@@ -564,17 +688,35 @@ export function createInspector(resolveContext, history, autofill) {
       const details = await autofill(mode, contact, entries, forms[0], labelFor, visible);
       if (details.error) return details;
       Object.assign(result, details);
+      if (aiRestricted && result.fields) result.fields = result.fields.map(field => ({ ...field, aiRestricted: true }));
+      if (mode === "autofill-context") {
+        // Send only the posting text, never applicant answers, and only when the
+        // user requests Autofill or an AI draft. Never read a surrounding frame.
+        const description = context.provider === "greenhouse"
+          ? document.querySelector('.job__description, #content .content, .job-post-container .content')
+          : document.querySelector('[itemprop="description"], [data-testid="job-description"], .job-description, .posting-description');
+        result.jobDescription = description && !description.querySelector('input,textarea,select,[contenteditable="true"]') && !description.contains(forms[0]) && !forms[0].contains(description)
+          ? description.innerText.slice(0, 8000) : "";
+      }
       if (mode === "autofill" && history) {
         result.historyFilled = 0;
+        result.historySaved = 0;
+        result.historyDateAdjusted = 0;
         result.historyNeedsReview = 0;
+        result.historyWarnings = [];
         for (const entry of (contact.history || []).slice(0, 20)) {
           if (location.href !== expectedUrl || !forms[0].isConnected) break;
           const filled = await history("fill-history", { ...entry, automatic: true }, forms[0], labelFor, visible);
           result.historyFilled += filled.filled || 0;
+          result.historySaved += filled.saved || 0;
+          result.historyDateAdjusted += filled.dateAdjusted || 0;
           result.historyNeedsReview += filled.skipped || 0;
+          const warning = filled.warning || filled.error;
+          if (warning && !result.historyWarnings.includes(warning)) result.historyWarnings.push(warning);
         }
         Object.assign(result, await history("inspect", {}, forms[0], labelFor, visible));
         Object.assign(result, await autofill("inspect", {}, entries, forms[0], labelFor, visible));
+        if (aiRestricted && result.fields) result.fields = result.fields.map(field => ({ ...field, aiRestricted: true }));
       }
       if (mode.startsWith("autofill")) return result;
     }
@@ -700,10 +842,20 @@ export function createInspector(resolveContext, history, autofill) {
       resumeInput.dispatchEvent(new Event("input", { bubbles: true }));
       resumeInput.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 150));
+      if (rippling && autofill) {
+        // Rippling imports contact details asynchronously after resume upload.
+        // Keep this bounded; a late employer update still needs user review.
+        const until = Date.now() + 5000;
+        while (Date.now() < until && location.href === target.url && forms[0].isConnected)
+          await new Promise(resolve => setTimeout(resolve, 100));
+        if (location.href === target.url && forms[0].isConnected)
+          await autofill("autofill-reconcile-resume", {}, entries, forms[0], labelFor, visible);
+      }
       const selected = resumeInput.files?.[0];
       return {
         ...result,
         resumeAvailable: false,
+        resumeParserReview: rippling,
         resumeSelected:
           resumeInput.isConnected &&
           location.href === target.url &&

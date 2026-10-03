@@ -56,7 +56,7 @@ async function main() {
   });
   const file = new File(
     [
-      "Jordan Example\njordan@example.invalid\n416-555-0100\nToronto, ON\n\nSUMMARY\nFinancial analyst with reporting experience.\n\nSKILLS\nExcel, Financial analysis, SQL\n\nEXPERIENCE\nFinancial Analyst\nExample Corp\n2022 - Present\nToronto, ON\nPrepared financial reports and reviewed forecasts.\n\nEDUCATION\nExample University\nBachelor of Commerce\n2018 - 2022\n",
+      "Jordan Example\njordan@example.invalid\n416-555-0100\nToronto, ON\n\nSUMMARY\nFinancial analyst with reporting experience.\n\nSKILLS\nExcel, Financial analysis, SQL\n\nEXPERIENCE\nFinancial Analyst\nExample Corp\n2022 - Present\nToronto, ON\nPrepared financial reports and reviewed forecasts.\n\nEDUCATION\nExample University\nBachelor of Commerce in Finance\n2018 - 2022\n",
     ],
     "onboarding-fixture.txt",
     { type: "text/plain" },
@@ -79,6 +79,13 @@ async function main() {
     const imported = await ingestResumeIntoProfile({ existingProfile: history, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
     assert.equal(imported.mergedProfile.experiences.length, 2, "a later stint at the same employer remains separate");
     assert.deepEqual(imported.mergedProfile.experiences[0].dates, history.experiences[0].dates, "import preserves user-entered dates");
+    assert.equal(imported.mergedProfile.educations[0].fieldOfStudy, "Finance", "resume major reaches the profile");
+    const withMissingMajor = { ...imported.mergedProfile, educations: imported.mergedProfile.educations.map(entry => ({ ...entry, fieldOfStudy: undefined })) };
+    const recovered = await ingestResumeIntoProfile({ existingProfile: withMissingMajor, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
+    assert.equal(recovered.mergedProfile.educations[0].fieldOfStudy, "Finance", "reimport repairs a missing major");
+    const withEditedMajor = { ...imported.mergedProfile, educations: imported.mergedProfile.educations.map(entry => ({ ...entry, fieldOfStudy: "Financial Economics" })) };
+    const preserved = await ingestResumeIntoProfile({ existingProfile: withEditedMajor, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
+    assert.equal(preserved.mergedProfile.educations[0].fieldOfStudy, "Financial Economics", "reimport preserves the user's major");
     const repeated = await ingestResumeIntoProfile({ existingProfile: imported.mergedProfile, fileBuffer: Buffer.from(await file.arrayBuffer()), fileName: file.name, mimeType: file.type, allowAi: false });
     assert.equal(repeated.mergedProfile.experiences.length, 2, "repeated import does not create a third stint");
     await assert.rejects(

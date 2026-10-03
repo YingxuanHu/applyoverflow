@@ -152,17 +152,16 @@ export function JobFeedMasterDetail({
   };
 
   return (
-    <div className="grid min-w-0 gap-4 lg:h-[min(52rem,calc(100dvh-8rem))] lg:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)] lg:items-stretch">
+    <div className="job-workspace">
       <section
         ref={listPanelRef}
         aria-label="Jobs on this page"
         className="overflow-hidden rounded-[16px] border border-border/60 bg-card lg:flex lg:h-full lg:min-h-0 lg:flex-col"
       >
-        <div className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-4 sm:px-6">
           <p className="text-sm font-medium text-foreground">
             {entries.length} job{entries.length === 1 ? "" : "s"} on this page
           </p>
-          <p className="text-xs text-muted-foreground">Select a job to review</p>
         </div>
         <div data-job-list-scroll onScroll={(event) => { if (positionRef.current) positionRef.current.listTop = event.currentTarget.scrollTop; }} onKeyDown={(event) => {
           const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
@@ -242,7 +241,7 @@ function JobFeedListRow({
       data-job-entry={entry.id}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "relative block w-full border-l-2 px-4 py-4 text-left transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 sm:px-5",
+        "relative block w-full border-l-2 px-4 py-5 text-left transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 sm:px-6",
         active
           ? "border-l-primary bg-primary/[0.055]"
           : "border-l-transparent hover:bg-muted/45",
@@ -254,14 +253,14 @@ function JobFeedListRow({
         <CompanyLogo company={job.company} domain={job.companyDomain} />
         <div className="min-w-0 flex-1">
         {entry.listMeta ? <div className="mb-2">{entry.listMeta}</div> : null}
-        <p className="truncate text-sm font-semibold text-foreground sm:text-[15px]">
+        <p className="line-clamp-2 text-lg font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">
           {job.title}
         </p>
-        <p className="mt-1 truncate text-sm text-foreground/80">{job.company}</p>
+        <p className="mt-1 line-clamp-2 text-sm leading-5 text-foreground/80">{job.company}</p>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
         <RowMeta icon={<MapPin className="h-3.5 w-3.5" />} value={job.location} />
         {job.workMode !== "UNKNOWN" ? (
           <RowMeta
@@ -277,7 +276,7 @@ function JobFeedListRow({
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
         <span>Posted {formatPostedAge(job.postedAt, referenceNow)}</span>
         {deadlineUrgency ? (
           <span className={deadlineUrgency.color}>{deadlineUrgency.label}</span>
@@ -356,7 +355,7 @@ function JobFeedDetailPanel({
       ref={panelRef}
       tabIndex={-1}
     >
-      <div className="shrink-0 border-b border-border/60 px-4 py-4 sm:px-5 sm:py-5">
+      <div className="shrink-0 border-b border-border/60 px-4 py-5 sm:px-7 sm:py-6">
         <button type="button" onClick={onBack} className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground lg:hidden">
           <ArrowLeft className="h-4 w-4" /> Back to jobs
         </button>
@@ -364,10 +363,10 @@ function JobFeedDetailPanel({
           <div className="flex min-w-0 items-start gap-3">
             <CompanyLogo company={job.company} domain={job.companyDomain} size="md" />
             <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-semibold leading-snug tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-2xl">
+            <h2 className="text-2xl font-semibold leading-snug tracking-normal text-foreground [overflow-wrap:anywhere]">
               {job.title}
             </h2>
-            <p className="mt-1.5 text-sm font-medium text-foreground/80 [overflow-wrap:anywhere]">{job.company}</p>
+            <p className="mt-1.5 text-base font-medium text-foreground/80 [overflow-wrap:anywhere]">{job.company}</p>
             <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" />{job.location}</p>
             </div>
           </div>
@@ -405,7 +404,7 @@ function JobFeedDetailPanel({
 
       </div>
 
-      <div ref={scrollRef} onScroll={(event) => { if (restoredRef.current) onDetailScroll(event.currentTarget.scrollTop); }} data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+      <div ref={scrollRef} onScroll={(event) => { if (restoredRef.current) onDetailScroll(event.currentTarget.scrollTop); }} data-description-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-7">
         {entry.detailMeta ? <div className="mb-4">{entry.detailMeta}</div> : null}
         <div className="mb-5 grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border/60 pb-4 text-sm 2xl:grid-cols-4">
           <DetailField
@@ -431,9 +430,9 @@ function JobFeedDetailPanel({
           />
         </div>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-foreground">Job description</p>
+          <p className="text-base font-semibold text-foreground">Job description</p>
           <Link
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground transition hover:text-foreground"
             href={buildJobDetailHref(job.id, sourceHref, job.id)}
           >
             Full page
@@ -464,7 +463,7 @@ function RowMeta({ icon, value }: { icon: ReactNode; value: string }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
       <span className="shrink-0 text-muted-foreground/70">{icon}</span>
-      <span className="max-w-[14rem] truncate">{value}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{value}</span>
     </span>
   );
 }
@@ -482,11 +481,11 @@ function DetailField({
 }) {
   return (
     <div className="min-w-0">
-      <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-normal text-muted-foreground">
         {icon}
         {label}
       </p>
-      <p className={cn("mt-1 break-words text-sm leading-5 text-foreground", valueClassName)}>{value}</p>
+      <p className={cn("mt-1 break-words text-base leading-6 text-foreground", valueClassName)}>{value}</p>
     </div>
   );
 }

@@ -26,6 +26,7 @@ async function main() {
         create: {
           email,
           name: "Extension Browser Fixture",
+          summary: "Built Python reporting tools for finance teams and validated results against manually reviewed reference reports. Coached analysts in interpreting report discrepancies and resolving customer escalations.",
           contactJson: {
             fullName: "Jordan Example",
             givenName: "Jordan",
@@ -33,6 +34,9 @@ async function main() {
             email,
             phone: "+14165550100",
             linkedInUrl: "https://www.linkedin.com/in/example",
+            phoneCountry: "CA", country: "CA", city: "Toronto", region: "ON", autofillResume: false,
+            applicationAnswers: { enabled: true, values: { jobSource: "ApplyOverflow", smsUpdates: "No", sponsorshipUS: "Yes", usPerson: "No", gender: "Prefer not to answer", ethnicity: "Prefer not to answer" },
+              employers: [{ url: "https://job-boards.greenhouse.io/missionlane/jobs/8848599002", employeeRelationship: "No", referral: "No" }] },
           },
           experiencesJson: [
             { title: "Analyst", company: "Reference Fixture", time: "", dates: { start: "2020", end: "2022-06", current: false }, description: "Reviewed reports." },
@@ -55,6 +59,7 @@ async function main() {
       data: {
         userId: profile.id,
         type: "RESUME",
+        isPrimary: true,
         title: "Browser test resume",
         originalFileName: "Jordan Resume.pdf",
         filename: "resume.pdf",
@@ -74,7 +79,7 @@ async function main() {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(
         process.execPath,
-        ["scripts/test-application-extension-connection.mjs"],
+        [process.argv.includes("--autofill") ? "scripts/test-application-extension-flow.mjs" : "scripts/test-application-extension-connection.mjs"],
         {
           stdio: "inherit",
           env: {

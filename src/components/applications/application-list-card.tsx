@@ -318,7 +318,7 @@ export function ApplicationListCard({
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Link
                       href={`/applications/${application.id}`}
-                      className="mobile-list-title block text-base font-semibold text-foreground transition hover:underline sm:truncate"
+                      className="mobile-list-title block text-lg font-semibold leading-6 text-foreground transition hover:underline [overflow-wrap:anywhere]"
                       title={application.roleTitle}
                     >
                       {application.roleTitle}

@@ -12,6 +12,8 @@ import {
   hashSecret,
 } from "@/lib/queries/application-assistant";
 import { readStoredFileBounded } from "@/lib/storage";
+import { normalizeContact } from "@/lib/profile";
+import { captureSchema } from "@/lib/application-assistant";
 import {
   EXTENSION_RESUME_MAX_BYTES,
   EXTENSION_RESUME_MIME_TYPES,
@@ -229,6 +231,10 @@ export async function exchangeExtensionResume(
       throw new AssistantError("Resume approval already used.", 409);
     return transfer.document;
   });
+  return readApprovedResume(identity, document);
+}
+
+async function readApprovedResume(identity: ExtensionIdentity, document: Prisma.DocumentGetPayload<{ select: typeof resumeFileSelect }>) {
   const bytes = await readStoredFileBounded(
     document.storageKey,
     EXTENSION_RESUME_MAX_BYTES,
@@ -271,4 +277,29 @@ export async function exchangeExtensionResume(
     size: bytes.length,
     base64: bytes.toString("base64"),
   };
+}
+
+// Sharing is opt-in in Profile and occurs only on a user-triggered Autofill.
+// Never silently substitute a recent resume for the user's primary document.
+export async function getDefaultExtensionResume(identity: ExtensionIdentity, raw: unknown) {
+  captureSchema.pick({ url: true }).parse(raw);
+  const profile = await prisma.userProfile.findUnique({
+    where: { authUserId: identity.userId }, select: { contactJson: true },
+  });
+  if (!normalizeContact(profile?.contactJson).autofillResume)
+    throw new AssistantError("Enable default resume sharing in Profile or choose a resume for this application.", 403);
+  const documents = await prisma.document.findMany({
+    where: { user: { authUserId: identity.userId }, type: "RESUME", isPrimary: true },
+    select: resumeFileSelect, take: 2,
+  });
+  if (documents.length !== 1 || !canShareExtensionResume(documents[0]))
+    throw new AssistantError("Choose one default PDF or DOCX resume of 5 MB or less in Documents.");
+  const file = await readApprovedResume(identity, documents[0]);
+  const stillApproved = await prisma.userProfile.findUnique({
+    where: { authUserId: identity.userId }, select: { contactJson: true },
+  });
+  const stillPrimary = await prisma.document.count({ where: { id: documents[0].id, isPrimary: true } });
+  if (!normalizeContact(stillApproved?.contactJson).autofillResume || !stillPrimary)
+    throw new AssistantError("Default resume sharing changed. Try again.", 403);
+  return file;
 }

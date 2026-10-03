@@ -15,6 +15,8 @@ async function main() {
   process.env.APPLICATION_EXTENSION_IDS = clientId;
   const user = await prisma.user.create({ data: { name: "Autofill Test", email: `autofill-${suffix}@example.test`,
     profile: { create: { name: "Autofill Test", email: `autofill-${suffix}@example.test`, phone: "4165550100",
+      skillsJson: [{ name: "TypeScript" }, { name: "SQL" }],
+      educationsJson: [{ school: "Fixture University", degree: "BSc", fieldOfStudy: "Computer Science", dates: { start: "2016-09-01", end: "2020-06-01", current: false } }],
       experiencesJson: [{ title: "Analyst", company: "Fixture", location: "Toronto", description: "Testing", dates: { start: "2020", current: true } }],
     } } }, include: { profile: true } });
   const url = "https://job-boards.greenhouse.io/fixture/jobs/123";
@@ -25,7 +27,11 @@ async function main() {
     assert.equal(plan.contact.email, user.email);
     assert.equal(plan.contact.phone, "4165550100");
     assert.equal(plan.contact.givenName || "", "", "Never invent a legal name split");
-    assert.equal(plan.history.length, 1);
+    assert.equal(plan.history.length, 2);
+    assert.deepEqual(plan.skills, ["TypeScript", "SQL"]);
+    const education = plan.history.find(entry => entry.kind === "education")!.entry;
+    assert.equal("fieldOfStudy" in education && education.fieldOfStudy, "Computer Science");
+    assert.equal(education.dates?.start, "2016-09-01");
     assert.equal((await getAutofillPlan(user.id, { ...request, history: false })).history.length, 0);
     assert.equal(plan.includeResume, false);
     const voluntary = { enabled: false, values: { gender: "Woman", authorizedCA: "No" } };

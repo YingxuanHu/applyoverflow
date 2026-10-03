@@ -74,7 +74,7 @@ export default async function JobDetailPage({
   const hasAppliedStatus = detailData.hasApplied;
 
   return (
-    <div className="app-page space-y-5">
+    <div className="app-page app-page-focused space-y-6">
       <JobDetailScrollReset jobId={job.id} />
 
       {/* Breadcrumb */}
@@ -92,7 +92,7 @@ export default async function JobDetailPage({
       <div className="surface-panel flex flex-col gap-5 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="text-[1.35rem] font-semibold leading-snug tracking-tight sm:text-2xl">
+            <h1 className="text-2xl font-semibold leading-snug tracking-normal [overflow-wrap:anywhere]">
               {job.title}
             </h1>
             {expiringSoon ? (

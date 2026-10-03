@@ -78,6 +78,7 @@ export const setupProfileSchema = z
         z.object({
           school: text(160),
           degree: text(160),
+          fieldOfStudy: text(160).optional(),
           time: text(100),
           dates: historyDatesSchema.optional(),
           location: text(140),

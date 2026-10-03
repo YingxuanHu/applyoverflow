@@ -39,7 +39,7 @@ export async function approveExtension(raw: unknown) {
       error instanceof UnauthorizedError
     )
       return {
-        error: "Sign out and sign in again, then reconnect the extension.",
+        reauthenticateUrl: `/sign-in?reauthenticate=1&callbackUrl=${encodeURIComponent(`/extension/connect?${new URLSearchParams(parsed.data)}`)}`,
       };
     return {
       error:

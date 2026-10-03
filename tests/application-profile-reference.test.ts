@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ProfileReference } from "../src/components/applications/profile-reference";
 import { buildApplicationProfileReference } from "../src/lib/application-profile-reference";
 
 test("application reference preserves factual values, repeated roles and date precision", () => {
@@ -33,4 +36,18 @@ test("reference omits unknowns and bounds malformed profile data", () => {
   assert.equal(reference.experience[0].fields.find(f => f.label === "Description")?.value.length, 3000);
   assert.deepEqual(reference.contact, []);
   assert.deepEqual(reference.education, []);
+});
+
+test("profile reference text is server rendered but script-dependent actions wait for hydration", () => {
+  const html = renderToStaticMarkup(createElement(ProfileReference, {
+    reference: { contact: [{ label: "Email", value: "fixture@example.test" }], experience: [], education: [] },
+  }));
+  assert.match(html, /fixture@example\.test/);
+  const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map(match => match[0]);
+  const tabs = buttons.filter(button => button.includes('role="tab"'));
+  assert.equal(tabs.length, 3);
+  for (const button of tabs) assert.match(button, /disabled=""|aria-disabled="true"/);
+  const copy = buttons.find(button => button.includes('aria-label="Copy email"'));
+  assert.ok(copy);
+  assert.match(copy, /disabled=""|aria-disabled="true"/);
 });

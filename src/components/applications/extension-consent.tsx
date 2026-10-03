@@ -20,6 +20,7 @@ export function ExtensionConsent({
           startTransition(async () => {
             try {
               const result = await approveExtension(request);
+              if (result?.reauthenticateUrl) window.location.assign(result.reauthenticateUrl);
               if (result?.error) setError(result.error);
             } catch {
               setError("Could not connect. Start again in the extension.");

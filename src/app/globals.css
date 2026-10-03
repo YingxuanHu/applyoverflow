@@ -204,7 +204,28 @@
   }
 
   .app-page {
-    @apply mx-auto w-full max-w-[1180px] px-4 py-8 sm:px-6 lg:px-8 lg:py-10;
+    --page-width: 90rem;
+    @apply mx-auto w-full px-4 py-8 sm:px-6 lg:px-10 lg:py-10;
+    max-width: var(--page-width);
+  }
+
+  .app-page-workspace {
+    --page-width: 112.5rem;
+  }
+
+  .app-page-focused {
+    --page-width: 75rem;
+  }
+
+  .job-workspace {
+    @apply grid min-w-0 gap-5 lg:items-stretch;
+  }
+
+  @media (min-width: 1024px) {
+    .job-workspace {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+      height: min(64rem, calc(100dvh - 6rem));
+    }
   }
 
   .page-header {
@@ -212,11 +233,11 @@
   }
 
   .page-title {
-    @apply text-3xl font-semibold tracking-tight text-foreground;
+    @apply text-[32px] font-semibold tracking-normal text-foreground;
   }
 
   .page-description {
-    @apply mt-2 max-w-2xl text-sm leading-6 text-muted-foreground;
+    @apply mt-2 max-w-2xl text-base leading-6 text-muted-foreground;
   }
 
   .surface-panel {
@@ -236,7 +257,7 @@
   }
 
   .grouped-row {
-    @apply border-t border-border/60 px-4 py-4 first:border-t-0 sm:px-5;
+    @apply border-t border-border/60 px-4 py-5 first:border-t-0 sm:px-6;
   }
 
   .object-list {
@@ -244,7 +265,7 @@
   }
 
   .object-row {
-    @apply px-4 py-4 transition-colors hover:bg-muted/45 sm:px-5;
+    @apply px-4 py-5 transition-colors hover:bg-muted/45 sm:px-6;
   }
 
   .object-row * {
@@ -256,11 +277,11 @@
   }
 
   .control-label {
-    @apply text-xs font-semibold uppercase tracking-[0.11em] text-muted-foreground;
+    @apply text-xs font-semibold uppercase tracking-normal text-muted-foreground;
   }
 
   .section-label {
-    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+    @apply text-xs font-semibold uppercase tracking-normal text-muted-foreground;
   }
 
   .text-ellipsis-1 {
@@ -400,11 +421,11 @@
     }
 
     .page-title {
-      @apply text-[1.65rem] leading-tight;
+      @apply leading-tight;
     }
 
     .page-description {
-      @apply mt-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-5;
+      @apply mt-1 max-w-full whitespace-normal;
     }
 
     .surface-panel {
@@ -432,11 +453,11 @@
     }
 
     .mobile-list-title {
-      @apply line-clamp-2 min-w-0 text-[15px] leading-5;
+      @apply line-clamp-2 min-w-0;
     }
 
     .mobile-meta-line {
-      @apply min-w-0 truncate text-[13px] leading-5;
+      @apply min-w-0 truncate leading-5;
     }
 
     .mobile-action-row {

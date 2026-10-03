@@ -108,14 +108,14 @@ try {
     .getByText("Open an application form. Some fields need manual entry.")
     .waitFor();
   console.log("Requesting site access through the popup");
-  await popup.getByText("Connection & site access", { exact: true }).click();
-  await popup.getByLabel("Show autofill on supported sites").check();
+  await popup.getByRole("button", { name: "Enable on-page assistant", exact: true }).click();
   await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
   console.log("Site access granted");
   await page.bringToFront();
   await page.getByRole("button", { name: "Autofill available" }).waitFor();
   assert.equal(contactCalls, 0, "Detection must not fetch the profile");
   for (const fixture of fixtures) {
+    const expected = fixture.provider === "ashby" ? 3 : fixture.count;
     await page.goto(fixture.url + "?delayed=1");
     await page.getByRole("button", { name: "Autofill available" }).waitFor();
     const detectionMs = await page.evaluate(
@@ -137,7 +137,7 @@ try {
     await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
-      .filter({ hasText: `${fixture.count} filled` })
+      .filter({ hasText: `${expected} filled` })
       .waitFor();
     timings.push({
       provider: fixture.provider,
@@ -168,7 +168,7 @@ try {
     await page.getByRole("button", { name: "Autofill" }).click();
     await page
       .getByRole("status")
-      .filter({ hasText: `${fixture.count} filled` })
+      .filter({ hasText: `${expected} filled` })
       .waitFor();
     const fillButton = page.getByRole("button", { name: "Autofill", exact: true });
     const buttonHandle = await fillButton.elementHandle();
@@ -264,6 +264,7 @@ try {
   assert.equal(await page.locator('[name="email"]').inputValue(), "");
   responseDelay = 0;
   await popup.bringToFront();
+  await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByLabel("Show autofill on supported sites").uncheck();
   await popup
     .getByText("Automatic hints turned off. The toolbar still works.")

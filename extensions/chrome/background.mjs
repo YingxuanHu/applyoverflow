@@ -1,5 +1,9 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
+import { questionAssistance } from "./question-policy.mjs";
+import { fillProfessionalAnswers } from "./answer-runner.mjs";
+const canDraft = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
+  ((field.kind === "text" && questionAssistance(field.label) === "draft") || questionAssistance(field.label) === "qualification");
 
 const supportedOrigin = (url) => {
   try {
@@ -130,6 +134,7 @@ async function notifyConnectionChanged() {
       .catch(() => {});
 }
 async function clearAccountSession() {
+  await chrome.storage.local.remove("connection");
   const state = await chrome.storage.session.get(null);
   await chrome.storage.session.remove(
     Object.keys(state).filter(
@@ -159,6 +164,7 @@ async function api(action, body, token) {
   if (!response.ok) {
     const error = new Error(result.error || "Request failed. Try again.");
     error.reconnect = response.status === 401;
+    error.status = response.status;
     throw error;
   }
   return result;
@@ -210,7 +216,7 @@ async function connect() {
       verifier: pending.verifier,
     });
     await clearAccountSession();
-    await chrome.storage.session.set({ connection });
+    await chrome.storage.local.set({ connection: { ...connection, origin: APP_ORIGIN } });
     await notifyConnectionChanged();
     return {
       connected: true,
@@ -223,17 +229,32 @@ async function connect() {
 }
 
 let working = null;
+let autofillProgress = null;
 function workingMessage() {
   if (working === "connect") return "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue.";
   if (working === "resume") return "Resume approval in progress. Complete or close the resume selection window to continue.";
   return "Finishing the previous action. Please wait.";
 }
 async function handle(type, sender, message = {}) {
-  // Session storage is never exposed to content scripts or synced across devices.
+  if (type === "version") return { activeAction: working, message: working ? workingMessage() : "Ready." };
+  // The grant survives browser restarts, but is never exposed to content scripts
+  // or synced. Profile data and field state remain transient.
   await chrome.storage.session.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
-  const { connection } = await chrome.storage.session.get("connection");
+  await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  let { connection } = await chrome.storage.local.get("connection");
+  if (!connection) {
+    const legacy = (await chrome.storage.session.get("connection")).connection;
+    if (legacy) {
+      connection = { ...legacy, origin: APP_ORIGIN };
+      await chrome.storage.local.set({ connection });
+      await chrome.storage.session.remove("connection");
+    }
+  }
+  if (connection && (connection.origin !== APP_ORIGIN || Date.parse(connection.expiresAt) <= Date.now())) {
+    await clearAccountSession(); connection = undefined;
+  }
   const connected = Boolean(
     connection?.token && Date.parse(connection.expiresAt) > Date.now(),
   );
@@ -290,7 +311,14 @@ async function handle(type, sender, message = {}) {
       });
     return {
       connected,
-      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? { fields: current.result.fields } : {}),
+      tabId: tab?.id,
+      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? {
+        fields: current.result.fields?.map(field => {
+          const previous = autofillProgress?.tabId === tab.id && autofillProgress.documentId === current.documentId
+            ? autofillProgress.fields?.find(f => f.id === field.id && f.label === field.label) : null;
+          return field.state === "needed" && previous ? { ...field, queued: previous.queued, processing: previous.processing, reason: previous.reason } : field;
+        }),
+      } : {}),
       activeAction: working,
       undoAvailable: current?.result.undoAvailable === true,
       historyUndoAvailable: current?.result.historyUndoAvailable === true,
@@ -309,10 +337,11 @@ async function handle(type, sender, message = {}) {
             current.result.available && `${current.result.available} empty contact fields`,
             current.result.historyAvailable && "work & education",
             current.result.resumeAvailable && "resume upload",
+            current.result.manualResume && "resume: manual upload",
             current.result.questions.length && `${current.result.questions.length} questions`,
           ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
         : inspectionError || "Open an employer application form to check available fields.",
-      message: working ? workingMessage() : connected
+      message: working && autofillProgress?.tabId === tab?.id ? autofillProgress.message : working ? workingMessage() : connected
         ? current
           ? "Review the employer form after filling."
           : "Open an application form. Some fields need manual entry."
@@ -347,6 +376,7 @@ async function handle(type, sender, message = {}) {
     // Keep the local token if revocation fails so disconnect can be retried.
     await api("disconnect", {}, connection.token);
     await clearAccountSession();
+    autofillProgress = null;
     return { connected: false, message: "Disconnected." };
   }
   if (type === "history")
@@ -362,6 +392,8 @@ async function handle(type, sender, message = {}) {
       "autofill-answer",
       "autofill-focus",
       "autofill-options",
+      "autofill-suggest",
+      "autofill-drafts",
       "autofill-undo",
       "review",
       "resume",
@@ -473,14 +505,27 @@ async function handle(type, sender, message = {}) {
     };
   };
   if (type === "autofill") {
+    const publish = async (fields, message, active = true) => {
+      autofillProgress = { type: "autofill-progress", buildId: BUILD_ID, tabId: tab.id, documentId: inspection.documentId,
+        url: scan.url, fields, message, active, connected: true };
+      void chrome.tabs.sendMessage(tab.id, autofillProgress, { documentId: inspection.documentId }).catch(() => {});
+      void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
+    };
+    await publish((scan.fields || []).map(field => ({ ...field, queued: field.state === "needed" })), "Reading your saved profile...");
     const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
       .map(field => field.label))].slice(0, 40) : scan.questions;
     const plan = await api("autofill-plan", {
-      url: scan.url, questions, history: scan.historyAvailable === true,
+      url: scan.url, questions, history: scan.historyAvailable === true, employmentCountry: scan.employmentCountry,
     }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
     const written = await inspect(target, ["autofill", plan, scan.url]);
+    await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (written.result.historySaved) note += ` ${written.result.historySaved} work/education records saved.`;
+    if (written.result.historyDateAdjusted) note += " Month-only dates use the first day for starts and the last day for ends.";
+    if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
+    if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
+    if (scan.manualResume) note += " Review the resume on the form; this site's upload button needs manual attachment.";
     if (scan.resumeAvailable) {
       if (plan.includeResume) {
         try {
@@ -488,6 +533,7 @@ async function handle(type, sender, message = {}) {
           const file = await api("resume-default", { url: scan.url }, connection.token);
           const attached = await inspect(target, ["attach-resume", { ...file, resumeToken: ready.result.resumeToken }, scan.url]);
           note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
+          if (attached.result.resumeParserReview) note += " Review details imported by the employer's resume parser.";
         } catch (error) {
           if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Some fields were filled, but the connection expired before resume sharing. Reconnect to continue." };
           note += ` Resume: ${error.message}`;
@@ -503,15 +549,85 @@ async function handle(type, sender, message = {}) {
       pageUrl: tab.url,
       expires: Date.now() + 10 * 60_000,
     } });
+    try {
+      const context = response.fields.some(field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted)
+        ? await inspect(target, ["autofill-context", {}, scan.url]) : null;
+      response.fields = await fillProfessionalAnswers({ fields: response.fields,
+        inspect: async (mode, payload = {}) => (await inspect(target, [mode, payload, scan.url])).result,
+        suggest: field => api("autofill-suggest", { url: scan.url, label: field.label, title: scan.title || "",
+          jobDescription: context?.result.jobDescription || "", note: "", revision: plan.revision,
+          maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token),
+        progress: (fields, message) => publish(fields, message),
+      });
+      response.message = `Autofill complete.${note} Nothing submitted.`;
+    } catch (error) {
+      response.fields = (autofillProgress?.fields || response.fields).map(field => ({ ...field, queued: false, processing: false }));
+      response.message = `Some fields were filled. ${error.message || "Autofill stopped; check the form."}`;
+      if (error.reconnect) { response.connected = false; response.reconnect = true; }
+    }
+    await publish(response.fields, response.message, false);
     return response;
   }
-  if (["autofill-answer", "autofill-focus", "autofill-options"].includes(type)) {
+  if (type === "autofill-drafts") {
+    const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
+    if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
+      throw new Error("Click Autofill to check the current application step first.");
+    const fields = (scan.fields || []).filter(canDraft).slice(0, 3);
+    if (!fields.length) return report(scan);
+    const context = await inspect(target, ["autofill-context", {}, scan.url]);
+    const drafts = new Map();
+    for (const field of fields) if (field.kind === "combobox" && !field.options?.length) {
+      const loaded = await inspect(target, ["autofill-options", { id: field.id, label: field.label }, scan.url]);
+      field.options = loaded.result.fields.find(f => f.id === field.id)?.options || [];
+    }
+    // Bounded concurrency: contact filling finishes before this optional AI work.
+    for (let offset = 0; offset < fields.length; offset += 2) await Promise.all(fields.slice(offset, offset + 2).map(async field => {
+      try {
+        if (field.kind !== "text" && !field.options?.length) throw new Error("Choose on the form; its answer choices could not be read.");
+        const result = await api("autofill-suggest", { url: scan.url, label: field.label,
+          title: scan.title || "", jobDescription: context.result.jobDescription || "", note: "", revision: saved.revision,
+          maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token);
+        drafts.set(field.id, result.suggestion);
+      } catch (error) {
+        if (error.reconnect) throw error;
+        drafts.set(field.id, { answer: "", evidence: [], missing: error.message || "A draft could not be prepared. Try Suggest answer." });
+      }
+    }));
+    const current = await inspect(target, ["inspect", {}, scan.url]);
+    const result = report(current.result);
+    result.fields = result.fields.map(field => field.state === "needed" && fields.some(f => f.id === field.id && f.label === field.label)
+      ? { ...field, suggestion: drafts.get(field.id) } : field);
+    const count = [...drafts.values()].filter(draft => draft.answer).length;
+    result.message = count ? `${count} answer ${count === 1 ? "draft is" : "drafts are"} ready to review. Nothing submitted.` : "Saved facts filled. Remaining questions need your input.";
+    return result;
+  }
+  if (["autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest"].includes(type)) {
     const saved = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
     if (!saved || saved.documentId !== inspection.documentId || saved.url !== scan.url || saved.expires < Date.now())
       throw new Error("Click Autofill to check the current application step first.");
     if (typeof message.id !== "string" || typeof message.label !== "string" ||
       (type === "autofill-answer" && (typeof message.answer !== "string" || message.answer.length > 3000)))
       throw new Error("Check your answer and try again.");
+    if (type === "autofill-suggest") {
+      if (scan.aiRestricted) throw new Error("This employer disallows AI-written answers. Write these responses yourself; saved facts can still be filled.");
+      const field = scan.fields?.find(field => field.id === message.id && field.label === message.label && field.state === "needed" && field.canAnswer && !field.profileKey &&
+        (field.kind === "text" || questionAssistance(field.label) === "qualification"));
+      if (!field || typeof message.note !== "string" || message.note.length > 1200)
+        throw new Error("This question changed. Autofill again to check the form.");
+      const context = await inspect(target, ["autofill-context", {}, scan.url]);
+      if (field.kind === "combobox" && !field.options?.length) {
+        const loaded = await inspect(target, ["autofill-options", { id: field.id, label: field.label }, scan.url]);
+        field.options = loaded.result.fields.find(f => f.id === field.id)?.options || [];
+      }
+      if (field.kind !== "text" && !field.options?.length) throw new Error("Choose on the form; its answer choices could not be read.");
+      const result = await api("autofill-suggest", { url: scan.url, label: field.label,
+        title: scan.title || "", jobDescription: context.result.jobDescription || "", note: message.note, revision: saved.revision,
+        maxLength: field.maxLength, maxWords: field.maxWords, ...(field.options?.length ? { options: field.options.slice(0, 80) } : {}) }, connection.token);
+      const current = await inspect(target, ["inspect", {}, scan.url]);
+      if (!current.result.fields?.some(f => f.id === field.id && f.label === field.label && f.state === "needed"))
+        throw new Error("The form changed while drafting. Your existing answers were not changed.");
+      return { connected: true, ...result, message: result.suggestion.answer ? "Draft ready. Edit it, then choose Use answer." : result.suggestion.missing };
+    }
     const written = await inspect(target, [type, { id: message.id, label: message.label, answer: message.answer }, scan.url]);
     let note = "";
     if (type === "autofill-answer" && message.remember === true && written.result.answered?.canRemember) {
@@ -683,16 +799,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-drafts", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
         message?.type,
       ))
   )
     return false;
-  const readOnly = ["status", "availability", "detection-updated"].includes(
+  const readOnly = ["version", "status", "availability", "detection-updated"].includes(
     message?.type,
   );
-  if (page && !readOnly && message.buildId !== BUILD_ID) {
-    respond({ error: "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
+  if (!readOnly && message.buildId !== BUILD_ID) {
+    respond({ error: popup ? "Reopen the extension to finish updating. Nothing was changed." : "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
     return false;
   }
   if (working && !readOnly) {
@@ -716,13 +832,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return handle(message?.type, sender, message);
     })
     .then(result => respond({ ...result, buildId: BUILD_ID }))
-    .catch((error) =>
+    .catch((error) => {
+      if (message?.type === "autofill" && autofillProgress?.active) {
+        autofillProgress = { ...autofillProgress, active: false,
+          fields: autofillProgress.fields.map(field => ({ ...field, queued: false, processing: false })),
+          message: error.message || "Autofill stopped. Check the form before continuing." };
+        void chrome.tabs.sendMessage(autofillProgress.tabId, autofillProgress, { documentId: autofillProgress.documentId }).catch(() => {});
+        void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
+      }
       respond({
         error: error.message || "Could not complete the action.",
         reconnect: error.reconnect === true,
         buildId: BUILD_ID,
-      }),
-    )
+      });
+    })
     .finally(() => {
       if (!readOnly) working = null;
     });

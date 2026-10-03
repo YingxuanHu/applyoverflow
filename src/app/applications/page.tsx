@@ -338,7 +338,7 @@ export default async function ApplicationsPage({
   });
 
   return (
-    <div className="app-page space-y-6">
+    <div className="app-page app-page-workspace space-y-6">
       <SearchParamMemory
         basePath="/applications"
         stateParamKeys={APPLICATION_STATE_PARAM_KEYS}

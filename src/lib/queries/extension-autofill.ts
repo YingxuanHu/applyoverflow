@@ -5,7 +5,8 @@ import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey
 import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
-import { commonApplicationAnswers } from "@/lib/profile-application-answers";
+import { applicationAnswerPlan } from "@/lib/profile-application-answers";
+import { autofillHistoryDates } from "@/lib/profile-history";
 
 export async function getAutofillPlan(userId: string, raw: unknown) {
   const input = autofillPlanSchema.parse(raw);
@@ -14,13 +15,15 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
     select: {
       contactJson: true, updatedAt: true, phone: true, location: true,
       linkedinUrl: true, githubUrl: true, portfolioUrl: true,
+      skillsJson: true, skillsText: true,
       experiencesJson: input.history, educationsJson: input.history,
       authUser: { select: { name: true, email: true } },
       preferences: { where: { key: ANSWER_LIBRARY_KEY }, select: { value: true } },
     },
   });
   if (!profile) throw new AssistantError("Complete your ApplyOverflow profile first.");
-  const contact = buildProfileFormValues(profile, profile.authUser ?? undefined).contact;
+  const values = buildProfileFormValues(profile, profile.authUser ?? undefined);
+  const contact = values.contact;
   const revision = profile.updatedAt.toISOString();
   // Only explicitly enabled voluntary answers matching this form are exported.
   const fields = Object.fromEntries((Object.keys(autofillProfileFields) as Array<keyof typeof autofillProfileFields>)
@@ -28,13 +31,16 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   // A single full-address field must not receive only a street or a guessed city.
   fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
+  fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
+  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
-    commonAnswers: commonApplicationAnswers(contact.applicationAnswers, input.questions),
+    skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),
+    commonAnswers: common.answers, answerDetails: common.details,
     answers: reusableAutofillAnswers(parseAnswerLibrary(profile.preferences[0]?.value), applicationContext(input.url, true)!.companyKey, revision, input.questions),
     history: input.history ? [
-      ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry })),
-      ...normalizeEducations(profile.educationsJson).slice(0, 10).map(entry => ({ kind: "education", entry })),
+      ...normalizeExperiences(profile.experiencesJson).slice(0, 10).map(entry => ({ kind: "experience", entry: { ...entry, dates: autofillHistoryDates(entry) } })),
+      ...normalizeEducations(profile.educationsJson).slice(0, 10).map(entry => ({ kind: "education", entry: { ...entry, dates: autofillHistoryDates(entry) } })),
     ] : [],
   };
 }

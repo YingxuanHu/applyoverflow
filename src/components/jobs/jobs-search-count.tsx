@@ -65,9 +65,12 @@ export function JobsSearchCountHeadline({ scoped, liveJobCount }: { scoped: bool
   const count = scoped ? total : liveJobCount;
   return (
     <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite" aria-atomic="true">
-      <h2 className="text-base font-semibold text-foreground">{scoped ? "Search results" : "All jobs"}</h2>
-      <span className="text-sm tabular-nums text-muted-foreground">
-        {count === null ? (loading ? null : "Count unavailable") : `${count.toLocaleString()} ${scoped ? (count === 1 ? "match" : "matches") : (count === 1 ? "live job" : "live jobs")}`}
+      {scoped ? <h2 className="text-base font-semibold text-foreground">Search results</h2> : null}
+      <span className="inline-block whitespace-nowrap text-sm text-muted-foreground">
+        {count === null ? (loading ? null : "Count unavailable") : <>
+          <strong className="text-2xl font-semibold tabular-nums leading-tight text-foreground">{count.toLocaleString()}</strong>{" "}
+          <span>{scoped ? (count === 1 ? "match" : "matches") : (count === 1 ? "live job" : "live jobs")}</span>
+        </>}
       </span>
       {scoped && total === null && !loading ? (
             <button type="button" aria-label="Retry matching total" title="Retry matching total" onClick={retry} className="inline-flex size-6 items-center justify-center rounded hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">

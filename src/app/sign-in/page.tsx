@@ -15,6 +15,7 @@ type SignInPageProps = {
     google?: string;
     passwordReset?: string;
     verified?: string;
+    reauthenticate?: string;
   }>;
 };
 
@@ -23,7 +24,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const params = await searchParams;
   const callbackUrl = getSafeSignInCallback(params.callbackUrl);
 
-  if (sessionUser) {
+  const reauthenticate = params.reauthenticate === "1" && callbackUrl.startsWith("/extension/connect?");
+  if (sessionUser && !reauthenticate) {
     redirect(await getPostSignInDestination(sessionUser.id, callbackUrl));
   }
 
@@ -34,7 +36,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   return (
     <SignInScreen
       callbackUrl={callbackUrl}
-      defaultEmail={params.email ?? (localDevelopmentAccount ? LOCAL_DEVELOPMENT_ADMIN.username : "")}
+      reauthenticate={reauthenticate}
+      defaultEmail={sessionUser?.email ?? params.email ?? (localDevelopmentAccount ? LOCAL_DEVELOPMENT_ADMIN.username : "")}
       emailVerificationError={emailVerificationError}
       googleError={params.google === "error" ? params.error ?? "google_error" : undefined}
       googleEnabled={isGoogleAuthEnabled()}
