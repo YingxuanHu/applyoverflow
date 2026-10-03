@@ -1,6 +1,10 @@
 # Single VPS Migration Runbook
 
-This runbook migrates the app from the current DigitalOcean/Vercel split into
+> Historical reference for the original migration, not the current release
+> procedure. Production and staging now run on the VPS. Follow
+> [Production And Staging Deployment](staging-production.md) for releases.
+
+This runbook migrated the app from the former DigitalOcean/Vercel split into
 one VPS running:
 
 - Next.js web server behind Caddy
@@ -8,11 +12,9 @@ one VPS running:
 - PostgreSQL 18
 - nightly database backups to S3-compatible storage such as Cloudflare R2
 
-For a self-managed Postgres database, the safest cheap production topology is
-to run the web app on the VPS too. Keeping Vercel as the production web host
-would require exposing Postgres publicly to Vercel's dynamic infrastructure,
-which is not worth it for the current test-user stage. Vercel can stay as a
-preview/staging deployment with ingestion disabled.
+The current topology keeps the web app and self-managed Postgres on the VPS,
+without exposing Postgres publicly. Vercel is no longer a production, preview,
+or staging host for this repository.
 
 ## Non-Negotiable Data Safety Rules
 
