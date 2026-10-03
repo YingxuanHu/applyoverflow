@@ -54,4 +54,4 @@ UserProfile, ResumeVariant, JobRaw, JobCanonical, JobSourceMapping, JobEligibili
 
 ## How to use this file
 
-Point Codex to where logic belongs and which files are entry points. Keep it as a navigation index, not a design doc. Prefer updating this file when new top-level routes or subsystems land.
+Use this map to locate implementation logic and entry points. Keep it as a navigation index, not a design doc. Prefer updating this file when new top-level routes or subsystems land.
