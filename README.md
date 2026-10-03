@@ -132,9 +132,14 @@ actually browse at `/jobs`.
 
 ## Quick Start
 
+Developer navigation: [documentation index](docs/README.md),
+[contribution guide](CONTRIBUTING.md), and [script catalog](scripts/README.md).
+Production and staging are self-hosted on a VPS with Docker Compose and Caddy;
+neither environment uses Vercel. Merging code does not deploy it automatically.
+
 ### Prerequisites
 
-- Node.js and npm
+- Node.js 24 and npm (`nvm use` reads the committed `.nvmrc`)
 - PostgreSQL reachable through `DATABASE_URL`
 - Optional: OpenAI, Google OAuth, SMTP, and S3-compatible storage credentials
 
@@ -257,11 +262,12 @@ submissions, and application packages.
 
 ## Development And Release Flow
 
-Development happens on `dev`. Test changes there before proposing a merge to
-`main`.
+Use short-lived feature or fix branches and pull requests. Integrate changes on
+`dev` for staging validation before promoting them to `main`. GitHub Actions runs
+verification; the VPS release scripts perform an explicit, separate deployment.
 
 ```text
-dev branch -> dev.applyoverflow.com -> pull request -> main -> applyoverflow.com
+feature branch -> PR to dev -> deploy staging -> PR to main -> deploy production
 ```
 
 | Environment | Branch | URL | Purpose |
@@ -325,8 +331,12 @@ web app, PostgreSQL, ingestion scheduling, source workers, maintenance workers,
 and Caddy. Backups can be written to S3-compatible storage.
 
 ```bash
-# Build, migrate, and deploy production from the production checkout.
+# Run from a clean local release checkout with SSH access to the VPS.
+# This syncs the checkout, builds on the VPS, migrates, and restarts services.
 npm run deploy:single-vps
+
+# Alternatively, build locally and stream images to the VPS before deployment.
+npm run deploy:build-local
 
 # Deploy the current checkout to staging.
 npm run deploy:staging-vps
@@ -335,7 +345,7 @@ npm run deploy:staging-vps
 npm run worker:status
 ```
 
-Read [the single-VPS migration guide](docs/deployment/single-vps-migration.md)
+Read [the deployment runbook](docs/deployment/staging-production.md)
 before operating a server. Keep web and worker database pools constrained, and
 run focused lifecycle retention only after a successful backup.
 
@@ -356,8 +366,11 @@ run focused lifecycle retention only after a successful backup.
 
 ## Further Reading
 
+- [Documentation index and repository map](docs/README.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Script catalog](scripts/README.md)
 - [Staging and production deployment](docs/deployment/staging-production.md)
-- [Single-VPS migration guide](docs/deployment/single-vps-migration.md)
+- [Historical single-VPS migration guide](docs/deployment/single-vps-migration.md)
 - [`AGENTS.md`](AGENTS.md) for repository rules and product constraints
 
 The repository state is the source of truth. Keep this README focused on how

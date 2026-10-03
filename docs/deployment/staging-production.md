@@ -4,6 +4,11 @@ ApplyOverflow runs production and staging as separate Docker Compose projects on
 the same VPS. Production remains user-facing. Staging is for developer testing
 before production rebuilds.
 
+GitHub Actions verifies code but does not deploy it. All release commands below
+are run from a local checkout with SSH access to the VPS, unless noted otherwise.
+The old Vercel deployment integration is retired; see
+[retired hosting integration](retired-hosting.md).
+
 ## Environments
 
 | Environment | Domain | App directory | Compose project | Database |
@@ -113,14 +118,27 @@ npm run deploy:refresh-staging
 
 ## Deploy Production
 
-Production deploy remains:
+Use a clean, committed checkout of `main` whose verification checks have passed:
 
 ```bash
 npm run deploy:single-vps
 ```
 
-The production deploy now rebuilds app and worker images, applies migrations,
-and recreates Caddy so domain routing changes are picked up.
+The script syncs this checkout to the VPS, builds app and worker images, runs
+runtime smoke checks, applies migrations, and recreates the selected services.
+Caddy is not restarted by default; routing changes need a separately reviewed
+Caddy update. Database and unrelated services are not part of the default restart.
+
+To keep build work off the production host, use the local-image path instead:
+
+```bash
+npm run deploy:build-local
+```
+
+This builds Linux/amd64 web and worker images, streams them over SSH, verifies
+their revision, then uses the same migration and service-recreation path.
+Both commands are real production deployments, not build-only checks. Preserve
+known-good rollback images and confirm a recent backup before schema changes.
 
 ## Ingestion Rules
 
@@ -140,7 +158,10 @@ If production deploy fails after staging passed:
 
 1. SSH to the VPS.
 2. Inspect `docker compose ps` and `docker compose logs`.
-3. Re-deploy the previous known-good branch with `npm run deploy:single-vps`.
+3. Re-deploy a clean checkout of the previous known-good commit using the release
+   script only after checking compatibility with migrations already applied.
+   Redeploying code does not roll back database migrations; incompatible schema
+   changes require a reviewed forward fix or recovery plan.
 
 Do not delete Docker volumes during rollback; the production Postgres data lives
 there.

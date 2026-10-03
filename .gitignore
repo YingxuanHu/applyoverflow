@@ -12,11 +12,11 @@
 
 # testing
 /coverage
-/output/playwright/
-/output/extension/
+/output/
 /public/downloads/applyoverflow-assistant.zip
-/output/pdf-smoke/
 /.playwright-cli/
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -38,6 +38,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.*.example
 
 # vercel
 .vercel
@@ -54,4 +55,9 @@ data/automation-screenshots/
 migration-counts-*.json
 certs/digitalocean-ca.crt
 scripts/_daemon-*.ts
-AGENTS.md
+
+# local backups and deployment artifacts
+/deploy/single-vps/backups/
+/.deploy-backups/
+*.dump
+*.bundle

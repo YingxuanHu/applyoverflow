@@ -19,6 +19,7 @@
     "start": "tsx -r dotenv/config scripts/run-app-stack.ts --mode=start",
     "start:web": "next start",
     "test:unit": "node --import tsx --test tests/*.test.ts",
+    "repo:check": "node scripts/check-repository.mjs",
     "extension:build": "node scripts/build-application-extension.mjs",
     "extension:test": "node scripts/test-application-extension.mjs",
     "extension:test:expanded": "node scripts/test-application-extension-expanded.mjs",
