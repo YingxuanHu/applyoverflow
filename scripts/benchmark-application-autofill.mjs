@@ -7,6 +7,8 @@ import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { applicationContext } from "../extensions/chrome/sites.mjs";
+import { oracleKey, oracleMatches as matchesContact } from "./lib/autofill-benchmark-oracle.mjs";
+import { isReadOnlyCatalogRequest } from "./lib/autofill-benchmark-network.mjs";
 import * as applicationAnswersModule from "../src/lib/profile-application-answers.ts";
 import * as historyModule from "../src/lib/profile-history.ts";
 const { applicationAnswerPlan } = applicationAnswersModule.default || applicationAnswersModule;
@@ -48,7 +50,9 @@ const history = [
 ].map(row => ({ ...row, entry: { ...row.entry, dates: autofillHistoryDates(row.entry) } }));
 const source = `(${createInspector})(${applicationContext},(${createHistoryInspector})(),(${createAutofillInspector})())`;
 const sourceHash = createHash("sha256").update(source).update(await readFile("src/lib/profile-application-answers.ts")).digest("hex");
-const harnessHash = createHash("sha256").update(await readFile(new URL(import.meta.url))).update(await readFile("src/lib/profile-history.ts")).digest("hex");
+const harnessHash = createHash("sha256").update(await readFile(new URL(import.meta.url)))
+  .update(await readFile(new URL("./lib/autofill-benchmark-oracle.mjs", import.meta.url)))
+  .update(await readFile(new URL("./lib/autofill-benchmark-network.mjs", import.meta.url))).update(await readFile("src/lib/profile-history.ts")).digest("hex");
 const audit = nodes => nodes.filter(n => n.getClientRects().length && !n.closest('[hidden],[inert],[aria-hidden="true"]')).map(n => {
   const labels = n.id ? [...document.querySelectorAll(`label[for="${CSS.escape(n.id)}"]`)] : [];
   const copy = (n.labels?.[0] || (labels.length === 1 ? labels[0] : null))?.cloneNode(true);
@@ -62,19 +66,7 @@ const audit = nodes => nodes.filter(n => n.getClientRects().length && !n.closest
     value: n.type === "checkbox" || n.type === "radio" ? String(n.checked) : n instanceof HTMLSelectElement ? n.selectedOptions[0]?.textContent : container?.querySelector('.select__single-value')?.textContent || n.value || (n instanceof HTMLButtonElement ? n.textContent?.trim() : ""),
     id: n.id, name: n.name, required: n.required || n.getAttribute("aria-required") === "true" };
 });
-const oracleKey = field => {
-  if (/reference|emergency|employ|education|supervisor|billing|shipping/i.test(field.context)) return;
-  const label = field.label.replace(/[*:]|\(required\)|\(optional\)/gi, "").trim().toLowerCase();
-  return { 'first name': 'givenName', 'last name': 'familyName', 'full name': 'fullName', name: 'fullName',
-    'email': 'email', 'email address': 'email', phone: 'phone', 'phone number': 'phone',
-    'city': 'city', 'location': 'city', 'location (city)': 'city', 'postal code': 'postalCode', 'zip': 'postalCode', 'zip code': 'postalCode',
-    'address line 1': 'streetAddress', 'street address': 'streetAddress', 'linkedin url': 'linkedInUrl', 'linkedin profile': 'linkedInUrl' }[label];
-};
-const oracleMatches = (key, value) => {
-  if (key === "phone") return value?.replace(/\D/g, "").endsWith(contact.phone);
-  if (key === "city" && value?.trim() === "Richmond, Virginia, United States") return true;
-  return value?.trim() === contact[key];
-};
+const oracleMatches = (key, value) => matchesContact(contact, key, value);
 const fetchJson = async url => {
   const response = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { "User-Agent": "ApplyOverflow-Compatibility-Benchmark/1.0" } });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -186,7 +178,7 @@ async function summarize() {
     platforms, submissionAttempts: reports.reduce((n, r) => n + (r.submissions || 0), 0),
     oracleRetention: reports.reduce((n, r) => n + (r.oracleRetained || 0), 0) / (reports.reduce((n, r) => n + (r.oracleEligible || 0), 0) || 1),
     plannedRetention: reports.reduce((n, r) => n + (r.retained || 0), 0) / (reports.reduce((n, r) => n + (r.eligible || 0), 0) || 1),
-    safety: "Synthetic profile; only read-only catalog GETs allowed during filling; no uploads, account creation or application submissions" };
+    safety: "Synthetic profile; only verified read-only catalog requests allowed during filling; no uploads, account creation or application submissions" };
   await writeFile(resolve(output, `${run}-summary.json`), JSON.stringify(summary, null, 2));
   return summary;
 }
@@ -218,11 +210,8 @@ try {
       // Catalog lookups are read-only. Every other request is blocked before
       // writing even the first synthetic character into an employer field.
       await context.route("**/*", route => {
-        const request = route.request(), target = new URL(request.url());
-        const catalog = /\/education\/(?:schools|degrees|disciplines)$|\/(?:autocomplete|search|locations|countries|cities|states|regions)(?:\/|$)/i.test(target.pathname) ||
-          (target.hostname === "my.greenhouse.io" && target.pathname === "/users/self") ||
-          (target.hostname === "maps.googleapis.com" && /^\/maps(?:-api-v3)?\//.test(target.pathname));
-        return request.method() === "GET" && !request.isNavigationRequest() && catalog ? route.continue() : route.abort();
+        const request = route.request();
+        return !request.isNavigationRequest() && isReadOnlyCatalogRequest({ url: request.url(), method: request.method(), postData: request.postData() }) ? route.continue() : route.abort();
       });
       await context.routeWebSocket("**/*", socket => socket.close());
       await page.evaluate(code => {

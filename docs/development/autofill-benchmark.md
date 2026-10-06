@@ -51,7 +51,8 @@ manual. Review raw labels and retained values before changing mapping rules.
 The bulk runner uses a synthetic profile, explicitly saved test preferences, and
 synthetic history. It never signs in, creates accounts, uploads files, calls the
 AI service, clicks final submission, or accepts terms. Before writing values it
-blocks network traffic except read-only catalog/search GETs, blocks WebSockets,
+blocks network traffic except read-only catalog/search GETs and the verified
+Ashby location-autocomplete GraphQL query (never mutations), blocks WebSockets,
 and installs a submission guard. Any submission attempt fails the run.
 
 Authentication and CAPTCHA gates are reported, never bypassed. An accessible

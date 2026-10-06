@@ -153,7 +153,7 @@ export function createAutofillInspector() {
       const ambiguous = key && current.filter(item => item.profileKey === key && norm(item.label) === norm(label)).length !== 1;
       const labelAmbiguous = !key && current.filter(item => norm(item.label) === norm(label)).length !== 1;
       const communicationPreference = ["smsUpdates", "emailUpdates"].includes(confirmedQuestions.get(norm(label))?.answerKey);
-      const manual = inHistory || ambiguous || labelAmbiguous || (legal(label) && !communicationPreference) ||
+      const manual = Boolean(entry.manualReason) || inHistory || ambiguous || labelAmbiguous || (legal(label) && !communicationPreference) ||
         !(scalar || select || widget || radio) || field.hasAttribute("list") ||
         (field.hasAttribute("aria-autocomplete") && !widget);
       const options = select ? [...field.options].filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
@@ -176,8 +176,8 @@ export function createAutofillInspector() {
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
         required,
         kind: radio ? "radio" : select ? "select" : widget ? "combobox" : "text",
-        reason: field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
-          manual ? "Review this field on the employer form." : issues.get(field)?.label === label ? issues.get(field).reason : profileGuidance.get(norm(label))?.reason || "",
+        reason: entry.manualReason || (field.type === "file" ? "Use Change resume, or attach this file on the form." : inHistory ? "Review work, education or reference details on the form." :
+          manual ? "Review this field on the employer form." : issues.get(field)?.label === label ? issues.get(field).reason : profileGuidance.get(norm(label))?.reason || ""),
       };
       targets.set(id, item);
       return item;

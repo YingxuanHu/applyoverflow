@@ -38,6 +38,19 @@ try {
   assert.equal(await page.getByLabel("Preferred name").inputValue(), "Jay", "preferred is not a referral");
   console.log("PASS reference context, conflicting semantics and false-positive protection");
 
+  await load(`${base}${field("Legal full name")}<label>Name<input name="eeo[disabilitySignature]" autocomplete="name"></label>
+    <section><h3>Voluntary self-identification of disability</h3>${field("Full name", 'autocomplete="name"')}</section></form>`);
+  let declaration = await inspect("autofill", { contact });
+  assert.equal(await page.getByLabel("Legal full name", { exact: true }).inputValue(), contact.fullName);
+  for (const input of [page.locator('input[name="eeo[disabilitySignature]"]'), page.locator('section input')])
+    assert.equal(await input.inputValue(), "", "contact facts must not sign declarations");
+  const signature = declaration.fields.find(f => f.label === "Name");
+  assert.equal(signature.canAnswer, false);
+  assert.match(signature.reason, /declaration/);
+  await inspect("autofill-answer", { id: signature.id, label: signature.label, answer: contact.fullName });
+  assert.equal(await page.locator('input[name="eeo[disabilitySignature]"]').inputValue(), "");
+  console.log("PASS signature metadata and declaration context cannot be filled as ordinary names");
+
   await load(`${base}${field("Please provide a link to your LinkedIn, GitHub, portfolio or similar professional profile or website.")}
     <label>During this application process I agree to use only my own words. I understand that the use of AI or other generated content will disqualify my application.<input type="checkbox"></label>
     <label>Describe a project<textarea></textarea></label></form>`);

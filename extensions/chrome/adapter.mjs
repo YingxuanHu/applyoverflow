@@ -599,16 +599,18 @@ export function createInspector(resolveContext, history, autofill) {
       const inferred = meaning(label);
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
       let foreignContext = Boolean(inferred && foreign.test(label));
+      let declaration = /signature|attestation/i.test(`${field.id} ${field.name || ""}`);
       for (let node = field.parentElement; node && node !== forms[0]; node = node.parentElement) {
         if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control')) {
           const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4')?.textContent || "";
           if (foreign.test(title) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+          if (inferred && /disabilit|voluntary self.identification|attestation|declaration|acknowledg|signature|certification/i.test(title)) declaration = true;
         }
       }
       const autoTokens = (field.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
       const declared = semantic[autoTokens.at(-1)];
       const conflict = declared && inferred && declared !== inferred && !(inferred === "fullAddress" && declared === "streetAddress");
-      if (foreignContext || conflict || autoTokens.some(token => foreign.test(token))) { profileKey = undefined; key = undefined; }
+      if (declaration || foreignContext || conflict || autoTokens.some(token => foreign.test(token))) { profileKey = undefined; key = undefined; }
       else if (!profileKey && inferred) profileKey = inferred;
       if (key === "skills") key = undefined;
       if (
@@ -617,7 +619,8 @@ export function createInspector(resolveContext, history, autofill) {
         )
       )
         key = undefined;
-      return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext };
+      return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext,
+        manualReason: declaration ? "Review this declaration on the employer form." : undefined };
     };
     const entries = fields.map(contactEntry);
     const isContactField = ({ field, key }) =>
