@@ -41,6 +41,8 @@ jobs:
       - run: npm run test:unit
       - run: npx playwright install --with-deps chromium
       - run: npm run extension:test:autofill
+      - run: npm run extension:test:modern
+      - run: npm run extension:test:expanded
       - run: npm run extension:test:semantic
       - run: node scripts/test-application-extension-rippling.mjs
       - run: npm run extension:test:questions

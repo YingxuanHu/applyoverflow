@@ -1,0 +1,38 @@
+name: Live Autofill Benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: Number of application pages to discover (300-600)
+        type: choice
+        default: '400'
+        options: ['300', '400', '600']
+permissions:
+  contents: read
+concurrency:
+  group: live-autofill-benchmark
+  cancel-in-progress: false
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Discover and verify live forms
+        env:
+          SITE_LIMIT: ${{ inputs.sites }}
+        run: npm run extension:benchmark -- --discover --limit "$SITE_LIMIT" --concurrency 3 --min-forms 200 --min-retention 0.95 --min-planned-retention 0.90 --run ci
+      - name: Retain benchmark evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autofill-benchmark-${{ github.sha }}
+          path: output/playwright/autofill-benchmark
+          retention-days: 14
+          if-no-files-found: warn

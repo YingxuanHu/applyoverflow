@@ -25,6 +25,8 @@
     "extension:build": "node scripts/build-application-extension.mjs",
     "extension:test": "node scripts/test-application-extension.mjs",
     "extension:test:autofill": "node scripts/test-application-extension-autofill.mjs",
+    "extension:test:modern": "node scripts/test-application-extension-modern-controls.mjs",
+    "extension:benchmark": "node --import tsx scripts/benchmark-application-autofill.mjs",
     "extension:test:semantic": "node scripts/test-application-extension-semantic.mjs",
     "extension:test:questions": "node scripts/test-application-extension-questions.mjs",
     "extension:test:progress": "node scripts/test-extension-progress.mjs",
