@@ -180,6 +180,23 @@ try {
   assert.equal(await page.evaluate(() => window.submissions), 0);
   console.log("PASS bounded generic repeaters, complete multi-row history, idempotence and no submission");
 
+  await load(`${base}<section aria-label="Education"><fieldset><legend>Education</legend><label>School<input value="Example University"></label>
+    <label>Degree<input value="Master of Engineering"></label><label>Field of study<input value="Computer Engineering"></label>
+    <label>Start date<input type="month" value="2025-09"></label><label>End date<input type="month"></label></fieldset></section></form>`);
+  const education = { school: "Example University", degree: "Master of Engineering", fieldOfStudy: "Computer Engineering" };
+  const conflicting = [
+    { kind: "education", entry: { ...education, degree: "Master of Engineering, Emphasis in Computer Engineering", dates: { start: "2025-09", end: "", current: true } } },
+    { kind: "education", entry: { ...education, dates: { start: "2025-09", end: "2026-09", current: false } } },
+  ];
+  report = await inspect("autofill", { contact, history: conflicting });
+  assert.equal(report.historyFilled, 0);
+  assert.equal(report.historyNeedsReview, 2);
+  assert.match(report.historyWarnings.join(" "), /Conflicting dates/);
+  assert.equal(await page.getByLabel("End date").inputValue(), "", "a current record cannot inherit a conflicting imported end date");
+  report = await inspect("autofill", { contact, history: conflicting });
+  assert.equal(report.historyFilled, 0, "the conflict safeguard is independent of prior fill state");
+  console.log("PASS conflicting source records are not blended into an existing partial education row");
+
   for (const [type, placeholder, start, end, expectedStart, expectedEnd] of [
     ["date", "", "2024-02", "2024-02", "2024-02-01", "2024-02-29"],
     ["text", "dd-mm-yyyy", "2023-02", "2023-02", "01-02-2023", "28-02-2023"],

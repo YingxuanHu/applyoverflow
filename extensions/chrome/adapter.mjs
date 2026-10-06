@@ -754,8 +754,26 @@ export function createInspector(resolveContext, history, autofill) {
         result.historyDateAdjusted = 0;
         result.historyNeedsReview = 0;
         result.historyWarnings = [];
-        for (const entry of (contact.history || []).slice(0, 20)) {
+        const candidates = (contact.history || []).slice(0, 20);
+        const normalizeHistory = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+        const historyIdentity = row => {
+          const entry = row.entry || {}, degree = normalizeHistory(entry.degree);
+          const level = /^master|^(?:meng|msc|ms|ma|mba)$/.test(degree) ? "master" : /^bachelor|^(?:bsc|bs|ba|beng|bba|bcs)$/.test(degree) ? "bachelor" : degree;
+          return row.kind === "education" ? JSON.stringify([row.kind, normalizeHistory(entry.school), level, normalizeHistory(entry.fieldOfStudy), entry.dates?.start?.slice(0, 4)]) :
+            JSON.stringify([row.kind, normalizeHistory(entry.company), normalizeHistory(entry.title), entry.dates?.start]);
+        };
+        const conflictingDates = (a, b) => ["start", "end"].some(key => a?.[key] && b?.[key] && !a[key].startsWith(b[key]) && !b[key].startsWith(a[key])) ||
+          (typeof a?.current === "boolean" && typeof b?.current === "boolean" && a.current !== b.current);
+        const conflicts = new Set(candidates.filter(row => candidates.some(other => row !== other &&
+          historyIdentity(row) === historyIdentity(other) && conflictingDates(row.entry?.dates, other.entry?.dates))).map(historyIdentity));
+        for (const entry of candidates) {
           if (location.href !== expectedUrl || !forms[0].isConnected) break;
+          if (conflicts.has(historyIdentity(entry))) {
+            result.historyNeedsReview++;
+            const warning = "Conflicting dates exist for the same profile history record. Resolve them in Profile before filling this record.";
+            if (!result.historyWarnings.includes(warning)) result.historyWarnings.push(warning);
+            continue;
+          }
           const filled = await history("fill-history", { ...entry, automatic: true }, forms[0], labelFor, visible);
           result.historyFilled += filled.filled || 0;
           result.historySaved += filled.saved || 0;
