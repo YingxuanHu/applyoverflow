@@ -15,3 +15,15 @@ test("benchmark allows verified location catalog queries, never application muta
   assert.equal(allowed(payload, url.replace("ApiAutocompleteGeoLocation", "SubmitApplication")), false);
   assert.equal(isReadOnlyCatalogRequest({ url, method: "POST", postData: "invalid JSON" }), false);
 });
+
+test("Workday source catalogs are allowed but candidate writes remain blocked", () => {
+  const url = "https://example.wd1.myworkdayjobs.com/wday/calypso/cxs/jobapplication/example/values/sources/sources";
+  assert.equal(isReadOnlyCatalogRequest({ url, method: "GET" }), true);
+  const nested = `${url}/12f4eb641e1c10005553491e16ec0000/7e82e399ba7910ae480e5f7a17d4fbb1`;
+  assert.equal(isReadOnlyCatalogRequest({ url: nested, method: "GET" }), true);
+  assert.equal(isReadOnlyCatalogRequest({ url: nested, method: "POST" }), false);
+  assert.equal(isReadOnlyCatalogRequest({ url: `${nested}/candidate`, method: "GET" }), false);
+  assert.equal(isReadOnlyCatalogRequest({ url, method: "POST" }), false);
+  assert.equal(isReadOnlyCatalogRequest({ url: url.replace("values/sources/sources", "candidate/update"), method: "POST" }), false);
+  assert.equal(isReadOnlyCatalogRequest({ url: url.replace("example.wd1.myworkdayjobs.com", "evil.example"), method: "GET" }), false);
+});

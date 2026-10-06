@@ -9,6 +9,7 @@ import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { applicationContext } from "../extensions/chrome/sites.mjs";
 import { oracleKey, oracleMatches as matchesContact } from "./lib/autofill-benchmark-oracle.mjs";
 import { isReadOnlyCatalogRequest } from "./lib/autofill-benchmark-network.mjs";
+import { discoverWorkdayBenchmarkJobs, workdayBenchmarkStage } from "./lib/workday-benchmark.mjs";
 import * as applicationAnswersModule from "../src/lib/profile-application-answers.ts";
 import * as historyModule from "../src/lib/profile-history.ts";
 const { applicationAnswerPlan } = applicationAnswersModule.default || applicationAnswersModule;
@@ -22,6 +23,12 @@ const concurrency = Number(option("--concurrency", "3"));
 const minForms = Number(option("--min-forms", "0"));
 const minRetention = Number(option("--min-retention", "0"));
 const minPlannedRetention = Number(option("--min-planned-retention", "0"));
+const platformFilter = option("--platform", "all");
+const jobsPerEmployer = Number(option("--jobs-per-employer", "1"));
+const profileCountry = option("--profile-country", "US");
+assert.ok(["CA", "US"].includes(profileCountry));
+assert.ok(["all", "greenhouse", "lever", "ashby", "smartrecruiters", "teamtailor", "jobvite", "workable", "recruitee", "rippling", "icims", "workday"].includes(platformFilter));
+assert.ok(Number.isInteger(jobsPerEmployer) && jobsPerEmployer >= 1 && jobsPerEmployer <= 5);
 assert.ok(limit >= 1 && limit <= 2000 && concurrency >= 1 && concurrency <= 6);
 assert.ok(Number.isInteger(limit) && Number.isInteger(concurrency) && Number.isInteger(minForms) && minForms >= 0 && minRetention >= 0 && minRetention <= 1);
 assert.ok(minPlannedRetention >= 0 && minPlannedRetention <= 1);
@@ -38,6 +45,8 @@ const contact = { givenName: "Jordan", familyName: "Example", fullName: "Jordan 
   fullAddress: "123 Example Street, Unit 2, Richmond, VA, 23220, United States",
   linkedInUrl: "https://www.linkedin.com/in/example-test", githubUrl: "https://github.com/example-test",
   portfolioUrl: "https://example.test", portfolioGithubUrl: "https://example.test", professionalUrl: "https://www.linkedin.com/in/example-test" };
+if (profileCountry === "CA") Object.assign(contact, { country: "CA", phoneCountry: "CA", phone: "6475550148", city: "Toronto",
+  cityRegion: "Toronto, ON", region: "ON", postalCode: "M5V 1A1", fullAddress: "123 Example Street, Unit 2, Toronto, ON, M5V 1A1, Canada" });
 const preferences = { enabled: true, values: { jobSource: "ApplyOverflow", sourceDetails: "ApplyOverflow", startDate: "2026-10-15",
   authorizedUS: "Yes", authorizedCA: "No", sponsorshipUS: "No", sponsorshipCA: "Yes", relocation: "Yes", over18: "Yes",
   smsUpdates: "No", emailUpdates: "No", gender: "Prefer not to answer", ethnicity: "Prefer not to answer",
@@ -48,11 +57,13 @@ const history = [
   { kind: "education", entry: { school: "University of Toronto", degree: "Master of Engineering", fieldOfStudy: "Computer Engineering", time: "Sep 2025 - Present" } },
   { kind: "education", entry: { school: "University of Waterloo", degree: "Bachelor of Science", fieldOfStudy: "Computer Science", time: "Sep 2020 - Aug 2025" } },
 ].map(row => ({ ...row, entry: { ...row.entry, dates: autofillHistoryDates(row.entry) } }));
+const profileHash = createHash("sha256").update(JSON.stringify({ contact, preferences, history })).digest("hex");
 const source = `(${createInspector})(${applicationContext},(${createHistoryInspector})(),(${createAutofillInspector})())`;
 const sourceHash = createHash("sha256").update(source).update(await readFile("src/lib/profile-application-answers.ts")).digest("hex");
 const harnessHash = createHash("sha256").update(await readFile(new URL(import.meta.url)))
   .update(await readFile(new URL("./lib/autofill-benchmark-oracle.mjs", import.meta.url)))
-  .update(await readFile(new URL("./lib/autofill-benchmark-network.mjs", import.meta.url))).update(await readFile("src/lib/profile-history.ts")).digest("hex");
+  .update(await readFile(new URL("./lib/autofill-benchmark-network.mjs", import.meta.url)))
+  .update(await readFile(new URL("./lib/workday-benchmark.mjs", import.meta.url))).update(await readFile("src/lib/profile-history.ts")).digest("hex");
 const audit = nodes => nodes.filter(n => n.getClientRects().length && !n.closest('[hidden],[inert],[aria-hidden="true"]')).map(n => {
   const labels = n.id ? [...document.querySelectorAll(`label[for="${CSS.escape(n.id)}"]`)] : [];
   const copy = (n.labels?.[0] || (labels.length === 1 ? labels[0] : null))?.cloneNode(true);
@@ -85,10 +96,11 @@ async function discover() {
   const inventory = [...new Map([...baseInventory, ...extraInventory].map(row => [`${row.connectorName}:${row.token}`, row])).values()];
   const selected = args.includes("--extend") ? JSON.parse(await readFile(resolve(output, "manifest.json"), "utf8")) : [];
   const discoveries = [];
-  const quotas = { greenhouse: Math.ceil(limit * .3), lever: Math.ceil(limit * .25), ashby: Math.ceil(limit * .25),
+  const quotas = platformFilter !== "all" ? { [platformFilter]: limit } : { greenhouse: Math.ceil(limit * .3), lever: Math.ceil(limit * .25), ashby: Math.ceil(limit * .25),
     smartrecruiters: Math.ceil(limit * .12), teamtailor: Math.ceil(limit * .04), jobvite: Math.ceil(limit * .04),
     workable: 8, recruitee: 8, rippling: 20 };
   for (const [platform, quota] of Object.entries(quotas)) {
+    if (platformFilter !== "all" && platformFilter !== platform) continue;
     if (args.includes("--extend") && selected.some(row => row.platform === platform)) continue;
     let accepted = 0;
     const tenants = inventory.filter(row => row.connectorName === platform);
@@ -99,6 +111,7 @@ async function discover() {
       await pool(tenants.slice(start, start + 4), 4, async tenant => {
         try {
           let jobs = [];
+          if (platform === "workday") jobs = await discoverWorkdayBenchmarkJobs(tenant.token);
           if (platform === "greenhouse") jobs = (await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${tenant.token}/jobs`)).jobs.map(j => ({ url: j.absolute_url, title: j.title, location: j.location?.name }));
           if (platform === "lever") jobs = (await fetchJson(`https://api.lever.co/v0/postings/${tenant.token}?mode=json`)).map(j => ({ url: j.applyUrl, title: j.text, location: j.categories?.location }));
           if (platform === "ashby") jobs = (await fetchJson(`https://api.ashbyhq.com/posting-api/job-board/${tenant.token}`)).jobs.map(j => ({ url: j.applyUrl, title: j.title, location: j.location }));
@@ -117,23 +130,23 @@ async function discover() {
           }
           const office = jobs.filter(j => /engineer|software|analyst|manager|marketing|account|research|design|finance|sales|legal|consult/i.test(j.title || ""));
           const northAmerican = office.filter(j => /canada|united states|\busa?\b|\bca\b|\bus\b|toronto|vancouver|new york|san francisco|seattle|boston|austin|chicago|remote/i.test(j.location || ""));
-          const job = (northAmerican.length ? northAmerican : office.length ? office : jobs)[0];
-          if (job && accepted < quota) {
+          const choices = (northAmerican.length ? northAmerican : office.length ? office : jobs).slice(0, jobsPerEmployer);
+          for (const job of choices) if (accepted < quota) {
             let url = job.url;
             if (platform === "teamtailor") url = url.replace(/\/$/, "") + "/applications/new";
             if (platform === "jobvite") url = url.replace(/\/$/, "") + "/apply";
             if (!selected.some(row => row.url === url)) selected.push({ platform, company: tenant.companyName || tenant.token, tenant: tenant.token, ...job, url }); accepted++;
           }
-          discoveries.push({ platform, tenant: tenant.token, jobs: jobs.length, selected: !!job });
+          discoveries.push({ platform, tenant: tenant.token, jobs: jobs.length, selected: choices.length });
         } catch (error) { discoveries.push({ platform, tenant: tenant.token, error: String(error) }); }
       });
       await wait(200);
     }
-    console.log(`Discovered ${accepted} ${platform} employers`);
+    console.log(`Discovered ${accepted} ${platform} application URLs`);
   }
   // Enterprise login gates are part of compatibility, even though the bulk run
   // must never create accounts or reuse private credentials.
-  for (const row of inventory.filter(row => row.connectorName === "icims").slice(0, 15)) {
+  for (const row of inventory.filter(row => row.connectorName === "icims" && ["all", "icims"].includes(platformFilter)).slice(0, 15)) {
     const url = row.careersUrl || row.boardUrl;
     if (!selected.some(item => item.url === url)) selected.push({ platform: "icims", company: row.companyName || row.token, url });
   }
@@ -150,11 +163,12 @@ if (args.includes("--resume")) {
   const saved = (await readFile(reportFile, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   assert.ok(saved.every(row => row.sourceHash === sourceHash), "Changed source cannot resume an older benchmark; choose a new run name");
   assert.ok(saved.every(row => row.harnessHash === harnessHash), "Changed harness cannot resume an older benchmark; choose a new run name");
+  assert.ok(saved.every(row => row.profileHash === profileHash), "Changed profile cannot resume an older benchmark; choose a new run name");
   assert.equal(new Set(saved.map(row => row.url)).size, saved.length, "Duplicate reports cannot be resumed");
   reports.push(...saved);
 } else await writeFile(reportFile, "", { flag: "wx" });
 const finished = new Set(reports.map(r => r.url));
-const sample = [...new Map(manifest.map(row => [row.url, row])).values()].slice(0, limit);
+const sample = [...new Map(manifest.filter(row => platformFilter === "all" || row.platform === platformFilter).map(row => [row.url, row])).values()].slice(0, limit);
 assert.ok(reports.every(row => sample.some(item => item.url === row.url)), "Resume with the same sample and limit");
 const cases = sample.filter(row => !finished.has(row.url));
 const browser = await chromium.launch({ headless: true });
@@ -162,22 +176,30 @@ let completed = reports.length;
 async function summarize() {
   const platforms = {};
   for (const report of reports) {
-    const counts = platforms[report.platform] ||= { attempted: 0, detected: 0, eligible: 0, retained: 0, oracleEligible: 0, oracleRetained: 0, reportedFilled: 0, gated: 0, errors: 0 };
+    const counts = platforms[report.platform] ||= { attempted: 0, detected: 0, eligible: 0, retained: 0, oracleEligible: 0, oracleRetained: 0, reportedFilled: 0, gated: 0, measurementBlocked: 0, errors: 0, stages: {} };
     counts.attempted++;
     counts.detected += Number(report.detected || false);
-    counts.eligible += report.eligible || 0;
-    counts.retained += report.retained || 0;
-    counts.oracleEligible += report.oracleEligible || 0;
-    counts.oracleRetained += report.oracleRetained || 0;
+    counts.measurementBlocked += Number(!!report.measurementBlocked);
+    if (!report.measurementBlocked) {
+      counts.eligible += report.eligible || 0;
+      counts.retained += report.retained || 0;
+      counts.oracleEligible += report.oracleEligible || 0;
+      counts.oracleRetained += report.oracleRetained || 0;
+    }
     counts.reportedFilled += report.filled || 0;
     counts.gated += Number(report.status === "gated");
     counts.errors += Number(!!report.error);
+    if (report.stage) counts.stages[report.stage] = (counts.stages[report.stage] || 0) + 1;
   }
-  const summary = { sourceHash, harnessHash, createdAt: new Date().toISOString(), attempted: reports.length,
+  const measured = reports.filter(report => !report.measurementBlocked);
+  const summary = { sourceHash, harnessHash, profileHash, profileCountry, createdAt: new Date().toISOString(), attempted: reports.length,
     detected: reports.filter(r => r.detected).length, employers: new Set(reports.map(r => r.company)).size,
+    validatedForms: reports.filter(r => r.status === "form" && !r.error).length,
+    measurementBlocked: reports.filter(r => r.measurementBlocked).length,
+    completedApplications: 0, authenticatedApplications: 0,
     platforms, submissionAttempts: reports.reduce((n, r) => n + (r.submissions || 0), 0),
-    oracleRetention: reports.reduce((n, r) => n + (r.oracleRetained || 0), 0) / (reports.reduce((n, r) => n + (r.oracleEligible || 0), 0) || 1),
-    plannedRetention: reports.reduce((n, r) => n + (r.retained || 0), 0) / (reports.reduce((n, r) => n + (r.eligible || 0), 0) || 1),
+    oracleRetention: measured.reduce((n, r) => n + (r.oracleRetained || 0), 0) / (measured.reduce((n, r) => n + (r.oracleEligible || 0), 0) || 1),
+    plannedRetention: measured.reduce((n, r) => n + (r.retained || 0), 0) / (measured.reduce((n, r) => n + (r.eligible || 0), 0) || 1),
     safety: "Synthetic profile; only verified read-only catalog requests allowed during filling; no uploads, account creation or application submissions" };
   await writeFile(resolve(output, `${run}-summary.json`), JSON.stringify(summary, null, 2));
   return summary;
@@ -186,10 +208,18 @@ try {
   await pool(cases, concurrency, async (test, index) => {
     const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1360, height: 960 } });
     const page = await context.newPage();
-    const report = { ...test, sourceHash, harnessHash, startedAt: new Date().toISOString(), detected: false, status: "unavailable", submissions: 0 };
+    const report = { ...test, sourceHash, harnessHash, profileHash, startedAt: new Date().toISOString(), detected: false, status: "unavailable", submissions: 0 };
     const start = Date.now();
     try {
       await page.goto(test.url, { waitUntil: "domcontentloaded", timeout: 25000 });
+      if (test.platform === "workday") {
+        const manual = page.getByRole("button", { name: "Apply Manually", exact: true });
+        await manual.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+        if (await manual.isVisible().catch(() => false)) {
+          await manual.click();
+          await page.locator('input:visible,h3').first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+        }
+      }
       if (test.platform === "jobvite" && !/\/apply\/?$/.test(new URL(page.url()).pathname)) {
         const apply = page.getByRole("link", { name: /^apply(?: now)?$/i }).first();
         if (await apply.count()) { const href = await apply.getAttribute("href"); if (href) await page.goto(new URL(href, page.url()).href, { waitUntil: "domcontentloaded", timeout: 25000 }); }
@@ -205,13 +235,25 @@ try {
       await page.waitForTimeout(1200);
       report.actualUrl = page.url();
       const text = await page.locator("body").innerText({ timeout: 5000 });
+      if (test.platform === "workday") {
+        report.stage = workdayBenchmarkStage({ body: text, password: await page.locator('input[type="password"]').count() > 0,
+          headings: await page.locator('h3,[role="heading"]').allTextContents() });
+        if (["sign-in", "captcha"].includes(report.stage)) report.status = "gated";
+      }
       if (await page.locator('input[type="password"]').count() || /verify you are human|access denied|checking your browser|sign in to apply|create an account to apply/i.test(text) ||
         page.frames().some(frame => /captcha-delivery\.com|challenges\.cloudflare\.com/.test(frame.url()))) report.status = "gated";
+      // Login inputs are not application fields. Exclude gates before building
+      // either denominator or attempting any synthetic writes.
+      if (report.status === "gated") return;
       // Catalog lookups are read-only. Every other request is blocked before
       // writing even the first synthetic character into an employer field.
+      const blockedRequests = [];
       await context.route("**/*", route => {
         const request = route.request();
-        return !request.isNavigationRequest() && isReadOnlyCatalogRequest({ url: request.url(), method: request.method(), postData: request.postData() }) ? route.continue() : route.abort();
+        if (!request.isNavigationRequest() && isReadOnlyCatalogRequest({ url: request.url(), method: request.method(), postData: request.postData() })) return route.continue();
+        const url = new URL(request.url());
+        if (blockedRequests.length < 30) blockedRequests.push({ method: request.method(), origin: url.origin, pathname: url.pathname });
+        return route.abort();
       });
       await context.routeWebSocket("**/*", socket => socket.close());
       await page.evaluate(code => {
@@ -248,6 +290,17 @@ try {
       await page.waitForTimeout(600);
       const after = await inspectTarget("inspect");
       report.fields = result.fields; report.after = after.fields;
+      report.blockedRequests = blockedRequests;
+      if (after.error || !after.fields?.length) {
+        report.status = "unavailable";
+        report.error = after.error || "The application form disappeared during filling; review blocked requests and employer state.";
+        if (test.platform === "workday" && blockedRequests.some(request => request.method === "POST" &&
+          /^\/wday\/calypso\/cxs\/jobapplication\/[^/]+\/jobapplication\//.test(request.pathname))) {
+          report.status = "write-gated";
+          report.measurementBlocked = true;
+          report.error = "Workday attempted a candidate auto-save during filling. The safety guard blocked it; this run cannot measure subsequent retention.";
+        }
+      }
       report.eligible = expected.length;
       report.retained = expected.filter(f => after.fields?.some(a => a.id === f.id && ["filled", "kept"].includes(a.state))).length;
       report.filled = result.fields?.filter(f => f.state === "filled").length || 0;
@@ -273,7 +326,7 @@ try {
   });
 } finally { await browser.close(); console.log(JSON.stringify(await summarize(), null, 2)); }
 const summary = await summarize();
-assert.ok(summary.detected >= minForms, `Only ${summary.detected} forms detected; expected at least ${minForms}`);
+assert.ok(summary.validatedForms >= minForms, `Only ${summary.validatedForms} forms remained measurable after filling; expected at least ${minForms}`);
 assert.ok(summary.oracleRetention >= minRetention, `DOM-verified known-contact retention ${summary.oracleRetention.toFixed(3)} below ${minRetention}`);
 assert.ok(summary.plannedRetention >= minPlannedRetention, `Profile-backed planned retention ${summary.plannedRetention.toFixed(3)} below ${minPlannedRetention}`);
 assert.equal(summary.submissionAttempts, 0);

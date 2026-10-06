@@ -7,6 +7,11 @@ on:
         type: choice
         default: '400'
         options: ['300', '400', '600']
+      platform:
+        description: All public platforms or Workday-only access probes
+        type: choice
+        default: all
+        options: [all, workday]
 permissions:
   contents: read
 concurrency:
@@ -27,7 +32,13 @@ jobs:
       - name: Discover and verify live forms
         env:
           SITE_LIMIT: ${{ inputs.sites }}
-        run: npm run extension:benchmark -- --discover --limit "$SITE_LIMIT" --concurrency 3 --min-forms 200 --min-retention 0.95 --min-planned-retention 0.90 --run ci
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          if [ "$PLATFORM" = workday ]; then
+            npm run extension:benchmark -- --platform workday --discover --limit "$SITE_LIMIT" --jobs-per-employer 3 --concurrency 3 --run ci-workday
+          else
+            npm run extension:benchmark -- --discover --limit "$SITE_LIMIT" --concurrency 3 --min-forms 200 --min-retention 0.95 --min-planned-retention 0.90 --run ci
+          fi
       - name: Retain benchmark evidence, including failures
         if: always()
         uses: actions/upload-artifact@v4
