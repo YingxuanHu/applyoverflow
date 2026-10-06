@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { buildProfileFormValues, normalizeContact, normalizeExperiences, normalizeEducations } from "@/lib/profile";
 import { ANSWER_LIBRARY_KEY, applicationContext, parseAnswerLibrary, questionKey, questionKind } from "@/lib/application-assistant";
-import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, reusableAutofillAnswers } from "@/lib/extension-autofill";
+import { autofillAnswerSchema, autofillPlanSchema, autofillProfileFields, professionalAutofillFacts, reusableAutofillAnswers } from "@/lib/extension-autofill";
 import { AssistantError } from "@/lib/queries/application-assistant";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import { applicationAnswerPlan } from "@/lib/profile-application-answers";
@@ -16,7 +16,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
       contactJson: true, updatedAt: true, phone: true, location: true,
       linkedinUrl: true, githubUrl: true, portfolioUrl: true,
       skillsJson: true, skillsText: true,
-      experiencesJson: input.history, educationsJson: input.history,
+      experiencesJson: true, educationsJson: input.history,
       authUser: { select: { name: true, email: true } },
       preferences: { where: { key: ANSWER_LIBRARY_KEY }, select: { value: true } },
     },
@@ -34,6 +34,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
   fields.portfolioGithubUrl = contact.portfolioUrl || contact.githubUrl || "";
   fields.cityRegion = contact.city && contact.region ? `${contact.city}, ${contact.region}` : "";
+  Object.assign(fields, professionalAutofillFacts(values));
   const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,

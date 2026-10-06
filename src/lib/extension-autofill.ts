@@ -1,5 +1,17 @@
 import { z } from "zod";
 import { captureSchema, questionKey, questionKind, type AnswerLibrary } from "@/lib/application-assistant";
+import type { ProfileFormValues } from "@/lib/profile";
+import { autofillHistoryDates } from "@/lib/profile-history";
+
+export function professionalAutofillFacts(profile: ProfileFormValues) {
+  const current = profile.experiences.filter(entry => autofillHistoryDates(entry)?.current === true);
+  // A concurrent second role is ambiguous. Do not pick the first employer or
+  // silently describe the most recent past job as current employment.
+  return {
+    currentCompany: current.length === 1 ? current[0].company : "",
+    currentTitle: current.length === 1 ? current[0].title : "",
+  };
+}
 
 export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
   history: z.boolean().default(false),

@@ -81,6 +81,7 @@ export function createInspector(resolveContext, history, autofill) {
       telephone: "phone",
       "address line 1": "streetAddress",
       "street address": "streetAddress",
+      street: "streetAddress",
       "address 1": "streetAddress",
       address: "fullAddress",
       "full address": "fullAddress",
@@ -115,6 +116,12 @@ export function createInspector(resolveContext, history, autofill) {
       "portfolio url": "portfolioUrl",
       skills: "skills",
       "technical skills": "skills",
+      "current company": "currentCompany",
+      "current employer": "currentCompany",
+      "current job title": "currentTitle",
+      "current title": "currentTitle",
+      "current role": "currentTitle",
+      "other website": "portfolioGithubUrl",
     };
     const normalize = (value) =>
       value
@@ -596,14 +603,18 @@ export function createInspector(resolveContext, history, autofill) {
         field.getAttribute("data-testid") === "input-undefined" &&
         field.getAttribute("aria-labelledby") === `${field.id}-label` &&
         field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
-      const inferred = meaning(label);
+      let inferred = meaning(label);
+      if (["checkbox", "radio"].includes(field.type) && ["currentTitle", "currentCompany"].includes(inferred)) {
+        inferred = undefined; profileKey = undefined; key = undefined;
+      }
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
       let foreignContext = Boolean(inferred && foreign.test(label));
       let declaration = /signature|attestation/i.test(`${field.id} ${field.name || ""}`);
       for (let node = field.parentElement; node && node !== forms[0]; node = node.parentElement) {
         if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control')) {
           const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4')?.textContent || "";
-          if (foreign.test(title) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+          const eligibilityTitle = /\b(?:work (?:authorization|eligibility)|employment (?:eligibility|visa|authorization))\b/i.test(title);
+          if ((foreign.test(title) && !eligibilityTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
           if (inferred && /disabilit|voluntary self.identification|attestation|declaration|acknowledg|signature|certification/i.test(title)) declaration = true;
         }
       }

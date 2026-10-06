@@ -44,6 +44,9 @@ async function main() {
       const address = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (!address.startsWith("https://api.openai.com/")) return originalFetch(input, init);
       const body = JSON.parse(String(init?.body));
+      if (body.response_format?.json_schema?.name === "application_answer_quality") return Response.json({ choices: [{ message: { content: JSON.stringify({
+        grounded: true, relevant: true, complete: true, technicallyCorrect: true, missingJustified: true, feedback: "",
+      }) } }] });
       assert.match(body.messages[0].content, /at most 400 characters and 40 words/);
       generatedCalls++;
       const quote = invalidResponses > 0 ? "This statement does not exist in the saved evidence." : summary;

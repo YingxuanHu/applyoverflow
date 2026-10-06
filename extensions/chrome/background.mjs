@@ -1,9 +1,7 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
-import { fillProfessionalAnswers } from "./answer-runner.mjs";
-const canDraft = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
-  ((field.kind === "text" && questionAssistance(field.label) === "draft") || questionAssistance(field.label) === "qualification");
+import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 
 const supportedOrigin = (url) => {
   try {
@@ -152,7 +150,7 @@ async function api(action, body, token) {
     credentials: "omit",
     cache: "no-store",
     redirect: "error",
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(action === "autofill-suggest" ? 28_000 : 20_000),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

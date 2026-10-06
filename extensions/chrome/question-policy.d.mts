@@ -1,1 +1,1 @@
-export function questionAssistance(label: string): "personal" | "context" | "draft" | "qualification";
+export function questionAssistance(label: string): "personal" | "context" | "draft" | "qualification" | "knowledge";

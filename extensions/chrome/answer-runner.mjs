@@ -1,7 +1,7 @@
 import { questionAssistance } from "./question-policy.mjs";
 
 export const canPrepareAnswer = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
-  ((field.kind === "text" && ["draft", "context"].includes(questionAssistance(field.label))) || questionAssistance(field.label) === "qualification");
+  ((field.kind === "text" && ["draft", "context", "knowledge"].includes(questionAssistance(field.label))) || questionAssistance(field.label) === "qualification");
 
 // The worker owns this queue, so closing the toolbar does not stop Autofill.
 // Generation can overlap; DOM writes stay serialized and recheck live values.

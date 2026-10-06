@@ -7,6 +7,7 @@ export function createAutofillInspector() {
   const identity = item => item.field.id ? `${item.field.id}\n${item.label}` : "";
   let issues = new WeakMap();
   const ids = new WeakMap();
+  const phoneSeeds = new WeakMap();
   const norm = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
   const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[data-uxi-widget-type="selectinput"],input[data-automation-id="searchBox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
   const chipText = chip => chip.querySelector('.chip-text')?.textContent.trim() || "";
@@ -114,15 +115,39 @@ export function createAutofillInspector() {
     }
     const operationUrl = location.href;
     const deadline = performance.now() + 12000;
-    const radioLabel = group => group?.querySelector('legend')?.textContent?.trim() || group?.getAttribute('aria-label') ||
-      (group?.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '');
+    const radioLabel = group => {
+      if (!group) return "";
+      const named = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent.trim() || "").join(" ").trim();
+      const explicit = group.querySelector('legend')?.textContent?.trim() || group.getAttribute('aria-label') || named ||
+        (group.matches('.application-question') && group.querySelectorAll('.application-label').length === 1 ? group.querySelector('.application-label').textContent.trim() : '');
+      if (explicit) return explicit;
+      // Infer a prompt only within a single isolated radio group. Option labels,
+      // helper paragraphs and neighbouring questions must not become its name.
+      const candidates = [...group.querySelectorAll('p,label,h2,h3,h4,[role="heading"],div,span')].filter(node =>
+        !node.querySelector('input,select,textarea,button') && !node.closest('label:has(input[type="radio"])') &&
+        !node.hasAttribute("aria-hidden") && visible(node) && node.textContent.trim() && node.textContent.trim().length <= 500 &&
+        (!node.children.length || node.matches('p,label,h2,h3,h4,[role="heading"]')));
+      const prompts = [...new Set(candidates.map(node => node.textContent.trim()))];
+      return prompts.length === 1 ? prompts[0] : "";
+    };
     const groupedEntries = entries.flatMap(entry => {
       if (entry.field.type !== "radio") return [entry];
       const lever = /^(?:jobs|jobs\.eu)\.lever\.co$/.test(location.hostname);
-      const group = entry.field.closest(lever ? 'fieldset,[role="radiogroup"],.application-question' : 'fieldset,[role="radiogroup"]');
-      const groupLabel = radioLabel(group);
-      if (!group || !groupLabel || !entry.field.name) return [entry];
+      if (!entry.field.name) return [entry];
       const radios = entries.filter(item => item.field.type === "radio" && item.field.name === entry.field.name);
+      let group = entry.field.closest(lever ? 'fieldset,[role="radiogroup"],.application-question' : 'fieldset,[role="radiogroup"]');
+      if (!group) {
+        let parent = entry.field.parentElement;
+        for (let depth = 0; parent && parent !== form && depth < 6; depth++, parent = parent.parentElement) {
+          if (radios.length > 1 && radios.every(item => parent.contains(item.field)) &&
+              [...parent.querySelectorAll('input,select,textarea,button')].every(field => radios.some(item => item.field === field)) && radioLabel(parent)) {
+            group = parent; break;
+          }
+        }
+      }
+      const groupLabel = radioLabel(group);
+      if (!group || !groupLabel) return [entry];
       if (!radios.every(item => group.contains(item.field))) return [entry];
       if (radios[0].field !== entry.field) return [];
       return [{ ...entry, label: groupLabel, originalLabel: entry.label,
@@ -143,10 +168,19 @@ export function createAutofillInspector() {
       const key = entry.profileKey;
       const group = field.closest('fieldset,[role="group"],section');
       const heading = group?.querySelector('legend,h2,h3')?.textContent || group?.getAttribute("aria-label") || "";
-      const inHistory = entry.inHistory || /work experience|employment|education|reference|emergency|supervisor/i.test(heading) ||
+      const inHistory = entry.inHistory || /work experience|employment (?:history|record|details)|^employment$|education|reference|emergency|supervisor/i.test(heading) ||
         !!field.closest('[data-automation-id^="workExperience-"],[data-automation-id^="education-"]');
       const scalar = field instanceof HTMLTextAreaElement ||
         (field instanceof HTMLInputElement && ["text", "email", "tel", "url", "number", "date"].includes(field.type));
+      if (key === "phone" && field.type === "tel" && !phoneSeeds.has(field)) {
+        const seed = { value: field.value, edited: false };
+        phoneSeeds.set(field, seed);
+        if (/^\+\d{1,3}$/.test(seed.value.trim())) {
+          const preserve = event => { if (event.isTrusted) seed.edited = true; };
+          field.addEventListener("input", preserve);
+          field.addEventListener("change", preserve);
+        }
+      }
       const select = field instanceof HTMLSelectElement && !field.multiple;
       const radio = entry.radioFields?.length > 1;
       const widget = custom(field) && (!(field instanceof HTMLButtonElement) || field.type === "button");
@@ -167,10 +201,10 @@ export function createAutofillInspector() {
       const charLimit = limitText.match(/(?:max(?:imum)?(?: of)?|up to|limit(?: of|:)?|no more than)\s*(\d{1,5})\s*characters?\b/i)?.[1];
       const maxLength = Math.min(3000, field.maxLength >= 0 ? field.maxLength : 3000, Number(charLimit) || 3000);
       const maxWords = wordLimit ? Math.min(1000, Number(wordLimit)) : undefined;
-      const required = field.required || field.getAttribute("aria-required") === "true" ||
+      const required = field.required || field.getAttribute("aria-required") === "true" || /[*\u2731]\s*$/.test(label) ||
         (field.matches('b-single-select > [role="button"]') && field.parentElement.hasAttribute("required")) || Boolean(field.closest('b-currency-value-select[required]'));
       const item = { ...entry, id, field, label, profileKey: key, manual, options, maxLength, maxWords,
-        canRemember: !manual && !["fullAddress", "professionalUrl", "portfolioGithubUrl", "cityRegion", "skills"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
+        canRemember: !manual && !["fullAddress", "professionalUrl", "portfolioGithubUrl", "cityRegion", "skills", "currentCompany", "currentTitle"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         profileLabel: profileGuidance.get(norm(label))?.profileLabel,
         notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !required,
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
@@ -188,9 +222,13 @@ export function createAutofillInspector() {
       const selected = item.radioFields.find(field => field.checked);
       return selected ? labelFor(selected) : "";
     };
+    const phonePrefixOnly = item => {
+      const seed = item.profileKey === "phone" && phoneSeeds.get(item.field);
+      return seed && !seed.edited && /^\+\d{1,3}$/.test(seed.value.trim()) && readItem(item) === seed.value;
+    };
     const describe = () => items.filter(safe).map(item => {
       const field = item.field;
-      const hasValue = item.radioFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : Boolean(read(field).trim());
+      const hasValue = item.radioFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : !phonePrefixOnly(item) && Boolean(read(field).trim());
       const invalid = hasValue && validity(field) === false;
       const condition = profileGuidance.get(norm(item.label))?.dependsOn;
       const parents = condition ? items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === condition.answerKey) : [];
@@ -283,7 +321,7 @@ export function createAutofillInspector() {
     }
     async function write(item, value) {
       if (performance.now() > deadline) { item.reason = "Click Autofill again to continue on this long form."; return false; }
-      if (!safe(item) || item.manual || readItem(item).trim() || typeof value !== "string" || !value.trim()) return false;
+      if (!safe(item) || item.manual || (readItem(item).trim() && !phonePrefixOnly(item)) || typeof value !== "string" || !value.trim()) return false;
       if (value.length > item.maxLength || (item.maxWords && value.trim().split(/\s+/).length > item.maxWords)) {
         item.reason = `Shorten this answer to ${item.maxWords ? `${item.maxWords} words and ` : ""}${item.maxLength} characters.`; return false;
       }
@@ -385,7 +423,7 @@ export function createAutofillInspector() {
           const country = payload.contact?.phoneCountry;
           let digits = value.replace(/\D/g, "");
           if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
-          const international = /(?:with|including) (?:country|dial(?:ing)?) code|international (?:phone|number|format)/i.test(
+          const international = phonePrefixOnly(item) || /(?:with|including) (?:country|dial(?:ing)?) code|international (?:phone|number|format)/i.test(
             `${field.getAttribute("aria-label") || ""} ${field.placeholder || ""} ${item.label}`) || Boolean(field.closest('.iti,.intl-tel-input'));
           // Tell an international widget the saved country before its formatter
           // can prepend an employer's unrelated default country code.
