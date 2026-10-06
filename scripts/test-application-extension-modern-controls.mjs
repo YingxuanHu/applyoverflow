@@ -65,7 +65,18 @@ try {
   await scan('autofill', { history });
   assert.equal(await page.locator('#rows > [role="group"]').count(), 2, 'reruns do not duplicate rows');
   assert.equal(await page.evaluate(() => window.steps), 0);
+  assert.equal((await scan('undo-history')).undone, 12);
+  assert.deepEqual(await page.locator('#rows input[aria-label="Month"]').evaluateAll(nodes => nodes.map(n => n.value)), ['', '', '', ''], 'undo restores empty dates, never zero-padded zeroes');
   console.log('PASS accessible repeated history sections, safe Add, split dates and duplicate protection');
+
+  await load('https://fixture.wd1.myworkdayjobs.com/en-US/External/job/Toronto-ON-CAN/Engineer_R123/apply/applyManually');
+  const pendingDates = scan('autofill', { history: history.slice(0, 1) });
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Month');
+  await page.keyboard.insertText('11');
+  await pendingDates;
+  assert.equal(await page.locator('#rows input[aria-label="Month"]').first().inputValue(), '11', 'trusted edits during segmented-date rendering must not be overwritten');
+  assert.equal(await page.evaluate(() => window.steps), 0);
+  console.log('PASS trusted edits interrupt asynchronous segmented-date writes');
 
   html = `<h1>Software Engineer</h1><form id="job-application-form"><label>First name<span class="sr-only">Required</span><input autocomplete="given-name"></label>
     <label>Last name<span class="sr-only">Required</span><input autocomplete="family-name"></label><label>Email<span class="sr-only">Required</span><input type="email" pattern="[a-z|]+" autocomplete="email"></label>

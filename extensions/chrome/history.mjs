@@ -106,21 +106,22 @@ export function createHistoryInspector() {
     return field.value === "" && /^(select(?: one)?|choose(?: one)?|none|--?)$/i.test(text) ? "" : text;
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, 25));
-  const write = async (field, value) => {
+  const write = async (field, value, canWrite) => {
     const segmentedDate = field.getAttribute("role") === "spinbutton" &&
       /^(month|year|day)$/i.test(field.getAttribute("aria-label") || "");
     // Selecting the segment and allowing controlled state to render matters:
     // text can display correctly while the owning date still has no value.
     const before = read(field);
+    if (!canWrite()) return;
     if (segmentedDate) {
-      if (/^(month|day)$/i.test(field.getAttribute("aria-label"))) value = value.padStart(2, "0");
+      if (value && /^(month|day)$/i.test(field.getAttribute("aria-label"))) value = value.padStart(2, "0");
       field.click(); await wait();
-      if (!field.isConnected || read(field) !== before) return;
+      if (!canWrite() || !field.isConnected || read(field) !== before) return;
       field.focus(); await wait();
     }
-    if (!field.isConnected || read(field) !== before) return;
+    if (!canWrite() || !field.isConnected || read(field) !== before) return;
     setter(field, value);
-    if (segmentedDate) { await wait(); field.blur(); await wait(); }
+    if (segmentedDate) { await wait(); if (canWrite() && field.isConnected) field.blur(); await wait(); }
   };
   const dateValue = (value, part, field) => {
     if (field.type === "month" && value.length >= 7) return value.slice(0, 7);
@@ -321,7 +322,8 @@ export function createHistoryInspector() {
         }
         if (entry.custom) {
           await choose(entry.field, entry.beforeLabel, () => validUndo(entry), visible, entry.beforeLabel);
-        } else await write(entry.field, entry.before);
+        } else await write(entry.field, entry.before, () => !entry.edited && lastUrl === location.href &&
+          entry.group.contains(entry.field) && visible(entry.field) && !entry.field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]'));
         if (read(entry.field) === entry.before) undone++;
         else kept++;
       }
@@ -536,7 +538,8 @@ export function createHistoryInspector() {
         entry.value = read(field);
         // A click is not evidence the intended value was accepted by the site.
         if (normalize(entry.value) !== normalize(value)) { skipped++; continue; }
-      } else await write(field, value);
+      } else await write(field, value, () => !entry.edited && location.href === atUrl && form.isConnected &&
+        target.group.contains(field) && visible(field) && !field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]'));
       writes.push(entry);
     }
     if (writes.length) {
