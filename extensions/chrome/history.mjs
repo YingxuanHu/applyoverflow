@@ -97,11 +97,31 @@ export function createHistoryInspector() {
     }
     const selected = custom(field) && field.closest('.select__value-container')?.querySelector('.select__single-value');
     if (selected) return selected.textContent.trim();
-    if (!custom(field) || field instanceof HTMLInputElement) return field.value || "";
+    if (!custom(field) || field instanceof HTMLInputElement) {
+      const value = field.value || "";
+      return field.getAttribute("role") === "spinbutton" && /^(month|year|day)$/i.test(field.getAttribute("aria-label") || "") && /^\d+$/.test(value)
+        ? String(Number(value)) : value;
+    }
     const text = field.textContent.trim();
     return field.value === "" && /^(select(?: one)?|choose(?: one)?|none|--?)$/i.test(text) ? "" : text;
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, 25));
+  const write = async (field, value) => {
+    const segmentedDate = field.getAttribute("role") === "spinbutton" &&
+      /^(month|year|day)$/i.test(field.getAttribute("aria-label") || "");
+    // Selecting the segment and allowing controlled state to render matters:
+    // text can display correctly while the owning date still has no value.
+    const before = read(field);
+    if (segmentedDate) {
+      if (/^(month|day)$/i.test(field.getAttribute("aria-label"))) value = value.padStart(2, "0");
+      field.click(); await wait();
+      if (!field.isConnected || read(field) !== before) return;
+      field.focus(); await wait();
+    }
+    if (!field.isConnected || read(field) !== before) return;
+    setter(field, value);
+    if (segmentedDate) { await wait(); field.blur(); await wait(); }
+  };
   const dateValue = (value, part, field) => {
     if (field.type === "month" && value.length >= 7) return value.slice(0, 7);
     if (/^MM\s*\/\s*YYYY$/i.test(field.placeholder || "") && value.length >= 7)
@@ -301,7 +321,7 @@ export function createHistoryInspector() {
         }
         if (entry.custom) {
           await choose(entry.field, entry.beforeLabel, () => validUndo(entry), visible, entry.beforeLabel);
-        } else setter(entry.field, entry.before);
+        } else await write(entry.field, entry.before);
         if (read(entry.field) === entry.before) undone++;
         else kept++;
       }
@@ -516,7 +536,7 @@ export function createHistoryInspector() {
         entry.value = read(field);
         // A click is not evidence the intended value was accepted by the site.
         if (normalize(entry.value) !== normalize(value)) { skipped++; continue; }
-      } else setter(field, value);
+      } else await write(field, value);
       writes.push(entry);
     }
     if (writes.length) {

@@ -47,6 +47,11 @@ try {
     <script>let count=0;window.steps=0;document.querySelector('#continue').onclick=()=>window.steps++;
     document.querySelector('#add').onclick=()=>{count++;const row=document.createElement('div');row.setAttribute('role','group');row.setAttribute('aria-labelledby','row-'+count);
       row.innerHTML='<h4 id="row-'+count+'">Work Experience '+count+'</h4><label>Job Title<input></label><label>Company<input></label><fieldset><legend>From*</legend><div role="group"><input aria-label="Month" role="spinbutton"><input aria-label="Year" role="spinbutton"></div></fieldset><fieldset><legend>To*</legend><div role="group"><input aria-label="Month" role="spinbutton"><input aria-label="Year" role="spinbutton"></div></fieldset>';
+      for(const group of row.querySelectorAll('fieldset [role=group]'))for(const input of group.querySelectorAll('input')){
+        input.onclick=()=>input.dataset.selected='true';input.oninput=()=>setTimeout(()=>{
+          const size=input.getAttribute('aria-label')==='Month'?2:4;input.dataset.pending=input.value.length===size?String(Number(input.value)):'';},0);
+        input.onblur=()=>{if(input.dataset.selected==='true')input.dataset.accepted=input.dataset.pending;
+          const parts=[...group.querySelectorAll('input')].map(e=>e.dataset.accepted);group.dataset.committed=parts.every(Boolean)?parts.join('/'):' ';};}
       document.querySelector('#rows').append(row);};document.querySelector('#add').click();</script>`;
   await load('https://fixture.wd1.myworkdayjobs.com/en-US/External/job/Toronto-ON-CAN/Engineer_R123/apply/applyManually');
   const history = [
@@ -55,7 +60,8 @@ try {
   ];
   const filled = await scan('autofill', { history });
   assert.equal(filled.historyFilled, 12);
-  assert.deepEqual(await page.locator('#rows input[aria-label="Month"]').evaluateAll(nodes => nodes.map(n => n.value)), ['1', '8', '9', '12']);
+  assert.deepEqual(await page.locator('#rows input[aria-label="Month"]').evaluateAll(nodes => nodes.map(n => n.value)), ['01', '08', '09', '12']);
+  assert.deepEqual(await page.locator('#rows fieldset [role="group"]').evaluateAll(nodes => nodes.map(n => n.dataset.committed)), ['1/2025', '8/2025', '9/2023', '12/2023'], 'segmented dates must commit, not merely display text');
   await scan('autofill', { history });
   assert.equal(await page.locator('#rows > [role="group"]').count(), 2, 'reruns do not duplicate rows');
   assert.equal(await page.evaluate(() => window.steps), 0);

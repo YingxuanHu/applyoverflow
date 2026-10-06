@@ -62,9 +62,10 @@ all narrative answers, sensitive questions, uploads, or multi-step workflows.
 Test those separately with authorized accounts and review the visible form.
 
 The modern-control fixtures cover owned/nested/virtualized dropdowns, selected
-chips versus query text, split month/year dates, repeated-record idempotency,
+chips versus query text, split month/year date commitment, repeated-record idempotency,
 unknown-platform form detection, invalid employer validation patterns, explicit
-messaging preferences, professional URL variants, and foreign-contact exclusion.
+messaging preferences, professional URL variants, foreign-contact exclusion,
+and international phone widgets that must preserve the saved country code.
 The existing history, semantic-draft, resume, frame-routing, and undo suites remain
 part of release verification. Keep captured private sessions and credentials out
 of the benchmark, repository, and CI artifacts.
