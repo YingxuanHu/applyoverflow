@@ -166,7 +166,7 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
     if (!key || !profileLabel) return;
     const applyOverflowSource = key === "jobSource" && (answer === "ApplyOverflow" ||
       (answer === "Other" && saved.values.sourceDetails?.trim().toLowerCase() === "applyoverflow"));
-    const alternatives = applyOverflowSource ? ["Other", "Other Website", "Job Board", "Job Boards", "Job board / aggregator", "Website"] :
+    const alternatives = applyOverflowSource ? ["Other", "Other Website", "Job Board", "Job Boards", "Job Site", "Job Sites", "Job board / aggregator", "Website"] :
       answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I decline to self-identify for protected veteran status", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "Prefer not to disclose", "Choose not to disclose", "Choose not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
       key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] : undefined;
     if (saved.enabled && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
