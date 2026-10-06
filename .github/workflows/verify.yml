@@ -45,6 +45,7 @@ jobs:
       - run: npm run extension:test:workday
       - run: npm run extension:test:expanded
       - run: npm run extension:test:semantic
+      - run: npm run extension:test:matrix
       - run: node scripts/test-application-extension-rippling.mjs
       - run: npm run extension:test:questions
       - run: npm run extension:test:progress

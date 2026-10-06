@@ -26,6 +26,7 @@ const minPlannedRetention = Number(option("--min-planned-retention", "0"));
 const platformFilter = option("--platform", "all");
 const jobsPerEmployer = Number(option("--jobs-per-employer", "1"));
 const profileCountry = option("--profile-country", "US");
+const currentRole = args.includes("--current-role");
 assert.ok(["CA", "US"].includes(profileCountry));
 assert.ok(["all", "greenhouse", "lever", "ashby", "smartrecruiters", "teamtailor", "jobvite", "workable", "recruitee", "rippling", "icims", "workday"].includes(platformFilter));
 assert.ok(Number.isInteger(jobsPerEmployer) && jobsPerEmployer >= 1 && jobsPerEmployer <= 5);
@@ -45,6 +46,7 @@ const contact = { givenName: "Jordan", familyName: "Example", fullName: "Jordan 
   fullAddress: "123 Example Street, Unit 2, Richmond, VA, 23220, United States",
   linkedInUrl: "https://www.linkedin.com/in/example-test", githubUrl: "https://github.com/example-test",
   portfolioUrl: "https://example.test", portfolioGithubUrl: "https://example.test", professionalUrl: "https://www.linkedin.com/in/example-test" };
+if (currentRole) Object.assign(contact, { currentCompany: "Example Test Company", currentTitle: "Software Engineer" });
 if (profileCountry === "CA") Object.assign(contact, { country: "CA", phoneCountry: "CA", phone: "6475550148", city: "Toronto",
   cityRegion: "Toronto, ON", region: "ON", postalCode: "M5V 1A1", fullAddress: "123 Example Street, Unit 2, Toronto, ON, M5V 1A1, Canada" });
 const preferences = { enabled: true, values: { jobSource: "ApplyOverflow", sourceDetails: "ApplyOverflow", startDate: "2026-10-15",
@@ -52,7 +54,7 @@ const preferences = { enabled: true, values: { jobSource: "ApplyOverflow", sourc
   smsUpdates: "No", emailUpdates: "No", gender: "Prefer not to answer", ethnicity: "Prefer not to answer",
   veteran: "I don't wish to answer", disability: "I do not want to answer", desiredPay: "USD 80,000 per year" } };
 const history = [
-  { kind: "experience", entry: { title: "Software Engineer", company: "Example Test Company", location: "Richmond, VA", description: "Built Python reporting tools.", time: "Jan - Aug 2025" } },
+  { kind: "experience", entry: { title: "Software Engineer", company: "Example Test Company", location: "Richmond, VA", description: "Built Python reporting tools.", time: currentRole ? "Jan 2025 - Present" : "Jan - Aug 2025" } },
   { kind: "experience", entry: { title: "Data Analyst", company: "Second Test Company", location: "Richmond, VA", time: "Sep 2023 - Dec 2024" } },
   { kind: "education", entry: { school: "University of Toronto", degree: "Master of Engineering", fieldOfStudy: "Computer Engineering", time: "Sep 2025 - Present" } },
   { kind: "education", entry: { school: "University of Waterloo", degree: "Bachelor of Science", fieldOfStudy: "Computer Science", time: "Sep 2020 - Aug 2025" } },
@@ -233,6 +235,9 @@ try {
       }
       await page.locator('input:not([type="hidden"]),textarea,[role="combobox"]').first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(1200);
+      // A visible SSR input is not proof that the employer's handlers have
+      // hydrated. Settle public assets before blocking all writes and uploads.
+      report.initializationSettled = await page.waitForLoadState("networkidle", { timeout: 5000 }).then(() => true, () => false);
       report.actualUrl = page.url();
       const text = await page.locator("body").innerText({ timeout: 5000 });
       if (test.platform === "workday") {
@@ -276,7 +281,7 @@ try {
       }
       const auditSelector = 'input,textarea,select,[role="combobox"],button[aria-haspopup]';
       report.beforeDom = await target.locator(auditSelector).evaluateAll(audit);
-      const oracleExpected = report.beforeDom.filter(f => !f.value && oracleKey(f) && contact[oracleKey(f)]);
+      const oracleExpected = report.beforeDom.filter(f => (!f.value || (f.type === "tel" && /^\+\d{1,3}$/.test(f.value.trim()))) && oracleKey(f) && contact[oracleKey(f)]);
       report.oracleEligible = oracleExpected.length;
       if (before.error) { report.error = before.error; return; }
       report.detected = true; report.status = "form";
