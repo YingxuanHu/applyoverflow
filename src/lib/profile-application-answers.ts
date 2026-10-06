@@ -83,7 +83,10 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
   if (/^(?:disability status|disability|voluntary self-identification of disability|please (?:select|indicate) your disability status[.!?]?)$/.test(text)) return "disability";
   if (/^(?:i have a physical disability|do you (?:currently )?have a physical disability)\??$/.test(text)) return "physicalDisability";
   if (/^are you (?:at least 18(?: years old| years of age)?|18 years (?:of age or older|old or older))\??$/.test(text)) return "over18";
-  const us = /\bunited states\b|\bu\.?s\.?a?\b|\bh[- ]?1[- ]?b\b/.test(text), ca = /\bcanada\b|\bcanadian\b/.test(text);
+  const unscopedSponsorship = /^will you (?:now[, ]+or in the future|require (?:visa |employment )?sponsorship(?: for employment)? now or in (?:the )?future)\b/.test(text) &&
+    /sponsor/.test(text) && !/\b(?:uk|united kingdom|australia|europe|germany|india|other countries)\b/.test(text);
+  const us = /\bunited states\b|\bu\.?s\.?a?\b|\bh[- ]?1[- ]?b\b/.test(text) || (unscopedSponsorship && employmentCountry === "US"),
+    ca = /\bcanada\b|\bcanadian\b/.test(text) || (unscopedSponsorship && employmentCountry === "CA");
   if (us !== ca) {
     if (/\b(?:authorized|authorised|authorization|authorisation|legally eligible|legal right|eligibility)\b/.test(text) && /\bwork\b/.test(text) &&
       !/sponsor|visa|citizen|permanent resident|without|unrestricted|indefinite|proof|document|\bnot\b/.test(text)) return us ? "authorizedUS" : "authorizedCA";
@@ -97,8 +100,8 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
     if (/text messages|sms/.test(text) && !/email|e-mail/.test(text)) return "smsUpdates";
     if (/email|e-mail/.test(text) && !/text messages|sms/.test(text)) return "emailUpdates";
   }
-  if (/^how did you (?:initially )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job(?: opening)?|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(text)) return "jobSource";
-  if (/^(?:earliest (?:available )?start date|(?:date |when are you |when would you be )available(?: to start(?: work)?)?|when (?:can|could) you start(?: work)?|availability date)\??$/.test(text)) return "startDate";
+  if (/^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job(?: opening)?|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(text)) return "jobSource";
+  if (/^(?:earliest (?:available )?start date|(?:what is )?your (?:ideal|earliest|preferred|available) start date|(?:date |when are you |when would you be )available(?: to start(?: work)?)?|when (?:can|could) you start(?: work)?|availability date)\??$/.test(text)) return "startDate";
   if (/^(?:what (?:weekdays|days)(?: and times| and hours)? are you available(?: to work)?|(?:work |weekly )?availability|available (?:days|hours)(?: and (?:days|hours))?)\??$/.test(text)) return "availability";
   if (/^(?:please (?:indicate|provide) |what are )?(?:your )?(?:desired (?:starting )?(?:pay|salary(?: expectations)?|compensation)|salary expectations)(?:\s*\([^)]*\))?[.!?]?$/.test(text)) return "desiredPay";
   if (/^(?:please )?(?:explain|describe) why you are interested in part[ -]time employment[.!?]?$/.test(text)) return "partTimeReason";
@@ -116,7 +119,10 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
   const answers: CommonAnswer[] = [], details: CommonAnswerDetail[] = [];
   labels.forEach((label, index) => {
     const text = cleanQuestion(label), previous = cleanQuestion(labels[index - 1] || "");
+    const tenant = context && context.tenant.replace(/[^a-z0-9]/gi, "").toLowerCase();
     let key: string | undefined = applicationAnswerKey(label, employmentCountry);
+    const sourceEmployer = /^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about ([^?]{1,100})\??$/.exec(text)?.[1];
+    if (!key && tenant && sourceEmployer?.replace(/[^a-z0-9]/g, "") === tenant) key = "jobSource";
     let notApplicable = false;
     let answer = key ? saved.values[key as ApplicationAnswerKey] : undefined;
     let profileLabel: string | undefined = [...applicationAnswerFields, ...applicationTextFields].find(f => f.key === key)?.label;
@@ -128,11 +134,11 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       if (pay && Number(pay[2].replaceAll(",", "")) <= 1_000_000_000)
         answer = key === "desiredPayAmount" ? pay[2].replaceAll(",", "") : `${pay[1].toUpperCase()} $`;
     }
-    if (/^if ["']?other\b/.test(text) && applicationAnswerKey(labels[index - 1] || "") === "jobSource") {
+    if (/^if\b/.test(text) && /\bother\b/.test(text) && /tell|specify|provide|details/.test(text) &&
+      answers.some(answer => answer.label === labels[index - 1] && answer.answerKey === "jobSource")) {
       key = "sourceDetails"; profileLabel = "Other job source";
       answer = saved.values.jobSource === "ApplyOverflow" ? "ApplyOverflow" : saved.values.jobSource === "Other" ? saved.values.sourceDetails : undefined;
     }
-    const tenant = context && context.tenant.replace(/[^a-z0-9]/gi, "").toLowerCase();
     const sameEmployer = Boolean(tenant && tenant.length >= 4 && text.replace(/[^a-z0-9]/g, "").includes(tenant)) || /\b(?:this|our) (?:company|employer|organization)\b/.test(text) || /^have you ever worked for us before\??$/.test(text);
     const relationship = sameEmployer && /related to|relatives?\b|family member|close personal ties/.test(text) && /employ(?:ee|ed)|team member/.test(text) && !/government|official|politic|client|customer/.test(text);
     const referral = sameEmployer && /(?:were|are|have) you (?:been )?referred/.test(text) && /employee/.test(text);
@@ -158,8 +164,8 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       notApplicable = saved.values.sponsorshipUS === "No";
     }
     if (!key || !profileLabel) return;
-    const alternatives = key === "jobSource" && answer === "ApplyOverflow" ? ["Other"] :
-      answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
+    const alternatives = key === "jobSource" && answer === "ApplyOverflow" ? ["Other", "Job Board", "Job Boards", "Job board / aggregator"] :
+      answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I decline to self-identify for protected veteran status", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "Prefer not to disclose", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
       key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] : undefined;
     if (saved.enabled && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
       ...(key === "sourceDetails" ? { dependsOn: { answerKey: "jobSource", answer: "Other" } } :

@@ -96,7 +96,7 @@ try {
   result = await inspect("autofill", { contact: { fullAddress: "123 Test St, Toronto, ON, M1A 1A1, Canada", preferredName: "Jo" } });
   assert.equal(await page.getByLabel("Address", { exact: true }).inputValue(), "123 Test St, Toronto, ON, M1A 1A1, Canada");
   assert.equal(result.fields.find(field => field.profileKey === "fullAddress").canRemember, false, "full address is derived, not a parallel profile value");
-  assert.equal(await page.getByLabel("Preferred First Name", { exact: true }).inputValue(), "", "duplicate preferred-name fields need review");
+  assert.equal(await page.getByLabel("Preferred First Name", { exact: true }).inputValue(), "Jo", "distinct questions for the same applicant fact can both be filled");
   await load("greenhouse", '<fieldset><legend>Gender identity</legend><label><input type="radio" name="gender" value="woman">Woman</label><label><input type="radio" name="gender" value="man">Man</label></fieldset><label>Disability Status<select><option value="">Select</option><option>No, I do not have a disability and have not had one in the past</option><option>Yes, I have a disability, or have had one in the past</option></select></label>');
   await inspect("autofill", plan);
   assert.equal(await page.locator('[name="gender"]:checked').count(), 0, "no inferred sensitive answers");

@@ -22,6 +22,12 @@ test("remembering fixed profile fields validates formats and never implicitly op
   assert.equal(autofillAnswerSchema.safeParse({ ...input, profileKey: "email", answer: "invalid" }).success, false);
   assert.equal(normalizeContact({ preferredName: " Jo ", pronouns: "they/them", autofillResume: "true" }).autofillResume, false);
   assert.equal(normalizeContact({ autofillResume: true }).autofillResume, true);
+  assert.deepEqual(normalizeContact({ middleName: " Jo ", phoneType: "Mobile", phoneExtension: " 123 " }), {
+    ...normalizeContact({}), middleName: "Jo", phoneType: "Mobile", phoneExtension: "123",
+  });
+  assert.equal(normalizeContact({ phoneType: "Unknown" }).phoneType, "");
+  assert.equal(autofillAnswerSchema.safeParse({ ...input, profileKey: "phoneType", answer: "Mobile" }).success, true);
+  assert.equal(autofillAnswerSchema.safeParse({ ...input, profileKey: "phoneType", answer: "Unknown" }).success, false);
 });
 test("legal and sensitive answers cannot be remembered implicitly", () => {
   for (const label of ["Do you require sponsorship?", "I certify", "Gender"]) {

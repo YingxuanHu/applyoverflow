@@ -130,7 +130,7 @@ export function applicationContext(raw, allowGeneric = false) {
       };
     }
     const match =
-      /^\/([a-zA-Z0-9_-]+)\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\/(apply|application))?\/?$/i.exec(
+      /^\/([a-zA-Z0-9_.-]+)\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\/(apply|application))?\/?$/i.exec(
         url.pathname,
       );
     if (!match || (match[3] && match[3] !== (lever ? "apply" : "application")))

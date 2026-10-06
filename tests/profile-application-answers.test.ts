@@ -57,12 +57,28 @@ test("Mission Lane questions map to explicit scoped facts, not guessed citizensh
   const plan = applicationAnswerPlan(saved, labels, url);
   assert.equal(plan.answers.length, 8);
   assert.equal(plan.answers.find(x => x.answerKey === "usPerson")?.answer, "No");
-  assert.deepEqual(plan.answers[0].alternatives, ["Other"]);
+  assert.deepEqual(plan.answers[0].alternatives, ["Other", "Job Board", "Job Boards", "Job board / aggregator"]);
   const elsewhere = applicationAnswerPlan(saved, labels, "https://job-boards.greenhouse.io/anotheremployer/jobs/123");
   assert.ok(!elsewhere.answers.some(x => x.answerKey === "employeeRelationship" || x.answerKey === "relationshipDetails"));
   assert.equal(applicationAnswerPlan({ enabled: true, values: { authorizedUS: "Yes" } }, [labels[4]], url).answers.length, 0);
   assert.equal(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).answers.length, 0);
   assert.match(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).details[0].reason, /Enable sharing/);
+});
+
+test("source variants and unspecified sponsorship use verified posting context", () => {
+  const labels = ["How did you first hear about Recursion?", "If you chose Recursion Employee, Recursion Event, or Other, please specify here:",
+    "Will you now or in the future require visa sponsorship?", "What is your ideal start date?"];
+  const saved = { enabled: true, values: { jobSource: "ApplyOverflow", sponsorshipCA: "No", sponsorshipUS: "Yes", startDate: "2026-10-15" } };
+  const url = "https://job-boards.greenhouse.io/recursion/jobs/123";
+  const plan = applicationAnswerPlan(saved, labels, url, "CA");
+  assert.deepEqual(plan.answers.map(answer => answer.answer), ["ApplyOverflow", "ApplyOverflow", "No", "2026-10-15"]);
+  assert.equal(plan.answers[1].dependsOn?.answer, "Other");
+  assert.equal(applicationAnswerPlan(saved, [labels[2]], url, "US").answers[0].answer, "Yes");
+  assert.equal(applicationAnswerPlan(saved, [labels[2]], url).answers.length, 0);
+  const employmentSponsorship = "Will you require sponsorship for employment now or in the future?";
+  assert.equal(applicationAnswerPlan(saved, [employmentSponsorship], url, "CA").answers[0].answer, "No");
+  assert.equal(applicationAnswerPlan(saved, [employmentSponsorship], url).answers.length, 0);
+  assert.equal(applicationAnswerPlan(saved, ["Will you now or in the future require sponsorship in the United Kingdom?"], url, "US").answers.length, 0);
 });
 
 test("different words retain legal and preference meaning without loose fuzzy matches", () => {
@@ -103,6 +119,7 @@ test("live demographic synonyms preserve explicit choices and conditional follow
   const plan = applicationAnswerPlan(saved, labels, url);
   assert.equal(plan.answers.length, 7);
   assert.ok(plan.answers[0].alternatives?.includes("Decline to self identify"));
+  assert.ok(plan.answers[0].alternatives?.includes("Prefer not to disclose"));
   assert.equal(plan.details.filter(d => d.notApplicable).length, 2);
   assert.equal(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).details.some(d => d.notApplicable), false);
   assert.equal(applicationAnswerKey("I have a physical disability"), "physicalDisability");

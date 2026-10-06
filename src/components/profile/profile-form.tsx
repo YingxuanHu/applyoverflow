@@ -517,6 +517,7 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
         <div className="grid gap-3 sm:grid-cols-2">
           {([
             ["givenName", "Given name", 100], ["familyName", "Family name", 100],
+            ["middleName", "Middle name (optional)", 100],
             ["preferredName", "Preferred name (optional)", 100], ["pronouns", "Pronouns (optional)", 80],
           ] as const).map(([key, label, maxLength]) => (
             <label key={key} className="space-y-1.5 text-sm">
@@ -554,6 +555,17 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={contact.phone}
             />
           </div>
+          <label className="space-y-1.5 text-sm">
+            <span>Phone device type</span>
+            <select className="h-10 w-full rounded-lg border border-input bg-background px-3"
+              value={contact.phoneType ?? ""} onChange={event => updateContact("phoneType", event.target.value)}>
+              <option value="">Not provided</option><option>Mobile</option><option>Home</option><option>Work</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-sm">
+            <span>Phone extension (optional)</span>
+            <Input value={contact.phoneExtension ?? ""} maxLength={20} onChange={event => updateContact("phoneExtension", event.target.value)} />
+          </label>
           <label className="space-y-1.5 text-sm">
             <span>Phone country</span>
             <select className="h-10 w-full rounded-lg border border-input bg-background px-3"

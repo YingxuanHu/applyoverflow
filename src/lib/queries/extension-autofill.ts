@@ -32,6 +32,8 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   fields.fullAddress = contact.streetAddress && contact.city && contact.region && contact.postalCode && contact.country
     ? [contact.streetAddress, contact.addressLine2, contact.city, contact.region, contact.postalCode, contact.country === "CA" ? "Canada" : "United States"].filter(Boolean).join(", ") : "";
   fields.professionalUrl = contact.linkedInUrl || contact.portfolioUrl || contact.githubUrl || "";
+  fields.portfolioGithubUrl = contact.portfolioUrl || contact.githubUrl || "";
+  fields.cityRegion = contact.city && contact.region ? `${contact.city}, ${contact.region}` : "";
   const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,

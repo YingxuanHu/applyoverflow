@@ -3,12 +3,34 @@
 export function createAutofillInspector() {
   let pageUrl = "", targets = new Map(), undo = [], expires = 0, expiryTimer;
   let completed = new WeakMap();
+  let completedByIdentity = new Map();
+  const identity = item => item.field.id ? `${item.field.id}\n${item.label}` : "";
   let issues = new WeakMap();
   const ids = new WeakMap();
   const norm = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
+  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[data-uxi-widget-type="selectinput"],input[data-automation-id="searchBox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
   const chipText = chip => chip.querySelector('.chip-text')?.textContent.trim() || "";
+  const validity = field => {
+    const pattern = field.getAttribute("pattern");
+    if (pattern) {
+      try { new RegExp(pattern, "v"); }
+      catch {
+        // Old employer patterns can be invalid under HTML's Unicode-set mode.
+        // Validate the other native constraints without touching their DOM.
+        const copy = field.cloneNode(false); copy.removeAttribute("pattern"); copy.value = field.value;
+        return copy.validity?.valid !== false;
+      }
+    }
+    return field.validity?.valid !== false;
+  };
   const read = field => {
+    const promptId = field.getAttribute("data-uxi-multiselect-id");
+    if (promptId) {
+      const selected = [...document.querySelectorAll(`[data-automation-id="selectedItemList"][data-uxi-multiselect-id="${CSS.escape(promptId)}"] [data-automation-id="promptOption"]`)];
+      if (selected.length) return selected.map(node => node.textContent.trim()).join(", ");
+      // The query text is not a saved selection.
+      if (custom(field)) return "";
+    }
     const chips = field.closest('b-chip-input');
     if (chips) return [...chips.querySelectorAll('b-chip')].map(chipText).join(", ") || field.value || "";
     // React Select keeps its search input empty after selecting a value.
@@ -52,7 +74,10 @@ export function createAutofillInspector() {
   const equivalent = (a, b, key) => {
     const canonical = value => {
       const text = norm(value);
-      if (key === "phone") return text.replace(/[^\d+]/g, "");
+      if (key === "phone") {
+        const digits = text.replace(/\D/g, "");
+        return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+      }
       if (key === "desiredPayAmount" && /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return String(Number(text.replaceAll(",", "")));
       const countryText = key === "phoneCountry" ? text.replace(/\s*\(?\+1\)?\s*$/, "").trim() : text;
       return ["country", "phoneCountry"].includes(key) ? ({ ca: "canada", us: "united states", usa: "united states", "united states of america": "united states" })[countryText] || countryText :
@@ -64,12 +89,12 @@ export function createAutofillInspector() {
     clearTimeout(expiryTimer);
     for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
       item.field.removeEventListener(event, item.onEdit);
-    undo = []; targets.clear(); completed = new WeakMap(); issues = new WeakMap(); choiceCache = new WeakMap(); confirmedQuestions.clear(); profileGuidance.clear(); expires = Date.now() + 10 * 60_000;
+    undo = []; targets.clear(); completed = new WeakMap(); completedByIdentity.clear(); issues = new WeakMap(); choiceCache = new WeakMap(); confirmedQuestions.clear(); profileGuidance.clear(); expires = Date.now() + 10 * 60_000;
     pageUrl = location.href;
     expiryTimer = setTimeout(() => {
       for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
         item.field.removeEventListener(event, item.onEdit);
-      undo = []; targets.clear(); completed = new WeakMap(); confirmedQuestions.clear(); profileGuidance.clear(); expires = 0;
+      undo = []; targets.clear(); completed = new WeakMap(); completedByIdentity.clear(); confirmedQuestions.clear(); profileGuidance.clear(); expires = 0;
     }, 10 * 60_000);
   }
   function setValue(field, value) {
@@ -125,9 +150,10 @@ export function createAutofillInspector() {
       const select = field instanceof HTMLSelectElement && !field.multiple;
       const radio = entry.radioFields?.length > 1;
       const widget = custom(field) && (!(field instanceof HTMLButtonElement) || field.type === "button");
-      const ambiguous = key && current.filter(item => item.profileKey === key).length !== 1;
+      const ambiguous = key && current.filter(item => item.profileKey === key && norm(item.label) === norm(label)).length !== 1;
       const labelAmbiguous = !key && current.filter(item => norm(item.label) === norm(label)).length !== 1;
-      const manual = inHistory || ambiguous || labelAmbiguous || legal(label) ||
+      const communicationPreference = ["smsUpdates", "emailUpdates"].includes(confirmedQuestions.get(norm(label))?.answerKey);
+      const manual = inHistory || ambiguous || labelAmbiguous || (legal(label) && !communicationPreference) ||
         !(scalar || select || widget || radio) || field.hasAttribute("list") ||
         (field.hasAttribute("aria-autocomplete") && !widget);
       const options = select ? [...field.options].filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
@@ -144,7 +170,7 @@ export function createAutofillInspector() {
       const required = field.required || field.getAttribute("aria-required") === "true" ||
         (field.matches('b-single-select > [role="button"]') && field.parentElement.hasAttribute("required")) || Boolean(field.closest('b-currency-value-select[required]'));
       const item = { ...entry, id, field, label, profileKey: key, manual, options, maxLength, maxWords,
-        canRemember: !manual && !["fullAddress", "professionalUrl", "skills"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
+        canRemember: !manual && !["fullAddress", "professionalUrl", "portfolioGithubUrl", "cityRegion", "skills"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         profileLabel: profileGuidance.get(norm(label))?.profileLabel,
         notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !required,
         title: key === "phoneCountry" ? "Phone country" : inHistory && heading ? `${heading}: ${label}` : label,
@@ -165,7 +191,7 @@ export function createAutofillInspector() {
     const describe = () => items.filter(safe).map(item => {
       const field = item.field;
       const hasValue = item.radioFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : Boolean(read(field).trim());
-      const invalid = hasValue && field.validity?.valid === false;
+      const invalid = hasValue && validity(field) === false;
       const condition = profileGuidance.get(norm(item.label))?.dependsOn;
       const parents = condition ? items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === condition.answerKey) : [];
       const notApplicable = item.notApplicable && (!condition || (parents.length === 1 && safe(parents[0]) && equivalent(readItem(parents[0]), condition.answer)));
@@ -177,27 +203,31 @@ export function createAutofillInspector() {
         /^mm\/dd\/yyyy$/i.test(field.placeholder || "") ? `${date[1]}/${date[2]}/${date[0]}` : "" : "";
       const discovery = /^(?:how did you (?:learn about|hear about|find) (?:this (?:job(?: opening)?|position|role)|us))\s*[?*]*$/i.test(item.label);
       const sourceValue = discovery && item.options.includes("Other") ? "Other" : "";
+      const completion = completed.get(field) || completedByIdentity.get(identity(item));
       return { id: item.id, label: item.label, title: item.title, profileKey: item.profileKey, required: item.required,
         profileLabel: item.profileLabel,
         maxLength: item.maxLength, maxWords: item.maxWords,
         ...(dateValue ? { suggestedAnswer: dateValue, suggestionLabel: "Use today's date" } : sourceValue ? { suggestedAnswer: sourceValue, suggestionLabel: "Use Other as job source" } : {}),
         kind: item.kind, options: item.options, canAnswer: !item.manual && !invalid,
         canRemember: item.canRemember && !invalid,
-        state: invalid ? "needed" : hasValue ? completed.get(field)?.label === item.label && equivalent(completed.get(field)?.value, readItem(item), item.profileKey) ? "filled" : "kept" : notApplicable ? "not-applicable" : "needed",
+        state: invalid ? "needed" : hasValue ? completion?.label === item.label && equivalent(completion?.value, readItem(item), item.profileKey) ? "filled" : "kept" : notApplicable ? "not-applicable" : "needed",
         reason: invalid ? "An existing value is invalid. Correct it on the employer form." : item.notApplicable && !notApplicable ? "Review this follow-up against your answer on the form." : item.reason,
       };
     });
     const closeOptions = field => {
-      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
       field.blur();
       if (field.getAttribute("aria-expanded") === "true") field.click();
     };
-    async function loadOptions(item, keepOpen = false, search = "") {
+    const chooseOption = option => (option.querySelector('[data-uxi-widget-type="multiselectlistitem"]') || option).click();
+    async function loadOptions(item, keepOpen = false, search = "", previousOptions = []) {
       const field = item.field;
       if (!safe(item) || item.kind !== "combobox" || read(field).trim()) return [];
-      const expanded = field.getAttribute("aria-expanded") === "true";
+      const promptIdentity = field.getAttribute("data-uxi-multiselect-id");
+      const expanded = field.getAttribute("aria-expanded") === "true" || Boolean(promptIdentity && [...document.querySelectorAll('[role="listbox"]')].some(node => visible(node) && !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptIdentity)}"]`)));
+      const previousLists = new Set([...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(visible));
       if (!expanded) field.click();
-      if (field.getAttribute("aria-expanded") !== "true") {
+      if (!expanded && field.getAttribute("aria-expanded") !== "true") {
         field.focus();
         field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
         field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, view: window }));
@@ -211,7 +241,14 @@ export function createAutofillInspector() {
           .flatMap(id => [...document.querySelectorAll(`#${CSS.escape(id)}`)])
           .filter(node => node.matches('[role="listbox"],[role="tree"]') && visible(node) &&
             (!bob || node.getAttribute("aria-labelledby") === field.getAttribute("aria-labelledby")));
-        const list = lists.length === 1 ? lists[0] : null;
+        const promptId = field.getAttribute("data-uxi-multiselect-id");
+        const promptLists = promptId ? [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) &&
+          !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptId)}"]`)) : [];
+        // Some accessible widgets omit aria-controls. Bind only the unique new
+        // popup created by this focused control, never an already-open list.
+        const opened = [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) && !previousLists.has(node) && !node.matches('[data-automation-id="selectedItemList"]'));
+        const list = lists.length === 1 ? lists[0] : promptLists.length === 1 ? promptLists[0] :
+          !lists.length && !promptLists.length && opened.length === 1 && (document.activeElement === field || opened[0].contains(document.activeElement)) ? opened[0] : null;
         // One explicit saved choice is also safe in an empty multi-select.
         // Existing chips are read above, so we never add to a user's selection.
         options = list ?
@@ -228,7 +265,14 @@ export function createAutofillInspector() {
             searched = true; await delay(100); continue;
           }
         }
+        if (previousOptions.length && options.some(option => previousOptions.includes(option))) {
+          await delay(25); continue;
+        }
         if (options.length && (!search || options.some(option => norm(option.textContent).includes(norm(search))))) break;
+        if (list && options.length && list.scrollHeight > list.clientHeight && attempt % 4 === 3 && list.scrollTop + list.clientHeight < list.scrollHeight) {
+          list.scrollTop = Math.min(list.scrollHeight, list.scrollTop + Math.max(32, list.clientHeight - 32));
+          list.dispatchEvent(new Event("scroll", { bubbles: true }));
+        }
         await delay(25);
       }
       item.options = options.map(option => option.textContent.trim()).slice(0, 250);
@@ -243,7 +287,8 @@ export function createAutofillInspector() {
       if (value.length > item.maxLength || (item.maxWords && value.trim().split(/\s+/).length > item.maxWords)) {
         item.reason = `Shorten this answer to ${item.maxWords ? `${item.maxWords} words and ` : ""}${item.maxLength} characters.`; return false;
       }
-      const field = item.field, before = readItem(item), originalValue = field.value;
+      let field = item.field;
+      const before = readItem(item), originalValue = field.value;
       const saved = confirmedQuestions.get(norm(item.label));
       if (saved?.dependsOn) {
         const parents = items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === saved.dependsOn.answerKey);
@@ -266,12 +311,17 @@ export function createAutofillInspector() {
       const matchingOptions = options => {
         const exact = options.filter(option => optionMatches(option.textContent));
         if (exact.length || !saved || saved.answer !== value) return exact;
-        return options.filter(option => (saved.alternatives || []).some(alternative => optionMatches(option.textContent, alternative)));
+        for (const alternative of saved.alternatives || []) {
+          const matches = options.filter(option => optionMatches(option.textContent, alternative));
+          if (matches.length) return matches;
+        }
+        return [];
       };
       if (item.kind === "radio") {
-        const matches = item.radioFields.filter(field => equivalent(labelFor(field), value));
+        const matches = matchingOptions(item.radioFields.map(field => ({ field, textContent: labelFor(field) })));
         if (matches.length !== 1) { item.reason = "Choose a matching answer on the form."; return false; }
-        matches[0].click();
+        value = matches[0].textContent.trim();
+        matches[0].field.click();
       } else if (item.kind === "select") {
         const matches = matchingOptions([...field.options].filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]')));
         if (matches.length !== 1) { item.reason = "No unique matching option. Choose on the form."; return false; }
@@ -291,37 +341,63 @@ export function createAutofillInspector() {
         field.addEventListener("input", onEdit);
         const bobSearch = field.matches('b-single-select > [role="button"]') ?
           (["country", "phoneCountry"].includes(item.profileKey) ? ({ CA: "Canada", US: "United States" })[value] || value : value) : "";
-        let options = await loadOptions(item, true, citySearch ? value : bobSearch);
+        // Inspect ordinary choices before filtering. The displayed equivalent
+        // may differ from a saved preference (for example, a decline option).
+        let search = citySearch ? value : bobSearch || (["country", "phoneCountry"].includes(item.profileKey) && field instanceof HTMLInputElement ?
+          ({ CA: "Canada", US: "United States" })[value] || value : "");
+        let options = await loadOptions(item, true, search);
         let matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
-        if (bobSearch && !matches.length && saved?.answer === value) {
+        const queryOnly = field.hasAttribute("data-uxi-multiselect-id");
+        if (!matches.length && (field instanceof HTMLInputElement || bobSearch)) {
           // Virtualized lists may not render "Other" until searched. Use only
           // server-approved equivalents, not a nearest-looking option.
-          for (const alternative of (saved.alternatives || []).slice(0, 2)) {
-            if (!safe(item) || edited || read(field) !== before || performance.now() > deadline) break;
-            options = await loadOptions(item, true, alternative);
-            matches = matchingOptions(options);
+          for (const candidate of [value, ...(saved?.answer === value ? saved.alternatives || [] : [])].slice(0, 4)) {
+            if (!safe(item) || edited || read(field) !== (queryOnly || !(field instanceof HTMLInputElement) ? before : search || before) || performance.now() > deadline) break;
+            search = candidate;
+            options = await loadOptions(item, true, search);
+            matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
             if (matches.length) break;
           }
         }
         field.removeEventListener("input", onEdit);
-        if (!safe(item) || edited || read(field) !== (citySearch ? value : before) || matches.length !== 1) {
-          if (safe(item) && !edited && citySearch && read(field) === value) setValue(field, before);
+        if (!safe(item) || edited || read(field) !== (queryOnly ? before : search && field instanceof HTMLInputElement ? search : before) || matches.length !== 1) {
+          if (safe(item) && !edited && search && field instanceof HTMLInputElement && field.value === search) setValue(field, originalValue || "");
           if (safe(item) && !edited && !expanded) closeOptions(field);
           item.reason = "Choose a matching option on the form."; return false;
         }
         // Validate against the selected display value, not the temporary search.
         value = matches[0].textContent.trim();
-        matches[0].click();
+        chooseOption(matches[0]);
+        if (queryOnly && saved?.answerKey === "jobSource" && !read(field).trim()) {
+          // A job-board category may open a nested menu rather than select a
+          // value. Search only the server-approved source alternatives there.
+          const children = await loadOptions(item, true, "Other", options);
+          const leaves = children.filter(option => (saved.alternatives || []).some(candidate => equivalent(option.textContent, candidate)));
+          if (leaves.length === 1) { value = leaves[0].textContent.trim(); chooseOption(leaves[0]); }
+        }
         if (safe(item) && field.getAttribute("aria-expanded") === "true") closeOptions(field);
-      } else setValue(field, value);
+      } else {
+        setValue(field, value);
+        // International-only native phone inputs may reject the saved national
+        // format. Add a dial code only when the profile explicitly identifies it.
+        if (item.profileKey === "phone" && safe(item) && !validity(field) &&
+          ["CA", "US"].includes(payload.contact?.phoneCountry) && /^\d{10}$/.test(value.replace(/\D/g, ""))) {
+          value = `+1${value.replace(/\D/g, "")}`; setValue(field, value);
+        }
+      }
       await delay(35);
+      if (!field.isConnected && field.id && form.isConnected) {
+        const replacements = [...form.querySelectorAll(`#${CSS.escape(field.id)}`)].filter(node => visible(node) && labelFor(node) === (item.originalLabel || item.label) && node.tagName === field.tagName && node.type === field.type);
+        if (replacements.length === 1) { field = replacements[0]; item.field = field; ids.set(field, item.id); }
+      }
       const valid = safe(item) && Boolean(readItem(item).trim()) &&
-        (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && field.validity?.valid !== false;
+        (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && validity(field) !== false;
       if (!valid) {
         if (safe(item) && item.kind === "text" && read(field) === value) setValue(field, before);
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
       }
       completed.set(field, { label: item.label, value: readItem(item) });
+      if (identity(item)) completedByIdentity.set(identity(item), { label: item.label, value: readItem(item) });
       issues.delete(field);
       item.reason = "";
       if (!["combobox", "radio"].includes(item.kind)) {
@@ -384,7 +460,7 @@ export function createAutofillInspector() {
       if (!record || equivalent(read(item.field), record.value, item.profileKey)) continue;
       setValue(item.field, record.value);
       await delay(35);
-      if (safe(item) && !record.edited && read(item.field) === record.value && item.field.validity?.valid !== false)
+      if (safe(item) && !record.edited && read(item.field) === record.value && validity(item.field))
         completed.set(item.field, { label: item.label, value: record.value });
     }
     let undone = 0;

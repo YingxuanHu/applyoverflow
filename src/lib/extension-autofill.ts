@@ -6,8 +6,8 @@ export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
   employmentCountry: z.enum(["CA", "US"]).optional(),
 });
 export const autofillProfileFields = {
-  givenName: 100, familyName: 100, fullName: 200, preferredName: 100,
-  pronouns: 80, email: 320, phone: 80, phoneCountry: 2, streetAddress: 240,
+  givenName: 100, familyName: 100, middleName: 100, fullName: 200, preferredName: 100,
+  pronouns: 80, email: 320, phone: 80, phoneCountry: 2, phoneType: 20, phoneExtension: 20, streetAddress: 240,
   addressLine2: 240, city: 120, region: 120, postalCode: 32,
   country: 2, linkedInUrl: 500, githubUrl: 500, portfolioUrl: 500,
 } as const;
@@ -22,6 +22,7 @@ export const autofillAnswerSchema = z.object({
   if (input.profileKey) {
     if (input.answer.length > autofillProfileFields[input.profileKey] ||
       (["country", "phoneCountry"].includes(input.profileKey) && !["CA", "US"].includes(input.answer)) ||
+      (input.profileKey === "phoneType" && !["Mobile", "Home", "Work"].includes(input.answer)) ||
       (input.profileKey === "email" && !z.string().email().safeParse(input.answer).success) ||
       (/Url$/.test(input.profileKey) && !z.string().url().regex(/^https?:\/\//i).safeParse(input.answer).success))
       ctx.addIssue({ code: "custom", message: "Check the profile value and try again." });
