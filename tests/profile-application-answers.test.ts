@@ -57,12 +57,22 @@ test("Mission Lane questions map to explicit scoped facts, not guessed citizensh
   const plan = applicationAnswerPlan(saved, labels, url);
   assert.equal(plan.answers.length, 8);
   assert.equal(plan.answers.find(x => x.answerKey === "usPerson")?.answer, "No");
-  assert.deepEqual(plan.answers[0].alternatives, ["Other", "Job Board", "Job Boards", "Job board / aggregator"]);
+  assert.deepEqual(plan.answers[0].alternatives, ["Other", "Other Website", "Job Board", "Job Boards", "Job board / aggregator", "Website"]);
   const elsewhere = applicationAnswerPlan(saved, labels, "https://job-boards.greenhouse.io/anotheremployer/jobs/123");
   assert.ok(!elsewhere.answers.some(x => x.answerKey === "employeeRelationship" || x.answerKey === "relationshipDetails"));
   assert.equal(applicationAnswerPlan({ enabled: true, values: { authorizedUS: "Yes" } }, [labels[4]], url).answers.length, 0);
   assert.equal(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).answers.length, 0);
   assert.match(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).details[0].reason, /Enable sharing/);
+});
+
+test("Other with explicit ApplyOverflow details retains equivalent source choices", () => {
+  const labels = ["How Did You Hear About Us?"];
+  const url = "https://example.wd1.myworkdayjobs.com/en-US/External/job/Toronto-CAN/Engineer_R1/apply";
+  const plan = applicationAnswerPlan({ enabled: true, values: { jobSource: "Other", sourceDetails: "ApplyOverflow" } }, labels, url);
+  assert.equal(plan.answers[0].answer, "Other");
+  assert.ok(plan.answers[0].alternatives?.includes("Job Board"));
+  assert.ok(plan.answers[0].alternatives?.includes("Other Website"));
+  assert.equal(applicationAnswerPlan({ enabled: true, values: { jobSource: "Other", sourceDetails: "A personal conversation" } }, labels, url).answers[0].alternatives, undefined);
 });
 
 test("source variants and unspecified sponsorship use verified posting context", () => {
