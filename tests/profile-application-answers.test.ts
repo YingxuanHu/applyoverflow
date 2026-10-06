@@ -120,6 +120,8 @@ test("live demographic synonyms preserve explicit choices and conditional follow
   assert.equal(plan.answers.length, 7);
   assert.ok(plan.answers[0].alternatives?.includes("Decline to self identify"));
   assert.ok(plan.answers[0].alternatives?.includes("Prefer not to disclose"));
+  assert.ok(plan.answers[0].alternatives?.includes("Choose not to disclose"));
+  assert.ok(plan.answers[0].alternatives?.includes("Choose not to answer"));
   assert.equal(plan.details.filter(d => d.notApplicable).length, 2);
   assert.equal(applicationAnswerPlan({ ...saved, enabled: false }, labels, url).details.some(d => d.notApplicable), false);
   assert.equal(applicationAnswerKey("I have a physical disability"), "physicalDisability");
