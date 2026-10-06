@@ -289,6 +289,8 @@ export function createAutofillInspector() {
       }
       let field = item.field;
       const before = readItem(item), originalValue = field.value;
+      let phoneEdited = false, phoneEditField;
+      const watchPhoneEdit = event => { if (event.isTrusted) phoneEdited = true; };
       const saved = confirmedQuestions.get(norm(item.label));
       if (saved?.dependsOn) {
         const parents = items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === saved.dependsOn.answerKey);
@@ -377,6 +379,18 @@ export function createAutofillInspector() {
         }
         if (safe(item) && field.getAttribute("aria-expanded") === "true") closeOptions(field);
       } else {
+        if (item.profileKey === "phone") {
+          phoneEditField = field;
+          field.addEventListener("input", watchPhoneEdit);
+          const country = payload.contact?.phoneCountry;
+          let digits = value.replace(/\D/g, "");
+          if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+          const international = /(?:with|including) (?:country|dial(?:ing)?) code|international (?:phone|number|format)/i.test(
+            `${field.getAttribute("aria-label") || ""} ${field.placeholder || ""} ${item.label}`) || Boolean(field.closest('.iti,.intl-tel-input'));
+          // Tell an international widget the saved country before its formatter
+          // can prepend an employer's unrelated default country code.
+          if (international && ["CA", "US"].includes(country) && /^\d{10}$/.test(digits)) value = `+1${digits}`;
+        }
         setValue(field, value);
         // International-only native phone inputs may reject the saved national
         // format. Add a dial code only when the profile explicitly identifies it.
@@ -386,6 +400,7 @@ export function createAutofillInspector() {
         }
       }
       await delay(35);
+      phoneEditField?.removeEventListener("input", watchPhoneEdit);
       if (!field.isConnected && field.id && form.isConnected) {
         const replacements = [...form.querySelectorAll(`#${CSS.escape(field.id)}`)].filter(node => visible(node) && labelFor(node) === (item.originalLabel || item.label) && node.tagName === field.tagName && node.type === field.type);
         if (replacements.length === 1) { field = replacements[0]; item.field = field; ids.set(field, item.id); }
@@ -393,7 +408,7 @@ export function createAutofillInspector() {
       const valid = safe(item) && Boolean(readItem(item).trim()) &&
         (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && validity(field) !== false;
       if (!valid) {
-        if (safe(item) && item.kind === "text" && read(field) === value) setValue(field, before);
+        if (safe(item) && item.kind === "text" && (read(field) === value || (phoneEditField && !phoneEdited))) setValue(field, before);
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
       }
       completed.set(field, { label: item.label, value: readItem(item) });

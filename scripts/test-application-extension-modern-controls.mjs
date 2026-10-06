@@ -101,6 +101,17 @@ try {
   assert.equal(await page.evaluate(() => window.submissions), 0);
   console.log('PASS nested visible question labels, owned unnamed dropdowns and explicit international phone formatting');
 
+  for (const acceptsCountry of [true, false]) {
+    html = `<h1>Application</h1><form id="job-application-form"><label>First name<input></label><label>Email<input type="email"></label>
+      <label>Phone<input id="phone" type="tel" aria-label="Phone number with country code"></label></form><script>
+      const phone=document.querySelector('#phone');phone.oninput=()=>{if(phone.value)phone.value=${acceptsCountry}&&phone.value.startsWith('+1')?'+1 202 555 0148':'+44 20 2555 0148'};</script>`;
+    await load('https://careers.fixture.example/application');
+    const result = await scan('autofill', { contact: { phone: '2025550148', phoneCountry: 'US' } });
+    assert.equal(await page.locator('#phone').inputValue(), acceptsCountry ? '+1 202 555 0148' : '');
+    assert.equal(result.fields.find(f => f.label === 'Phone').state, acceptsCountry ? 'filled' : 'needed');
+  }
+  console.log('PASS international widget country initialization and rollback of rejected country-code formatting');
+
   html = `<h1>My Experience</h1><div data-automation-id="applyFlowPage"><div role="group" aria-labelledby="resume-title"><h4 id="resume-title">Resume/CV</h4>
     <input type="file" multiple style="position:absolute;opacity:0;width:1px;height:1px"></div>
     <div role="group" aria-labelledby="cover-title"><h4 id="cover-title">Cover Letter</h4><input type="file" multiple></div>
