@@ -1,10 +1,13 @@
 # Application Assistant Preview
 
-## Compatibility follow-up (0.14.2)
+## Compatibility follow-up (0.14.3)
 
 - Non-modal cookie notices do not block Autofill; actual modal agreements still
   require user action. Button-only menus close after a state-settling delay and
   explicit ownership check, without reopening asynchronously closing inputs.
+- Application titles containing words such as Manager no longer mark every
+  contact field as someone else's details. Actual reference sections remain
+  excluded, and history dropdowns require an explicit popup ownership link.
 
 ## Application structure and optional access (0.14.0)
 

@@ -31,6 +31,11 @@ try {
   assert.equal(await page.locator('form[aria-label="Newsletter"] input').inputValue(), "");
   await load(`<h1>Candidate Info</h1><form>${field("First Name")}${field("Last Name")}${field("Email Address")}</form>`);
   assert.equal((await inspect("autofill", { contact })).fields.filter(f => f.state === "filled").length, 3);
+  await load(`<form><div><h2>Application: Solutions Engineer/Manager</h2>${field("First name")}${field("Last name")}${field("Email")}</div></form>`);
+  assert.equal((await inspect("autofill", { contact })).fields.filter(f => f.state === "filled").length, 3);
+  await load(`<h1>Application</h1><form>${field("First name")}${field("Email")}<div><h2>Manager</h2>${field("Phone")}</div></form>`);
+  await inspect('autofill', { contact });
+  assert.equal(await page.getByLabel('Phone', { exact: true }).inputValue(), '', 'a manager subsection still belongs to another person');
   console.log("PASS unlisted domains, fragment navigation, multiple unrelated forms and candidate-info headings");
   await load(`<style>.internal-id{display:none}.sr-label{position:absolute;width:1px;height:1px;overflow:hidden}</style><h1>Apply now</h1><form>
     <label class="sr-label" for="first"><span>Legal First Name <small>(required)</small></span><span class="internal-id">c0ffee12</span></label><input id="first">

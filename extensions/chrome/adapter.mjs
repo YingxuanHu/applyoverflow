@@ -708,7 +708,11 @@ export function createInspector(resolveContext, history, autofill, submission) {
         if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control') || node.querySelector(':scope > h2,:scope > h3,:scope > h4,:scope > header h3')) {
           const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header h3')?.textContent || "";
           const eligibilityTitle = /\b(?:work (?:authorization|eligibility)|employment (?:eligibility|visa|authorization))\b/i.test(title);
-          if ((foreign.test(title) && !eligibilityTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+          // An application title can contain Manager, Education or Employment.
+          // It describes the job, not whose contact details the fields request.
+          const applicationTitle = /^(?:job application|application(?: for)?|apply(?:ing)? (?:for|to))\s*[:\u2013\u2014-]\s*\S/i.test(title.trim()) &&
+            fields.every(control => node.contains(control));
+          if ((foreign.test(title) && !eligibilityTitle && !applicationTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
           if (inferred && /disabilit|voluntary self.identification|attestation|declaration|acknowledg|signature|certification/i.test(title)) declaration = true;
         }
       }

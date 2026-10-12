@@ -162,7 +162,6 @@ export function createHistoryInspector() {
         (field instanceof HTMLButtonElement && field.type !== "button") ||
         field.matches(':disabled, [aria-disabled="true"], [aria-readonly="true"]')) return null;
     const expandedBefore = field.getAttribute("aria-expanded") === "true";
-    const previousLists = new Set([...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(visible));
     if (!expandedBefore) { field.focus(); field.click(); }
     if (field.getAttribute("aria-expanded") !== "true") {
       field.focus();
@@ -181,10 +180,8 @@ export function createHistoryInspector() {
       const promptId = field.getAttribute("data-uxi-multiselect-id");
       const promptLists = promptId ? [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) &&
         !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptId)}"]`)) : [];
-      const opened = [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) && !previousLists.has(node) && !node.matches('[data-automation-id="selectedItemList"]'));
       if (lists.length === 1) { list = lists[0]; break; }
       if (promptLists.length === 1) { list = promptLists[0]; break; }
-      if (!ids.length && !promptId && !lists.length && opened.length === 1 && (document.activeElement === field || opened[0].contains(document.activeElement))) { list = opened[0]; break; }
       await wait();
     }
     const close = () => {
