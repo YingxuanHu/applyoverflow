@@ -1,9 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { autofillAnswerSchema, reusableAutofillAnswers } from "../src/lib/extension-autofill";
+import { autofillAnswerSchema, autofillPlanSchema, reusableAutofillAnswers } from "../src/lib/extension-autofill";
 import { normalizeContact } from "../src/lib/profile";
 
 const revision = "2026-09-20T00:00:00.000Z";
+test("distributed extension plan requests remain compatible with posting location hints", () => {
+  const request = {
+    url: "https://jobs.ashbyhq.com/beaconsoftware/be0e101c-faba-41c2-996e-d70e98b9d4ee/application?utm_source=LinkedInPaid",
+    questions: ["Phone Number", "LinkedIn Profile", "Location", "How did you hear about Beacon?"],
+    history: false, employmentCountry: "CA", employmentLocation: "Toronto, Ontario, CA",
+  };
+  assert.equal(autofillPlanSchema.safeParse(request).success, true);
+  assert.equal(autofillPlanSchema.safeParse({ ...request, employmentLocation: undefined }).success, true);
+  assert.equal(autofillPlanSchema.safeParse({ ...request, employmentLocation: "x".repeat(201) }).success, false);
+  assert.equal(autofillPlanSchema.safeParse({ ...request, employmentLocation: {} }).success, false);
+  assert.equal(autofillPlanSchema.safeParse({ ...request, unrecognized: true }).success, false);
+});
 test("autofill reuses only explicit, exact, current and employer-scoped answers", () => {
   const entry = { companyId: "greenhouse:fixture", questionKey: "relevant project", kind: "custom" as const, profileRevision: revision, answer: "Built an app.", autofillConfirmed: true };
   const reuse = (library = [entry], company = entry.companyId, rev = revision, labels = ["Relevant project"]) => reusableAutofillAnswers(library, company, rev, labels);

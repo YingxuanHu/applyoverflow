@@ -16,6 +16,9 @@ export function professionalAutofillFacts(profile: ProfileFormValues) {
 export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
   history: z.boolean().default(false),
   employmentCountry: z.enum(["CA", "US"]).optional(),
+  // Earlier distributed clients send this posting hint. Accept its bounded
+  // wire shape without treating it as verified eligibility or applicant data.
+  employmentLocation: z.string().trim().max(200).optional(),
 });
 export const autofillProfileFields = {
   givenName: 100, familyName: 100, middleName: 100, fullName: 200, preferredName: 100,
