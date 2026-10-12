@@ -292,6 +292,7 @@ try {
       const expected = (before.fields || []).filter(f => f.state === "needed" &&
         (contact[f.profileKey] || common.answers.some(a => a.label === f.label)));
       const result = await inspectTarget("autofill", plan);
+      if (result.error) report.error = result.error;
       await page.waitForTimeout(600);
       const after = await inspectTarget("inspect");
       report.fields = result.fields; report.after = after.fields;

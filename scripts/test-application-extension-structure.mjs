@@ -158,7 +158,11 @@ try {
   assert.equal((await inspect('autofill-context')).employmentCountry, undefined);
   console.log('PASS structured posting context; ambiguous countries/postings are not guessed');
 
-  await load(`${metadataForm}<div role="dialog"><h2>Privacy agreement</h2><button>Accept</button></div>`);
+  await load(`${metadataForm}<div role="dialog" aria-live="polite"><h2>Cookie notice</h2><button>Dismiss</button></div>`);
+  result = await inspect('autofill', { contact });
+  assert.equal(result.error, undefined);
+  assert.equal(await page.getByLabel('First Name').inputValue(), contact.givenName);
+  await load(`${metadataForm}<div role="dialog" aria-modal="true"><h2>Privacy agreement</h2><button>Accept</button></div>`);
   result = await inspect('autofill', { contact });
   assert.match(result.error, /Complete or close the dialog/);
   assert.equal(await page.getByLabel('First Name').inputValue(), '');

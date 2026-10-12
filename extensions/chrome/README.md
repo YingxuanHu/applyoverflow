@@ -1,5 +1,11 @@
 # Application Assistant Preview
 
+## Compatibility follow-up (0.14.1)
+
+- Non-modal cookie notices do not block Autofill; actual modal agreements still
+  require user action. Button-only menus close after a state-settling delay and
+  explicit ownership check, without reopening asynchronously closing inputs.
+
 ## Application structure and optional access (0.14.0)
 
 - Chrome access is separate from form recognition. Keep common ATS grants, grant

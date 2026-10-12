@@ -268,9 +268,18 @@ export function createAutofillInspector() {
         reason: invalid ? "An existing value is invalid. Correct it on the employer form." : item.notApplicable && !notApplicable ? "Review this follow-up against your answer on the form." : item.reason,
       };
     });
-    const closeOptions = field => {
+    const closeOptions = async field => {
+      const before = read(field);
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
       field.blur();
+      // Button-only widgets may not implement Escape. Let framework state
+      // settle before toggling, and only close an explicitly owned visible menu.
+      if (field instanceof HTMLButtonElement && field.getAttribute("aria-expanded") === "true") {
+        await delay(200);
+        const lists = `${field.getAttribute("aria-controls") || ""} ${field.getAttribute("aria-owns") || ""}`.split(/\s+/)
+          .filter(Boolean).map(id => document.getElementById(id)).filter(node => node && visible(node) && node.matches('[role="listbox"],[role="tree"]'));
+        if (field.isConnected && location.href === operationUrl && read(field) === before && field.getAttribute("aria-expanded") === "true" && lists.length === 1) field.click();
+      }
     };
     const chooseOption = option => (option.querySelector('[data-uxi-widget-type="multiselectlistitem"]') || option).click();
     async function loadOptions(item, keepOpen = false, search = "", previousOptions = []) {
@@ -339,7 +348,7 @@ export function createAutofillInspector() {
       }
       item.options = options.map(option => option.textContent.trim()).slice(0, 250);
       choiceCache.set(field, { label: item.label, options: item.options });
-      if (!keepOpen && safe(item) && !expanded) closeOptions(field);
+      if (!keepOpen && safe(item) && !expanded) await closeOptions(field);
       if (!options.length) item.reason = "No choices available yet. This field may need a search on the employer form.";
       return options;
     }
@@ -427,7 +436,7 @@ export function createAutofillInspector() {
         field.removeEventListener("input", onEdit);
         if (!safe(item) || edited || read(field) !== (queryOnly ? before : search && field instanceof HTMLInputElement ? search : before) || matches.length !== 1) {
           if (safe(item) && !edited && search && field instanceof HTMLInputElement && field.value === search) setValue(field, originalValue || "");
-          if (safe(item) && !edited && !expanded) closeOptions(field);
+          if (safe(item) && !edited && !expanded) await closeOptions(field);
           item.reason = "Choose a matching option on the form."; return false;
         }
         // Validate against the selected display value, not the temporary search.
@@ -440,7 +449,7 @@ export function createAutofillInspector() {
           const leaves = children.filter(option => (saved.alternatives || []).some(candidate => equivalent(option.textContent, candidate)));
           if (leaves.length === 1) { value = leaves[0].textContent.trim(); chooseOption(leaves[0]); }
         }
-        if (safe(item) && field.getAttribute("aria-expanded") === "true") closeOptions(field);
+        if (safe(item) && field.getAttribute("aria-expanded") === "true") await closeOptions(field);
       } else {
         if (item.profileKey === "phone") {
           phoneEditField = field;
