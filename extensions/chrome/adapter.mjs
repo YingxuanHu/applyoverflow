@@ -369,7 +369,7 @@ export function createInspector(resolveContext, history, autofill, submission) {
         error:
           "A single application form was not found. Embedded or multi-form pages need manual review.",
       };
-    const blockingDialog = [...document.querySelectorAll('[role="dialog"][aria-modal="true"],dialog[open]')].find(dialog =>
+    const blockingDialog = [...document.querySelectorAll('[role="dialog"][aria-modal="true"],dialog:modal')].find(dialog =>
       visible(dialog) && !forms[0].contains(dialog) && !dialog.contains(forms[0]) &&
       dialog.querySelector('input,select,textarea,button'));
     if (blockingDialog && /^(?:autofill|fill|resume)/.test(mode) && !/inspect|context|options|focus/.test(mode))

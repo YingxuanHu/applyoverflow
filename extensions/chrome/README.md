@@ -1,6 +1,6 @@
 # Application Assistant Preview
 
-## Compatibility follow-up (0.14.1)
+## Compatibility follow-up (0.14.2)
 
 - Non-modal cookie notices do not block Autofill; actual modal agreements still
   require user action. Button-only menus close after a state-settling delay and

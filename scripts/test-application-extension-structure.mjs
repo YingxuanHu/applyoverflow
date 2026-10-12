@@ -162,6 +162,15 @@ try {
   result = await inspect('autofill', { contact });
   assert.equal(result.error, undefined);
   assert.equal(await page.getByLabel('First Name').inputValue(), contact.givenName);
+  await load(`${metadataForm}<dialog open><h2>Cookie notice</h2><button>Dismiss</button></dialog>`);
+  result = await inspect('autofill', { contact });
+  assert.equal(result.error, undefined);
+  assert.equal(await page.getByLabel('First Name').inputValue(), contact.givenName);
+  await load(`${metadataForm}<dialog><h2>Privacy agreement</h2><button>Accept</button></dialog>`);
+  await page.locator('dialog').evaluate(dialog => dialog.showModal());
+  result = await inspect('autofill', { contact });
+  assert.match(result.error, /Complete or close the dialog/);
+  assert.equal(await page.getByLabel('First Name').inputValue(), '');
   await load(`${metadataForm}<div role="dialog" aria-modal="true"><h2>Privacy agreement</h2><button>Accept</button></div>`);
   result = await inspect('autofill', { contact });
   assert.match(result.error, /Complete or close the dialog/);
