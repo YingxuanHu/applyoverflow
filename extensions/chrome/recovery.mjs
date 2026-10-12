@@ -26,6 +26,8 @@ export function recoveryForError(error = {}, action = "autofill") {
     recovery = { code: "REQUEST_TIMEOUT", title: "ApplyOverflow took too long to respond", message: "This step timed out. Check your connection and retry. Fields already filled will be kept.", actions: [retry] };
   } else if (code === "NETWORK_ERROR" || error.name === "TypeError") {
     recovery = { code: "NETWORK_ERROR", title: "Cannot reach ApplyOverflow", message: "Check your internet connection and whether applyoverflow.com opens, then retry. Your sign-in has not been removed.", actions: [retry, { type: "extension-help", label: "Open ApplyOverflow" }] };
+  } else if (action === "connect") {
+    recovery = { code: "CONNECTION_INCOMPLETE", title: "Connection not completed", message: error.message || "The sign-in window did not complete. Try connecting again.", actions: [{ type: "connect", label: "Connect to ApplyOverflow" }] };
   } else {
     recovery = { code: "AUTOFILL_STOPPED", title: "Autofill stopped", message: error.message || "Check that the application page has finished loading, then retry. Existing form answers will be kept.", actions: [retry] };
   }

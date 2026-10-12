@@ -36,6 +36,12 @@ test("interrupted fields are not reported as missing profile facts; completed an
   assert.match(fields[2].reason, /Not processed/);
 });
 
+test("cancelled sign-in offers a direct reconnect, not an Autofill retry", () => {
+  const result = recoveryForError(new Error("Connection cancelled."), "connect");
+  assert.equal(result.code, "CONNECTION_INCOMPLETE");
+  assert.equal(result.actions[0].type, "connect");
+});
+
 test("plan bounds labels and UTF-8 size without truncating question meaning", () => {
   const scan = { fields: Array.from({ length: 50 }, (_, i) => ({ label: `${i}${"\u4e00".repeat(490)}`, state: "needed", canAnswer: true })) };
   const labels = planQuestions(scan);
