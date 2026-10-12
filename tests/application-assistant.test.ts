@@ -128,6 +128,7 @@ test("Workable identities retain the tenant and job across application steps", (
 test("generic application URLs are explicit, public HTTPS and job scoped", () => {
   const url = "https://careers.example.com/apply?id=123&utm_source=board";
   assert.equal(applicationContext(url), null);
+  assert.equal(applicationContext(`${url}#applynow`, true)?.url, "https://careers.example.com/apply?id=123");
   assert.equal(
     applicationContext(url, true)?.url,
     "https://careers.example.com/apply?id=123",

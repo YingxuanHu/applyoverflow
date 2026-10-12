@@ -1,5 +1,5 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
-import { SITE_ORIGINS, applicationContext, sameApplication } from "./sites.mjs";
+import { detectionOrigins, applicationContext, sameApplication } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 import { recoveryForError, stoppedFields, planQuestions } from "./recovery.mjs";
@@ -14,15 +14,7 @@ const recovery = (error, action) => {
 const supportedOrigin = (url) => {
   try {
     const parsed = new URL(url);
-    return (
-      parsed.protocol === "https:" &&
-      SITE_ORIGINS.some((pattern) => {
-        const host = pattern.slice(8, -2);
-        return host.startsWith("*.")
-          ? parsed.hostname.endsWith(host.slice(1))
-          : parsed.hostname === host;
-      })
-    );
+    return parsed.protocol === "https:" && Boolean(applicationContext(url, true));
   } catch {
     return false;
   }
@@ -55,7 +47,27 @@ async function inspectActive(tab, args = []) {
     try { return await inspect({ tabId: tab.id, documentIds: [saved.documentId] }, args); }
     catch { await chrome.storage.session.remove(key); }
   }
-  return inspect({ tabId: tab.id }, args);
+  try { return await inspect({ tabId: tab.id }, args); }
+  catch (error) {
+    // Frame discovery is read-only. Only one identified application document
+    // may be selected; all subsequent writes stay pinned to that document.
+    if (args.length) throw error;
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["adapter-runtime.js"] });
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: buildId => globalThis.__applyOverflowBuild === buildId ? globalThis.__applyOverflowInspect() : null,
+        args: [BUILD_ID],
+      });
+      const candidates = frames.filter(frame => frame.result && !frame.result.error &&
+        (frame.result.fields?.length || frame.result.available || frame.result.historyAvailable || frame.result.resumeAvailable));
+      if (candidates.length === 1) return candidates[0];
+      if (candidates.length > 1) throw new Error("Multiple application frames were found. Use the on-page assistant inside the form you want to fill.");
+    } catch (frameError) {
+      if (frameError.message.startsWith("Multiple application")) throw frameError;
+    }
+    throw error;
+  }
 }
 
 let registration = Promise.resolve();
@@ -64,9 +76,7 @@ function syncDetection() {
     .catch(() => {})
     .then(async () => {
       const permissions = await chrome.permissions.getAll();
-      const origins = SITE_ORIGINS.filter((origin) =>
-        permissions.origins?.includes(origin),
-      );
+      const origins = detectionOrigins(permissions.origins);
       const scripts = await chrome.scripting.getRegisteredContentScripts();
       const existing = scripts.find(
         (script) => script.id === "application-detection",
@@ -627,7 +637,7 @@ async function handle(type, sender, message = {}) {
     };
   }
   const savedFrame = (await chrome.storage.session.get(`autofill:${tab.id}`))[`autofill:${tab.id}`];
-  if (!applicationContext(fromPage ? sender.url : tab.url, !fromPage) &&
+  if (!applicationContext(fromPage ? sender.url : tab.url, true) &&
     !(!fromPage && savedFrame?.expires > Date.now() && (!savedFrame.pageUrl || savedFrame.pageUrl === tab.url)))
     throw new Error(
       "Open a supported application form. For an embedded form, use its autofill hint; enable site access and reload if the hint is missing.",

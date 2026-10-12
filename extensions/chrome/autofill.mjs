@@ -25,6 +25,9 @@ export function createAutofillInspector() {
     return field.validity?.valid !== false;
   };
   const read = field => {
+    const ant = custom(field) && field.closest('.ant-select-selector');
+    if (ant && ant.querySelectorAll('[role="combobox"]').length === 1)
+      return ant.querySelector('.ant-select-selection-item')?.getAttribute("title") || ant.querySelector('.ant-select-selection-item')?.textContent.trim() || "";
     const promptId = field.getAttribute("data-uxi-multiselect-id");
     if (promptId) {
       const selected = [...document.querySelectorAll(`[data-automation-id="selectedItemList"][data-uxi-multiselect-id="${CSS.escape(promptId)}"] [data-automation-id="promptOption"]`)];
@@ -80,7 +83,12 @@ export function createAutofillInspector() {
         return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
       }
       if (key === "desiredPayAmount" && /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return String(Number(text.replaceAll(",", "")));
-      const countryText = key === "phoneCountry" ? text.replace(/\s*\(?\+1\)?\s*$/, "").trim() : text;
+      let countryText = key === "phoneCountry" ? text.replace(/[\u{1f1e6}-\u{1f1ff}]/gu, "")
+        .replace(/^\s*\(?\+\d{1,4}\)?\s*|\s*\(?\+\d{1,4}\)?\s*$/g, "").trim() : text;
+      if (key === "phoneCountry" && !countryText) {
+        const flags = text.match(/[\u{1f1e6}-\u{1f1ff}]{2}/gu) || [];
+        if (flags.length === 1) countryText = [...flags[0]].map(char => String.fromCharCode(char.codePointAt(0) - 0x1f1e6 + 97)).join("");
+      }
       return ["country", "phoneCountry"].includes(key) ? ({ ca: "canada", us: "united states", usa: "united states", "united states of america": "united states" })[countryText] || countryText :
         key === "region" ? aliases[text] || text : text;
     };
@@ -163,7 +171,8 @@ export function createAutofillInspector() {
       (!item.choiceFields || (item.choiceGroup.isConnected && form.contains(item.choiceGroup) && radioLabel(item.choiceGroup) === item.label &&
         item.choiceFields.every(field => field.isConnected && item.choiceGroup.contains(field) && visible(field) &&
           !field.matches(':disabled,[aria-disabled="true"]') && (!field.form || field.type === "button")))) &&
-      !item.field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]');
+      !item.field.matches(':disabled,[aria-disabled="true"],[aria-readonly="true"]') &&
+      (!item.field.readOnly || item.field.matches('[role="combobox"][aria-haspopup="listbox"]'));
     const items = current.slice(0, 80).map(entry => {
       const { field, label } = entry;
       if (!ids.has(field)) ids.set(field, crypto.randomUUID());
@@ -187,7 +196,7 @@ export function createAutofillInspector() {
       const select = field instanceof HTMLSelectElement && !field.multiple;
       const radio = (entry.choiceFields || entry.radioFields)?.length > 1;
       const widget = custom(field) && (!(field instanceof HTMLButtonElement) || field.type === "button");
-      const ambiguous = key && current.filter(item => item.profileKey === key && norm(item.label) === norm(label)).length !== 1;
+      const ambiguous = key && key !== "phoneCountry" && current.filter(item => item.profileKey === key && norm(item.label) === norm(label)).length !== 1;
       const labelAmbiguous = !key && current.filter(item => norm(item.label) === norm(label)).length !== 1;
       const communicationPreference = ["smsUpdates", "emailUpdates"].includes(confirmedQuestions.get(norm(label))?.answerKey);
       const manual = Boolean(entry.manualReason) || inHistory || ambiguous || labelAmbiguous || (legal(label) && !communicationPreference) ||
@@ -262,7 +271,6 @@ export function createAutofillInspector() {
     const closeOptions = field => {
       field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
       field.blur();
-      if (field.getAttribute("aria-expanded") === "true") field.click();
     };
     const chooseOption = option => (option.querySelector('[data-uxi-widget-type="multiselectlistitem"]') || option).click();
     async function loadOptions(item, keepOpen = false, search = "", previousOptions = []) {
@@ -271,18 +279,19 @@ export function createAutofillInspector() {
       const promptIdentity = field.getAttribute("data-uxi-multiselect-id");
       const expanded = field.getAttribute("aria-expanded") === "true" || Boolean(promptIdentity && [...document.querySelectorAll('[role="listbox"]')].some(node => visible(node) && !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptIdentity)}"]`)));
       const previousLists = new Set([...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(visible));
-      if (!expanded) field.click();
+      if (!expanded) { field.focus(); field.click(); }
       if (!expanded && field.getAttribute("aria-expanded") !== "true") {
         field.focus();
         field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
         field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, view: window }));
       }
-      if (search && field instanceof HTMLInputElement) { field.focus(); setValue(field, search); }
+      if (search && field instanceof HTMLInputElement && !field.readOnly) { field.focus(); setValue(field, search); }
       let options = [];
       let searched = false;
       for (let attempt = 0; attempt < (search ? 64 : 16) && safe(item); attempt++) {
         const bob = field.matches('b-single-select > [role="button"]');
-        const lists = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || (bob ? `list__${field.id}` : "")).split(/\s+/).filter(Boolean)
+        const ownedIds = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || (bob ? `list__${field.id}` : "")).split(/\s+/).filter(Boolean);
+        const lists = ownedIds
           .flatMap(id => [...document.querySelectorAll(`#${CSS.escape(id)}`)])
           .filter(node => node.matches('[role="listbox"],[role="tree"]') && visible(node) &&
             (!bob || node.getAttribute("aria-labelledby") === field.getAttribute("aria-labelledby")));
@@ -293,12 +302,20 @@ export function createAutofillInspector() {
         // popup created by this focused control, never an already-open list.
         const opened = [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) && !previousLists.has(node) && !node.matches('[data-automation-id="selectedItemList"]'));
         const list = lists.length === 1 ? lists[0] : promptLists.length === 1 ? promptLists[0] :
-          !lists.length && !promptLists.length && opened.length === 1 && (document.activeElement === field || opened[0].contains(document.activeElement)) ? opened[0] : null;
+          !ownedIds.length && !promptId && !lists.length && !promptLists.length && opened.length === 1 && (document.activeElement === field || opened[0].contains(document.activeElement)) ? opened[0] : null;
         // One explicit saved choice is also safe in an empty multi-select.
         // Existing chips are read above, so we never add to a user's selection.
         options = list ?
           [...list.querySelectorAll('[role="option"],[role="treeitem"]')].filter(option => visible(option) &&
             option.closest('[role="listbox"],[role="tree"]') === list && !option.matches('[aria-disabled="true"],:disabled')) : [];
+        // Ant Design virtualizes the visual options beside a separate ARIA
+        // list. Bind via this control's exact owned list, never a global menu.
+        if (list && field.closest('.ant-select-selector')) {
+          const dropdown = list.closest('.ant-select-dropdown');
+          const rendered = dropdown && [...dropdown.querySelectorAll('.ant-select-item-option')].filter(option =>
+            visible(option) && !option.matches('.ant-select-item-option-disabled,[aria-disabled="true"]'));
+          if (rendered?.length) options = rendered;
+        }
         if (list && bob && search && !searched) {
           // A short Yes/No list is already complete. Searching it can remove
           // the live options during Angular's asynchronous filter update.
@@ -395,7 +412,7 @@ export function createAutofillInspector() {
           ({ CA: "Canada", US: "United States" })[value] || value : "");
         let options = await loadOptions(item, true, search);
         let matches = citySearch ? options.filter(option => matchesValue(option.textContent)) : matchingOptions(options);
-        const queryOnly = field.hasAttribute("data-uxi-multiselect-id");
+        const queryOnly = field.hasAttribute("data-uxi-multiselect-id") || Boolean(field.closest('.ant-select-selector')) || field.readOnly;
         if (!matches.length && (field instanceof HTMLInputElement || bobSearch)) {
           // Virtualized lists may not render "Other" until searched. Use only
           // server-approved equivalents, not a nearest-looking option.

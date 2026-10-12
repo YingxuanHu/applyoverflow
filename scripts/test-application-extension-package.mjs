@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
-import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
+import { SITE_ORIGINS, APPLICATION_ORIGINS } from "../extensions/chrome/sites.mjs";
 
 const root = "output/extension/package-test";
 const installedPaths = ["production", "store", "store-test"].map(name => `output/extension/${name}/config.mjs`);
@@ -23,7 +23,7 @@ for (const [args, name] of [
   ]);
   const zip = await readFile(`${root}/${name}.zip`);
   assert.ok(
-    zip.length < 160 * 1024,
+    zip.length < 192 * 1024,
     "Keep the package small; no dependencies or extra resume storage",
   );
   const files = unzipSync(zip);
@@ -50,7 +50,7 @@ for (const [args, name] of [
   const manifest = JSON.parse(strFromU8(files["manifest.json"]));
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.host_permissions, ["https://applyoverflow.com/*"]);
-  assert.deepEqual(manifest.optional_host_permissions, SITE_ORIGINS);
+  assert.deepEqual(manifest.optional_host_permissions, [...SITE_ORIGINS, ...APPLICATION_ORIGINS]);
   assert.deepEqual(manifest.permissions, [
     "activeTab",
     "scripting",

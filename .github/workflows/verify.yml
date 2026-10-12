@@ -50,6 +50,8 @@ jobs:
           NODE_PATH: ./node_modules/next/dist/compiled
       - run: npm run extension:test:workday
       - run: npm run extension:test:expanded
+      - run: npm run extension:test:structure
+      - run: npm run extension:test:origins
       - run: npm run extension:test:semantic
       - run: npm run extension:test:matrix
       - run: node scripts/test-application-extension-rippling.mjs

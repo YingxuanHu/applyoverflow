@@ -10,7 +10,7 @@ import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
 import { createRecoveryView } from "../extensions/chrome/recovery.mjs";
 import {
-  SITE_ORIGINS,
+  SITE_ORIGINS, APPLICATION_ORIGINS,
   applicationContext,
 } from "../extensions/chrome/sites.mjs";
 const release = JSON.parse(
@@ -93,7 +93,7 @@ await writeFile(
         "Autofill applications from your profile. Review and approve each supported submission; no automatic batch applications.",
       permissions: ["activeTab", "scripting", "storage", "identity"],
       host_permissions: [`${origin}/*`],
-      optional_host_permissions: SITE_ORIGINS,
+      optional_host_permissions: [...SITE_ORIGINS, ...APPLICATION_ORIGINS],
       background: { service_worker: "background.mjs", type: "module" },
       action: { default_popup: "popup.html", default_icon: "icon.png" },
       icons: { 128: "icon.png" },

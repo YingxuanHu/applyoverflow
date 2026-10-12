@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
+import { SITE_ORIGINS, APPLICATION_ORIGINS, detectionOrigins } from "../extensions/chrome/sites.mjs";
 
 test("downloadable preview has a stable public Chrome identity", () => {
   const release = JSON.parse(
@@ -24,7 +24,7 @@ test("downloadable preview has a stable public Chrome identity", () => {
     "version",
   ]);
 });
-test("automatic detection uses explicit ATS hosts, never arbitrary browsing access", () => {
+test("common-site grants remain narrow; broader detection requires an explicit HTTPS grant", () => {
   assert.equal(SITE_ORIGINS.length, 11);
   assert.ok(SITE_ORIGINS.includes("https://apply.workable.com/*"));
   for (const origin of SITE_ORIGINS) {
@@ -32,4 +32,9 @@ test("automatic detection uses explicit ATS hosts, never arbitrary browsing acce
     if (origin.includes("*.")) assert.ok(["https://*.myworkdayjobs.com/*", "https://*.icims.com/*", "https://*.careers.hibob.com/*"].includes(origin));
     assert.equal(origin.includes("localhost"), false);
   }
+  assert.deepEqual(APPLICATION_ORIGINS, ["https://*/*"]);
+  assert.deepEqual(detectionOrigins(["https://applyoverflow.com/*"]), []);
+  assert.deepEqual(detectionOrigins(["https://company.example/*"]), ["https://company.example/*"]);
+  assert.deepEqual(detectionOrigins(["https://*/*", ...SITE_ORIGINS]), APPLICATION_ORIGINS);
+  assert.deepEqual(detectionOrigins(["http://localhost/*", "file:///*"]), []);
 });

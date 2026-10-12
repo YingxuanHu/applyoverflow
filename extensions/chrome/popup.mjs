@@ -1,5 +1,5 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
-import { SITE_ORIGINS } from "./sites.mjs";
+import { SITE_ORIGINS, APPLICATION_ORIGINS, applicationContext } from "./sites.mjs";
 import { createFillProgress } from "./fill-progress.mjs";
 import { createRecoveryView, recoveryForError } from "./recovery.mjs";
 const renderQuestions = createFillProgress();
@@ -276,43 +276,52 @@ document.getElementById("cancel-applied").addEventListener("click", () => {
   document.getElementById("applied-confirmation").hidden = true;
 });
 const detection = document.getElementById("detection");
+const allDetection = document.getElementById("all-detection");
+let currentOrigin;
 async function updateAccess() {
   const permissions = await chrome.permissions.getAll();
+  const all = permissions.origins?.includes("https://*/*") || permissions.origins?.includes("<all_urls>");
+  allDetection.checked = Boolean(all);
   const count = SITE_ORIGINS.filter((origin) =>
     permissions.origins?.includes(origin),
   ).length;
-  detection.checked = count === SITE_ORIGINS.length;
-  detection.indeterminate = count > 0 && count < SITE_ORIGINS.length;
-  document.getElementById("detection-reminder").hidden = detection.checked;
-  document.getElementById("access-state").textContent = !count
+  detection.checked = all || count === SITE_ORIGINS.length;
+  detection.disabled = Boolean(all);
+  detection.indeterminate = !all && count > 0 && count < SITE_ORIGINS.length;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentOrigin = applicationContext(tab?.url, true) ? `${new URL(tab.url).origin}/*` : undefined;
+  const currentEnabled = currentOrigin && await chrome.permissions.contains({ origins: [currentOrigin] });
+  document.getElementById("enable-current-site").hidden = !currentOrigin || currentEnabled;
+  document.getElementById("detection-reminder").hidden = Boolean(all || currentEnabled);
+  document.getElementById("access-state").textContent = all ? "All application sites" : currentEnabled ? "This site enabled" : !count
     ? "Toolbar only"
     : detection.checked
       ? "Supported sites enabled"
       : "Some sites enabled";
-  document.getElementById("access-help").textContent = count
-    ? "Greenhouse, Lever, Ashby, Workday, iCIMS, Workable & HiBob. Other application sites: use the toolbar."
-    : "Automatic hints are off until site access is granted. Filling always requires your click.";
+  document.getElementById("access-help").textContent = "Site access controls where the assistant can appear. Profile data is requested only when you choose Autofill.";
 }
-async function changeDetection(enable) {
+async function changeDetection(enable, origins = SITE_ORIGINS) {
   detection.disabled = true;
   try {
     // request() must run directly from this user gesture, not in the worker.
     const accepted = enable
-      ? await chrome.permissions.request({ origins: SITE_ORIGINS })
-      : await chrome.permissions.remove({ origins: SITE_ORIGINS });
+      ? await chrome.permissions.request({ origins })
+      : await chrome.permissions.remove({ origins });
     await chrome.runtime.sendMessage({ type: "detection-updated" });
     status.textContent = accepted
       ? enable
-        ? "Autofill hints enabled on supported sites."
+        ? origins === SITE_ORIGINS ? "Autofill hints enabled on supported sites." : origins === APPLICATION_ORIGINS ? "Autofill hints enabled on all application sites." : "Autofill enabled on this site."
         : "Automatic hints turned off. The toolbar still works."
       : "Site access was not granted. You can still use the toolbar.";
   } catch {
     status.textContent = "Could not change site access. Try again.";
   } finally {
-    await updateAccess();
     detection.disabled = false;
+    await updateAccess();
   }
 }
 detection.addEventListener("change", () => void changeDetection(detection.checked));
-document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true));
+allDetection.addEventListener("change", () => void changeDetection(allDetection.checked, APPLICATION_ORIGINS));
+document.getElementById("enable-current-site").addEventListener("click", () => currentOrigin && void changeDetection(true, [currentOrigin]));
+document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true, currentOrigin ? [currentOrigin] : APPLICATION_ORIGINS));
 void updateAccess();

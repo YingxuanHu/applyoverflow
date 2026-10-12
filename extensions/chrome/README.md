@@ -1,5 +1,42 @@
 # Application Assistant Preview
 
+## Application structure and optional access (0.14.0)
+
+- Chrome access is separate from form recognition. Keep common ATS grants, grant
+  one employer origin, or opt into all HTTPS sites from Connection & site access.
+  Broader access is optional, not requested on installation. Detection is local;
+  profile retrieval, file sharing and filling still require an explicit action.
+- Public fragment anchors no longer hide otherwise-valid applications. Generic
+  candidate-info forms are separated from search/newsletter forms. The toolbar
+  can select one accessible embedded application; ambiguous frames stay manual.
+- History sections and individual rows are identified from local headings and
+  employer/title or school identities, including div-based editors. Add and Save
+  are restricted to record editors; unknown required data blocks Save. No Next
+  or Submit action is part of Autofill. Existing edits and duplicate records are
+  preserved. Month-only dates use the first/last day for start/end widgets.
+- Readonly combobox query inputs can still select options. Ant Design virtual
+  options are bound to their owned popup and checked against the selected display.
+  Delayed menus cannot select another question's options. Country flags and
+  dial codes retain country identity. Newly enabled dependent controls receive
+  bounded follow-up scans. Hidden resume inputs require one local, explicitly
+  labeled upload button; ambiguous import widgets remain manual.
+- `extension:test:structure` covers unlisted hosts, anchors, unrelated forms,
+  generic repeated history, conditional controls and option readback in CI.
+  This is not a promise that every custom widget, CAPTCHA or authenticated step
+  is automated. Legal dialogs require the user's choice.
+- `extension:test:origins` runs the real packaged MV3 worker on 30 synthetic
+  unlisted hostnames (set `EXTENSION_ORIGIN_CASES=300` for the larger run), checks
+  actual filled values and ensures no profile fetch occurs before Autofill.
+  This measures host-independent access, not hundreds of live employer tenants.
+
+Live-page checks on 2026-10-12 used synthetic facts in an isolated browser with
+employer network traffic blocked before filling: Autodesk (8 factual controls),
+Toast (10), and Dayforce/Questrade (15, including dependent province and source
+details). Values were read back from the rendered form. Autodesk's hidden resume
+target was detected; Dayforce's separate import flow remained manual. These are
+adapter checks, not proof of account-backed AI answers or completed applications.
+No files were uploaded and no Next/Submit actions were taken on these pages.
+
 ## Approved submission pilot (0.13.0)
 
 - Autofill still never submits or clicks Next. After inspecting and editing the

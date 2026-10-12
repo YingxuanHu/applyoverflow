@@ -37,6 +37,8 @@
     "extension:test:questions": "node scripts/test-application-extension-questions.mjs",
     "extension:test:progress": "node scripts/test-extension-progress.mjs",
     "extension:test:expanded": "node scripts/test-application-extension-expanded.mjs",
+    "extension:test:structure": "node scripts/test-application-extension-structure.mjs",
+    "extension:test:origins": "node scripts/test-application-extension-origin-access.mjs",
     "extension:test:compatibility": "node scripts/test-application-extension-compatibility.mjs",
     "extension:test:history": "node scripts/test-application-extension-history.mjs",
     "extension:test:detection": "node scripts/test-application-extension-detection.mjs",

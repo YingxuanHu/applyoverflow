@@ -12,6 +12,16 @@ export const SITE_ORIGINS = [
   "https://*.careers.hibob.com/*",
 ];
 
+// Broad access is optional and requested only by a direct user gesture. The
+// scanner still requires application evidence before displaying or filling.
+export const APPLICATION_ORIGINS = ["https://*/*"];
+
+export function detectionOrigins(granted = []) {
+  if (granted.includes("https://*/*") || granted.includes("<all_urls>")) return APPLICATION_ORIGINS;
+  return granted.filter(origin => /^https:\/\/(?:\*\.)?[a-z0-9.-]+\/\*$/.test(origin) &&
+    origin !== "https://applyoverflow.com/*");
+}
+
 // Shared by the server, worker and isolated scanner. Tenant and region are part
 // of the identity; tracking parameters and the apply step are not.
 export function applicationContext(raw, allowGeneric = false) {
@@ -96,8 +106,7 @@ export function applicationContext(raw, allowGeneric = false) {
     const lever = /^(jobs(?:\.eu)?)\.lever\.co$/.exec(url.hostname);
     const ashby = url.hostname === "jobs.ashbyhq.com";
     if (!lever && !ashby) {
-      // Unknown sites require explicit toolbar inspection. HiBob has a narrow
-      // optional origin grant; never register an all-sites content script.
+      // URL validation is separate from browser access and DOM form detection.
       const knownGeneric = /^[a-z0-9-]+\.careers\.hibob\.com$/.test(url.hostname) &&
         /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(url.pathname);
       if (
@@ -114,9 +123,11 @@ export function applicationContext(raw, allowGeneric = false) {
         [...url.searchParams.keys()].some((key) =>
           /token|session|secret|password|email|auth|code|signature/i.test(key),
         ) ||
-        url.hash
+        (url.hash && (!/^#[a-zA-Z][a-zA-Z0-9_-]{0,79}$/.test(url.hash) ||
+          /token|session|secret|password|email|auth|code|signature/i.test(url.hash)))
       )
         return null;
+      url.hash = "";
       for (const key of [...url.searchParams.keys()]) {
         if (/^(?:utm_.*|source|ref|referrer|gclid|fbclid)$/i.test(key))
           url.searchParams.delete(key);

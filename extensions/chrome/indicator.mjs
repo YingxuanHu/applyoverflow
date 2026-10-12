@@ -213,7 +213,7 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
       : result.resumeAvailable
         ? "Resume attachment available."
         : result.historyAvailable
-          ? "Work and education fields detected. Choose a profile entry in the Chrome toolbar."
+          ? "Work and education fields detected."
           : result.questions.length
             ? "Fill answers from your profile."
             : "";

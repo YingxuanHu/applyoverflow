@@ -55,12 +55,13 @@ export default function ExtensionPrivacyPage() {
       <section className="space-y-3">
         <h2 className="text-base font-semibold">What stays in your browser</h2>
         <p>
-          Optional site access lets the extension inspect recognized Greenhouse,
-          Lever, Ashby, Workday, iCIMS, Workable and HiBob forms for supported fields. On other
-          sites, inspection starts only when you open the toolbar. This inspection does not
+          You can grant optional access to common application sites, one employer
+          site, or all HTTPS sites. The extension looks for application forms locally
+          on permitted pages. Without a grant, use the toolbar on the current page.
+          This inspection does not
           fetch your profile or send form contents to ApplyOverflow. In an
-          embedded form, inspection is limited to the permitted ATS frame, not
-          the surrounding employer page.
+          embedded form, filling is limited to the selected application document;
+          profile data is not sent to other frames.
         </p>
         <p>
           The extension keeps its connection token in Chrome local storage,

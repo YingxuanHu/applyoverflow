@@ -69,17 +69,17 @@ export default async function ExtensionSettingsPage() {
               profile.
             </li>
             <li>
-              Turn on automatic hints to allow access to Greenhouse, Lever, Ashby,
-              Workday and iCIMS. You can leave this off and use the toolbar instead.
+              Under Connection &amp; site access, enable the assistant on this site
+              or choose all application sites. Chrome will ask you to approve access.
             </li>
           </ol>
           <p className="mt-3 text-muted-foreground">
             This is not a Chrome Web Store release. Contact fields and selected
-            PDF/DOCX resumes up to 5 MB are supported. Each resume needs a
-            separate confirmation. Supported embedded forms use their own hint
+            PDF/DOCX resumes up to 5 MB are supported. Each resume needs
+            approval in Profile or through Change resume. Embedded forms use their own hint
             after site access is enabled; reload the employer page if needed.
             The toolbar can also fill clearly labelled contact fields on other
-            application sites and one selected work or education entry. Unsupported
+            application sites and saved work or education entries. Unsupported
             widgets and ambiguous fields remain manual. Applications
             are never submitted automatically.
           </p>

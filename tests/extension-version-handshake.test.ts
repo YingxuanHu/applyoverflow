@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { recoveryForError } from "../extensions/chrome/recovery.mjs";
+import { applicationContext, detectionOrigins } from "../extensions/chrome/sites.mjs";
 
 type Message = { type: string; buildId?: string };
 type Sender = { id: string; url: string; tab?: { id: number }; frameId?: number; documentId?: string };
@@ -29,8 +30,7 @@ function worker() {
     .replace(/^import .*;$/gm, "");
   runInNewContext(source, {
     chrome, APP_ORIGIN: "https://applyoverflow.com", BUILD_ID: "current-build",
-    SITE_ORIGINS: ["https://job-boards.greenhouse.io/*"],
-    applicationContext: forbidden, fetch: forbidden, URL,
+    detectionOrigins, applicationContext, fetch: forbidden, URL,
     recoveryForError,
   });
   assert.ok(listener);
