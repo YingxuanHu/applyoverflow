@@ -172,7 +172,7 @@ try {
   await reopenedPopup.getByText(/Connection in progress/).waitFor();
   assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isDisabled(), true);
   await cancelledPage.getByRole("link", { name: "Cancel", exact: true }).click();
-  await popup.getByText("Connection cancelled.", { exact: true }).waitFor();
+  await popup.getByRole("alert").getByText("Connection cancelled.", { exact: true }).waitFor();
   await reopenedPopup.getByText("Connect to your ApplyOverflow profile.", { exact: true }).waitFor();
   assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isEnabled(), true);
   await reopenedPopup.close();
