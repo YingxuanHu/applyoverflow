@@ -25,6 +25,7 @@ import {
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
 import { suggestApplicationAnswer } from "@/lib/queries/extension-suggestions";
+import { extensionValidationFields } from "@/lib/extension-errors";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -33,12 +34,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ action: string }> },
 ) {
+  const requestId = crypto.randomUUID();
   try {
     const { action } = await params;
     if (
       ![
         "token",
         "contact",
+        "connection-status",
         "history",
         "history-entry",
         "applied",
@@ -72,6 +75,7 @@ export async function POST(
       }).allowed
     )
       return json({ error: "Too many requests. Try again shortly." }, 429);
+    if (action === "connection-status") return json({ connected: true });
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
     if (action === "submission-check")
@@ -137,14 +141,19 @@ export async function POST(
     return json({ disconnected: true });
   } catch (error) {
     if (error instanceof AssistantError)
-      return json({ error: error.message }, error.status);
-    if (error instanceof ZodError)
-      return json({ error: "Invalid extension request." }, 400);
+      return json({ error: error.message, code: error.code || (error.status === 401 ? "SIGN_IN_REQUIRED" : "REQUEST_FAILED"), requestId }, error.status);
+    if (error instanceof ZodError) {
+      const fields = extensionValidationFields(error);
+      console.warn("[extension] Request validation failed", { requestId, fields });
+      return json({ error: "The extension sent unsupported form data. Update the extension and retry; signing out will not fix this error.",
+        code: "EXTENSION_REQUEST_INVALID", fields, requestId }, 400);
+    }
     // Never log tokens, questions, answers, or profile contents.
     console.error(
       "[extension] Request failed",
+      requestId,
       error instanceof Error ? error.name : "UnknownError",
     );
-    return json({ error: "Could not complete this request. Try again." }, 500);
+    return json({ error: "ApplyOverflow is temporarily unavailable. Retry shortly; you do not need to sign out.", code: "SERVICE_UNAVAILABLE", requestId }, 500);
   }
 }

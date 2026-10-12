@@ -189,6 +189,7 @@ try {
     const action = endpoint.split("/").at(-1);
     apiCalls.push({ action, body: JSON.parse(init.body) });
     if (apiUnavailable) return Response.json({ error: "Matching backend unavailable" }, { status: 404 });
+    if (action === "connection-status") return Response.json({ connected: true });
     if (action === "submission-check") return Response.json({ alreadyApplied: serverApplied });
     if (action === "applied") return trackingUnavailable ? Response.json({ error: "Tracker unavailable" }, { status: 503 }) : Response.json({ id: "tracked-fixture" });
     throw new Error(`Unexpected API call ${action}`);
@@ -226,7 +227,7 @@ try {
   await reset(); serverApplied = true;
   assert.match((await send("submission-preview")).error, /already records/);
   serverApplied = false; apiUnavailable = true;
-  assert.match((await send("submission-preview")).error, /backend unavailable/);
+  assert.equal((await send("submission-preview")).recovery.code, "SERVICE_UNAVAILABLE");
   assert.equal(await page.evaluate(() => window.submits), 0);
   await reset(); reviewed = await send("submission-preview");
   local.connection.token = "different-account-token";

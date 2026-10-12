@@ -68,6 +68,8 @@ async function main() {
     const started = Date.now();
     const choiceQuestions = ["Are you legally entitled to work in Canada?", "Are you currently located in the GTA or Saskatoon?", "If in the GTA, in what city are you located?"];
     const choicePlan = await getAutofillPlan(user.id, { url: "https://jobs.ashbyhq.com/7shifts/8628abcd-e033-4337-be63-1fcd04235601/application", questions: choiceQuestions });
+    const longQuestionPlan = await getAutofillPlan(user.id, { url, questions: [label, "x".repeat(600), " "] });
+    assert.equal(longQuestionPlan.contact.email, email, "one unsupported question must not block contact data");
     assert.deepEqual(choicePlan.commonAnswers.map(row => row.answer), ["Yes", "Yes", "Toronto"]);
     assert.equal("aiToolUsage" in choicePlan.contact, false, "tool-use notes go only to professional evidence, never the contact payload");
     const toolQuestion = "What AI tools are you using in your role today, and how have they changed how you work? Please be as specific as possible.";

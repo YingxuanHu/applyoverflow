@@ -1,7 +1,27 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS } from "./sites.mjs";
 import { createFillProgress } from "./fill-progress.mjs";
+import { createRecoveryView, recoveryForError } from "./recovery.mjs";
 const renderQuestions = createFillProgress();
+const renderRecovery = createRecoveryView();
+let failure;
+function showRecovery(value) {
+  failure = value;
+  renderRecovery(document.getElementById("recovery"), value, run);
+  status.hidden = Boolean(value);
+  if (value) {
+    document.getElementById("connect").hidden = true;
+    if (document.getElementById("connection-state").textContent === "Checking...")
+      document.getElementById("connection-state").textContent = "Could not verify";
+  }
+  if (value?.code === "SIGN_IN_REQUIRED") {
+    document.getElementById("connection-state").textContent = "Reconnect needed";
+    document.getElementById("actions").hidden = true;
+    document.getElementById("account").hidden = true;
+    document.getElementById("disconnect").hidden = true;
+    document.getElementById("connect").hidden = true;
+  }
+}
 const status = document.getElementById("status");
 function clearQuestions() {
   renderQuestions(document.getElementById("remaining-fields"), [], run);
@@ -54,6 +74,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== chrome.runtime.id || sender.tab || message?.type !== "autofill-progress" ||
     message.buildId !== BUILD_ID || message.tabId !== activeTabId) return;
   showFields(message.fields || []);
+  showRecovery(message.recovery);
   status.textContent = message.message;
 });
 function checkVersion(result) {
@@ -66,12 +87,19 @@ function checkVersion(result) {
 function showFields(fields) {
   const pending = fields.filter(field => field.state === "needed");
   document.getElementById("fill-progress").hidden = false;
-  document.getElementById("progress-heading").textContent = pending.some(f => f.queued || f.processing) ? "Autofill in progress" : "Autofill results";
+  document.getElementById("progress-heading").textContent = pending.some(f => f.blocked) ? "Autofill stopped" : pending.some(f => f.queued || f.processing) ? "Autofill in progress" : "Autofill results";
   renderQuestions(document.getElementById("remaining-fields"), fields, run);
   document.getElementById("completed-fields").hidden = true;
 }
 async function run(type, data = {}) {
+  // Help opens a separate tab without discarding the failed run or its recovery.
+  if (["extension-help", "chrome-extensions", "open-profile"].includes(type)) {
+    try { await chrome.runtime.sendMessage({ type, buildId: BUILD_ID }); }
+    catch (error) { showRecovery(recoveryForError(error, type)); }
+    return;
+  }
   let prepareDrafts = false;
+  if (type !== "status") showRecovery(null);
   clearTimeout(refreshTimer);
   if (type !== "status") clearSubmissionReview();
   if (type === "submission-preview") document.getElementById("submission-result").hidden = true;
@@ -96,8 +124,11 @@ async function run(type, data = {}) {
     }
     const result = await chrome.runtime.sendMessage({ type, ...data, buildId: BUILD_ID });
     checkVersion(result);
+    if (result.tabId !== undefined) activeTabId = result.tabId;
+    showRecovery(result.recovery);
+    if (result.fields) showFields(result.fields);
     if (result.reconnect) {
-      clearQuestions();
+      if (!result.fields) clearQuestions();
       document.getElementById("connection-state").textContent = "Reconnect needed";
       history = preview = undefined;
       document.getElementById("history-entry").replaceChildren();
@@ -108,14 +139,13 @@ async function run(type, data = {}) {
       document.getElementById("disconnect").hidden = true;
       document.getElementById("account").hidden = true;
     }
-    if (result.error) throw new Error(result.error);
+    if (result.error) throw Object.assign(new Error(result.error), { recovery: result.recovery });
     if (result.submissionReview) showSubmissionReview(result.submissionReview);
     if (result.submissionResult !== undefined) {
       const element = document.getElementById("submission-result");
       element.hidden = !result.submissionResult;
       element.textContent = result.submissionResult?.message || "";
     }
-    if (result.tabId !== undefined) activeTabId = result.tabId;
     if (result.fields) showFields(result.fields);
     prepareDrafts = type === "autofill" && result.prepareDrafts === true;
     if (result.history) {
@@ -148,7 +178,7 @@ async function run(type, data = {}) {
     if (!result.connected) {
       clearSubmissionReview();
       document.getElementById("submission-result").hidden = true;
-      clearQuestions();
+      if (!result.fields) clearQuestions();
       history = undefined;
       document.getElementById("history-entry").replaceChildren();
       document.getElementById("history-picker").hidden = true;
@@ -159,30 +189,32 @@ async function run(type, data = {}) {
     }
     if (!result.connected) document.getElementById("account").hidden = true;
     document.getElementById("connection-state").textContent = result.connected
-      ? "Connected"
+      ? result.connectionVerified === false ? "Could not verify" : "Connected"
       : "Not connected";
     if (result.pageMessage !== undefined) {
       document.getElementById("page-status").textContent = result.pageMessage;
       document.getElementById("page-status").hidden = false;
     }
-    document.getElementById("connect").hidden = result.connected;
+    document.getElementById("connect").hidden = result.connected || failure?.code === "SIGN_IN_REQUIRED";
     document.getElementById("actions").hidden = !result.connected;
     document.getElementById("disconnect").hidden = !result.connected;
     if (result.undoAvailable !== undefined)
       document.getElementById("undo").hidden = !result.undoAvailable;
     if (result.autofillUndoAvailable !== undefined)
       document.getElementById("autofill-undo").hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
-    if (!result.connected) document.getElementById("fill-progress").hidden = true;
+    if (!result.connected && !result.fields) document.getElementById("fill-progress").hidden = true;
     if (result.historyUndoAvailable !== undefined)
       document.getElementById("undo-history").hidden =
         !result.historyUndoAvailable;
     status.textContent = result.message;
+    if (failure?.code === "SIGN_IN_REQUIRED") document.getElementById("connection-state").textContent = "Reconnect needed";
     return result;
   } catch (error) {
     status.textContent = error.message || "Could not complete the action.";
+    showRecovery(error.recovery || recoveryForError(error, type));
   } finally {
     for (const button of document.querySelectorAll("button"))
-      button.disabled = needsReload ? button.id !== "reload-extension" : Boolean(activeAction);
+      button.disabled = needsReload ? button.id !== "reload-extension" && !button.closest("#recovery") : Boolean(activeAction);
     updateSubmitButton();
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.

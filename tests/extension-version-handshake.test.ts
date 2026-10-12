@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
+import { recoveryForError } from "../extensions/chrome/recovery.mjs";
 
 type Message = { type: string; buildId?: string };
 type Sender = { id: string; url: string; tab?: { id: number }; frameId?: number; documentId?: string };
@@ -30,6 +31,7 @@ function worker() {
     chrome, APP_ORIGIN: "https://applyoverflow.com", BUILD_ID: "current-build",
     SITE_ORIGINS: ["https://job-boards.greenhouse.io/*"],
     applicationContext: forbidden, fetch: forbidden, URL,
+    recoveryForError,
   });
   assert.ok(listener);
   return { receive: listener, sensitiveCalls: () => sensitiveCalls };

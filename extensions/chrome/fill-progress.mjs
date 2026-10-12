@@ -7,17 +7,18 @@ export function createFillProgress() {
     container.replaceChildren();
     if (!fields.length) return;
     const counts = fields.reduce((all, field) => {
-      const state = field.state === "needed" ? field.processing ? "processing" : field.queued ? "queued" : "empty" : field.state;
+      const state = field.state === "needed" ? field.blocked ? "blocked" : field.processing ? "processing" : field.queued ? "queued" : "empty" : field.state;
       all[state] = (all[state] || 0) + 1; return all;
     }, {});
     const summary = document.createElement("p"); summary.className = "fill-counts";
     summary.textContent = [`${counts.filled || 0} filled`, counts.kept ? `${counts.kept} already complete` : "",
       counts.processing || counts.queued ? `${(counts.processing || 0) + (counts.queued || 0)} processing` : "",
-      counts.empty ? `${counts.empty} left empty` : ""].filter(Boolean).join(" · ");
+      counts.empty ? `${counts.empty} left empty` : "", counts.blocked ? `${counts.blocked} not processed` : ""].filter(Boolean).join(" · ");
     container.append(summary);
     for (const [key, title, rows] of [
       ["pending", "Processing", fields.filter(f => f.state === "needed" && (f.processing || f.queued))],
-      ["empty", "Left empty", fields.filter(f => f.state === "needed" && !f.processing && !f.queued)],
+      ["blocked", "Not processed", fields.filter(f => f.state === "needed" && f.blocked)],
+      ["empty", "Left empty", fields.filter(f => f.state === "needed" && !f.processing && !f.queued && !f.blocked)],
       ["complete", "Completed", fields.filter(f => f.state !== "needed")],
     ]) {
       if (!rows.length) continue;

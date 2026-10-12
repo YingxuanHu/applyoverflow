@@ -2,6 +2,14 @@ import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
 import { SITE_ORIGINS, applicationContext, sameApplication } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
+import { recoveryForError, stoppedFields, planQuestions } from "./recovery.mjs";
+
+let verifiedConnection = null;
+const recovery = (error, action) => {
+  if (error.recovery) return error.recovery;
+  const result = recoveryForError(error, action);
+  return { ...result, detail: `${result.detail} | Extension: ${chrome.runtime.getManifest?.().version || BUILD_ID}` };
+};
 
 const supportedOrigin = (url) => {
   try {
@@ -133,6 +141,7 @@ async function notifyConnectionChanged() {
       .catch(() => {});
 }
 async function clearAccountSession() {
+  verifiedConnection = null;
   await chrome.storage.local.remove("connection");
   const state = await chrome.storage.session.get(null);
   await chrome.storage.session.remove(
@@ -146,24 +155,36 @@ async function clearAccountSession() {
   await notifyConnectionChanged();
 }
 async function api(action, body, token) {
-  const response = await fetch(`${APP_ORIGIN}/api/extension/v1/${action}`, {
+  let response;
+  try { response = await fetch(`${APP_ORIGIN}/api/extension/v1/${action}`, {
     method: "POST",
     credentials: "omit",
     cache: "no-store",
     redirect: "error",
-    signal: AbortSignal.timeout(action === "autofill-suggest" ? 28_000 : 20_000),
+    signal: AbortSignal.timeout(action === "connection-status" ? 5000 : action === "autofill-suggest" ? 28_000 : 20_000),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body ?? {}),
-  });
+  }); } catch (cause) {
+    const error = Object.assign(new Error("Could not reach ApplyOverflow."), {
+      name: cause?.name || "Error", code: ["AbortError", "TimeoutError"].includes(cause?.name) ? "REQUEST_TIMEOUT" : "NETWORK_ERROR",
+    });
+    error.recovery = recovery(error, action); throw error;
+  }
   if (response.status === 401) await clearAccountSession();
-  const result = await response.json();
-  if (!response.ok) {
-    const error = new Error(result.error || "Request failed. Try again.");
+  let result;
+  try { result = await response.json(); } catch { /* A proxy may return HTML or an empty response. */ }
+  if (!response.ok || !result || typeof result !== "object" || Array.isArray(result)) {
+    const error = new Error(result?.error || "ApplyOverflow returned an unreadable response.");
     error.reconnect = response.status === 401;
     error.status = response.status;
+    error.code = result?.code || (response.ok || !result ? "INVALID_RESPONSE" : "");
+    error.fields = result?.fields;
+    error.requestId = result?.requestId;
+    error.retryAfter = response.headers?.get?.("Retry-After");
+    error.recovery = recovery(error, action);
     throw error;
   }
   return result;
@@ -257,6 +278,11 @@ async function submissionOutcome(preview) {
 }
 async function handle(type, sender, message = {}) {
   if (type === "version") return { activeAction: working, message: working ? workingMessage() : "Ready." };
+  if (["extension-help", "chrome-extensions", "open-profile"].includes(type)) {
+    await chrome.tabs.create({ url: type === "chrome-extensions" ? `chrome://extensions/?id=${chrome.runtime.id}` :
+      `${APP_ORIGIN}${type === "open-profile" ? "/profile" : "/settings/extension"}` });
+    return { opened: true };
+  }
   // The grant survives browser restarts, but is never exposed to content scripts
   // or synced. Profile data and field state remain transient.
   await chrome.storage.session.setAccessLevel({
@@ -272,7 +298,8 @@ async function handle(type, sender, message = {}) {
       await chrome.storage.session.remove("connection");
     }
   }
-  if (connection && (connection.origin !== APP_ORIGIN || Date.parse(connection.expiresAt) <= Date.now())) {
+  const expired = connection && (connection.origin !== APP_ORIGIN || !Number.isFinite(Date.parse(connection.expiresAt)) || Date.parse(connection.expiresAt) <= Date.now());
+  if (expired) {
     await clearAccountSession(); connection = undefined;
   }
   const connected = Boolean(
@@ -330,15 +357,27 @@ async function handle(type, sender, message = {}) {
         },
       });
     const savedSubmission = tab?.id ? (await chrome.storage.session.get(`submission:result:${tab.id}`))[`submission:result:${tab.id}`] : null;
+    const progress = autofillProgress?.tabId === tab?.id && autofillProgress.documentId === current?.documentId && autofillProgress.url === current?.result.url ? autofillProgress : null;
+    let connectionError;
+    if (connected && !working && (verifiedConnection?.token !== connection.token || verifiedConnection.until < Date.now())) {
+      try {
+        await api("connection-status", {}, connection.token);
+        verifiedConnection = { token: connection.token, until: Date.now() + 60_000 };
+      } catch (error) { connectionError = error; }
+    }
+    const failure = connectionError ? recovery(connectionError, "connection-status") : expired ? recovery({ code: "SIGN_IN_REQUIRED" }, "connection-status") : progress?.recovery;
     return {
-      connected,
+      connected: connected && !connectionError?.reconnect,
+      reconnect: connectionError?.reconnect === true || Boolean(expired),
+      connectionVerified: connected && !connectionError,
+      recovery: failure,
       tabId: tab?.id,
       submissionResult: connected && savedSubmission && submissionPageMatches(tab.url, savedSubmission.url) ? savedSubmission : null,
-      ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? {
+      ...(connected && (progress || (saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url)) ? {
         fields: current.result.fields?.map(field => {
           const previous = autofillProgress?.tabId === tab.id && autofillProgress.documentId === current.documentId
             ? autofillProgress.fields?.find(f => f.id === field.id && f.label === field.label) : null;
-          return field.state === "needed" && previous ? { ...field, queued: previous.queued, processing: previous.processing, reason: previous.reason } : field;
+          return field.state === "needed" && previous ? { ...field, queued: previous.queued, processing: previous.processing, blocked: previous.blocked, reason: previous.reason } : field;
         }),
       } : {}),
       activeAction: working,
@@ -363,7 +402,7 @@ async function handle(type, sender, message = {}) {
             current.result.questions.length && `${current.result.questions.length} questions`,
           ].filter(Boolean).join(" · ") || "No empty supported fields on this step."
         : inspectionError || "Open an employer application form to check available fields.",
-      message: working && autofillProgress?.tabId === tab?.id ? autofillProgress.message : working ? workingMessage() : connected
+      message: failure ? failure.message : working && autofillProgress?.tabId === tab?.id ? autofillProgress.message : working ? workingMessage() : connected
         ? current
           ? "Review the employer form after filling."
           : "Open an application form. Some fields need manual entry."
@@ -385,6 +424,7 @@ async function handle(type, sender, message = {}) {
         throw new Error("No supported empty fields found.");
     }
     const result = await connect();
+    autofillProgress = null;
     return fromPage
       ? { connected: result.connected, message: result.message }
       : result;
@@ -392,7 +432,9 @@ async function handle(type, sender, message = {}) {
   if (!connected && type !== "undo")
     return {
       connected: false,
-      message: "Connection expired. Connect to ApplyOverflow again.",
+      reconnect: true,
+      recovery: recovery({ code: "SIGN_IN_REQUIRED" }, type),
+      message: "Sign in to ApplyOverflow, then retry. Your existing form answers will stay unchanged.",
     };
   if (type === "disconnect") {
     // Keep the local token if revocation fails so disconnect can be retried.
@@ -401,6 +443,7 @@ async function handle(type, sender, message = {}) {
     autofillProgress = null;
     return { connected: false, message: "Disconnected." };
   }
+  if (type === "autofill") autofillProgress = null;
   if (type === "history")
     return {
       connected,
@@ -607,15 +650,14 @@ async function handle(type, sender, message = {}) {
     };
   };
   if (type === "autofill") {
-    const publish = async (fields, message, active = true) => {
+    const publish = async (fields, message, active = true, failure = null) => {
       autofillProgress = { type: "autofill-progress", buildId: BUILD_ID, tabId: tab.id, documentId: inspection.documentId,
-        url: scan.url, fields, message, active, connected: true };
+        url: scan.url, fields, message, active, recovery: failure, connected: failure?.code !== "SIGN_IN_REQUIRED" };
       void chrome.tabs.sendMessage(tab.id, autofillProgress, { documentId: inspection.documentId }).catch(() => {});
       void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
     };
     await publish((scan.fields || []).map(field => ({ ...field, queued: field.state === "needed" })), "Reading your saved profile...");
-    const questions = scan.fields ? [...new Set(scan.fields.filter(field => !field.profileKey && field.canAnswer && field.state === "needed")
-      .map(field => field.label))].slice(0, 40) : scan.questions;
+    const questions = planQuestions(scan);
     const plan = await api("autofill-plan", {
       url: scan.url, questions, history: scan.historyAvailable === true, employmentCountry: scan.employmentCountry,
     }, connection.token);
@@ -623,6 +665,7 @@ async function handle(type, sender, message = {}) {
     const written = await inspect(target, ["autofill", plan, scan.url]);
     await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    let resumeRecovery;
     if (written.result.historySaved) note += ` ${written.result.historySaved} work/education records saved.`;
     if (written.result.historyDateAdjusted) note += " Month-only dates use the first day for starts and the last day for ends.";
     if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
@@ -637,13 +680,15 @@ async function handle(type, sender, message = {}) {
           note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
           if (attached.result.resumeParserReview) note += " Review details imported by the employer's resume parser.";
         } catch (error) {
-          if (error.reconnect) return { ...report(written.result), connected: false, reconnect: true, message: "Some fields were filled, but the connection expired before resume sharing. Reconnect to continue." };
+          if (error.reconnect) throw error;
+          resumeRecovery = recovery(error, "resume-default");
           note += ` Resume: ${error.message}`;
         }
       } else note += " Resume not shared. Choose a resume or enable default sharing in Profile.";
     }
     const final = await inspect(target, ["inspect", {}, scan.url]);
     const response = report(final.result, note);
+    response.recovery = resumeRecovery;
     response.revision = plan.revision;
     // Save only document identity/revision. Profile and answer values stay transient.
     await chrome.storage.session.set({ [`autofill:${tab.id}`]: {
@@ -663,11 +708,14 @@ async function handle(type, sender, message = {}) {
       });
       response.message = `Autofill complete.${note} Nothing submitted.`;
     } catch (error) {
-      response.fields = (autofillProgress?.fields || response.fields).map(field => ({ ...field, queued: false, processing: false }));
-      response.message = `Some fields were filled. ${error.message || "Autofill stopped; check the form."}`;
+      response.fields = stoppedFields(autofillProgress?.fields || response.fields);
+      response.recovery = recovery(error, "autofill-suggest");
+      response.message = response.recovery.message;
       if (error.reconnect) { response.connected = false; response.reconnect = true; }
     }
-    await publish(response.fields, response.message, false);
+    response.fields = response.fields.map(field => field.state === "needed" && !field.blocked && field.label.length > 500
+      ? { ...field, reason: "This question exceeds the supported length. Other fields were processed; answer this one on the employer form." } : field);
+    await publish(response.fields, response.message, false, response.recovery);
     return response;
   }
   if (type === "autofill-drafts") {
@@ -901,16 +949,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (
     !popup &&
     (!page ||
-      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-drafts", "autofill-undo", "review", "resume", "undo", "open-popup"].includes(
+      !["availability", "connect", "fill", "autofill", "autofill-answer", "autofill-focus", "autofill-options", "autofill-suggest", "autofill-drafts", "autofill-undo", "review", "resume", "undo", "open-popup", "extension-help", "chrome-extensions", "open-profile"].includes(
         message?.type,
       ))
   )
     return false;
-  const readOnly = ["version", "status", "availability", "detection-updated"].includes(
+  // Fixed recovery destinations must remain reachable from a stale page script.
+  const readOnly = ["version", "status", "availability", "detection-updated", "extension-help", "chrome-extensions", "open-profile"].includes(
     message?.type,
   );
   if (!readOnly && message.buildId !== BUILD_ID) {
-    respond({ error: popup ? "Reopen the extension to finish updating. Nothing was changed." : "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", buildId: BUILD_ID });
+    respond({ error: popup ? "Reopen the extension to finish updating. Nothing was changed." : "This page has an older Autofill version. Refresh the application page; if the message persists, reload the extension in Chrome.", recovery: recovery({ code: "PAGE_OUTDATED" }, message?.type), buildId: BUILD_ID });
     return false;
   }
   if (working && !readOnly) {
@@ -935,17 +984,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     })
     .then(result => respond({ ...result, buildId: BUILD_ID }))
     .catch((error) => {
+      const failure = recovery(error, message?.type || "autofill");
       if (message?.type === "autofill" && autofillProgress?.active) {
         autofillProgress = { ...autofillProgress, active: false,
-          fields: autofillProgress.fields.map(field => ({ ...field, queued: false, processing: false,
-            ...(field.state === "needed" && (field.queued || field.processing)
-              ? { reason: "Not processed because Autofill stopped. Retry after resolving the error above." } : {}) })),
-          message: error.message || "Autofill stopped. Check the form before continuing." };
+          fields: stoppedFields(autofillProgress.fields), recovery: failure, connected: !error.reconnect,
+          message: failure.message };
         void chrome.tabs.sendMessage(autofillProgress.tabId, autofillProgress, { documentId: autofillProgress.documentId }).catch(() => {});
         void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
       }
       respond({
-        error: error.message || "Could not complete the action.",
+        error: failure.message,
+        recovery: failure,
+        ...(message?.type === "autofill" ? { fields: autofillProgress?.fields } : {}),
         reconnect: error.reconnect === true,
         buildId: BUILD_ID,
       });

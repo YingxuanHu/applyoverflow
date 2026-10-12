@@ -287,13 +287,13 @@ export async function getDefaultExtensionResume(identity: ExtensionIdentity, raw
     where: { authUserId: identity.userId }, select: { contactJson: true },
   });
   if (!normalizeContact(profile?.contactJson).autofillResume)
-    throw new AssistantError("Enable default resume sharing in Profile or choose a resume for this application.", 403);
+    throw new AssistantError("Enable default resume sharing in Profile or choose a resume for this application.", 403, "RESUME_SHARING_DISABLED");
   const documents = await prisma.document.findMany({
     where: { user: { authUserId: identity.userId }, type: "RESUME", isPrimary: true },
     select: resumeFileSelect, take: 2,
   });
   if (documents.length !== 1 || !canShareExtensionResume(documents[0]))
-    throw new AssistantError("Choose one default PDF or DOCX resume of 5 MB or less in Documents.");
+    throw new AssistantError("Choose one default PDF or DOCX resume of 5 MB or less in Documents.", 400, "RESUME_REQUIRED");
   const file = await readApprovedResume(identity, documents[0]);
   const stillApproved = await prisma.userProfile.findUnique({
     where: { authUserId: identity.userId }, select: { contactJson: true },

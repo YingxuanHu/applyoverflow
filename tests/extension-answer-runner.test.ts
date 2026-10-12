@@ -44,10 +44,18 @@ test("answer queue preserves edits made while AI runs and refuses unavailable ch
 
 test("AI restrictions and unsupported widgets do not trigger answer generation", async () => {
   const fields = [{ ...field("restricted", "Describe a project"), aiRestricted: true },
-    { ...field("manual", "Describe your experience"), canAnswer: false }, { ...field("contact", "Describe your experience"), profileKey: "givenName" }];
+    { ...field("manual", "Describe your experience"), canAnswer: false }, { ...field("contact", "Describe your experience"), profileKey: "givenName" },
+    field("long", `Describe a project ${"x".repeat(500)}`)];
   let calls = 0;
   await fillProfessionalAnswers({ fields, inspect: async () => ({ fields }), suggest: async () => { calls++; }, progress: async () => {} });
   assert.equal(calls, 0);
+});
+
+test("operational AI failures surface recovery instead of claiming missing background", async () => {
+  const fields = [field("fit", "Describe your relevant experience")];
+  const failure = Object.assign(new Error("Server unavailable"), { recovery: { code: "SERVICE_UNAVAILABLE" } });
+  await assert.rejects(fillProfessionalAnswers({ fields, inspect: async () => ({ fields }),
+    suggest: async () => { throw failure; }, progress: async () => {} }), error => error === failure);
 });
 
 test("answer progress distinguishes throttling from missing profile facts", async () => {

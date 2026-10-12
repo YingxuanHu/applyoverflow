@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
+import { testExtensionRecovery } from "./test-extension-recovery.mjs";
 
 const browser = await chromium.launch();
 try {
@@ -31,4 +32,5 @@ try {
   await mkdir("output/playwright", { recursive: true });
   await page.screenshot({ path: "output/playwright/extension-progress-320.png", fullPage: true });
   console.log("PASS progress-only assistant: no answer controls or values, live states, show-field action, 320px layout");
+  await testExtensionRecovery(browser);
 } finally { await browser.close(); }

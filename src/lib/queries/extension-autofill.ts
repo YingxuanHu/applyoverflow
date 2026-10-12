@@ -21,7 +21,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
       preferences: { where: { key: ANSWER_LIBRARY_KEY }, select: { value: true } },
     },
   });
-  if (!profile) throw new AssistantError("Complete your ApplyOverflow profile first.");
+  if (!profile) throw new AssistantError("Complete your ApplyOverflow profile first, then retry Autofill.", 400, "PROFILE_REQUIRED");
   const values = buildProfileFormValues(profile, profile.authUser ?? undefined);
   const contact = values.contact;
   const revision = profile.updatedAt.toISOString();

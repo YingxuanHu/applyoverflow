@@ -1,6 +1,6 @@
 import { questionAssistance } from "./question-policy.mjs";
 
-export const canPrepareAnswer = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted &&
+export const canPrepareAnswer = field => field.state === "needed" && field.canAnswer && !field.profileKey && !field.aiRestricted && field.label.length <= 500 &&
   ((field.kind === "text" && ["draft", "context", "knowledge"].includes(questionAssistance(field.label))) || questionAssistance(field.label) === "qualification");
 
 // The worker owns this queue, so closing the toolbar does not stop Autofill.
@@ -41,7 +41,7 @@ export async function fillProfessionalAnswers({ fields, inspect, suggest, progre
         if (field.kind !== "text" && !field.options.includes(answer)) return { field, reason: "No exact supported choice. Choose on the form." };
         return { field, answer };
       } catch (error) {
-        if (error.reconnect) throw error;
+        if (error.reconnect || error.recovery) throw error;
         return { field, reason: error.status === 429 ? "Answer generation is temporarily limited. Try Autofill again in a few minutes." :
           error.status === 409 ? "Your profile changed. Click Autofill to use the latest details." :
           "Could not prepare a supported answer. Retry Autofill or complete this field on the form." };

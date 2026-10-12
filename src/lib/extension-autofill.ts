@@ -14,6 +14,10 @@ export function professionalAutofillFacts(profile: ProfileFormValues) {
 }
 
 export const autofillPlanSchema = captureSchema.omit({ title: true }).extend({
+  // Legacy scanners can include a long declaration. It must not block contact
+  // filling or other questions; never truncate a question and change its meaning.
+  questions: z.array(z.string()).max(40).transform(labels => labels.map(label => label.trim())
+    .filter(label => label.length > 0 && label.length <= 500)).pipe(captureSchema.shape.questions),
   history: z.boolean().default(false),
   employmentCountry: z.enum(["CA", "US"]).optional(),
   // Earlier distributed clients send this posting hint. Accept its bounded

@@ -8,6 +8,7 @@ import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { createSubmissionInspector } from "../extensions/chrome/submission.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
+import { createRecoveryView } from "../extensions/chrome/recovery.mjs";
 import {
   SITE_ORIGINS,
   applicationContext,
@@ -63,6 +64,7 @@ for (const file of [
   "fill-progress.mjs",
   "answer-runner.mjs",
   "question-policy.mjs",
+  "recovery.mjs",
 ])
   await cp(`extensions/chrome/${file}`, `${destination}/${file}`);
 await cp("public/brand/applyoverflow-favicon.png", `${destination}/icon.png`);
@@ -76,7 +78,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/indicator.js`,
-  `(${installIndicator.toString()})(${JSON.stringify(buildId)}, (${createFillProgress.toString()})());\n`,
+  `(${installIndicator.toString()})(${JSON.stringify(buildId)}, (${createFillProgress.toString()})(), (${createRecoveryView.toString()})());\n`,
 );
 await writeFile(
   `${destination}/manifest.json`,

@@ -26,6 +26,7 @@
       <button id="connect" type="button">Connect to ApplyOverflow</button>
       <button id="reload-extension" type="button" hidden>Reload extension</button>
       <p id="status" role="status" aria-live="polite">Checking connection...</p>
+      <div id="recovery" hidden></div>
       <div id="actions" hidden>
         <button id="fill" type="button">Autofill</button>
         <p class="question-hint">Answers use your profile and this job description. Review and edit them on the form.</p>
@@ -44,11 +45,6 @@
           <button id="submission-cancel" type="button" class="secondary">Cancel</button>
         </section>
         <p id="submission-result" role="status" hidden></p>
-        <section id="fill-progress" hidden aria-label="Autofill results">
-          <h2 id="progress-heading">Autofill results</h2>
-          <div id="remaining-fields"></div>
-          <details id="completed-fields"><summary>Filled &amp; kept</summary><ul id="completed-list"></ul></details>
-        </section>
         <details id="more-actions">
           <summary>More actions</summary>
           <button id="history" type="button" class="secondary">Work &amp; education</button>
@@ -69,6 +65,11 @@
           </form>
         </details>
       </div>
+      <section id="fill-progress" hidden aria-label="Autofill results">
+        <h2 id="progress-heading">Autofill results</h2>
+        <div id="remaining-fields"></div>
+        <details id="completed-fields"><summary>Filled &amp; kept</summary><ul id="completed-list"></ul></details>
+      </section>
       <button id="undo" type="button" class="secondary" hidden>Undo contact fill</button>
       <button id="autofill-undo" type="button" class="secondary" hidden>Undo Autofill</button>
       <details class="setup"><summary>Connection &amp; site access</summary>

@@ -1,5 +1,5 @@
 // Serialized into a classic content script at build time; no module fetches.
-export function installIndicator(buildId, renderQuestions) {
+export function installIndicator(buildId, renderQuestions, renderRecovery) {
   if (globalThis.__applyOverflowIndicator) return;
   // Chrome reloads the isolated world but can leave its old DOM behind.
   for (const orphan of document.querySelectorAll("#applyoverflow-assistant")) {
@@ -20,6 +20,7 @@ export function installIndicator(buildId, renderQuestions) {
     notice = "",
     noticeUntil = 0;
   let remaining = [];
+  let failure = null;
   const inspect = globalThis.__applyOverflowInspect;
   const send = (type, data = {}) => chrome.runtime.sendMessage({ type, buildId, ...data });
   const remove = () => {
@@ -53,6 +54,12 @@ export function installIndicator(buildId, renderQuestions) {
   }
   async function run(type, data = {}) {
     if (busy) return;
+    if (["extension-help", "chrome-extensions", "open-profile"].includes(type)) {
+      try { await send(type); } catch { notice = "Open ApplyOverflow from Chrome's toolbar to reconnect or update."; }
+      return;
+    }
+    if (type === "status") type = "autofill";
+    failure = null;
     let prepareDrafts = false;
     busy = true;
     notice =
@@ -73,9 +80,9 @@ export function installIndicator(buildId, renderQuestions) {
         );
       if (response.reconnect || response.connected === false) {
         connection = false;
-        remaining = [];
-        renderRemaining();
       }
+      failure = response.recovery || null;
+      if (response.fields) { remaining = response.fields; renderRemaining(); }
       if (response.error) throw new Error(response.error);
       connection = response.connected;
       notice = response.message;
@@ -166,10 +173,11 @@ export function installIndicator(buildId, renderQuestions) {
       const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
       const status = document.createElement("p");
       status.setAttribute("role", "status");
+      const recovery = document.createElement("div");
       const more = document.createElement("details");
       const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
       more.append(moreLabel, undo);
-      content.append(summary, connect, fill, aiDisclosure, resume, submitReview, status, remainingFields, more);
+      content.append(summary, recovery, connect, fill, aiDisclosure, resume, submitReview, status, remainingFields, more);
       section.append(content);
       root.append(section);
       view = {
@@ -186,6 +194,7 @@ export function installIndicator(buildId, renderQuestions) {
         more,
         undo,
         status,
+        recovery,
       };
       renderRemaining();
     }
@@ -209,15 +218,16 @@ export function installIndicator(buildId, renderQuestions) {
             ? "Fill answers from your profile."
             : "";
     view.summary.hidden = !view.summary.textContent || remaining.length > 0;
-    view.connect.hidden = connection;
+    renderRecovery?.(view.recovery, failure, run);
+    view.connect.hidden = connection || failure?.code === "SIGN_IN_REQUIRED";
     view.fill.hidden = !connection || !(result.available || result.questions.length || result.historyAvailable || result.resumeAvailable);
     view.resume.hidden = !connection || !(result.resumeAvailable || result.resumeDetected);
     view.submitReview.hidden = !connection;
     view.resume.classList.toggle("secondary", !!result.available);
-    view.remaining.hidden = !connection || !remaining.length;
+    view.remaining.hidden = !remaining.length;
     view.undo.hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
     view.more.hidden = view.undo.hidden;
-    view.status.hidden = !notice || (!remaining.length && Date.now() >= noticeUntil);
+    view.status.hidden = !!failure || !notice || (!remaining.length && Date.now() >= noticeUntil);
     if (view.status.textContent !== notice) view.status.textContent = notice;
     for (const action of [
       view.launcher,
@@ -229,6 +239,7 @@ export function installIndicator(buildId, renderQuestions) {
     ])
       action.disabled = busy;
     for (const control of view.remaining.querySelectorAll("button,input,textarea,select")) control.disabled = busy;
+    for (const control of view.recovery.querySelectorAll("button")) control.disabled = busy;
     if (expanded && focus?.hidden)
       [...view.content.querySelectorAll("button")]
         .find((action) => !action.hidden && !action.disabled)
@@ -277,6 +288,7 @@ export function installIndicator(buildId, renderQuestions) {
       busy,
       connection,
       notice,
+      failure,
       Date.now() < noticeUntil,
     ]);
     if (next !== signature || !host?.isConnected) {
@@ -299,6 +311,7 @@ export function installIndicator(buildId, renderQuestions) {
     if (lastUrl !== location.href) {
       lastUrl = location.href;
       notice = "";
+      failure = null;
       noticeUntil = 0;
       expanded = false;
       remaining = [];
@@ -315,7 +328,7 @@ export function installIndicator(buildId, renderQuestions) {
       }
       enabled = true;
       connection = result.connected;
-      if (!connection) {
+      if (!connection && !failure) {
         remaining = [];
         renderRemaining();
       }
@@ -366,6 +379,8 @@ export function installIndicator(buildId, renderQuestions) {
   function onMessage(message, sender) {
     if (message?.type === "autofill-progress" && sender?.id === chrome.runtime.id && !sender.tab && message.buildId === buildId && message.url === location.href) {
       remaining = message.fields || [];
+      failure = message.recovery || null;
+      if (message.connected !== undefined) connection = message.connected;
       notice = message.message;
       noticeUntil = Date.now() + 120_000;
       busy = message.active;

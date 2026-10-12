@@ -43,6 +43,7 @@ for (const [args, name] of [
       "popup.mjs",
       "question-policy.mjs",
       "question-review.mjs",
+      "recovery.mjs",
       "sites.mjs",
     ].sort(),
   );
