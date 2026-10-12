@@ -1,5 +1,5 @@
 import { APP_ORIGIN, BUILD_ID } from "./config.mjs";
-import { SITE_ORIGINS, applicationContext } from "./sites.mjs";
+import { SITE_ORIGINS, applicationContext, sameApplication } from "./sites.mjs";
 import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 
@@ -124,6 +124,7 @@ const encoded = (bytes) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 const random = () => encoded(crypto.getRandomValues(new Uint8Array(32)));
+const digest = async value => encoded(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 async function notifyConnectionChanged() {
   // No profile data or token crosses this channel; each frame rechecks access.
   for (const tab of await chrome.tabs.query({}))
@@ -139,7 +140,7 @@ async function clearAccountSession() {
       (key) =>
         key === "connection" ||
         key === "appliedPreview" ||
-        key.startsWith("application:") || key.startsWith("autofill:"),
+        key.startsWith("application:") || key.startsWith("autofill:") || key.startsWith("submission:"),
     ),
   );
   await notifyConnectionChanged();
@@ -231,7 +232,28 @@ let autofillProgress = null;
 function workingMessage() {
   if (working === "connect") return "Connection in progress. Complete or close the ApplyOverflow sign-in window to continue.";
   if (working === "resume") return "Resume approval in progress. Complete or close the resume selection window to continue.";
+  if (working === "submission-commit") return "Submitting once and checking employer confirmation. Do not submit again on the employer site.";
   return "Finishing the previous action. Please wait.";
+}
+function submissionPageMatches(raw, originalUrl) {
+  try {
+    const original = new URL(originalUrl), current = new URL(raw);
+    return current.origin === original.origin && (sameApplication(raw, originalUrl) ||
+      (!original.search && !current.search && current.pathname.startsWith(`${original.pathname.replace(/\/$/, "")}/`)));
+  } catch { return false; }
+}
+async function submissionOutcome(preview) {
+  const tab = await chrome.tabs.get(preview.tabId);
+  if (!submissionPageMatches(tab.url, preview.url)) return "unverified";
+  const target = { tabId: preview.tabId };
+  const [loaded] = await chrome.scripting.executeScript({ target, files: ["adapter-runtime.js"] });
+  if (!loaded?.documentId) return "unverified";
+  const [result] = await chrome.scripting.executeScript({ target: { tabId: preview.tabId, documentIds: [loaded.documentId] },
+    func: (buildId, afterNavigation) => globalThis.__applyOverflowBuild === buildId
+      ? { ...globalThis.__applyOverflowSubmission("outcome", null, null, { afterNavigation }), url: location.href } : null,
+    args: [BUILD_ID, loaded.documentId !== preview.documentId],
+  });
+  return submissionPageMatches(result?.result?.url, preview.url) ? result.result.outcome : "unverified";
 }
 async function handle(type, sender, message = {}) {
   if (type === "version") return { activeAction: working, message: working ? workingMessage() : "Ready." };
@@ -307,9 +329,11 @@ async function handle(type, sender, message = {}) {
           expires: Date.now() + 30 * 60_000,
         },
       });
+    const savedSubmission = tab?.id ? (await chrome.storage.session.get(`submission:result:${tab.id}`))[`submission:result:${tab.id}`] : null;
     return {
       connected,
       tabId: tab?.id,
+      submissionResult: connected && savedSubmission && submissionPageMatches(tab.url, savedSubmission.url) ? savedSubmission : null,
       ...(connected && saved?.expires > Date.now() && saved.documentId === current?.documentId && saved.url === current?.result.url ? {
         fields: current.result.fields?.map(field => {
           const previous = autofillProgress?.tabId === tab.id && autofillProgress.documentId === current.documentId
@@ -400,6 +424,9 @@ async function handle(type, sender, message = {}) {
       "undo-history",
       "applied-preview",
       "applied",
+      "submission-preview",
+      "submission-commit",
+      "submission-cancel",
     ].includes(type)
   )
     throw new Error("This extension needs an update. Reload it in Chrome, then refresh the application page.");
@@ -407,6 +434,83 @@ async function handle(type, sender, message = {}) {
     ? sender.tab
     : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!tab?.id) throw new Error("Open the employer application tab first.");
+  if (type.startsWith("submission-")) {
+    if (fromPage) throw new Error("Submission approval is only available in the Chrome toolbar.");
+    const previewKey = `submission:preview:${tab.id}`;
+    if (type === "submission-cancel") {
+      await chrome.storage.session.remove(previewKey);
+      return { connected, message: "Submission cancelled. Nothing submitted." };
+    }
+    if (type === "submission-preview") {
+      await chrome.storage.session.remove([previewKey, `submission:result:${tab.id}`]);
+      const inspection = await inspectActive(tab);
+      if (inspection.frameId !== 0) throw new Error("Embedded applications need manual submission in this preview.");
+      const scan = inspection.result;
+      const context = applicationContext(scan.url, true);
+      if (!context) throw new Error("This application cannot be identified safely. Submit it manually.");
+      const attemptKey = `submission-attempt:${await digest(`${APP_ORIGIN}|${connection.email}|${context.jobKey || context.url}`)}`;
+      if ((await chrome.storage.local.get(attemptKey))[attemptKey])
+        throw new Error("A submission was already attempted for this application. Check the employer and your tracker; automatic retries are disabled.");
+      const server = await api("submission-check", { url: scan.url }, connection.token);
+      if (server.alreadyApplied !== false) throw new Error("Your tracker already records this application as applied, or readiness could not be verified. No submission will be attempted.");
+      const token = random();
+      const checked = await inspect({ tabId: tab.id, documentIds: [inspection.documentId] }, ["submission-preview", { token }, scan.url]);
+      const preview = { token, tabId: tab.id, documentId: inspection.documentId, pageUrl: tab.url,
+        url: scan.url, title: scan.title, company: context.tenant, attemptKey,
+        connectionStamp: await digest(connection.token), expires: Date.now() + 90_000 };
+      if (checked.result.ready) await chrome.storage.session.set({ [previewKey]: preview });
+      return { connected, submissionReview: { ...checked.result, token: checked.result.ready ? token : null,
+        title: preview.title, company: preview.company, url: preview.url, expires: preview.expires },
+        message: checked.result.ready ? "Checks passed. Review the employer form before approving this one submission."
+          : "Submission paused. Complete the remaining items on the employer site." };
+    }
+    const preview = (await chrome.storage.session.get(previewKey))[previewKey];
+    if (!preview || preview.token !== message.token || message.confirmed !== true || preview.expires <= Date.now() ||
+        preview.pageUrl !== tab.url || preview.connectionStamp !== await digest(connection.token))
+      throw new Error("Submission approval expired or the tab changed. Review this application again.");
+    const server = await api("submission-check", { url: preview.url }, connection.token);
+    if (server.alreadyApplied !== false) throw new Error("Your tracker already records this application as applied, or readiness could not be verified. Nothing submitted.");
+    if ((await chrome.storage.local.get(preview.attemptKey))[preview.attemptKey])
+      throw new Error("A submission was already attempted. Check the employer confirmation; do not retry automatically.");
+    const state = await chrome.storage.local.get(null);
+    if (Object.keys(state).filter(key => key.startsWith("submission-attempt:")).length >= 5000)
+      throw new Error("Submission history is full. Submit on the employer site and record it manually.");
+    // Persist the attempt BEFORE clicking. Worker termination, timeouts, popup
+    // closure and ambiguous responses must never cause a second submission.
+    const attemptedAt = Date.now();
+    await chrome.storage.local.set({ [preview.attemptKey]: { outcome: "unverified", attemptedAt } });
+    await chrome.storage.session.remove(previewKey);
+    let clicked;
+    try {
+      clicked = (await inspect({ tabId: tab.id, documentIds: [preview.documentId] }, ["submission-commit", {
+        token: preview.token, confirmed: true, documentsReviewed: message.documentsReviewed === true,
+      }, preview.url])).result;
+    } catch { /* The click might have navigated or lost its response. Never retry it. */ }
+    if (clicked?.clicked === false) {
+      await chrome.storage.local.remove(preview.attemptKey);
+      return { connected, message: clicked.message, submissionResult: { outcome: "blocked", message: clicked.message } };
+    }
+    let outcome = "unverified";
+    for (let i = 0; i < 15; i++) {
+      outcome = await submissionOutcome(preview).catch(() => "unverified");
+      if (outcome === "confirmed") break;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    let resultMessage = "Submission attempted, but employer acceptance could not be verified. Check the employer site before taking any further action. No automatic retry or applied status.";
+    let applicationId;
+    if (outcome === "confirmed") {
+      resultMessage = "Employer confirmation detected. Application submitted.";
+      try {
+        const recorded = await api("applied", { url: preview.url, title: preview.title, company: preview.company, confirmed: true }, connection.token);
+        applicationId = recorded.id;
+        resultMessage += " Added to your applications.";
+      } catch { resultMessage += " Tracking could not be saved. Use I applied to record it; do not resubmit."; }
+    }
+    await chrome.storage.local.set({ [preview.attemptKey]: { outcome, attemptedAt } });
+    const submissionResult = { outcome, url: preview.url, message: resultMessage, ...(applicationId ? { applicationId } : {}) };
+    await chrome.storage.session.set({ [`submission:result:${tab.id}`]: submissionResult });
+    return { connected, submissionResult, message: resultMessage };
+  }
   if (type === "applied") {
     const { appliedPreview } =
       await chrome.storage.session.get("appliedPreview");
@@ -833,7 +937,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     .catch((error) => {
       if (message?.type === "autofill" && autofillProgress?.active) {
         autofillProgress = { ...autofillProgress, active: false,
-          fields: autofillProgress.fields.map(field => ({ ...field, queued: false, processing: false })),
+          fields: autofillProgress.fields.map(field => ({ ...field, queued: false, processing: false,
+            ...(field.state === "needed" && (field.queued || field.processing)
+              ? { reason: "Not processed because Autofill stopped. Retry after resolving the error above." } : {}) })),
           message: error.message || "Autofill stopped. Check the form before continuing." };
         void chrome.tabs.sendMessage(autofillProgress.tabId, autofillProgress, { documentId: autofillProgress.documentId }).catch(() => {});
         void chrome.runtime.sendMessage(autofillProgress).catch(() => {});
@@ -850,5 +956,5 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return true;
 });
 chrome.tabs.onRemoved.addListener(
-  (tabId) => void chrome.storage.session.remove([`application:${tabId}`, `autofill:${tabId}`]),
+  (tabId) => void chrome.storage.session.remove([`application:${tabId}`, `autofill:${tabId}`, `submission:preview:${tabId}`, `submission:result:${tabId}`]),
 );

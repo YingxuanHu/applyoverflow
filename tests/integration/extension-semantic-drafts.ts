@@ -15,6 +15,7 @@ async function main() {
   const originalFetch = globalThis.fetch;
   if (!liveAI) process.env.OPENAI_API_KEY ||= "test-only-no-network";
   const summary = "Built a document classifier in Python. Validated predictions against manually labelled test examples.";
+  const toolUsage = "I currently use ChatGPT to draft unit tests, review the generated cases, and run them locally before using them. This helps me cover edge cases.";
   const email = `semantic-${randomBytes(8).toString("hex")}@example.test`;
   const user = await prisma.user.create({ data: {
     name: "Semantic Test", email,
@@ -22,7 +23,8 @@ async function main() {
       projectsJson: [{ name: "Document classifier", description: summary }],
       skillsJson: [{ name: "Python" }],
       phone: "4165550123", linkedinUrl: "https://www.linkedin.com/in/example-test",
-      contactJson: { givenName: "Semantic", familyName: "Test", preferredName: "Test", city: "Toronto", region: "ON", country: "CA" },
+      contactJson: { givenName: "Semantic", familyName: "Test", preferredName: "Test", city: "Toronto", region: "ON", country: "CA", aiToolUsage: toolUsage,
+        applicationAnswers: { enabled: true, values: { authorizedCA: "Yes" } } },
       experiencesJson: [{ title: "Engineer", company: "Synthetic Fixture", dates: { start: "2020-01-02", end: "2021-02-03", current: false } }],
       educationsJson: [{ school: "Fixture University", degree: "BSc", fieldOfStudy: "Computer Science", dates: { start: "2016-09-01", end: "2020-06-01", current: false } }],
     } },
@@ -48,6 +50,13 @@ async function main() {
         grounded: true, relevant: true, complete: true, technicallyCorrect: true, missingJustified: true, feedback: "",
       }) } }] });
       assert.match(body.messages[0].content, /at most 400 characters and 40 words/);
+      const prompt = JSON.parse(body.messages[1].content);
+      if (prompt.question.startsWith("What AI tools")) {
+        assert.match(body.messages[0].content, /actual tool usage, not general knowledge/);
+        assert.equal(prompt.evidence.find((row: { id: string }) => row.id === "tool-usage")?.text, toolUsage);
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ answer: toolUsage,
+          evidence: [{ id: "tool-usage", quote: toolUsage }], missing: "" }) } }] });
+      }
       generatedCalls++;
       const quote = invalidResponses > 0 ? "This statement does not exist in the saved evidence." : summary;
       invalidResponses = Math.max(0, invalidResponses - 1);
@@ -57,6 +66,15 @@ async function main() {
       }) } }] });
     };
     const started = Date.now();
+    const choiceQuestions = ["Are you legally entitled to work in Canada?", "Are you currently located in the GTA or Saskatoon?", "If in the GTA, in what city are you located?"];
+    const choicePlan = await getAutofillPlan(user.id, { url: "https://jobs.ashbyhq.com/7shifts/8628abcd-e033-4337-be63-1fcd04235601/application", questions: choiceQuestions });
+    assert.deepEqual(choicePlan.commonAnswers.map(row => row.answer), ["Yes", "Yes", "Toronto"]);
+    assert.equal("aiToolUsage" in choicePlan.contact, false, "tool-use notes go only to professional evidence, never the contact payload");
+    const toolQuestion = "What AI tools are you using in your role today, and how have they changed how you work? Please be as specific as possible.";
+    const toolResult = await suggestApplicationAnswer(user.id, { ...request, label: toolQuestion });
+    assert.ok(toolResult.suggestion.answer);
+    assert.match(toolResult.suggestion.answer, /ChatGPT/);
+    assert.doesNotMatch(toolResult.suggestion.answer, /Copilot|Cursor|percent|%/i);
     const result = await suggestApplicationAnswer(user.id, request);
     assert.ok(result.suggestion.answer);
     assert.ok(result.suggestion.answer.split(/\s+/).length <= 40);
@@ -92,7 +110,7 @@ async function main() {
       await page.routeWebSocket("**/*", socket => socket.close());
     } else {
       await page.route("**/*", route => route.fulfill({ contentType: "text/html", body:
-        `<h1>Job application</h1><form><label>Email<input></label><label>First name<input></label><label>${label}<textarea maxlength="400"></textarea></label><label>${preference}<textarea></textarea></label><button>Apply</button></form>` }));
+        `<h1>Job application</h1><form><label>Email<input></label><label>First name<input></label><label>${label}<textarea maxlength="400"></textarea></label><label>${preference}<textarea></textarea></label><label>${toolQuestion}<textarea maxlength="400"></textarea></label><button>Apply</button></form>` }));
       await page.goto("https://careers.fixture.example/jobs/123/apply");
     }
     await page.evaluate(() => {
@@ -109,7 +127,8 @@ async function main() {
       process.stdout.write('(' + createInspector + ')(' + applicationContext + ',(' + createHistoryInspector + ')(),(' + createAutofillInspector + ')())');
     `], { encoding: "utf8" });
     await page.evaluate(code => { (window as unknown as { inspect: unknown }).inspect = (0, eval)(code); }, inspectorCode);
-    const plan = await getAutofillPlan(user.id, { url: page.url(), questions: [label, preference], history: liveForm });
+    const plan = await getAutofillPlan(user.id, { url: page.url(), questions: [label, preference], history: liveForm,
+      employmentCountry: "CA", employmentLocation: "Toronto, Ontario, CA" });
     const filled = await page.evaluate(async plan => (window as unknown as { inspect: (mode: string, plan: unknown, url: string) => Promise<{ historyFilled: number }> }).inspect("autofill", plan, location.href), plan);
     if (liveForm) {
       assert.equal(await page.locator('input[name="/candidate/email"]').inputValue(), email);
@@ -118,7 +137,9 @@ async function main() {
       assert.equal(filled.historyFilled, 9);
       assert.equal(await page.locator('[name="extendedConsent"]').isChecked(), false);
     }
-    for (const [question, answer] of [[label, result.suggestion.answer], [preference, withNote.suggestion.answer]]) {
+    const answersToInsert = [[label, result.suggestion.answer], [preference, withNote.suggestion.answer],
+      ...(!liveForm ? [[toolQuestion, toolResult.suggestion.answer]] : [])];
+    for (const [question, answer] of answersToInsert) {
       const inserted = await page.evaluate(async ({ label, answer }) => {
       const inspect = (window as unknown as { inspect: (mode: string, plan: unknown, url: string) => Promise<{ fields: Array<{ id: string; label: string; state: string }> }> }).inspect;
       const scan = await inspect("inspect", {}, location.href);

@@ -4,7 +4,7 @@ import { createAutofillInspector } from "./autofill.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
-export function createInspector(resolveContext, history, autofill) {
+export function createInspector(resolveContext, history, autofill, submission) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
   let undoEntries = [],
@@ -172,6 +172,8 @@ export function createInspector(resolveContext, history, autofill) {
     const valueControls =
       'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
     const labelFor = (element) => {
+      if (element.matches('button[aria-pressed],button[role="radio"][aria-checked]'))
+        return (element.getAttribute("aria-label") || element.textContent).trim().replace(/\s+/g, " ");
       const salary = hibob && element.closest('b-currency-value-select');
       if (salary && salary.querySelectorAll('input').length === 1 &&
           salary.querySelectorAll('b-single-select > [role="button"]').length === 1 &&
@@ -236,7 +238,7 @@ export function createInspector(resolveContext, history, autofill) {
       return "";
     };
     const controlSelector =
-      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby]';
+      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby],button[aria-pressed],button[role="radio"][aria-checked]';
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
@@ -325,12 +327,40 @@ export function createInspector(resolveContext, history, autofill) {
         error:
           "A single application form was not found. Embedded or multi-form pages need manual review.",
       };
+    if (mode === "submission-preview" || mode === "submission-commit") {
+      if (!submission) return { error: "Reload the extension before reviewing submission." };
+      return submission(mode === "submission-preview" ? "prepare" : "commit", forms[0], labelFor, contact);
+    }
     const fields = [...forms[0].querySelectorAll(controlSelector)].filter(
       (field) =>
         visible(field) &&
         !field.matches(':disabled, [aria-disabled="true"]') &&
         !field.readOnly,
     );
+    // An accessible segmented choice is one question, not independent commands.
+    // Require one local prompt and one isolated set; never click submit buttons.
+    const buttonChoices = new Map();
+    for (const field of fields.filter(node => node.matches('button[aria-pressed],button[role="radio"][aria-checked]'))) {
+      for (let root = field.parentElement, depth = 0; root && root !== forms[0] && depth < 5; root = root.parentElement, depth++) {
+        const choices = [...root.querySelectorAll('button[aria-pressed],button[role="radio"][aria-checked]')];
+        if (choices.length < 2 || choices.length > 12 || choices.some(node => node.form && node.type !== "button")) continue;
+        if (choices.some(node => !visible(node) || node.matches(':disabled,[aria-disabled="true"]') ||
+          !labelFor(node) || !["true", "false"].includes(node.getAttribute(node.hasAttribute("aria-pressed") ? "aria-pressed" : "aria-checked")))) continue;
+        if (new Set(choices.map(node => normalize(labelFor(node)))).size !== choices.length) continue;
+        const other = [...root.querySelectorAll('input,select,textarea,button,[role="combobox"]')].filter(node => !choices.includes(node));
+        if (other.some(node => node.type !== "hidden" && !(node.type === "checkbox" && node.tabIndex === -1 &&
+          (!visible(node) || getComputedStyle(node).opacity === "0" || !node.getBoundingClientRect().width)))) continue;
+        const named = (root.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map(id => document.getElementById(id));
+        const labels = [...root.querySelectorAll('label,legend,p,h2,h3,h4,[role="heading"]')].filter(node =>
+          visible(node) && !node.closest('button') && !node.querySelector('input,select,textarea,button'));
+        const names = [...new Set([root.getAttribute("aria-label"), ...named.filter(node => node && !root.contains(node)).map(node => node.textContent),
+          ...labels.map(node => node.textContent)].filter(Boolean).map(text => text.trim().replace(/\s+/g, " ")))];
+        if (names.length !== 1 || names[0].length > 500) continue;
+        for (const node of choices) buttonChoices.set(node, { choiceFields: choices, choiceGroup: root, label: names[0] });
+        for (const node of other) buttonChoices.set(node, { mirror: true });
+        break;
+      }
+    }
     const resumeInputs = [
       ...forms[0].querySelectorAll('input[type="file"]'),
     ].filter((field) => {
@@ -633,7 +663,13 @@ export function createInspector(resolveContext, history, autofill) {
       return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext,
         manualReason: declaration ? "Review this declaration on the employer form." : undefined };
     };
-    const entries = fields.map(contactEntry);
+    const entryFor = field => {
+      const choice = buttonChoices.get(field);
+      if (!choice) return [contactEntry(field)];
+      if (choice.mirror || choice.choiceFields[0] !== field) return [];
+      return [{ ...contactEntry(field), ...choice, originalLabel: labelFor(field) }];
+    };
+    const entries = fields.flatMap(entryFor);
     const isContactField = ({ field, key }) =>
       key &&
       !field.matches('[role="combobox"], [aria-autocomplete], [list]') &&
@@ -655,15 +691,15 @@ export function createInspector(resolveContext, history, autofill) {
       ...new Set(
         entries
           .filter(
-            ({ key, field }) =>
+            ({ key, field, choiceFields }) =>
               !key &&
-              (field.type !== "button" ||
+              (choiceFields || field.type !== "button" ||
                 field.matches(
                   '[role="combobox"], [aria-haspopup="listbox"]',
                 )) &&
-              !["submit", "hidden", "password", "file", "reset"].includes(
+              (choiceFields || !["submit", "hidden", "password", "file", "reset"].includes(
                 field.type,
-              ),
+              )),
           )
           .map(({ field, label }) => {
             const group = field
@@ -794,7 +830,7 @@ export function createInspector(resolveContext, history, autofill) {
           if (warning && !result.historyWarnings.includes(warning)) result.historyWarnings.push(warning);
         }
         Object.assign(result, await history("inspect", {}, forms[0], labelFor, visible));
-        const refreshed = [...forms[0].querySelectorAll(controlSelector)].filter(field => visible(field) && !field.matches(':disabled,[aria-disabled="true"],[readonly],[aria-readonly="true"]')).map(contactEntry);
+        const refreshed = [...forms[0].querySelectorAll(controlSelector)].filter(field => visible(field) && !field.matches(':disabled,[aria-disabled="true"],[readonly],[aria-readonly="true"]')).flatMap(entryFor);
         Object.assign(result, await autofill("inspect", {}, refreshed, forms[0], labelFor, visible));
         if (aiRestricted && result.fields) result.fields = result.fields.map(field => ({ ...field, aiRestricted: true }));
       }

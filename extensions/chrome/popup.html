@@ -30,6 +30,20 @@
         <button id="fill" type="button">Autofill</button>
         <p class="question-hint">Answers use your profile and this job description. Review and edit them on the form.</p>
         <button id="resume" type="button" class="secondary">Change resume</button>
+        <button id="submission-preview" type="button" class="secondary">Review &amp; submit</button>
+        <section id="submission-review" hidden aria-label="Submission review">
+          <h2>Submission review</h2>
+          <p id="submission-job"></p>
+          <p id="submission-summary"></p>
+          <ul id="submission-blockers"></ul>
+          <form id="submission-confirmation" hidden>
+            <label class="site-access"><input id="submission-approved" type="checkbox" required>I reviewed all answers, documents and declarations on the employer form and approve submitting this application.</label>
+            <label id="submission-documents-label" class="site-access" hidden><input id="submission-documents" type="checkbox">I checked the attached documents and confirmed their uploads are complete.</label>
+            <button id="submission-commit" type="submit" disabled>Submit application</button>
+          </form>
+          <button id="submission-cancel" type="button" class="secondary">Cancel</button>
+        </section>
+        <p id="submission-result" role="status" hidden></p>
         <section id="fill-progress" hidden aria-label="Autofill results">
           <h2 id="progress-heading">Autofill results</h2>
           <div id="remaining-fields"></div>

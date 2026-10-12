@@ -107,6 +107,8 @@ export const appliedConfirmationSchema = captureSchema
   })
   .strict();
 
+export const submissionCheckSchema = captureSchema.pick({ url: true }).strict();
+
 export const historySelectionSchema = z
   .object({
     kind: z.enum(["experience", "education"]),

@@ -197,6 +197,33 @@ const METRO_ENTRIES: LocationDictionaryEntry[] = [
   },
 ];
 
+/** Exact membership, not substring search. Unknown places never imply "No". */
+export function applicantLivesIn(area: string, contact: { city?: string; region?: string; country?: string }): boolean | undefined {
+  const city = normalizeLookupText(contact.city || "");
+  const country = contact.country;
+  const subdivision = matchEntries(contact.region || "", SUBDIVISION_ENTRIES).filter(entry => entry.region === country);
+  if (!city || !["CA", "US"].includes(country || "") || subdivision.length !== 1) return;
+  const knownCity = subdivision[0].containsTerms.slice(2).some(term => normalizeLookupText(term) === city);
+  const matched = matchEntries(area, [...COUNTRY_ENTRIES, ...SUBDIVISION_ENTRIES, ...METRO_ENTRIES]);
+  if (matched.length === 1) {
+    const place = matched[0];
+    if (place.region !== country) return false;
+    if (COUNTRY_ENTRIES.includes(place)) return true;
+    if (SUBDIVISION_ENTRIES.includes(place)) return place === subdivision[0];
+    if (place.containsTerms.some(term => normalizeLookupText(term) === city) && knownCity) return true;
+    // Metro lists are not exhaustive geographic boundaries. Do not turn a
+    // missing suburb into a negative, but another province is unambiguous.
+    const metroSubdivisions = SUBDIVISION_ENTRIES.filter(entry => entry.region === place.region &&
+      place.containsTerms.some(term => entry.containsTerms.slice(2).includes(term)));
+    if (metroSubdivisions.length && !metroSubdivisions.includes(subdivision[0])) return false;
+    return;
+  }
+  const normalizedArea = normalizeLookupText(area);
+  if (normalizedArea === city && knownCity) return true;
+  const cityPlaces = SUBDIVISION_ENTRIES.filter(entry => entry.containsTerms.slice(2).some(term => normalizeLookupText(term) === normalizedArea));
+  if (cityPlaces.length === 1 && knownCity) return normalizedArea === city && cityPlaces[0] === subdivision[0];
+}
+
 function normalizeLookupText(value: string) {
   return value
     .toLowerCase()

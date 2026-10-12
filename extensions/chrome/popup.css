@@ -121,6 +121,12 @@ summary { cursor: pointer; padding: 6px 0; }
 #history-picker label, #applied-confirmation > label { display:block; margin:10px 0 5px; }
 select, #applied-confirmation > input { width:100%; min-height:36px; padding:6px; border:1px solid #9b9da3; border-radius:5px; background:transparent; color:inherit; font:inherit; }
 #applied-domain { overflow-wrap:anywhere; }
+#submission-review { margin-top:12px; border-top:1px solid #d8dbe2; padding-top:10px; }
+#submission-review h2 { font-size:14px; margin:0; }
+#submission-review p, #submission-result { line-height:1.5; overflow-wrap:anywhere; }
+#submission-blockers { padding-left:18px; }
+#submission-blockers li { margin:8px 0; overflow-wrap:anywhere; }
+#submission-commit { margin-top:12px; }
 @media (prefers-color-scheme: dark) {
   :root {
     background: #232325;

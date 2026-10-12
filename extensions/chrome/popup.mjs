@@ -16,6 +16,40 @@ let activeAction = null;
 let refreshTimer;
 let needsReload = false;
 let activeTabId;
+let submissionReview, submissionTimer;
+function updateSubmitButton() {
+  document.getElementById("submission-commit").disabled = Boolean(activeAction) || needsReload || !submissionReview?.ready ||
+    submissionReview.expires <= Date.now() || !document.getElementById("submission-approved").checked ||
+    (submissionReview.files > 0 && !document.getElementById("submission-documents").checked);
+}
+function clearSubmissionReview() {
+  clearTimeout(submissionTimer);
+  submissionReview = undefined;
+  document.getElementById("submission-review").hidden = true;
+  document.getElementById("submission-approved").checked = false;
+  document.getElementById("submission-documents").checked = false;
+  updateSubmitButton();
+}
+function showSubmissionReview(review) {
+  clearSubmissionReview();
+  submissionReview = review;
+  document.getElementById("submission-review").hidden = false;
+  document.getElementById("submission-job").textContent = `${review.title} | ${review.company} | ${new URL(review.url).hostname}`;
+  document.getElementById("submission-summary").textContent = review.ready
+    ? `${review.fields} controls checked, including ${review.required} required controls. Approval expires in 90 seconds. Submission cannot be undone.`
+    : `${review.blockerCount} item(s) prevent assisted submission.`;
+  document.getElementById("submission-blockers").replaceChildren(...review.blockers.map(message => {
+    const item = document.createElement("li"); item.textContent = message; return item;
+  }));
+  document.getElementById("submission-confirmation").hidden = !review.ready;
+  document.getElementById("submission-documents-label").hidden = !review.files;
+  document.getElementById("submission-documents").required = review.files > 0;
+  submissionTimer = setTimeout(() => {
+    document.getElementById("submission-summary").textContent = "Approval expired. Review this application again.";
+    updateSubmitButton();
+  }, Math.max(0, review.expires - Date.now()));
+  updateSubmitButton();
+}
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== chrome.runtime.id || sender.tab || message?.type !== "autofill-progress" ||
     message.buildId !== BUILD_ID || message.tabId !== activeTabId) return;
@@ -39,6 +73,8 @@ function showFields(fields) {
 async function run(type, data = {}) {
   let prepareDrafts = false;
   clearTimeout(refreshTimer);
+  if (type !== "status") clearSubmissionReview();
+  if (type === "submission-preview") document.getElementById("submission-result").hidden = true;
   for (const button of document.querySelectorAll("button"))
     button.disabled = true;
   if (type !== "status")
@@ -47,6 +83,8 @@ async function run(type, data = {}) {
         ? "Complete the connection in ApplyOverflow..."
         : type === "resume"
           ? "Choose and approve a resume in ApplyOverflow..."
+          : type === "submission-commit" ? "Submitting once and checking employer confirmation..."
+          : type === "submission-preview" ? "Checking the complete employer form..."
           : type === "autofill-drafts" ? "Saved facts filled. Preparing answer drafts..." : "Working...";
   try {
     // Check even after initial load: an unpacked build may have changed while
@@ -71,6 +109,12 @@ async function run(type, data = {}) {
       document.getElementById("account").hidden = true;
     }
     if (result.error) throw new Error(result.error);
+    if (result.submissionReview) showSubmissionReview(result.submissionReview);
+    if (result.submissionResult !== undefined) {
+      const element = document.getElementById("submission-result");
+      element.hidden = !result.submissionResult;
+      element.textContent = result.submissionResult?.message || "";
+    }
     if (result.tabId !== undefined) activeTabId = result.tabId;
     if (result.fields) showFields(result.fields);
     prepareDrafts = type === "autofill" && result.prepareDrafts === true;
@@ -102,6 +146,8 @@ async function run(type, data = {}) {
       document.getElementById("applied-confirmation").hidden = true;
     }
     if (!result.connected) {
+      clearSubmissionReview();
+      document.getElementById("submission-result").hidden = true;
       clearQuestions();
       history = undefined;
       document.getElementById("history-entry").replaceChildren();
@@ -137,6 +183,7 @@ async function run(type, data = {}) {
   } finally {
     for (const button of document.querySelectorAll("button"))
       button.disabled = needsReload ? button.id !== "reload-extension" : Boolean(activeAction);
+    updateSubmitButton();
     // A popup can close while Chrome opens consent. A reopened popup must
     // reflect that operation and recover when its window is closed.
     if (activeAction && !needsReload) refreshTimer = setTimeout(() => void run("status"), 1500);
@@ -153,9 +200,20 @@ for (const type of [
   "history",
   "undo-history",
   "applied-preview",
+  "submission-preview",
+  "submission-cancel",
 ])
   document.getElementById(type).addEventListener("click", () => void run(type === "fill" ? "autofill" : type));
 void run("status");
+for (const id of ["submission-approved", "submission-documents"])
+  document.getElementById(id).addEventListener("change", updateSubmitButton);
+document.getElementById("submission-confirmation").addEventListener("submit", event => {
+  event.preventDefault();
+  if (!event.isTrusted || document.getElementById("submission-commit").disabled) return;
+  const token = submissionReview?.token;
+  const documentsReviewed = document.getElementById("submission-documents").checked;
+  if (token) void run("submission-commit", { token, confirmed: true, documentsReviewed });
+});
 document.getElementById("reload-extension").addEventListener("click", () => chrome.runtime.reload());
 document.getElementById("fill-history").addEventListener("click", () => {
   const entry =

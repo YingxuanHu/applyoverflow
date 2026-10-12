@@ -1,6 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applicationAnswerFields, applicationAnswerKey, applicationAnswerPlan, commonApplicationAnswers, normalizeApplicationAnswers, profileApplicationAnswersSchema } from "../src/lib/profile-application-answers";
+
+test("entitlement is scoped authorization, never citizenship or compound promises", () => {
+  assert.equal(applicationAnswerKey("Are you legally entitled to work in Canada?"), "authorizedCA");
+  assert.equal(applicationAnswerKey("Are you legally entitled to work in the United States?"), "authorizedUS");
+  for (const label of ["Are you legally entitled to work without sponsorship in Canada?", "Are you legally entitled to work in Canada and the United States?", "Are you legally entitled to work in Canada indefinitely?", "Are you legally entitled to work in Canada and willing to relocate?"])
+    assert.equal(applicationAnswerKey(label), undefined, label);
+});
+
+test("residence and conditional city use structured geography, not eligibility or fuzzy guesses", () => {
+  const labels = ["Are you currently located in the GTA or Saskatoon?", "If in the GTA, in what city are you located?"];
+  const plan = (city: string, region: string, country = "CA") => applicationAnswerPlan(undefined, labels, undefined, undefined, { city, region, country });
+  assert.deepEqual(plan("Toronto", "ON").answers.map(row => row.answer), ["Yes", "Toronto"]);
+  assert.deepEqual(plan("Markham", "Ontario").answers.map(row => row.answer), ["Yes", "Markham"]);
+  assert.deepEqual(plan("Saskatoon", "SK").answers.map(row => row.answer), ["Yes"]);
+  assert.deepEqual(plan("Vancouver", "BC").answers.map(row => row.answer), ["No"]);
+  assert.equal(plan("", "ON").answers.length, 0);
+  assert.equal(plan("Toronto", "Ohio", "US").answers.some(row => row.answer === "Yes"), false);
+  assert.equal(plan("Unknown suburb", "ON").answers.length, 0, "not in the metro list is not proof of No");
+  for (const label of ["Are you willing to relocate to Toronto?", "Are you located in Toronto and willing to work nights?", "Are you within 20 minutes of Toronto?", "What city is your employer located in?"])
+    assert.equal(applicationAnswerPlan(undefined, [label], undefined, undefined, { city: "Toronto", region: "ON", country: "CA" }).answers.length, 0, label);
+});
 import { normalizeContact } from "../src/lib/profile";
 
 test("posting-relative eligibility uses a single known job country, not applicant residence", () => {
@@ -74,6 +95,14 @@ test("Other with explicit ApplyOverflow details retains equivalent source choice
   assert.ok(plan.answers[0].alternatives?.includes("Other Website"));
   assert.ok(plan.answers[0].alternatives?.includes("Job Sites"));
   assert.equal(applicationAnswerPlan({ enabled: true, values: { jobSource: "Other", sourceDetails: "A personal conversation" } }, labels, url).answers[0].alternatives, undefined);
+});
+
+test("recruitment source questions use employer display names, not ATS slug equality", () => {
+  const labels = ["How did you hear about Beacon?", "How did you first hear about Example & Co.?", "How did you hear about us and why do you want to work here?"];
+  const url = "https://jobs.ashbyhq.com/beaconsoftware/be0e101c-faba-41c2-996e-d70e98b9d4ee/application";
+  const plan = applicationAnswerPlan({ enabled: true, values: { jobSource: "ApplyOverflow" } }, labels, url);
+  assert.deepEqual(plan.answers.map(answer => [answer.label, answer.answer]), labels.slice(0, 2).map(label => [label, "ApplyOverflow"]));
+  assert.equal(applicationAnswerPlan({ enabled: false, values: { jobSource: "ApplyOverflow" } }, labels, url).answers.length, 0);
 });
 
 test("source variants and unspecified sponsorship use verified posting context", () => {

@@ -504,6 +504,12 @@ export function ProfileForm({ initialValues }: ProfileFormProps) {
               value={summary}
             />
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <FieldLabel htmlFor="ai-tool-usage">AI tools and workflows (optional)</FieldLabel>
+            <Textarea id="ai-tool-usage" rows={3} maxLength={1200}
+              placeholder="Tools you currently use, specific workflows, and effects you have observed"
+              value={contact.aiToolUsage || ""} onChange={event => updateContact("aiToolUsage", event.target.value)} />
+          </div>
         </div>
       </ProfileSection>
 

@@ -54,7 +54,7 @@ export function createAutofillInspector() {
     return field instanceof HTMLSelectElement && field.selectedOptions[0]?.disabled ? "" : field instanceof HTMLButtonElement || (custom(field) && !(field instanceof HTMLInputElement)) ?
       (/^(select|choose)( one| an? .+)?[.\u2026]*$/i.test(field.textContent.trim()) ? "" : field.textContent.trim()) : field.value || "";
   };
-  const restricted = label => /disab|veteran|gender|race|ethnic|sexual|religio|birth|social security|ssn|criminal|convict|consent|agree|certify|signature|authoriz|sponsor|visa|citizen|eligible to work|right to work/i.test(label);
+  const restricted = label => /disab|veteran|gender|race|ethnic|sexual|religio|birth|social security|ssn|criminal|convict|consent|agree|certify|signature|authoriz|sponsor|visa|citizen|eligible to work|entitled to work|right to work/i.test(label);
   const legal = label => /social security|\bssn\b|signature|certify|terms|privacy (?:policy|act)|criminal|convict|date of birth|confirm.{0,60}(?:accurate|truthful)/i.test(label) ||
     (/agree|consent/i.test(label) && !/receive (?:text |sms |email )?(?:messages|communications)|contact me (?:by|via) (?:sms|email|text)/i.test(label));
   const rememberable = label => !restricted(label);
@@ -126,7 +126,7 @@ export function createAutofillInspector() {
       // helper paragraphs and neighbouring questions must not become its name.
       const candidates = [...group.querySelectorAll('p,label,h2,h3,h4,[role="heading"],div,span')].filter(node =>
         !node.querySelector('input,select,textarea,button') && !node.closest('label:has(input[type="radio"])') &&
-        !node.hasAttribute("aria-hidden") && visible(node) && node.textContent.trim() && node.textContent.trim().length <= 500 &&
+        !node.closest('button,[role="radio"]') && !node.hasAttribute("aria-hidden") && visible(node) && node.textContent.trim() && node.textContent.trim().length <= 500 &&
         (!node.children.length || node.matches('p,label,h2,h3,h4,[role="heading"]')));
       const prompts = [...new Set(candidates.map(node => node.textContent.trim()))];
       return prompts.length === 1 ? prompts[0] : "";
@@ -153,13 +153,16 @@ export function createAutofillInspector() {
       return [{ ...entry, label: groupLabel, originalLabel: entry.label,
         radioFields: radios.map(item => item.field), radioGroup: group }];
     });
-    const current = groupedEntries.filter(({ field, label }) => label && label.length <= 500 &&
-      !["hidden", "password", "submit", "reset", "file"].includes(field.type) &&
-      (!(field instanceof HTMLButtonElement) || custom(field)));
+    const current = groupedEntries.filter(({ field, label, choiceFields }) => label && label.length <= 500 &&
+      (!(field instanceof HTMLButtonElement) || choiceFields || custom(field)) &&
+      (!["hidden", "password", "submit", "reset", "file"].includes(field.type) || choiceFields));
     const safe = item => location.href === operationUrl && pageUrl === operationUrl && form.isConnected && form.contains(item.field) &&
       item.field.isConnected && visible(item.field) && labelFor(item.field) === (item.originalLabel || item.label) &&
       (!item.radioFields || (item.radioFields.every(field => field.isConnected && form.contains(field) && visible(field) && !field.disabled) &&
         radioLabel(item.radioGroup) === item.label)) &&
+      (!item.choiceFields || (item.choiceGroup.isConnected && form.contains(item.choiceGroup) && radioLabel(item.choiceGroup) === item.label &&
+        item.choiceFields.every(field => field.isConnected && item.choiceGroup.contains(field) && visible(field) &&
+          !field.matches(':disabled,[aria-disabled="true"]') && (!field.form || field.type === "button")))) &&
       !item.field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]');
     const items = current.slice(0, 80).map(entry => {
       const { field, label } = entry;
@@ -182,7 +185,7 @@ export function createAutofillInspector() {
         }
       }
       const select = field instanceof HTMLSelectElement && !field.multiple;
-      const radio = entry.radioFields?.length > 1;
+      const radio = (entry.choiceFields || entry.radioFields)?.length > 1;
       const widget = custom(field) && (!(field instanceof HTMLButtonElement) || field.type === "button");
       const ambiguous = key && current.filter(item => item.profileKey === key && norm(item.label) === norm(label)).length !== 1;
       const labelAmbiguous = !key && current.filter(item => norm(item.label) === norm(label)).length !== 1;
@@ -191,7 +194,7 @@ export function createAutofillInspector() {
         !(scalar || select || widget || radio) || field.hasAttribute("list") ||
         (field.hasAttribute("aria-autocomplete") && !widget);
       const options = select ? [...field.options].filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
-        .slice(0, 250).map(option => option.textContent.trim()) : radio ? entry.radioFields.map(labelFor) :
+        .slice(0, 250).map(option => option.textContent.trim()) : radio ? (entry.choiceFields || entry.radioFields).map(labelFor) :
         choiceCache.get(field)?.label === label ? choiceCache.get(field).options : [];
       const help = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean)
         .map(id => document.getElementById(id)?.textContent || "").join(" ");
@@ -218,6 +221,10 @@ export function createAutofillInspector() {
     });
     targets = new Map(items.map(item => [item.id, item]));
     const readItem = item => {
+      if (item.choiceFields) {
+        const selected = item.choiceFields.filter(field => field.getAttribute(field.hasAttribute("aria-pressed") ? "aria-pressed" : "aria-checked") === "true");
+        return selected.length === 1 ? labelFor(selected[0]) : "";
+      }
       if (!item.radioFields) return read(item.field);
       const selected = item.radioFields.find(field => field.checked);
       return selected ? labelFor(selected) : "";
@@ -228,7 +235,7 @@ export function createAutofillInspector() {
     };
     const describe = () => items.filter(safe).map(item => {
       const field = item.field;
-      const hasValue = item.radioFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : !phonePrefixOnly(item) && Boolean(read(field).trim());
+      const hasValue = item.radioFields || item.choiceFields ? Boolean(readItem(item)) : ["checkbox", "radio"].includes(field.type) ? field.checked : !phonePrefixOnly(item) && Boolean(read(field).trim());
       const invalid = hasValue && validity(field) === false;
       const condition = profileGuidance.get(norm(item.label))?.dependsOn;
       const parents = condition ? items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === condition.answerKey) : [];
@@ -358,7 +365,8 @@ export function createAutofillInspector() {
         return [];
       };
       if (item.kind === "radio") {
-        const matches = matchingOptions(item.radioFields.map(field => ({ field, textContent: labelFor(field) })));
+        if (item.choiceFields?.some(field => field.getAttribute(field.hasAttribute("aria-pressed") ? "aria-pressed" : "aria-checked") === "true")) return false;
+        const matches = matchingOptions((item.choiceFields || item.radioFields).map(field => ({ field, textContent: labelFor(field) })));
         if (matches.length !== 1) { item.reason = "Choose a matching answer on the form."; return false; }
         value = matches[0].textContent.trim();
         matches[0].field.click();

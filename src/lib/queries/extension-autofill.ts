@@ -35,7 +35,7 @@ export async function getAutofillPlan(userId: string, raw: unknown) {
   fields.portfolioGithubUrl = contact.portfolioUrl || contact.githubUrl || "";
   fields.cityRegion = contact.city && contact.region ? `${contact.city}, ${contact.region}` : "";
   Object.assign(fields, professionalAutofillFacts(values));
-  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry);
+  const common = applicationAnswerPlan(contact.applicationAnswers, input.questions, input.url, input.employmentCountry, contact);
   return {
     contact: fields, revision, includeResume: contact.autofillResume === true,
     skills: values.skills.map(skill => skill.name).filter(Boolean).slice(0, 25),

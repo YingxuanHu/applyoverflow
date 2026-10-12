@@ -138,6 +138,15 @@ test("optional addresses survive profile loading without inferring missing value
   assert.equal(setupProfileSchema.safeParse(values).success, true);
 });
 
+test("optional professional tool-use context survives loading and setup validation", () => {
+  const usage = "I currently use an AI assistant to draft test cases and review them before use.";
+  const values = buildProfileFormValues({ contactJson: { aiToolUsage: ` ${usage} ` } });
+  assert.equal(values.contact.aiToolUsage, usage);
+  assert.equal(setupProfileSchema.parse(values).contact.aiToolUsage, usage);
+  assert.equal(normalizeContact({ aiToolUsage: "x".repeat(1400) }).aiToolUsage?.length, 1200);
+  assert.equal(setupProfileSchema.safeParse({ ...values, contact: { ...values.contact, aiToolUsage: "x".repeat(1201) } }).success, false);
+});
+
 test("incomplete contact details can be saved as a draft but not confirmed", () => {
   const draft = setupProfileSchema.parse(
     buildProfileFormValues({

@@ -1,5 +1,34 @@
 # Application Assistant Preview
 
+## Approved submission pilot (0.13.0)
+
+- Autofill still never submits or clicks Next. After inspecting and editing the
+  employer form, use **Review & submit** in the Chrome toolbar. This is a separate,
+  per-application action, not unattended or batch auto-apply.
+- Readiness checks the full detected form independently of Autofill status:
+  required fields, native validation, errors, processing state, final-submit
+  ambiguity, unsaved record editors, payment requests, custom controls, CAPTCHAs
+  and embedded/shadow-root fields. Unsupported
+  cases stay manual. Selected files additionally require explicit user inspection
+  of the uploaded documents and upload completion; selection is not ATS acceptance.
+- The 90-second approval binds exact controls, values, question/declaration text,
+  document, URL and button. Any change requires another review. Only the trusted
+  extension popup can approve submission; employer content scripts cannot.
+- An account/job-hashed local attempt marker is written before clicking and
+  survives worker/browser restart. No automatic retries after uncertain outcomes.
+  The existing tracker is checked for duplicate applications before approval and
+  again before submission. This is not a cross-device submission lock.
+- Only an explicit new employer confirmation with the form gone/completed can
+  mark the application applied. Redirects outside the verified job path, timeouts,
+  and click-only responses remain unverified. Tracking failure never resubmits.
+- Matching backend deployment is required for `submission-check`. Missing or
+  revoked authentication, an older backend, and failed checks prevent submission.
+- `npm run extension:test:submission` uses synthetic forms and intercepted
+  traffic. No real employer applications are submitted. This pilot does not
+  certify arbitrary ATS tenants or authenticated multi-step Workday flows.
+
+The historical sections below describe earlier Autofill-only releases.
+
 ## Direct answers and progress (0.10.1)
 
 - One Autofill click fills saved facts, the opted-in default resume and supported

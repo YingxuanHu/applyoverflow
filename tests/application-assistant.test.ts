@@ -15,7 +15,18 @@ import {
   reviewSaveSchema,
   appliedConfirmationSchema,
   historySelectionSchema,
+  submissionCheckSchema,
 } from "../src/lib/application-assistant";
+
+test("submission readiness accepts only a validated application URL, not identity or approval claims", () => {
+  assert.equal(submissionCheckSchema.safeParse({ url: "https://job-boards.greenhouse.io/example/jobs/123" }).success, true);
+  for (const raw of [
+    { url: "http://unsafe.example/apply" },
+    { url: "https://unsafe.example/login" },
+    { url: "https://job-boards.greenhouse.io/example/jobs/123", userId: "other" },
+    { url: "https://job-boards.greenhouse.io/example/jobs/123", approved: true },
+  ]) assert.equal(submissionCheckSchema.safeParse(raw).success, false);
+});
 
 test("extension allowlist fails closed and validates IDs", () => {
   const id = "a".repeat(32);

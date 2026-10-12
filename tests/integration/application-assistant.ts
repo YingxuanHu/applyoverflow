@@ -17,6 +17,7 @@ import {
   hashSecret,
   getExtensionHistory,
   confirmExtensionApplication,
+  checkExtensionSubmission,
 } from "../../src/lib/queries/application-assistant";
 
 async function main() {
@@ -155,12 +156,16 @@ async function main() {
       where: { id },
     });
     assert.equal(record.status, "PREPARING");
+    assert.equal((await checkExtensionSubmission(user.id, { url: payload.url })).alreadyApplied, false, "preparation is not a submission");
     const external = {
       url: "https://careers.example.com/apply?job=123",
       title: "External analyst",
       company: "Example",
       confirmed: true,
     };
+    const countBeforeCheck = await prisma.trackedApplication.count({ where: { userId: user.id } });
+    assert.equal((await checkExtensionSubmission(user.id, { url: external.url })).alreadyApplied, false);
+    assert.equal(await prisma.trackedApplication.count({ where: { userId: user.id } }), countBeforeCheck, "readiness is read-only");
     await assert.rejects(() =>
       confirmExtensionApplication(user.id, { ...external, confirmed: false }),
     );
@@ -175,6 +180,9 @@ async function main() {
     });
     assert.equal(tracked.canonicalJobId, null);
     assert.equal(tracked.status, "APPLIED");
+    assert.equal((await checkExtensionSubmission(user.id, { url: external.url })).alreadyApplied, true);
+    assert.equal((await checkExtensionSubmission(other.id, { url: external.url })).alreadyApplied, false, "submission checks are owner scoped");
+    assert.equal((await checkExtensionSubmission(user.id, { url: external.url.replace("123", "789") })).alreadyApplied, false, "another job at the same employer is not a duplicate");
     assert.equal(
       tracked.events.filter((event) => event.type === "APPLIED").length,
       1,
@@ -184,6 +192,7 @@ async function main() {
       data: { status: "INTERVIEW" },
     });
     await confirmExtensionApplication(user.id, external);
+    assert.equal((await checkExtensionSubmission(user.id, { url: external.url })).alreadyApplied, true, "later lifecycle states still prevent duplicates");
     assert.equal(
       (
         await prisma.trackedApplication.findUniqueOrThrow({
@@ -228,6 +237,7 @@ async function main() {
       firstWorkday.id,
       "Workday location rewrites do not duplicate applications",
     );
+    assert.equal((await checkExtensionSubmission(user.id, { url: workday.url + "/apply/myInformation" })).alreadyApplied, true, "Workday step and location changes preserve submission identity");
     assert.equal(await getApplicationQuestionReview(other.id, id), null);
     const state = parseAssistantState(record.assistantState)!;
     await assert.rejects(() =>

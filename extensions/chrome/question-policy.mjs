@@ -5,11 +5,13 @@ export function questionAssistance(label) {
   const technicalAuthorization = /\b(?:api|oauth|rbac|access control|authentication)\b/.test(text) && !/\b(?:work|employment|visa|eligible|citizen)\b/.test(text);
   const decisions = text.replace(/\bhigh availability\b/g, "system resilience").replace(/\b(?:job|task) scheduler\b/g, "task orchestrator");
   if (/disab|veteran|gender|race\b(?! conditions?\b)|ethnic|sexual|religio|birth|\bage\b|\b18\b|social security|\bssn\b|criminal|convict|consent|agree|certify|signature|sponsor|visa|citizen|eligible|eligibility|right to work|referr|related to|relative|family|government|political|employed (?:by|with|at)|resident|salary|compensation|pay\b|availability|\bavailable\b|schedule|saturday|sunday|weekdays|relocat|commut|located in|how long|time off|start date/i.test(decisions) ||
-      (/authoriz/.test(text) && !technicalAuthorization))
+      (/authoriz|entitled to work/.test(text) && !technicalAuthorization))
     return "personal";
   // Preferences are editable drafts with user context, never inferred facts.
   if (/(?:how (?:comfortable|confident)|most confident|what would you build|preferred (?:language|framework))/.test(text)) return "context";
   if (/why|explain|describe/i.test(text) && /part[ -]?time|flexib|career (?:break|change)|leaving|leave your/i.test(text)) return "context";
+  if (/\b(?:tools?|technolog(?:y|ies)|platforms?|software)\b/.test(text) &&
+      /\b(?:do you (?:use|utili[sz]e)|are you (?:using|utili[sz]ing)|you (?:currently |regularly )?use)\b/.test(text)) return "draft";
   if (/anything (?:else )?about your (?:experience|background)|additional (?:information|experience).{0,70}(?:fit|candidacy)|(?:experience|background).{0,90}help us evaluate your fit/.test(text)) return "draft";
   if (/^(?:do you have|have you|how many years|what is your experience)/.test(text) && /experience|worked with|built|managed|managing|programming|proficien|familiar with/.test(text)) return "qualification";
   if (/^why (?:this|the) (?:role|job|company)[?*\s]*$|^relevant (?:experience|project)[?*\s]*$/i.test(text)) return "draft";

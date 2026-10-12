@@ -26,6 +26,7 @@ import {
   reviewSaveSchema,
   appliedConfirmationSchema,
   historySelectionSchema,
+  submissionCheckSchema,
 } from "@/lib/application-assistant";
 import { decideAnswerReuse } from "@/lib/application-answer-policy";
 
@@ -263,6 +264,29 @@ export async function confirmExtensionApplication(
       });
   }
   return result;
+}
+
+// Read-only: checking readiness must not create a tracker entry or mark applied.
+export async function checkExtensionSubmission(userId: string, raw: unknown) {
+  const input = submissionCheckSchema.parse(raw);
+  const context = applicationContext(input.url, true)!;
+  const host = new URL(context.url).hostname;
+  const hosts = context.provider === "greenhouse" ? [host, host.replace("job-boards.", "boards.")] : [host];
+  const applications = await prisma.trackedApplication.findMany({
+    where: {
+      userId,
+      status: { notIn: ["WISHLIST", "PREPARING"] },
+      OR: hosts.flatMap(value => [
+        { roleUrl: { contains: value } },
+        { canonicalJob: { applyUrl: { contains: value } } },
+      ]),
+    },
+    select: { roleUrl: true, canonicalJob: { select: { applyUrl: true } } },
+    take: 2001,
+  });
+  if (applications.length > 2000) throw new AssistantError("Check your application tracker before submitting. Too many matching records.", 409);
+  return { alreadyApplied: applications.some(item => [item.roleUrl, item.canonicalJob?.applyUrl]
+    .some(url => url && sameApplication(url, context.url))) };
 }
 
 async function saveExtensionApplication(

@@ -57,11 +57,11 @@ export default async function ExtensionConnectPage({
         <li>Optional demographic and work-eligibility answers stay private unless you separately enable sharing them in Profile. Legal agreements and signatures stay manual.</li>
         <li>
           See which fields were filled or still need information, then edit directly on the employer form.
-          Record an application as applied only after your explicit confirmation.
+          A separate Review &amp; submit action checks supported single-page forms and requires your approval for each submission.
         </li>
         <li>When you click Autofill, OpenAI can prepare and fill professional answers from your profile and the job description. Review and edit them directly on the employer form before submitting. Eligibility, consent and demographic answers are never inferred.</li>
         <li>
-          No access to passwords or application submission. Resume sharing is off
+          No access to passwords. Autofill never submits; assisted submission needs a separate final approval. Resume sharing is off
           by default. Enable default-resume sharing in Profile or approve a file each time.
         </li>
       </ul>

@@ -23,6 +23,7 @@ export type ProfileEducation = ProfileHistory & {
 };
 
 export type ProfileContact = {
+  aiToolUsage?: string;
   applicationAnswers?: import("./profile-application-answers").ProfileApplicationAnswers;
   fullName: string;
   givenName?: string;
@@ -300,6 +301,7 @@ export function normalizeContact(value: unknown): ProfileContact {
       ([
         ["givenName", 100], ["familyName", 100], ["middleName", 100], ["phoneExtension", 20],
         ["preferredName", 100], ["pronouns", 80],
+        ["aiToolUsage", 1200],
         ["streetAddress", 200], ["addressLine2", 120], ["city", 100],
         ["region", 100], ["postalCode", 30],
       ] as const)

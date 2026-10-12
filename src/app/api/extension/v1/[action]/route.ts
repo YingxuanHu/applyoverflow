@@ -20,6 +20,7 @@ import {
   getExtensionContact,
   getExtensionHistory,
   confirmExtensionApplication,
+  checkExtensionSubmission,
 } from "@/lib/queries/application-assistant";
 import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
@@ -41,6 +42,7 @@ export async function POST(
         "history",
         "history-entry",
         "applied",
+        "submission-check",
         "capture",
         "disconnect",
         "resume-request",
@@ -72,6 +74,8 @@ export async function POST(
       return json({ error: "Too many requests. Try again shortly." }, 429);
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
+    if (action === "submission-check")
+      return json(await checkExtensionSubmission(identity.userId, body.data));
     if (action === "autofill-plan")
       return json(await getAutofillPlan(identity.userId, body.data));
     if (action === "autofill-answer")

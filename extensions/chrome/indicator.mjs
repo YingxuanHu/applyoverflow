@@ -161,6 +161,7 @@ export function installIndicator(buildId, renderQuestions) {
       const aiDisclosure = document.createElement("p");
       aiDisclosure.textContent = "Answers use your profile and this job description. Review and edit them on the form.";
       const resume = button("Change resume", () => void run("resume"), true);
+      const submitReview = button("Review & submit in toolbar", () => void run("open-popup"), true);
       const remainingFields = document.createElement("div");
       const undo = button("Undo Autofill", () => void run("autofill-undo"), true);
       const status = document.createElement("p");
@@ -168,7 +169,7 @@ export function installIndicator(buildId, renderQuestions) {
       const more = document.createElement("details");
       const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
       more.append(moreLabel, undo);
-      content.append(summary, connect, fill, aiDisclosure, resume, status, remainingFields, more);
+      content.append(summary, connect, fill, aiDisclosure, resume, submitReview, status, remainingFields, more);
       section.append(content);
       root.append(section);
       view = {
@@ -180,6 +181,7 @@ export function installIndicator(buildId, renderQuestions) {
         connect,
         fill,
         resume,
+        submitReview,
         remaining: remainingFields,
         more,
         undo,
@@ -210,6 +212,7 @@ export function installIndicator(buildId, renderQuestions) {
     view.connect.hidden = connection;
     view.fill.hidden = !connection || !(result.available || result.questions.length || result.historyAvailable || result.resumeAvailable);
     view.resume.hidden = !connection || !(result.resumeAvailable || result.resumeDetected);
+    view.submitReview.hidden = !connection;
     view.resume.classList.toggle("secondary", !!result.available);
     view.remaining.hidden = !connection || !remaining.length;
     view.undo.hidden = !result.autofillUndoAvailable && !result.historyUndoAvailable;
@@ -221,6 +224,7 @@ export function installIndicator(buildId, renderQuestions) {
       view.connect,
       view.fill,
       view.resume,
+      view.submitReview,
       view.undo,
     ])
       action.disabled = busy;

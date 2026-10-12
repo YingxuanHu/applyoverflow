@@ -41,7 +41,7 @@ export default function ExtensionPrivacyPage() {
           empty rows and add rows in supported work/education sections. Complete
           HiBob row editors can be saved before the next row is added. You can also
           select a single entry in More actions. Unknown dates and unsupported
-          controls remain manual; applications are never submitted automatically.
+          controls remain manual. Autofill never submits an application.
         </p>
         <p>
           Resume sharing is off by default. You can explicitly enable sharing your
@@ -111,8 +111,16 @@ export default function ExtensionPrivacyPage() {
         </p>
         <p>
           The extension contains no advertising, third-party analytics or
-          general browsing-history collection. It never submits an employer
-          application for you.
+          general browsing-history collection. The separate Review &amp; submit
+          action checks supported single-page forms and submits once only after
+          your explicit approval for that application. You must review all answers,
+          declarations and upload completion on the employer site. CAPTCHAs,
+          unverified required custom controls and multi-step flows remain manual.
+          Success requires a visible employer confirmation; uncertain attempts are
+          not marked applied and are never automatically retried. Hashed account/job
+          identifiers and attempt outcomes are stored locally in Chrome to prevent
+          duplicates, without answer values or document contents. Removing the
+          extension clears this local history.
         </p>
       </section>
       <section className="space-y-3">

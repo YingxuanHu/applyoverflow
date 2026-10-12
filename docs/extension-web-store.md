@@ -167,8 +167,14 @@ preview ID `jmkdjgbpikdhflpknomggmlccccgkbbp`.
 
 Name: **ApplyOverflow Assistant**
 
-Short description:
-> Fill confirmed contact details and review application questions. Never submits applications.
+Short description for the approved-submission pilot (0.13.0):
+> Autofill from your profile. Review and approve each supported application submission.
+
+Before uploading 0.13.0, replace the historical detailed listing below and
+re-review privacy disclosures for the separate approval-gated submission action.
+Autofill itself still never submits; the pilot never performs unattended batches,
+CAPTCHA bypass or automatic retries. See `extensions/chrome/README.md` for its
+readiness gates and duplicate-attempt storage.
 
 Detailed description:
 > ApplyOverflow Assistant helps you complete supported job application forms

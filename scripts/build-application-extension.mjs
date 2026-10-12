@@ -5,6 +5,7 @@ import { zipSync } from "fflate";
 import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
+import { createSubmissionInspector } from "../extensions/chrome/submission.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
 import {
@@ -71,7 +72,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/adapter-runtime.js`,
-  `if (globalThis.__applyOverflowBuild !== ${JSON.stringify(buildId)}) {\n try { globalThis.__applyOverflowIndicator?.stop(); } catch { delete globalThis.__applyOverflowIndicator; }\n globalThis.__applyOverflowInspect = (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})());\n globalThis.__applyOverflowBuild = ${JSON.stringify(buildId)};\n}\n`,
+  `if (globalThis.__applyOverflowBuild !== ${JSON.stringify(buildId)}) {\n try { globalThis.__applyOverflowIndicator?.stop(); } catch { delete globalThis.__applyOverflowIndicator; }\n globalThis.__applyOverflowSubmission = (${createSubmissionInspector.toString()})();\n globalThis.__applyOverflowInspect = (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})(), globalThis.__applyOverflowSubmission);\n globalThis.__applyOverflowBuild = ${JSON.stringify(buildId)};\n}\n`,
 );
 await writeFile(
   `${destination}/indicator.js`,
@@ -87,7 +88,7 @@ await writeFile(
       ...(storeTest ? { key: storeRelease.publicKey } : !local && !store ? { key: release.publicKey } : {}),
       minimum_chrome_version: "120",
       description:
-        "Autofill applications from your profile, with on-form answers and clear progress. Never submits applications.",
+        "Autofill applications from your profile. Review and approve each supported submission; no automatic batch applications.",
       permissions: ["activeTab", "scripting", "storage", "identity"],
       host_permissions: [`${origin}/*`],
       optional_host_permissions: SITE_ORIGINS,

@@ -16,6 +16,20 @@ test("question assistance distinguishes grounded drafts from personal decisions"
     assert.equal(questionAssistance(question), "personal", question);
 });
 
+test("tool-use questions require documented actual practice, not generic knowledge", () => {
+  const label = "What AI tools are you using in your role today, and how have they changed how you work? Please be as specific as possible.";
+  assert.equal(questionAssistance(label), "draft");
+  assert.equal(suggestionTask(label), "tool-usage");
+  assert.match(suggestionTaskInstructions(label), /skill name alone does not establish current use/);
+  assert.match(suggestionTaskInstructions(label), /return an empty answer/);
+  assert.equal(questionAssistance("Are you legally entitled to work in Canada?"), "personal");
+  const profile = buildProfileFormValues({ contactJson: { aiToolUsage: "I currently use an AI assistant to draft unit tests, then run and review each test.", email: "private@example.test" } });
+  const evidence = suggestionEvidence(profile, "", label);
+  assert.equal(evidence.find(row => row.id === "tool-usage")?.text, profile.contact.aiToolUsage);
+  assert.ok(!JSON.stringify(evidence).includes("private@example.test"));
+  assert.equal(suggestionEvidence(buildProfileFormValues({}), "", label).some(row => row.id === "tool-usage"), false);
+});
+
 test("employer word and character limits apply to both requests and generated answers", () => {
   const sources = [{ id: "project", text: "Built an analytics application" }];
   const result = { answer: "I built an analytics application.", evidence: [{ id: "project", quote: sources[0].text }], missing: "" };

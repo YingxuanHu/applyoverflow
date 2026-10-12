@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { applicationContext } from "../../extensions/chrome/sites.mjs";
+import { profileLocationAnswer, type ApplicantLocation } from "./profile-location-answers";
 
 // Voluntary answers are user-entered only. Never derive them from a resume,
 // location, name, recommendations, or an AI-generated answer.
@@ -88,8 +89,8 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
   const us = /\bunited states\b|\bu\.?s\.?a?\b|\bh[- ]?1[- ]?b\b/.test(text) || (unscopedSponsorship && employmentCountry === "US"),
     ca = /\bcanada\b|\bcanadian\b/.test(text) || (unscopedSponsorship && employmentCountry === "CA");
   if (us !== ca) {
-    if (/\b(?:authorized|authorised|authorization|authorisation|legally eligible|legal right|eligibility)\b/.test(text) && /\bwork\b/.test(text) &&
-      !/sponsor|visa|citizen|permanent resident|without|unrestricted|indefinite|proof|document|\bnot\b/.test(text)) return us ? "authorizedUS" : "authorizedCA";
+    if (/\b(?:authorized|authorised|authorization|authorisation|legally eligible|legally entitled|legal right|eligibility)\b/.test(text) && /\bwork\b/.test(text) &&
+      !/sponsor|visa|citizen|permanent resident|without|unrestricted|indefinite|proof|document|\bnot\b|relocat|commut|\b(?:and|or)\b.{0,30}\b(?:willing|able|agree|have|can|proficient)\b/.test(text)) return us ? "authorizedUS" : "authorizedCA";
     if (/\b(?:need|require)\b/.test(text) && /sponsor/.test(text) && /(?:now|currently).{0,30}(?:future|later)/.test(text) &&
       !/without|not require|will not|other countr/.test(text)) return us ? "sponsorshipUS" : "sponsorshipCA";
     if (us && /\bcitizen\b/.test(text) && /permanent resident|green card/.test(text) && /asylee|refugee/.test(text) &&
@@ -111,7 +112,7 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
 
 export type CommonAnswer = { label: string; answer: string; answerKey: string; alternatives?: string[]; dependsOn?: { answerKey: string; answer: string } };
 export type CommonAnswerDetail = { label: string; profileLabel: string; reason: string; answerKey: string; notApplicable?: boolean; dependsOn?: { answerKey: string; answer: string } };
-export function applicationAnswerPlan(raw: unknown, labels: string[], url?: string, employmentCountry?: "CA" | "US") {
+export function applicationAnswerPlan(raw: unknown, labels: string[], url?: string, employmentCountry?: "CA" | "US", location?: ApplicantLocation) {
   const saved = normalizeApplicationAnswers(raw);
   const context = url && applicationContext(url, true);
   const employers = saved.employers?.filter(e => e.url && applicationContext(e.url, true)?.companyKey === (context && context.companyKey));
@@ -122,10 +123,17 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
     const tenant = context && context.tenant.replace(/[^a-z0-9]/gi, "").toLowerCase();
     let key: string | undefined = applicationAnswerKey(label, employmentCountry);
     const sourceEmployer = /^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about ([^?]{1,100})\??$/.exec(text)?.[1];
-    if (!key && tenant && sourceEmployer?.replace(/[^a-z0-9]/g, "") === tenant) key = "jobSource";
+    // Employer display names need not equal ATS tenant slugs. On a verified
+    // application, this bounded discovery question uses the saved job source.
+    if (!key && context && sourceEmployer && /^[\p{L}\p{N} .&'()-]+$/u.test(sourceEmployer) &&
+      !/\b(?:why|how|you|your)\b/.test(sourceEmployer) && sourceEmployer.split(/\s+/).length <= 10) key = "jobSource";
     let notApplicable = false;
     let answer = key ? saved.values[key as ApplicationAnswerKey] : undefined;
     let profileLabel: string | undefined = [...applicationAnswerFields, ...applicationTextFields].find(f => f.key === key)?.label;
+    const residence = location && profileLocationAnswer(label, location);
+    if (residence) {
+      key = residence.key; answer = residence.answer; profileLabel = "Current city, province/state and country";
+    }
     if (/^desired salary \((?:amount|currency)\)$/.test(text)) {
       answer = undefined;
       const pay = /^(USD|CAD)\s*\$?\s*((?:[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d{1,2})?)\s*(?:\/\s*year|per year|annually|per annum)$/i.exec(saved.values.desiredPay || "");
@@ -169,13 +177,13 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
     const alternatives = applyOverflowSource ? ["Other", "Other Website", "Job Board", "Job Boards", "Job Site", "Job Sites", "Job board / aggregator", "Website"] :
       answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I decline to self-identify for protected veteran status", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "Prefer not to disclose", "Prefer not to indicate", "Choose not to disclose", "Choose not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
       key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] : undefined;
-    if (saved.enabled && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
+    if ((saved.enabled || residence) && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
       ...(key === "sourceDetails" ? { dependsOn: { answerKey: "jobSource", answer: "Other" } } :
         key === "desiredPayAmount" ? { dependsOn: { answerKey: "desiredPayCurrency", answer: `${saved.values.desiredPay!.slice(0, 3).toUpperCase()} $` } } : {}) });
     else if (saved.enabled && notApplicable) details.push({ label, profileLabel, answerKey: key, notApplicable: true,
       dependsOn: { answerKey: key === "relationshipDetails" ? "employeeRelationship" : key === "referralName" ? "referral" : "sponsorshipUS", answer: "No" },
       reason: "Not applicable based on your saved answer. Left blank." });
-    else details.push({ label, profileLabel, answerKey: key, reason: !saved.enabled
+    else details.push({ label, profileLabel, answerKey: key, reason: residence ? residence.reason! : !saved.enabled
       ? "Enable sharing in Profile > Optional application answers to use your saved choices."
       : `Add ${profileLabel.toLowerCase()} in Profile, or answer on the form.` });
   });

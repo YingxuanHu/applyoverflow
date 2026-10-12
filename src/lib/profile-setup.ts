@@ -45,6 +45,7 @@ export const setupProfileSchema = z
         pronouns: text(80).optional(),
         autofillResume: z.boolean().optional(),
         applicationAnswers: profileApplicationAnswersSchema.optional(),
+        aiToolUsage: text(1200).optional(),
         email: text(160),
         phone: text(80),
         phoneCountry: z.enum(["", "CA", "US"]).optional(),
