@@ -32,12 +32,20 @@ try {
   if (process.argv.includes("--live-beacon")) {
     await page.goto("https://jobs.ashbyhq.com/beaconsoftware/be0e101c-faba-41c2-996e-d70e98b9d4ee/application?utm_source=LinkedInPaid", { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.getByRole("textbox", { name: "Email*", exact: true }).waitFor({ timeout: 30_000 });
-    await page.route("**/*", route => route.abort());
+    await page.route("**/*", route => {
+      const url = new URL(route.request().url());
+      // Allow only the public, read-only city lookup. No candidate mutations,
+      // uploads, analytics or profile values can leave this synthetic test.
+      return url.origin === "https://jobs.ashbyhq.com" && url.pathname === "/api/non-user-graphql" &&
+        url.searchParams.get("op") === "ApiAutocompleteGeoLocation" ? route.continue() : route.abort();
+    });
     await inject();
     const result = await fill();
     for (const [label, value] of [["Name*", contact.fullName], ["Email*", contact.email], ["Phone Number*", contact.phone],
       ["LinkedIn Profile*", contact.linkedInUrl], ["How did you hear about Beacon?", "ApplyOverflow"]])
       assert.equal(await page.getByRole("textbox", { name: label, exact: true }).inputValue(), value, JSON.stringify(result.fields));
+    assert.equal(await page.getByRole("combobox").inputValue(), "Toronto, Ontario, Canada", JSON.stringify(result.fields));
+    assert.equal(result.fields.find(field => field.profileKey === "city")?.state, "filled");
     const choice = result.fields.find(field => field.label.startsWith("Are you comfortable working onsite"));
     assert.equal(choice?.kind, "radio");
     assert.deepEqual(choice.options, ["Yes", "No"]);
@@ -51,7 +59,7 @@ try {
     await page.getByRole("textbox", { name: "Name*", exact: true }).scrollIntoViewIfNeeded();
     await mkdir("output/playwright/choice-buttons", { recursive: true });
     await page.screenshot({ path: "output/playwright/choice-buttons/live-beacon.png", fullPage: true });
-    console.log("PASS live Beacon: five profile/source text fields, segmented choice with explicit test answer, demographic isolation, no submission. Location lookup intentionally blocked with outbound traffic.");
+    console.log("PASS live Beacon: five profile/source text fields, verified Toronto/ON/Canada location lookup, segmented choice with explicit test answer, demographic isolation, no uploads or submission.");
   } else if (process.argv.includes("--live")) {
     const url = "https://jobs.ashbyhq.com/7shifts/8628abcd-e033-4337-be63-1fcd04235601/application?utm_source=linkedinpaid";
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
