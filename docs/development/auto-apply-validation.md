@@ -121,5 +121,7 @@ Production was deployed in three product batches and returned revision
 0.15.1. During the final restart, 59/60 five-second health probes returned ready.
 One response was empty or invalid JSON during container replacement; the next
 probe was ready on the new revision. This deployment is not zero-downtime.
-The normal Chrome extension files were updated, but browser Reload/connection
-verification was blocked by the locked Mac and is not claimed as completed.
+The normal Chrome extension was reloaded from the existing unpacked folder.
+Chrome's extension details showed version 0.15.1 and the Reloaded confirmation.
+The active-account production workspace connection was not independently
+verified after that reload; earlier signed-in account access was confirmed.
