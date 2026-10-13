@@ -26,6 +26,12 @@ families. Run names cannot contain paths. Existing reports cannot be overwritten
 `--resume` requires the same sample, limit, and source hash; changed source needs
 a new run name. Concurrency is bounded to six browser contexts.
 
+Use `--decline-optional-cookies` to reject optional cookies in a visible cookie
+dialog with one unambiguous decline/reject-all button. The runner records this
+action, never accepts cookies or agreements, and leaves other dialogs untouched.
+The option is part of the harness hash so runs with different setup cannot resume
+one another.
+
 ## What Is Measured
 
 - Detection, known-field retention, timing, gates, and errors by platform.

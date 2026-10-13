@@ -165,6 +165,10 @@ export function createInspector(resolveContext, history, autofill, submission, w
         .replace(/^(?:what is|what's)\s+/, "")
         .replace(/^(?:a link to\s+|link to\s+)?(?:your|applicant|candidate)\s+/, "");
       if (Object.hasOwn(aliases, text)) return aliases[text];
+      const professionalAlternatives = text.split(/\s*(?:,|\bor\b)\s*/).filter(Boolean);
+      if (professionalAlternatives.length >= 2 && professionalAlternatives.length <= 5 &&
+        professionalAlternatives.every(part => /^(?:your )?(?:linked[ -]?in(?: (?:public )?profile)?|github(?: profile)?|portfolio|(?:personal |professional )?(?:website|site))(?: (?:url|link))?$/.test(part)) &&
+        professionalAlternatives.some(part => /linked[ -]?in/.test(part))) return "professionalUrl";
       if (/\b(?:link|url|website|profile)\b/.test(text) && /\bor\b/.test(text) &&
         /linkedin/i.test(text) && /github|portfolio|professional (?:profile|website)/.test(text) &&
         !/experience|describe|explain|employer|reference|referr|company|team/.test(text)) return "professionalUrl";
@@ -705,7 +709,9 @@ export function createInspector(resolveContext, history, autofill, submission, w
         field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
       let inferred = meaning(label);
       if (/^country code$/i.test(normalized) && /country code picker/i.test(field.getAttribute("aria-label") || "")) inferred = "phoneCountry";
-      if (["checkbox", "radio"].includes(field.type) && ["currentTitle", "currentCompany"].includes(inferred)) {
+      // Choice labels describe options, not applicant facts (e.g. LinkedIn as
+      // a referral source). Their question is resolved by the group scanner.
+      if (["checkbox", "radio"].includes(field.type)) {
         inferred = undefined; profileKey = undefined; key = undefined;
       }
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
@@ -715,11 +721,13 @@ export function createInspector(resolveContext, history, autofill, submission, w
         if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control') || node.querySelector(':scope > h2,:scope > h3,:scope > h4,:scope > header h3')) {
           const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header h3')?.textContent || "";
           const eligibilityTitle = /\b(?:work (?:authorization|eligibility)|employment (?:eligibility|visa|authorization))\b/i.test(title);
+          const disclosureTitle = /\bequal employment opportunit(?:y|ies)\b/i.test(title) &&
+            !/\b(?:references?|emergency|supervisor|work experience|employment history)\b/i.test(title);
           // An application title can contain Manager, Education or Employment.
           // It describes the job, not whose contact details the fields request.
           const applicationTitle = /^(?:job application|application(?: for)?|apply(?:ing)? (?:for|to))\s*[:\u2013\u2014-]\s*\S/i.test(title.trim()) &&
             fields.every(control => node.contains(control));
-          if ((foreign.test(title) && !eligibilityTitle && !applicationTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+          if ((foreign.test(title) && !eligibilityTitle && !disclosureTitle && !applicationTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
           if (inferred && /disabilit|voluntary self.identification|attestation|declaration|acknowledg|signature|certification/i.test(title)) declaration = true;
         }
       }

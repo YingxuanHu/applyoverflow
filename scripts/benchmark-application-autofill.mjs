@@ -9,6 +9,7 @@ import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { applicationContext } from "../extensions/chrome/sites.mjs";
 import { oracleKey, oracleMatches as matchesContact } from "./lib/autofill-benchmark-oracle.mjs";
 import { isReadOnlyCatalogRequest } from "./lib/autofill-benchmark-network.mjs";
+import { optionalCookieDeclineLabel } from "./lib/autofill-benchmark-privacy.mjs";
 import { discoverWorkdayBenchmarkJobs, workdayBenchmarkStage } from "./lib/workday-benchmark.mjs";
 import * as applicationAnswersModule from "../src/lib/profile-application-answers.ts";
 import * as historyModule from "../src/lib/profile-history.ts";
@@ -27,6 +28,7 @@ const platformFilter = option("--platform", "all");
 const jobsPerEmployer = Number(option("--jobs-per-employer", "1"));
 const profileCountry = option("--profile-country", "US");
 const currentRole = args.includes("--current-role");
+const declineOptionalCookies = args.includes("--decline-optional-cookies");
 assert.ok(["CA", "US"].includes(profileCountry));
 assert.ok(["all", "greenhouse", "lever", "ashby", "smartrecruiters", "teamtailor", "jobvite", "workable", "recruitee", "rippling", "icims", "workday"].includes(platformFilter));
 assert.ok(Number.isInteger(jobsPerEmployer) && jobsPerEmployer >= 1 && jobsPerEmployer <= 5);
@@ -65,6 +67,7 @@ const sourceHash = createHash("sha256").update(source).update(await readFile("sr
 const harnessHash = createHash("sha256").update(await readFile(new URL(import.meta.url)))
   .update(await readFile(new URL("./lib/autofill-benchmark-oracle.mjs", import.meta.url)))
   .update(await readFile(new URL("./lib/autofill-benchmark-network.mjs", import.meta.url)))
+  .update(await readFile(new URL("./lib/autofill-benchmark-privacy.mjs", import.meta.url))).update(String(declineOptionalCookies))
   .update(await readFile(new URL("./lib/workday-benchmark.mjs", import.meta.url))).update(await readFile("src/lib/profile-history.ts")).digest("hex");
 const audit = nodes => nodes.filter(n => n.getClientRects().length && !n.closest('[hidden],[inert],[aria-hidden="true"]')).map(n => {
   const labels = n.id ? [...document.querySelectorAll(`label[for="${CSS.escape(n.id)}"]`)] : [];
@@ -238,6 +241,21 @@ try {
       // A visible SSR input is not proof that the employer's handlers have
       // hydrated. Settle public assets before blocking all writes and uploads.
       report.initializationSettled = await page.waitForLoadState("networkidle", { timeout: 5000 }).then(() => true, () => false);
+      if (declineOptionalCookies) {
+        for (const dialog of await page.getByRole("dialog").all()) {
+          if (!await dialog.isVisible()) continue;
+          try {
+            const labels = [];
+            for (const button of await dialog.getByRole("button").all()) {
+              if (await button.isVisible()) labels.push(await button.innerText());
+            }
+            const label = optionalCookieDeclineLabel(await dialog.innerText(), labels);
+            if (!label) continue;
+            await dialog.getByRole("button", { name: label, exact: true }).click({ timeout: 3000 });
+            report.optionalCookiesDeclined = true;
+          } catch (error) { report.privacySetupError = String(error).slice(0, 500); }
+        }
+      }
       report.actualUrl = page.url();
       const text = await page.locator("body").innerText({ timeout: 5000 });
       if (test.platform === "workday") {

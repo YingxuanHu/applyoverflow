@@ -42,7 +42,7 @@ Never run this recorder on private production accounts or publish private traces
 
 ## Validation On 2026-10-12
 
-- All 1,071 unit tests passed, as did typecheck, production build, package tests,
+- All 1,072 unit tests passed, as did typecheck, production build, package tests,
   database ownership/queue tests, real MV3 workspace test, submission regressions,
   structural history tests and 22 offline Workday cases. Lint has two existing
   unused-variable warnings and no errors.
@@ -73,3 +73,25 @@ Never run this recorder on private production accounts or publish private traces
 See [the compatibility benchmark](autofill-benchmark.md) for public sampling,
 network guards, independent contact oracles and interpretation of gates. Require
 separate authorized live checks for authenticated steps and actual uploads.
+
+## Expanded Public Baseline And Follow-Up
+
+The expanded 0.15.0 baseline attempted 220 URLs across 219 employers and ten
+platform families. It measured 156 post-fill forms: independent contacts retained
+643/660 values (97.4%) and planned values retained 1,115/1,181 (94.4%). Counts still
+include detected-but-unfillable controls and inaccessible forms in the relevant
+denominators. There were zero submission attempts; this is not a complete-
+application success rate.
+
+After explicitly declining optional cookies, the five accessible Workable forms
+retained 21/21 planned and 20/20 independent values. The benchmark now offers this
+bounded setup action; it never accepts agreements or bypasses authentication.
+
+The sample exposed three shared classification gaps addressed in 0.15.1:
+equal-employment-opportunity headings were incorrectly treated as work history;
+radio options named LinkedIn could inherit URL identity mappings; and an explicit
+Website-or-LinkedIn alternative was not recognized as a professional URL. New
+fixtures preserve foreign-contact exclusion and require saved disclosure choices.
+Two live disclosure retests retained 17/17 planned and 8/8 independent values.
+The same 220-URL candidate is evaluated separately against minimum form counts
+and 95% contact and planned-value retention thresholds.

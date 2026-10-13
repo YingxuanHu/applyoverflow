@@ -101,6 +101,32 @@ try {
   assert.equal(await page.evaluate(() => window.submissions), 0);
   console.log('PASS unknown-platform application detection, accessibility labels, combined location, invalid patterns and foreign-contact exclusion');
 
+  html = `<h1>Application</h1><form id="job-application-form"><label>Name<input></label><label>Email<input type="email"></label>
+    <section aria-label="U.S. Equal Employment Opportunity information"><h3>U.S. Equal Employment Opportunity information</h3>
+    ${['Gender', 'Race', 'Veteran status'].map((label, index) => `<label>${label}<select id="eeo-${index}"><option value="">Select</option><option>Decline to self-identify</option></select></label>`).join('')}</section>
+    <fieldset><legend>Reference details</legend><label>Email<input id="reference-email" type="email"></label></fieldset></form>`;
+  await load('https://careers.fixture.example/application');
+  await scan('autofill', { contact: { email: 'jordan@example.test' } });
+  assert.deepEqual(await page.locator('select').evaluateAll(nodes => nodes.map(node => node.value)), ['', '', ''], 'disclosures are never inferred');
+  const disclosures = await scan('autofill', { commonAnswers: ['Gender', 'Race', 'Veteran status'].map((label, index) => ({
+    label, answer: 'Prefer not to answer', answerKey: ['gender', 'ethnicity', 'veteran'][index], alternatives: ['Decline to self-identify'],
+  })) });
+  assert.equal(disclosures.fields.filter(field => field.kind === 'select' && field.state === 'filled').length, 3, JSON.stringify(disclosures.fields));
+  assert.deepEqual(await page.locator('select').evaluateAll(nodes => nodes.map(node => node.value)), Array(3).fill('Decline to self-identify'));
+  assert.equal(await page.locator('#reference-email').inputValue(), '');
+  console.log('PASS employment-opportunity headings allow explicit disclosure preferences without filling reference data');
+
+  html = `<h1>Application</h1><form id="job-application-form"><label>Name<input></label><label>Email<input type="email"></label>
+    <label>Website or LinkedIn Profile<input id="profile-url"></label><fieldset><legend>How did you hear about us?</legend>
+    <label><input type="radio" name="source" value="linkedin">LinkedIn</label><label><input id="other-source" type="radio" name="source" value="other">Other</label></fieldset></form>`;
+  await load('https://careers.fixture.example/application');
+  const sourceChoice = await scan('autofill', { contact: { professionalUrl: 'https://www.linkedin.com/in/example', linkedInUrl: 'https://www.linkedin.com/in/example' },
+    commonAnswers: [{ label: 'How did you hear about us?', answer: 'Other', answerKey: 'jobSource' }] });
+  assert.equal(await page.locator('#profile-url').inputValue(), 'https://www.linkedin.com/in/example');
+  assert.equal(await page.locator('#other-source').isChecked(), true);
+  assert.equal(sourceChoice.fields.find(field => field.kind === 'radio')?.profileKey, undefined, 'an option named LinkedIn is not a URL field');
+  console.log('PASS radio option names never inherit applicant identity mappings');
+
   const question = 'Will you require sponsorship for employment now or in the future?';
   html = `<h1>Application</h1><form id="job-application-form"><label>First name<input></label><label>Email<input type="email"></label>
     <label>Phone<input id="phone" type="tel" pattern="\\+1[0-9]{10}"></label><div><p>${question}</p>${'<div>'.repeat(6)}
