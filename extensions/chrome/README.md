@@ -1,5 +1,52 @@
 # Application Assistant Preview
 
+## Auto Apply workspace (0.15.0)
+
+`/applications/auto-apply` joins matching, the preparation queue, employer-form
+review and separately approved submission. Matches reuse Picks for you's scoring
+and requirements, including current location, remote-only arrangements and named
+relocation destinations. Relocation is edited in job matching settings; legacy
+saved answers are preserved, and saving matching settings never enables sharing.
+
+- Queue entries reuse `TrackedApplication` in `PREPARING`. Removing an entry
+  returns it to Wishlist without deleting notes or documents. Applied, expired,
+  manual-only and newly incompatible jobs cannot be prepared again.
+- The matching web release and extension are both required. A signed, expiring
+  capability binds one account, tracked application and employer URL. The bridge
+  accepts only the exact app origin's top-level Auto Apply page. The extension
+  independently verifies its account and binds a dedicated employer tab to the
+  requesting workspace document. Other tabs cannot read or mutate the form.
+- Opening the tab does not export a profile. Preparation requires consent and
+  runs the existing Autofill engine. Review reads actual current DOM values.
+  Native answer edits are revision/identity checked and read back after events;
+  changed values are never blindly overwritten. Sensitive controls are excluded.
+  Answer values stay in memory, not extension storage or logs.
+- Read-only custom widgets, upload completion, sign-in, CAPTCHA, multiple steps
+  and unsupported required controls remain explicit employer-form work. Readiness
+  is independent of Autofill's counters. Only validated final forms can receive a
+  one-use 90-second approval. Editing or changing the employer form invalidates it.
+- Submission is one job at a time, with document review and final confirmation.
+  An uncertain response locks retries; only an explicit employer confirmation
+  records Applied. There is no unattended batch submission or universal ATS claim.
+
+Verification commands:
+
+```sh
+npm run extension:test:workspace
+npm run extension:test:submission
+NODE_PATH=./node_modules/next/dist/compiled node --conditions=react-server --import tsx tests/integration/auto-apply-workspace.ts
+npm run test:auto-apply:ui
+```
+
+The first test runs the actual packaged MV3 bridge, Autofill, field edits and
+submission engine against intercepted synthetic employer pages. The database
+test checks ownership, stale capabilities/requirements, expired jobs and queue
+idempotence. The UI test uses the real local app/database and a temporary account,
+with synthetic extension transport, at 1440/390/320px. It covers match-to-queue
+navigation, consent, independent pending edits, discard confirmation, review
+approval, unknown-outcome recovery and relocation persistence.
+No real employer submissions or production-profile changes occur in these tests.
+
 ## Compatibility follow-up (0.14.3)
 
 - Non-modal cookie notices do not block Autofill; actual modal agreements still
@@ -59,7 +106,8 @@ No files were uploaded and no Next/Submit actions were taken on these pages.
   of the uploaded documents and upload completion; selection is not ATS acceptance.
 - The 90-second approval binds exact controls, values, question/declaration text,
   document, URL and button. Any change requires another review. Only the trusted
-  extension popup can approve submission; employer content scripts cannot.
+  extension popup or authenticated Auto Apply workspace can approve submission;
+  employer content scripts cannot.
 - An account/job-hashed local attempt marker is written before clicking and
   survives worker/browser restart. No automatic retries after uncertain outcomes.
   The existing tracker is checked for duplicate applications before approval and

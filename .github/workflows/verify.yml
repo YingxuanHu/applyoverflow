@@ -25,8 +25,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://test:test@localhost:5432/applyoverflow_test
       BETTER_AUTH_SECRET: test-only-ci-secret-not-for-deployment
-      BETTER_AUTH_URL: http://localhost:3000
-      NEXT_PUBLIC_BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3000
+      APPLICATION_EXTENSION_IDS: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      TOP_PICKS_INLINE_REFRESH_KICK: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,8 +46,13 @@ jobs:
       - run: npm run extension:test:modern
       - run: npm run extension:test:choices
       - run: npm run extension:test:submission
+      - run: npm run extension:test:workspace
       - name: Verify extension connection and submission tracking
         run: node --conditions=react-server --import tsx tests/integration/application-assistant.ts
+        env:
+          NODE_PATH: ./node_modules/next/dist/compiled
+      - name: Verify Auto Apply queue and ownership
+        run: node --conditions=react-server --import tsx tests/integration/auto-apply-workspace.ts
         env:
           NODE_PATH: ./node_modules/next/dist/compiled
       - run: npm run extension:test:workday
@@ -69,3 +76,23 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: node scripts/pdf-parser-smoke.mjs .next/standalone
+      - name: Benchmark Auto Apply UI and recovery workflows
+        env:
+          TEST_APP_URL: http://127.0.0.1:3000
+        run: |
+          node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000 > /tmp/workspace-server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:auto-apply:ui
+      - name: Keep workflow screenshots, traces and benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-workflow-benchmark
+          path: output/playwright/auto-apply/
+          retention-days: 14
+          if-no-files-found: ignore

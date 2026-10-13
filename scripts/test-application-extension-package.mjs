@@ -45,6 +45,7 @@ for (const [args, name] of [
       "question-review.mjs",
       "recovery.mjs",
       "sites.mjs",
+      "workspace-bridge.mjs",
     ].sort(),
   );
   const manifest = JSON.parse(strFromU8(files["manifest.json"]));
@@ -57,7 +58,7 @@ for (const [args, name] of [
     "storage",
     "identity",
   ]);
-  assert.ok(!manifest.externally_connectable);
+  assert.deepEqual(manifest.externally_connectable, { matches: ["https://applyoverflow.com/*"], ids: [] });
   assert.equal("key" in manifest, name !== "store");
   assert.equal(
     manifest.name,

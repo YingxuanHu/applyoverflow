@@ -4,7 +4,7 @@ import { createAutofillInspector } from "./autofill.mjs";
 
 // The build serializes this factory and the shared URL resolver into an isolated
 // world. No remote code, page globals, or page-provided messages are evaluated.
-export function createInspector(resolveContext, history, autofill, submission) {
+export function createInspector(resolveContext, history, autofill, submission, workspace) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
   let undoEntries = [],
@@ -377,6 +377,13 @@ export function createInspector(resolveContext, history, autofill, submission) {
     if (mode === "submission-preview" || mode === "submission-commit") {
       if (!submission) return { error: "Reload the extension before reviewing submission." };
       return submission(mode === "submission-preview" ? "prepare" : "commit", forms[0], labelFor, contact);
+    }
+    if (mode === "workspace-review" || mode === "workspace-edit") {
+      if (!workspace) return { error: "Update the extension to use the application workspace." };
+      if (blockingDialog) return { error: "Complete or close the dialog on the employer form before reviewing." };
+      if (mode === "workspace-edit") submission?.("cancel", forms[0], labelFor);
+      try { return await workspace(mode === "workspace-edit" ? "edit" : "read", forms[0], labelFor, contact); }
+      catch (error) { return { error: error.message || "Could not read or update this field. Refresh the review before retrying." }; }
     }
     const fields = [...forms[0].querySelectorAll(controlSelector)].filter(
       (field) =>

@@ -7,6 +7,7 @@ import { normalizeUserTimeZone, USER_TIME_ZONE_COOKIE } from "@/lib/time-zone";
 
 import { type ApplicationReminderGroup } from "@/components/applications/application-reminders-summary";
 import { ApplicationsPageClient } from "@/components/applications/applications-page-client";
+import { WorkflowTabs } from "@/components/applications/workflow-tabs";
 import { ApplicationsOverviewBar } from "@/components/applications/applications-overview-bar";
 import { Button } from "@/components/ui/button";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
@@ -360,6 +361,7 @@ export default async function ApplicationsPage({
         </div>
       </div>
 
+      <WorkflowTabs active="tracker" />
       <ApplicationsPageClient
         applications={data.applications}
         flowApplications={flowApplications}

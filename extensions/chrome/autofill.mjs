@@ -78,6 +78,7 @@ export function createAutofillInspector() {
   const equivalent = (a, b, key) => {
     const canonical = value => {
       const text = norm(value);
+      if (key === "jobSource") return text.replace(/\s*\((?:please specify(?: below)?|e\.?g\.?[, :].*)\)\s*$/, "").trim();
       if (key === "phone") {
         const digits = text.replace(/\D/g, "");
         return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
@@ -248,7 +249,7 @@ export function createAutofillInspector() {
       const invalid = hasValue && validity(field) === false;
       const condition = profileGuidance.get(norm(item.label))?.dependsOn;
       const parents = condition ? items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === condition.answerKey) : [];
-      const notApplicable = item.notApplicable && (!condition || (parents.length === 1 && safe(parents[0]) && equivalent(readItem(parents[0]), condition.answer)));
+      const notApplicable = item.notApplicable && (!condition || (parents.length === 1 && safe(parents[0]) && equivalent(readItem(parents[0]), condition.answer, condition.answerKey)));
       const today = new Date();
       const date = [String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")];
       const availability = /^(?:date available|availability date|earliest (?:start|starting) date|available from)\s*[*:]?$/i.test(item.label);
@@ -367,7 +368,7 @@ export function createAutofillInspector() {
         const parents = items.filter(parent => confirmedQuestions.get(norm(parent.label))?.answerKey === saved.dependsOn.answerKey);
         const parent = parents.length === 1 ? parents[0] : null;
         const selected = parent?.kind === "select" ? parent.field.selectedOptions[0]?.textContent : parent && readItem(parent);
-        if (!parent || !safe(parent) || !equivalent(selected, saved.dependsOn.answer)) {
+        if (!parent || !safe(parent) || !equivalent(selected, saved.dependsOn.answer, saved.dependsOn.answerKey)) {
           item.reason = selected ? "Not applicable to the selected answer. Left blank." : "Select the preceding answer first.";
           item.notApplicable = Boolean(selected) && !item.required;
           return false;
@@ -380,7 +381,7 @@ export function createAutofillInspector() {
         else if (/dd\/mm\/yyyy/.test(format)) value = `${day}/${month}/${year}`;
         else if (/dd-mm-yyyy/.test(format)) value = `${day}-${month}-${year}`;
       }
-      const optionMatches = (text, candidate = value) => equivalent(text, candidate, item.profileKey);
+      const optionMatches = (text, candidate = value) => equivalent(text, candidate, item.profileKey || saved?.answerKey);
       const matchingOptions = options => {
         const exact = options.filter(option => optionMatches(option.textContent));
         if (exact.length || !saved || saved.answer !== value) return exact;

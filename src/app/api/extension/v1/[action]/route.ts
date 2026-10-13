@@ -26,6 +26,7 @@ import { revalidateTrackerOverviewViews } from "@/lib/revalidation";
 import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension-autofill";
 import { suggestApplicationAnswer } from "@/lib/queries/extension-suggestions";
 import { extensionValidationFields } from "@/lib/extension-errors";
+import { resolveAutoApplyTarget } from "@/lib/queries/auto-apply";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -42,6 +43,7 @@ export async function POST(
         "token",
         "contact",
         "connection-status",
+        "workspace-target",
         "history",
         "history-entry",
         "applied",
@@ -76,6 +78,7 @@ export async function POST(
     )
       return json({ error: "Too many requests. Try again shortly." }, 429);
     if (action === "connection-status") return json({ connected: true });
+    if (action === "workspace-target") return json(await resolveAutoApplyTarget(identity.userId, body.data));
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));
     if (action === "submission-check")

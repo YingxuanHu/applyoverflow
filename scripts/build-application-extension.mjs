@@ -6,6 +6,7 @@ import { createInspector } from "../extensions/chrome/adapter.mjs";
 import { createHistoryInspector } from "../extensions/chrome/history.mjs";
 import { createAutofillInspector } from "../extensions/chrome/autofill.mjs";
 import { createSubmissionInspector } from "../extensions/chrome/submission.mjs";
+import { createWorkspaceReviewer } from "../extensions/chrome/workspace-review.mjs";
 import { installIndicator } from "../extensions/chrome/indicator.mjs";
 import { createFillProgress } from "../extensions/chrome/fill-progress.mjs";
 import { createRecoveryView } from "../extensions/chrome/recovery.mjs";
@@ -65,6 +66,7 @@ for (const file of [
   "answer-runner.mjs",
   "question-policy.mjs",
   "recovery.mjs",
+  "workspace-bridge.mjs",
 ])
   await cp(`extensions/chrome/${file}`, `${destination}/${file}`);
 await cp("public/brand/applyoverflow-favicon.png", `${destination}/icon.png`);
@@ -74,7 +76,7 @@ await writeFile(
 );
 await writeFile(
   `${destination}/adapter-runtime.js`,
-  `if (globalThis.__applyOverflowBuild !== ${JSON.stringify(buildId)}) {\n try { globalThis.__applyOverflowIndicator?.stop(); } catch { delete globalThis.__applyOverflowIndicator; }\n globalThis.__applyOverflowSubmission = (${createSubmissionInspector.toString()})();\n globalThis.__applyOverflowInspect = (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})(), globalThis.__applyOverflowSubmission);\n globalThis.__applyOverflowBuild = ${JSON.stringify(buildId)};\n}\n`,
+  `if (globalThis.__applyOverflowBuild !== ${JSON.stringify(buildId)}) {\n try { globalThis.__applyOverflowIndicator?.stop(); } catch { delete globalThis.__applyOverflowIndicator; }\n globalThis.__applyOverflowSubmission = (${createSubmissionInspector.toString()})();\n globalThis.__applyOverflowInspect = (${createInspector.toString()})(${applicationContext.toString()}, (${createHistoryInspector.toString()})(), (${createAutofillInspector.toString()})(), globalThis.__applyOverflowSubmission, (${createWorkspaceReviewer.toString()})());\n globalThis.__applyOverflowBuild = ${JSON.stringify(buildId)};\n}\n`,
 );
 await writeFile(
   `${destination}/indicator.js`,
@@ -93,6 +95,7 @@ await writeFile(
         "Autofill applications from your profile. Review and approve each supported submission; no automatic batch applications.",
       permissions: ["activeTab", "scripting", "storage", "identity"],
       host_permissions: [`${origin}/*`],
+      externally_connectable: { matches: [`${origin}/*`], ids: [] },
       optional_host_permissions: [...SITE_ORIGINS, ...APPLICATION_ORIGINS],
       background: { service_worker: "background.mjs", type: "module" },
       action: { default_popup: "popup.html", default_icon: "icon.png" },

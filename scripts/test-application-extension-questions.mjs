@@ -107,6 +107,18 @@ try {
     assert.ok(!await review.evaluate(() => document.documentElement.scrollWidth > innerWidth));
     await review.evaluate(fields => { window.renderReview([]); window.renderReview(fields); }, fields);
     assert.equal(await review.getByRole("textbox", { name: /^Answer: Why/ }).inputValue(), "", "Clearing an account's questions discards drafts before reconnecting");
+    for (const choices of [['Other (Please specify below)'], ['Job Board (e.g., LinkedIn, Indeed, Glassdoor)'], ['Other (Please specify below)', 'Other']]) {
+      await page.setContent(`<h1>Job application</h1><form><label>First Name<input name="first_name"></label><label>Email<input name="email" type="email"></label><label>Resume<input type="file"></label><label>How did you hear about this job?<select id="source"><option value="">Choose</option>${choices.map((text, i) => `<option value="${i + 1}">${text}</option>`).join('')}</select></label><label>If other, please specify<input id="details"></label><button>Submit application</button></form>`);
+      await page.evaluate(code => window.inspect = (0, eval)(code), runtime);
+      const ambiguous = choices.length > 1;
+      const result = await inspect('autofill', { contact: {}, commonAnswers: [
+        { label: 'How did you hear about this job?', answer: 'ApplyOverflow', answerKey: 'jobSource', alternatives: ['Other', 'Job Board'] },
+        { label: 'If other, please specify', answer: 'ApplyOverflow', answerKey: 'sourceDetails', dependsOn: { answerKey: 'jobSource', answer: 'Other' } },
+      ] });
+      assert.equal(await page.locator('#source').inputValue(), ambiguous ? '' : '1', `instructional suffixes: ${JSON.stringify({ choices, result })}`);
+      assert.equal(await page.locator('#details').inputValue(), !ambiguous && choices[0].startsWith('Other') ? 'ApplyOverflow' : '', 'conditional details follow the actual source selection');
+      assert.equal(result.error, undefined);
+    }
     console.log("PASS real-shaped dropdowns, flag/phone readback, async city selection, ambiguity, preservation, compact editable draft workflow, privacy and no submission");
   }
 } finally { await browser.close(); }

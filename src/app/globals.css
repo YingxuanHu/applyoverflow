@@ -217,6 +217,19 @@
     --page-width: 75rem;
   }
 
+  .auto-apply-layout {
+    display: grid;
+    min-width: 0;
+    gap: 1.25rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 1024px) {
+    .auto-apply-layout {
+      grid-template-columns: 17rem minmax(0, 1fr);
+    }
+  }
+
   .job-workspace {
     @apply grid min-w-0 gap-5 lg:items-stretch;
   }

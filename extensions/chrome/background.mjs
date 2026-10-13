@@ -3,6 +3,7 @@ import { detectionOrigins, applicationContext, sameApplication } from "./sites.m
 import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 import { recoveryForError, stoppedFields, planQuestions } from "./recovery.mjs";
+import { createWorkspaceBridge, allowedWorkspaceSender } from "./workspace-bridge.mjs";
 
 let verifiedConnection = null;
 const recovery = (error, action) => {
@@ -159,7 +160,7 @@ async function clearAccountSession() {
       (key) =>
         key === "connection" ||
         key === "appliedPreview" ||
-        key.startsWith("application:") || key.startsWith("autofill:") || key.startsWith("submission:"),
+        key.startsWith("application:") || key.startsWith("autofill:") || key.startsWith("submission:") || key.startsWith("workspace:"),
     ),
   );
   await notifyConnectionChanged();
@@ -286,7 +287,7 @@ async function submissionOutcome(preview) {
   });
   return submissionPageMatches(result?.result?.url, preview.url) ? result.result.outcome : "unverified";
 }
-async function handle(type, sender, message = {}) {
+async function handle(type, sender, message = {}, workspaceTab = null) {
   if (type === "version") return { activeAction: working, message: working ? workingMessage() : "Ready." };
   if (["extension-help", "chrome-extensions", "open-profile"].includes(type)) {
     await chrome.tabs.create({ url: type === "chrome-extensions" ? `chrome://extensions/?id=${chrome.runtime.id}` :
@@ -483,9 +484,9 @@ async function handle(type, sender, message = {}) {
     ].includes(type)
   )
     throw new Error("This extension needs an update. Reload it in Chrome, then refresh the application page.");
-  const tab = fromPage
+  const tab = workspaceTab || (fromPage
     ? sender.tab
-    : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]);
   if (!tab?.id) throw new Error("Open the employer application tab first.");
   if (type.startsWith("submission-")) {
     if (fromPage) throw new Error("Submission approval is only available in the Chrome toolbar.");
@@ -946,6 +947,14 @@ async function handle(type, sender, message = {}) {
       : "Questions opened in ApplyOverflow. Nothing submitted.",
   };
 }
+
+const workspaceBridge = createWorkspaceBridge({ origin: APP_ORIGIN, api, inspect, inspectActive, handle, sameApplication,
+  busy: () => working, setBusy: value => { working = value; }, version: chrome.runtime.getManifest?.().version || BUILD_ID });
+chrome.runtime.onMessageExternal?.addListener((message, sender, respond) => {
+  if (!allowedWorkspaceSender(sender, APP_ORIGIN)) return false;
+  workspaceBridge(message, sender).then(respond).catch(error => respond({ error: error.message || "Workspace action failed. Check the employer tab before retrying." }));
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return false;

@@ -19,7 +19,7 @@ export function createSubmissionInspector() {
   ])].filter(visible);
   const finalButton = node => /^(?:submit|submit (?:my |your )?application|send (?:my |your )?application)$/i.test(text(node));
   const confirmations = () => [...document.querySelectorAll('h1,h2,[role="status"],[role="alert"]')].filter(visible)
-    .some(node => /^(?:thank you for (?:your application|applying)[.!]?|(?:your )?application (?:has been |was )?(?:successfully )?(?:submitted|received)[.!]?|we have received your application[.!]?)$/i.test(text(node)));
+    .some(node => /^(?:thank you for (?:your application|applying)[.!]?|(?:your )?application (?:has been |was )?(?:successfully )?(?:submitted|received)(?: successfully)?[.!]?|we have received your application[.!]?)$/i.test(text(node)));
   const clear = () => {
     clearTimeout(expiryTimer);
     approval?.root.removeEventListener("submit", approval.invalidate, true);

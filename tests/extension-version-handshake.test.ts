@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { recoveryForError } from "../extensions/chrome/recovery.mjs";
-import { applicationContext, detectionOrigins } from "../extensions/chrome/sites.mjs";
+import { applicationContext, detectionOrigins, sameApplication } from "../extensions/chrome/sites.mjs";
+import { createWorkspaceBridge, allowedWorkspaceSender } from "../extensions/chrome/workspace-bridge.mjs";
 
 type Message = { type: string; buildId?: string };
 type Sender = { id: string; url: string; tab?: { id: number }; frameId?: number; documentId?: string };
@@ -30,8 +31,8 @@ function worker() {
     .replace(/^import .*;$/gm, "");
   runInNewContext(source, {
     chrome, APP_ORIGIN: "https://applyoverflow.com", BUILD_ID: "current-build",
-    detectionOrigins, applicationContext, fetch: forbidden, URL,
-    recoveryForError,
+    detectionOrigins, applicationContext, sameApplication, fetch: forbidden, URL,
+    recoveryForError, createWorkspaceBridge, allowedWorkspaceSender,
   });
   assert.ok(listener);
   return { receive: listener, sensitiveCalls: () => sensitiveCalls };
