@@ -64,9 +64,9 @@ Never run this recorder on private production accounts or publish private traces
   gates. These are unresolved coverage boundaries, not claimed successes.
 - Six additional public Workday employers all stopped at sign-in. No authenticated
   Workday completion is claimed by this release's public run.
-- The 24-case live AI quality evaluation could not run: local configuration lacks
-  `OPENAI_API_KEY`. Its failed report is retained, not counted as a pass. Existing
-  deterministic answer-validation tests passed; they do not replace a model run.
+- The first local live AI evaluation could not run because local configuration
+  lacks `OPENAI_API_KEY`. Its failed report is retained. A later isolated run with
+  the configured production models passed all 24 cases, as detailed below.
 - No real employer application was submitted, no private resume was uploaded,
   and no real credentials were used by these benchmarks.
 
@@ -95,3 +95,31 @@ fixtures preserve foreign-contact exclusion and require saved disclosure choices
 Two live disclosure retests retained 17/17 planned and 8/8 independent values.
 The same 220-URL candidate is evaluated separately against minimum form counts
 and 95% contact and planned-value retention thresholds.
+
+The final 0.15.1 candidate passed all three thresholds: 157 measurable forms,
+648/664 independent contact values (97.6%) and 1,155/1,186 planned values (97.4%).
+There were 24 explicit access gates and zero submission attempts. The sample and
+synthetic profile were unchanged; privacy setup handling was made more robust,
+and some live pages changed between runs, so this is not a controlled causal
+performance experiment. The remaining gaps include unavailable forms, unknown
+catalog entries, ambiguous options, unsupported controls and blocked dialogs.
+These results do not certify every platform or every application field.
+
+The 24-case live answer evaluation passed with the configured `gpt-5.4-mini` and
+`gpt-5.4-nano` models. It covers evidence-grounded experience answers, hypothetical
+technical explanations, finance/marketing questions, missing-fact abstention,
+word limits and misleading question instructions. Median case time was 2,371ms
+and p95 was 4,284ms. An independent disposable PostgreSQL container held only
+synthetic evaluation budgets; the evaluator shared that container's loopback
+network and received only the AI configuration, never production database
+credentials. Both test containers and the temporary configuration were removed.
+The synthetic report is retained under ignored
+`output/evaluations/application-answers/production-model-96d0322.json`.
+
+Production was deployed in three product batches and returned revision
+`96d0322280c666ffd282d2dcc47d00ff23ed2ba4`; its public extension ZIP was verified as
+0.15.1. During the final restart, 59/60 five-second health probes returned ready.
+One response was empty or invalid JSON during container replacement; the next
+probe was ready on the new revision. This deployment is not zero-downtime.
+The normal Chrome extension files were updated, but browser Reload/connection
+verification was blocked by the locked Mac and is not claimed as completed.
