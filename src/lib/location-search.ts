@@ -197,6 +197,12 @@ const METRO_ENTRIES: LocationDictionaryEntry[] = [
   },
 ];
 
+export function exactLocationRegion(place: string): LocationSearchRegion | null {
+  const entries = matchEntries(place, [...COUNTRY_ENTRIES, ...SUBDIVISION_ENTRIES, ...METRO_ENTRIES]);
+  const regions = new Set(entries.map(entry => entry.region));
+  return regions.size === 1 ? entries[0].region : null;
+}
+
 /** Exact membership, not substring search. Unknown places never imply "No". */
 export function applicantLivesIn(area: string, contact: { city?: string; region?: string; country?: string }): boolean | undefined {
   const city = normalizeLookupText(contact.city || "");

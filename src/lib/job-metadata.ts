@@ -115,6 +115,15 @@ export const EMPLOYMENT_TYPE_FILTER_CONFIDENCE_THRESHOLD = 0.72;
 export const INDUSTRY_FILTER_CONFIDENCE_THRESHOLD = COMPANY_INDUSTRY_FILTER_CONFIDENCE_THRESHOLD;
 export const METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD = 0.6;
 
+export function trustedWorkMode<T extends string>(job: {
+  workMode: T;
+  workModeConfidence?: number | null;
+  workModeStatus?: string | null;
+}): T | "UNKNOWN" {
+  return (job.workModeConfidence !== undefined && (job.workModeConfidence ?? 0) < METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD) ||
+    ["missing", "quarantine", "rejected"].includes(job.workModeStatus ?? "") ? "UNKNOWN" : job.workMode;
+}
+
 type TaxonomyOption<T extends string> = {
   label: string;
   value: T;

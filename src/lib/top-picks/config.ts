@@ -12,7 +12,7 @@ export const TOP_PICKS_ACTIVE_USER_DAYS =
 export const TOP_PICKS_RESULT_TTL_MS =
   TOP_PICKS_REFRESH_MAX_AGE_MINUTES * 60_000;
 
-export const TOP_PICKS_ALGORITHM_VERSION = "top-picks-v3";
+export const TOP_PICKS_ALGORITHM_VERSION = "top-picks-v4";
 
 export const TOP_PICK_SCORING_WEIGHTS = {
   roleFit: 28,

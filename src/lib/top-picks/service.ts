@@ -5,6 +5,7 @@ import {
   type WorkMode,
 } from "@/generated/prisma/client";
 import { normalizeSalaryCurrency } from "@/lib/currency-conversion";
+import { trustedWorkMode } from "@/lib/job-metadata";
 import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
 import { JOB_GOALS_KEY, parseJobGoals } from "@/lib/profile-setup";
 import { loadScoringDescriptions } from "@/lib/top-picks/source-descriptions";
@@ -16,6 +17,7 @@ import {
   normalizeExperiences,
   normalizeProjects,
   normalizeSkills,
+  normalizeContact,
 } from "@/lib/profile";
 
 import {
@@ -137,6 +139,8 @@ const TOP_PICK_SCORING_JOB_SELECT = {
   company: true,
   location: true,
   workMode: true,
+  workModeConfidence: true,
+  workModeStatus: true,
   status: true,
   normalizedRoleCategory: true,
   normalizedRoleCategoryConfidence: true,
@@ -234,6 +238,7 @@ async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, 
       educationText: true,
       projectsText: true,
       skillsJson: true,
+      contactJson: true,
       experiencesJson: true,
       educationsJson: true,
       projectsJson: true,
@@ -320,7 +325,7 @@ async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, 
     targetTitles: goals?.targetTitles,
     preferredLocation: goals?.preferredLocation,
     preferredCountry: goals?.country,
-    requirements: parseRequirements(requirements?.value),
+    requirements: parseRequirements(requirements?.value, normalizeContact(profile.contactJson).applicationAnswers?.values.relocation),
     userId: profile.id,
     profileVersion: existing?.profileVersion ?? 1,
     headline: profile.headline,
@@ -808,7 +813,7 @@ function toScoringJob(job: TopPickScoringJobRecord): TopPickScoringJob {
     title: job.title,
     company: job.company,
     location: job.location,
-    workMode: job.workMode,
+    workMode: trustedWorkMode(job),
     status: job.status,
     normalizedRoleCategory: job.normalizedRoleCategory,
     normalizedRoleCategoryConfidence: job.normalizedRoleCategoryConfidence,

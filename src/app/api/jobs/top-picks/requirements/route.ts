@@ -17,6 +17,8 @@ import {
 } from "@/lib/top-picks/requirements";
 import { enqueueDurableTopPicksRefresh } from "@/lib/top-picks/refresh-queue";
 import { revalidatePaths } from "@/lib/revalidation";
+import { normalizeContact } from "@/lib/profile";
+import { normalizeApplicationAnswers } from "@/lib/profile-application-answers";
 
 export async function GET() {
   try {
@@ -24,7 +26,8 @@ export async function GET() {
     const row = await prisma.userPreference.findUnique({
       where: { userId_key: { userId, key: REQUIREMENTS_KEY } },
     });
-    return successResponse(parseRequirements(row?.value));
+    const profile = await prisma.userProfile.findUniqueOrThrow({ where: { id: userId }, select: { contactJson: true } });
+    return successResponse(parseRequirements(row?.value, normalizeContact(profile.contactJson).applicationAnswers?.values.relocation));
   } catch (error) {
     return handleApiRouteError(
       error,
@@ -54,6 +57,12 @@ export async function PUT(request: NextRequest) {
     await prisma.$transaction(async (tx) => {
       // Serialize settings with profile snapshots and recommendation publication.
       await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${userId} FOR UPDATE`;
+      const profile = await tx.userProfile.findUniqueOrThrow({ where: { id: userId } });
+      const contact = normalizeContact(profile.contactJson);
+      const answers = normalizeApplicationAnswers(contact.applicationAnswers);
+      if (parsed.data.relocation === "UNSPECIFIED") delete answers.values.relocation;
+      else answers.values.relocation = parsed.data.relocation === "YES" ? "Yes" : "No";
+      await tx.userProfile.update({ where: { id: userId }, data: { contactJson: { ...contact, applicationAnswers: answers } } });
       await tx.userPreference.upsert({
         where: { userId_key: { userId, key: REQUIREMENTS_KEY } },
         create: {
@@ -78,7 +87,7 @@ export async function PUT(request: NextRequest) {
       reason: "requirements_changed",
       priorityScore: 75,
     });
-    revalidatePaths(["/profile", "/jobs/top-picks"]);
+    revalidatePaths(["/profile", "/jobs/top-picks", "/applications/auto-apply"]);
     return successResponse({ success: true });
   } catch (error) {
     return handleApiRouteError(

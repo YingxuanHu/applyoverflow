@@ -11,7 +11,7 @@ import {
 import { prisma } from "@/lib/db";
 import { contactToProfileColumnUpdates } from "@/lib/profile-contact-sync";
 import { historyValidationError } from "@/lib/profile-history";
-import { profileApplicationAnswersSchema } from "@/lib/profile-application-answers";
+import { normalizeApplicationAnswers, profileApplicationAnswersSchema } from "@/lib/profile-application-answers";
 import {
   buildProfileTextCopies,
   normalizeContact,
@@ -238,8 +238,6 @@ export async function saveProfile(
     legacyEducationText,
   });
   const skillsJson = skills.length > 0 ? skills : Prisma.DbNull;
-  const hasContact = Boolean(contact.applicationAnswers) || Object.values(contact).some((value) => typeof value === "string" ? value.length > 0 : value === true);
-  const contactJson = hasContact ? contact : Prisma.DbNull;
   const educationsJson = educations.length > 0 ? educations : Prisma.DbNull;
   const experiencesJson = experiences.length > 0 ? experiences : Prisma.DbNull;
   const projectsJson = projects.length > 0 ? projects : Prisma.DbNull;
@@ -248,33 +246,44 @@ export async function saveProfile(
   // exports, and ranking snapshots can read them without unpacking contactJson.
   const contactColumns = contactToProfileColumnUpdates(contact);
 
-  await prisma.userProfile.update({
-    where: {
-      id: user.id,
-    },
-    data: {
-      location: contactColumns.location || location || null,
-      headline: headline || null,
-      summary: summary || null,
-      skillsText: textCopies.skillsText,
-      experienceText: textCopies.experienceText,
-      educationText: textCopies.educationText,
-      projectsText: textCopies.projectsText,
-      contactJson,
-      skillsJson,
-      educationsJson,
-      experiencesJson,
-      projectsJson,
-      phone: contactColumns.phone,
-      linkedinUrl: contactColumns.linkedinUrl,
-      githubUrl: contactColumns.githubUrl,
-      portfolioUrl: contactColumns.portfolioUrl,
-    },
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${user.id} FOR UPDATE`;
+    const current = await tx.userProfile.findUniqueOrThrow({ where: { id: user.id }, select: { contactJson: true } });
+    // Relocation is edited in matching settings. A stale profile form must not
+    // overwrite that separately saved preference or change sharing consent.
+    const relocation = normalizeContact(current.contactJson).applicationAnswers?.values.relocation;
+    const applicationAnswers = normalizeApplicationAnswers(contact.applicationAnswers);
+    if (relocation) applicationAnswers.values.relocation = relocation;
+    else delete applicationAnswers.values.relocation;
+    const contactJson = { ...contact, applicationAnswers };
+    await tx.userProfile.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        location: contactColumns.location || location || null,
+        headline: headline || null,
+        summary: summary || null,
+        skillsText: textCopies.skillsText,
+        experienceText: textCopies.experienceText,
+        educationText: textCopies.educationText,
+        projectsText: textCopies.projectsText,
+        contactJson,
+        skillsJson,
+        educationsJson,
+        experiencesJson,
+        projectsJson,
+        phone: contactColumns.phone,
+        linkedinUrl: contactColumns.linkedinUrl,
+        githubUrl: contactColumns.githubUrl,
+        portfolioUrl: contactColumns.portfolioUrl,
+      },
+    });
   });
   await invalidateTopPicksForUser(user.id);
 
   revalidateProfileViews();
-  revalidatePaths(["/jobs", "/jobs/top-picks"]);
+  revalidatePaths(["/jobs", "/jobs/top-picks", "/applications/auto-apply"]);
 
   return {
     error: null,

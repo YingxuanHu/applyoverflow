@@ -1,18 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Save, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, Save, SlidersHorizontal, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type MatchRequirements } from "@/lib/top-picks/requirements";
 
 export function MatchRequirementsForm({
   initial,
+  homeLocation = "",
+  onSaved,
+  defaultOpen = false,
 }: {
   initial: MatchRequirements;
+  homeLocation?: string;
+  onSaved?: () => Promise<void>;
+  defaultOpen?: boolean;
 }) {
   const [value, setValue] = useState(initial);
+  const [expanded, setExpanded] = useState(defaultOpen);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [destination, setDestination] = useState("");
   const activeCount = [
     value.country !== "ANY",
     value.minimumSalary !== null,
@@ -20,14 +28,15 @@ export function MatchRequirementsForm({
     value.employmentTypes.length > 0,
     value.sponsorshipRequired,
     value.unknownPolicy === "exclude",
+    value.relocation !== "UNSPECIFIED",
   ].filter(Boolean).length;
   const field =
     "mt-1 h-10 w-full rounded-md border border-border bg-background px-3 text-sm";
   return (
-    <details className="group mt-5 border-t border-border/70">
+    <details id="job-matching" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)} className="group mt-5 border-t border-border/70">
       <summary className="flex min-h-12 cursor-pointer list-none flex-wrap items-center gap-2 py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <SlidersHorizontal aria-hidden="true" className="size-4 text-muted-foreground" />
-        Requirements for Picks for you
+        Job matching & relocation
         <span className="text-xs font-normal text-muted-foreground">{activeCount ? `${activeCount} active` : "Optional"}</span>
         <ChevronDown aria-hidden="true" className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
@@ -44,7 +53,8 @@ export function MatchRequirementsForm({
             body: JSON.stringify(value),
           });
           if (!response.ok) throw new Error();
-          setMessage("Requirements saved. Picks are being refreshed.");
+          setMessage("Requirements saved. Picks and Auto Apply matches are being refreshed.");
+          await onSaved?.().catch(() => setMessage("Requirements saved. Refresh matches to load the updated results."));
         } catch {
           setMessage("Could not save requirements. Try again.");
         } finally {
@@ -53,6 +63,21 @@ export function MatchRequirementsForm({
       }}
     >
       <fieldset disabled={busy} className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="text-sm">
+          <span className="block text-muted-foreground">Based in</span>
+          <a className="text-primary underline underline-offset-2" href="/profile#application-profile">{homeLocation || "Add your current location"}</a>
+        </div>
+        <label className="text-sm">Open to relocation
+          <select aria-label="Open to relocation" className={field} value={value.relocation} onChange={event => setValue({ ...value, relocation: event.target.value as MatchRequirements["relocation"] })}>
+            <option value="UNSPECIFIED">Not specified</option><option value="NO">No, stay near my current location</option><option value="YES">Yes</option>
+          </select>
+        </label>
+        {value.relocation === "YES" && <div className="sm:col-span-2">
+          <label htmlFor="relocation-destination" className="text-sm">Relocation destinations (optional)</label>
+          <div className="flex gap-2"><input id="relocation-destination" className={field} value={destination} maxLength={120} onChange={event => setDestination(event.target.value)} placeholder="City, province, state, or country" />
+            <Button className="mt-1" type="button" variant="outline" aria-label="Add relocation destination" disabled={destination.trim().length < 2 || value.relocationLocations.length >= 10} onClick={() => { const next = destination.trim(); setValue({ ...value, relocationLocations: [...value.relocationLocations.filter(item => item.toLowerCase() !== next.toLowerCase()), next] }); setDestination(""); }}><Plus className="size-4" /></Button></div>
+          <div className="mt-2 flex flex-wrap gap-2">{value.relocationLocations.map(place => <span key={place} className="inline-flex items-center gap-1 rounded border px-2 text-sm">{place}<button type="button" className="p-1" aria-label={`Remove ${place}`} onClick={() => setValue({ ...value, relocationLocations: value.relocationLocations.filter(item => item !== place) })}><X className="size-3" /></button></span>)}</div>
+        </div>}
         <label className="text-sm">
           Eligible country
           <select

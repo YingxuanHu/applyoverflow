@@ -378,7 +378,7 @@ export function scoreJobForUser(
   context: ScoreContext = {}
 ): TopPickScoreResult {
   const job = normalizeJobForMatching(sourceJob);
-  const requirements = intent.requirements ? evaluateRequirements(intent.requirements, { ...sourceJob, employmentType: sourceJob.employmentType ?? sourceJob.employmentTypeGroup }) : { passed: true, conflicts: [], unknown: [] };
+  const requirements = intent.requirements ? evaluateRequirements(intent.requirements, { ...sourceJob, employmentType: sourceJob.employmentType ?? sourceJob.employmentTypeGroup }, intent.homeLocation) : { passed: true, conflicts: [], unknown: [] };
   if (!requirements.passed) return rejectResult(job.jobId, "hard_requirement", { eligibilityGate: { passed: false, reason: "hard_requirement", details: requirements }, concerns: [...requirements.conflicts, ...requirements.unknown.map((item) => `${item} is not stated`)] });
   const eligibilityGate = evaluateEligibilityGate(job, intent);
   if (!eligibilityGate.passed) {

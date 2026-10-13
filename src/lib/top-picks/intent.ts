@@ -26,6 +26,7 @@ export type TopPickFeedbackSignal = {
 };
 
 export type UserJobIntent = {
+  homeLocation?: string;
   requirements?: MatchRequirements;
   userId: string;
   profileVersion: number;
@@ -620,6 +621,7 @@ export function buildUserJobIntent(input: BuildUserJobIntentInput): UserJobInten
   const negativeJobIds = feedback.map((item) => item.jobId);
 
   const intentWithoutHash: Omit<UserJobIntent, "profileHash"> = {
+    homeLocation: input.location ?? undefined,
     requirements: input.requirements,
     userId: input.userId,
     profileVersion: input.profileVersion,

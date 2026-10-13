@@ -4,7 +4,7 @@ import {
   sanitizeJobDescriptionText,
   sanitizeJobTitle,
 } from "@/lib/job-cleanup";
-import { METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD } from "@/lib/job-metadata";
+import { trustedWorkMode } from "@/lib/job-metadata";
 import { inferGeoScope } from "@/lib/geo-scope";
 import { resolveCompanyLogoDomain } from "@/lib/company-logo";
 import { isJobLocationProse } from "@/lib/jobs/location-label";
@@ -85,7 +85,7 @@ export function serializeJobCardData(job: JobSerializationInput): JobCardData {
     companyDomain: resolveCompanyLogoDomain({ company, companyRecord: job.companyRecord, sourceUrls: [job.applyUrl, ...job.sourceMappings.map((mapping) => mapping.sourceUrl)] }),
     location,
     geoScope: inferGeoScope(location, job.region ?? null),
-    workMode: (job.workModeConfidence !== undefined && (job.workModeConfidence ?? 0) < METADATA_FIELD_FILTER_CONFIDENCE_THRESHOLD) || ["missing", "quarantine", "rejected"].includes(job.workModeStatus ?? "") ? "UNKNOWN" : job.workMode,
+    workMode: trustedWorkMode(job),
     industry: job.industry,
     status: job.status,
     roleFamily: job.roleFamily,

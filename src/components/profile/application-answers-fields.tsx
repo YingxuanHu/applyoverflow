@@ -12,12 +12,13 @@ export function ApplicationAnswersFields({ value, onChange }: {
   const set = (key: string, answer: string) => onChange({ ...value, values: { ...value.values, [key]: answer } });
   const groups = [
     { title: "Work eligibility", keys: ["over18", "authorizedCA", "authorizedUS", "sponsorshipCA", "sponsorshipUS", "usPerson", "visaDetailsUS"] },
-    { title: "Availability and preferences", keys: ["startDate", "availability", "desiredPay", "relocation", "partTimeReason", "partTimeDuration"] },
+    { title: "Availability and preferences", keys: ["startDate", "availability", "desiredPay", "partTimeReason", "partTimeDuration"] },
     { title: "Job source and communication", keys: ["jobSource", "sourceDetails", "smsUpdates", "emailUpdates"] },
     { title: "Voluntary self-identification", keys: ["gender", "transgender", "sexualOrientation", "ethnicity", "hispanicLatino", "veteran", "veteranOrActiveUS", "disability", "limitingDisability", "physicalDisability"] },
   ];
   return <details id="application-answers" className="sm:col-span-2 border-t border-border pt-4">
     <summary className="cursor-pointer text-sm font-semibold">Optional application answers</summary>
+    <a href="#job-matching" className="mt-3 block text-sm text-primary">Relocation and job matching preferences</a>
     <label className="mt-4 flex items-start gap-3 text-sm">
       <input type="checkbox" className="mt-1 size-4 shrink-0" checked={value.enabled}
         onChange={event => onChange({ ...value, enabled: event.target.checked })} />

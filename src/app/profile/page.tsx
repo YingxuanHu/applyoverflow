@@ -183,7 +183,7 @@ export default async function ProfilePage() {
               salaryCurrency: profile?.salaryCurrency ?? "USD",
             }}
           />
-          <MatchRequirementsForm initial={parseRequirements(requirements?.value)} />
+          <MatchRequirementsForm initial={parseRequirements(requirements?.value, initialValues.contact.applicationAnswers?.values.relocation)} homeLocation={[initialValues.contact.city, initialValues.contact.region, initialValues.contact.country].filter(Boolean).join(", ")} />
         </section>
 
         <section className="surface-panel p-3.5 sm:p-6" id="application-profile">
