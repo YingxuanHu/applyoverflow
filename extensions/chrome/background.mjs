@@ -652,8 +652,8 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
   const report = (result, note = "") => {
     const fields = result.fields || [];
     const filled = fields.filter(field => field.state === "filled").length;
-    const kept = fields.filter(field => field.state === "kept").length;
-    const needed = fields.filter(field => field.state === "needed").length;
+    const kept = fields.filter(field => field.state === "kept" && !field.reviewRequired).length;
+    const needed = fields.filter(field => field.state === "needed" || field.reviewRequired).length;
     return { connected: true, fields,
       autofillUndoAvailable: result.autofillUndoAvailable === true,
       historyUndoAvailable: result.historyUndoAvailable === true,
@@ -673,9 +673,10 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
       url: scan.url, questions, history: scan.historyAvailable === true, employmentCountry: scan.employmentCountry,
     }, connection.token);
     // Pin both frame document and URL across every asynchronous network step.
-    const written = await inspect(target, ["autofill", plan, scan.url]);
+    const written = await inspect(target, ["autofill", { ...plan, reconcilePrefilled: message.reconcilePrefilled === true }, scan.url]);
     await publish(written.result.fields || [], "Saved details filled. Checking your default resume...");
     let note = written.result.historyFilled ? ` ${written.result.historyFilled} work/education fields filled.` : "";
+    if (written.result.historyUpdated) note += ` ${written.result.historyUpdated} saved history values corrected from your profile.`;
     let resumeRecovery;
     if (written.result.historySaved) note += ` ${written.result.historySaved} work/education records saved.`;
     if (written.result.historyDateAdjusted) note += " Month-only dates use the first day for starts and the last day for ends.";

@@ -28,6 +28,14 @@ try {
   await page.evaluate(fields => window.showProgress(fields.map(f => f.id === "answer" ? { ...f, state: "filled", processing: false } : f)), fields);
   assert.ok(await page.getByText(/2 filled/).isVisible());
   assert.equal(await page.getByText("Answering...", { exact: true }).count(), 0);
+  await page.evaluate(() => window.showProgress([
+    { id: 'city', label: 'City', state: 'filled', updated: true },
+    { id: 'country', label: 'Country', state: 'kept', reviewRequired: true, reason: 'The selected value differs from your profile. Review it on the form.' },
+  ]));
+  assert.ok(await page.getByText(/1 updated from profile/).isVisible());
+  assert.ok(await page.getByText('Saved values to review (1)', { exact: true }).isVisible());
+  assert.equal(await page.getByText('Already complete', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Show field: Country' }).click();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await mkdir("output/playwright", { recursive: true });
   await page.screenshot({ path: "output/playwright/extension-progress-320.png", fullPage: true });

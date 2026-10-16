@@ -106,6 +106,15 @@ export function applicationContext(raw, allowGeneric = false) {
     const lever = /^(jobs(?:\.eu)?)\.lever\.co$/.exec(url.hostname);
     const ashby = url.hostname === "jobs.ashbyhq.com";
     if (!lever && !ashby) {
+      // Hash routers carry the vacancy identity, unlike a plain #apply anchor.
+      // Accept bounded public route segments, never credentials or auth state.
+      let routeHash = "";
+      if (/^#!?\//.test(url.hash)) {
+        const route = url.hash.replace(/^#!/, "#").slice(1);
+        if (!/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\/?$/.test(route) || route.length > 500 ||
+            /(?:^|\/)(?:login|sign-in|signin|signup|sign-up|register|account|oauth|callback|token|session|secret|password|email|auth|code|signature)(?:\/|$)/i.test(route)) return null;
+        routeHash = `#${route}`;
+      }
       // URL validation is separate from browser access and DOM form detection.
       const knownGeneric = /^[a-z0-9-]+\.careers\.hibob\.com$/.test(url.hostname) &&
         /^\/jobs\/[a-f0-9-]{36}\/apply\/?$/i.test(url.pathname);
@@ -123,11 +132,11 @@ export function applicationContext(raw, allowGeneric = false) {
         [...url.searchParams.keys()].some((key) =>
           /token|session|secret|password|email|auth|code|signature/i.test(key),
         ) ||
-        (url.hash && (!/^#[a-zA-Z][a-zA-Z0-9_-]{0,79}$/.test(url.hash) ||
+        (url.hash && !routeHash && (!/^#[a-zA-Z][a-zA-Z0-9_-]{0,79}$/.test(url.hash) ||
           /token|session|secret|password|email|auth|code|signature/i.test(url.hash)))
       )
         return null;
-      url.hash = "";
+      url.hash = routeHash;
       for (const key of [...url.searchParams.keys()]) {
         if (/^(?:utm_.*|source|ref|referrer|gclid|fbclid)$/i.test(key))
           url.searchParams.delete(key);

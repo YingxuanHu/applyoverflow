@@ -35,7 +35,9 @@ await context.route("**/*", async route => {
     '<h1>Careers</h1><iframe title="Application" src="https://embedded.example/jobs/1/apply"></iframe><iframe title="Newsletter" src="https://newsletter.example/subscribe"></iframe>' });
   if (url.hostname === "newsletter.example") return route.fulfill({ contentType: "text/html", body: '<h1>Newsletter</h1><form><label>Email<input type="email"></label></form>' });
   const index = Number(url.searchParams.get("variant") || 0);
-  return route.fulfill({ contentType: "text/html", body: `<style>body{font:16px system-ui}label,input{display:block;margin:8px}</style>${form(index % 2 ? "div" : "form", ["First Name", "Legal First Name", "Given name"][index % 3])}` });
+  const unlabelled = `<form><div><p>Full Name *</p><input placeholder="First name"><input placeholder="Last name"></div>
+    <div><p>Email</p><input type="email" placeholder="Email address"></div><input type="tel" placeholder="Enter phone number"><button>Submit application</button></form>`;
+  return route.fulfill({ contentType: "text/html", body: `<style>body{font:16px system-ui}label,input{display:block;margin:8px}</style>${index % 4 === 3 ? unlabelled : form(index % 2 ? "div" : "form", ["First Name", "Legal First Name", "Given name"][index % 3])}` });
 });
 try {
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
@@ -74,13 +76,14 @@ try {
       console.log({ apiCalls, progress: await page.locator('#applyoverflow-assistant .content').innerText() });
       throw error;
     }
-    try { await page.locator('#applyoverflow-assistant .fill-counts').filter({ hasText: /3 filled/ }).waitFor({timeout:10000}); }
+    try { await page.locator('#applyoverflow-assistant .fill-counts').filter({ hasText: `${i % 4 === 3 ? 4 : 3} filled` }).waitFor({timeout:10000}); }
     catch (error) { console.log({ apiCalls, progress: await page.locator('#applyoverflow-assistant .content').innerText() }); throw error; }
     assert.equal(await page.locator('input').first().inputValue(), facts.givenName);
+    if (i % 4 === 3) assert.equal(await page.getByPlaceholder('Last name').inputValue(), facts.familyName);
     assert.equal(await page.locator('input[type="tel"]').inputValue(), facts.phone);
   }
   assert.equal(submissions, 0);
-  console.log(`PASS ${count} unlisted synthetic domains: real MV3 detection, consented scope, toolbar-independent fill, 3 values read back per form`);
+  console.log(`PASS ${count} unlisted synthetic domains: real MV3 detection, consented scope, toolbar-independent fill, 3-4 values read back per form, including grouped placeholders`);
   await page.goto("https://parent.example/careers");
   const child = page.frameLocator('iframe[title="Application"]');
   await child.getByRole("button", { name: /^(?:Autofill|Application help) available$/ }).waitFor();

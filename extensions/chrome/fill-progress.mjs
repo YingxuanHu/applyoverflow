@@ -7,19 +7,21 @@ export function createFillProgress() {
     container.replaceChildren();
     if (!fields.length) return;
     const counts = fields.reduce((all, field) => {
-      const state = field.state === "needed" ? field.blocked ? "blocked" : field.processing ? "processing" : field.queued ? "queued" : "empty" : field.state;
+      const state = field.reviewRequired ? "review" : field.updated && field.state === "filled" ? "updated" : field.state === "needed" ? field.blocked ? "blocked" : field.processing ? "processing" : field.queued ? "queued" : "empty" : field.state;
       all[state] = (all[state] || 0) + 1; return all;
     }, {});
     const summary = document.createElement("p"); summary.className = "fill-counts";
     summary.textContent = [`${counts.filled || 0} filled`, counts.kept ? `${counts.kept} already complete` : "",
+      counts.updated ? `${counts.updated} updated from profile` : "", counts.review ? `${counts.review} to review` : "",
       counts.processing || counts.queued ? `${(counts.processing || 0) + (counts.queued || 0)} processing` : "",
       counts.empty ? `${counts.empty} left empty` : "", counts.blocked ? `${counts.blocked} not processed` : ""].filter(Boolean).join(" · ");
     container.append(summary);
     for (const [key, title, rows] of [
       ["pending", "Processing", fields.filter(f => f.state === "needed" && (f.processing || f.queued))],
       ["blocked", "Not processed", fields.filter(f => f.state === "needed" && f.blocked)],
+      ["review", "Saved values to review", fields.filter(f => f.reviewRequired)],
       ["empty", "Left empty", fields.filter(f => f.state === "needed" && !f.processing && !f.queued && !f.blocked)],
-      ["complete", "Completed", fields.filter(f => f.state !== "needed")],
+      ["complete", "Completed", fields.filter(f => f.state !== "needed" && !f.reviewRequired)],
     ]) {
       if (!rows.length) continue;
       const section = document.createElement("details"); section.className = "fill-group";
@@ -35,10 +37,10 @@ export function createFillProgress() {
         label.title = name;
         const status = document.createElement("small");
         status.textContent = field.processing ? "Answering..." : field.queued ? "Waiting" :
-          field.state === "filled" ? "Filled" : field.state === "kept" ? "Already complete" :
+          field.reviewRequired ? field.reason : field.state === "filled" ? field.updated ? "Updated from profile" : "Filled" : field.state === "kept" ? "Already complete" :
           field.state === "not-applicable" ? "Not applicable" : field.reason || "Missing information. Complete this field on the form.";
         item.append(label, status);
-        if (key === "empty") {
+        if (key === "empty" || key === "review") {
           const focus = document.createElement("button"); focus.type = "button";
           focus.className = "field-link secondary"; focus.textContent = "Show field";
           focus.setAttribute("aria-label", `Show field: ${name}`);

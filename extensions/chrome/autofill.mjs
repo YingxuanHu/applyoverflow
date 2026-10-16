@@ -8,8 +8,21 @@ export function createAutofillInspector() {
   let issues = new WeakMap();
   const ids = new WeakMap();
   const phoneSeeds = new WeakMap();
+  const countrySeeds = new WeakMap();
+  const selectTriggers = new WeakMap();
+  let completedPhoneCountries = new WeakMap();
+  let editUrl = "", editedFields = new WeakSet(), editedIds = new Set();
+  for (const event of ["input", "change", "pointerdown", "keydown"]) globalThis.document?.addEventListener(event, event => {
+    if (!event.isTrusted) return;
+    if (editUrl !== location.href) { editUrl = location.href; editedFields = new WeakSet(); editedIds.clear(); }
+    const field = event.target.closest?.('input,textarea,select,[role="combobox"],button[aria-haspopup="listbox"]');
+    if (!field) return;
+    editedFields.add(field);
+    if (field.id) editedIds.add(field.id);
+  }, true);
+  const userEdited = field => editUrl === location.href && (editedFields.has(field) || (field.id && editedIds.has(field.id)));
   const norm = value => String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-  const custom = field => field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[data-uxi-widget-type="selectinput"],input[data-automation-id="searchBox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
+  const custom = field => selectTriggers.has(field) || field.matches('[role="combobox"],button[aria-haspopup="listbox"],input[data-uxi-widget-type="selectinput"],input[data-automation-id="searchBox"],input[aria-autocomplete="list"][aria-haspopup="listbox"],b-single-select > [role="button"][aria-haspopup][aria-labelledby]');
   const chipText = chip => chip.querySelector('.chip-text')?.textContent.trim() || "";
   const validity = field => {
     const pattern = field.getAttribute("pattern");
@@ -25,6 +38,12 @@ export function createAutofillInspector() {
     return field.validity?.valid !== false;
   };
   const read = field => {
+    if (selectTriggers.has(field)) {
+      const value = field.value || selectTriggers.get(field).textContent.trim();
+      return /^(?:select|choose)(?: one| an? .+)?[.\u2026]*$/i.test(value) ? "" : value;
+    }
+    if (field.matches('button.iti__selected-country') && field.closest('.iti')?.querySelectorAll('input[type="tel"]').length === 1)
+      return field.querySelector('.iti__a11y-text')?.textContent.trim() || field.getAttribute('title') || "";
     const ant = custom(field) && field.closest('.ant-select-selector');
     if (ant && ant.querySelectorAll('[role="combobox"]').length === 1)
       return ant.querySelector('.ant-select-selection-item')?.getAttribute("title") || ant.querySelector('.ant-select-selection-item')?.textContent.trim() || "";
@@ -83,6 +102,7 @@ export function createAutofillInspector() {
         const digits = text.replace(/\D/g, "");
         return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
       }
+      if (key === "pronouns") return ({ "he/him/his": "he/him", "she/her/hers": "she/her", "they/them/theirs": "they/them" })[text.replace(/\s*\/\s*/g, "/")] || text.replace(/\s*\/\s*/g, "/");
       if (key === "desiredPayAmount" && /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return String(Number(text.replaceAll(",", "")));
       let countryText = key === "phoneCountry" ? text.replace(/[\u{1f1e6}-\u{1f1ff}]/gu, "")
         .replace(/^\s*\(?\+\d{1,4}\)?\s*|\s*\(?\+\d{1,4}\)?\s*$/g, "").trim() : text;
@@ -90,12 +110,18 @@ export function createAutofillInspector() {
         const flags = text.match(/[\u{1f1e6}-\u{1f1ff}]{2}/gu) || [];
         if (flags.length === 1) countryText = [...flags[0]].map(char => String.fromCharCode(char.codePointAt(0) - 0x1f1e6 + 97)).join("");
       }
+      if (key === "phoneCountry") {
+        const named = /^([a-z]{2})\s*[-\u2013]\s*(.+)$/.exec(countryText);
+        const country = named && ({ ca: "canada", us: "united states" })[named[1]];
+        if (country && named[2] === country) countryText = country;
+      }
       return ["country", "phoneCountry"].includes(key) ? ({ ca: "canada", us: "united states", usa: "united states", "united states of america": "united states" })[countryText] || countryText :
         key === "region" ? aliases[text] || text : text;
     };
     return canonical(a) === canonical(b);
   };
   function reset() {
+    completedPhoneCountries = new WeakMap();
     clearTimeout(expiryTimer);
     for (const item of undo) for (const event of ["input", "change", "pointerdown", "keydown"])
       item.field.removeEventListener(event, item.onEdit);
@@ -116,6 +142,10 @@ export function createAutofillInspector() {
   }
   return async function autofill(mode, payload, entries, form, labelFor, visible) {
     if (pageUrl !== location.href || expires <= Date.now()) reset();
+    for (const entry of entries) {
+      if (entry.selectTrigger) selectTriggers.set(entry.field, entry.selectTrigger);
+      else selectTriggers.delete(entry.field);
+    }
     if (mode === "autofill") {
       confirmedQuestions = new Map((payload.commonAnswers || []).slice(0, 40)
       .filter(answer => typeof answer.label === "string" && typeof answer.answer === "string")
@@ -173,12 +203,23 @@ export function createAutofillInspector() {
         item.choiceFields.every(field => field.isConnected && item.choiceGroup.contains(field) && visible(field) &&
           !field.matches(':disabled,[aria-disabled="true"]') && (!field.form || field.type === "button")))) &&
       !item.field.matches(':disabled,[aria-disabled="true"],[aria-readonly="true"]') &&
-      (!item.field.readOnly || item.field.matches('[role="combobox"][aria-haspopup="listbox"]'));
+      (!item.field.readOnly || item.field.matches('[role="combobox"][aria-haspopup="listbox"]') ||
+        (item.selectTrigger?.isConnected && item.selectTrigger.contains(item.field) && visible(item.selectTrigger) &&
+          item.selectTrigger.querySelectorAll('input,select,textarea,button,a,[role="combobox"]').length === 1));
     const items = current.slice(0, 80).map(entry => {
       const { field, label } = entry;
       if (!ids.has(field)) ids.set(field, crypto.randomUUID());
       const id = ids.get(field);
       const key = entry.profileKey;
+      if (key === "phoneCountry" && (entry.phoneGroup || field.matches('button.iti__selected-country')) && !countrySeeds.has(field)) {
+        const owner = entry.phoneGroup || field.closest('.iti');
+        const phone = owner?.querySelector('input[type="tel"],input[inputmode="tel"],input[autocomplete="tel-national"]');
+        const seed = { value: read(field), edited: Boolean(phone?.value.trim()) };
+        countrySeeds.set(field, seed);
+        for (const event of ["input", "change", "pointerdown", "keydown"]) owner.addEventListener(event, event => {
+          if (event.isTrusted) seed.edited = true;
+        });
+      }
       const group = field.closest('fieldset,[role="group"],section');
       const heading = group?.querySelector('legend,h2,h3')?.textContent || group?.getAttribute("aria-label") || "";
       const inHistory = entry.inHistory || /work experience|employment (?:history|record|details)|^employment$|education|reference|emergency|supervisor/i.test(heading) ||
@@ -216,7 +257,8 @@ export function createAutofillInspector() {
       const maxWords = wordLimit ? Math.min(1000, Number(wordLimit)) : undefined;
       const required = field.required || field.getAttribute("aria-required") === "true" || /[*\u2731]\s*$/.test(label) ||
         (field.matches('b-single-select > [role="button"]') && field.parentElement.hasAttribute("required")) || Boolean(field.closest('b-currency-value-select[required]'));
-      const item = { ...entry, id, field, label, profileKey: key, manual, options, maxLength, maxWords,
+      const phoneField = key === "phoneCountry" && entry.phoneGroup?.querySelector('input[type="tel"],input[inputmode="tel"],input[autocomplete="tel-national"]');
+      const item = { ...entry, id, field, label, phoneField, profileKey: key, manual, options, maxLength, maxWords,
         canRemember: !manual && !["fullAddress", "professionalUrl", "portfolioGithubUrl", "cityRegion", "skills", "currentCompany", "currentTitle"].includes(key) && !(key === "city" && widget) && (!!key || (!entry.identityLabel && rememberable(label))),
         profileLabel: profileGuidance.get(norm(label))?.profileLabel,
         notApplicable: profileGuidance.get(norm(label))?.notApplicable === true && !required,
@@ -240,6 +282,8 @@ export function createAutofillInspector() {
       return selected ? labelFor(selected) : "";
     };
     const phonePrefixOnly = item => {
+      const country = item.profileKey === "phoneCountry" && countrySeeds.get(item.field);
+      if (country && !country.edited && !completed.has(item.field) && readItem(item) === country.value) return true;
       const seed = item.profileKey === "phone" && phoneSeeds.get(item.field);
       return seed && !seed.edited && /^\+\d{1,3}$/.test(seed.value.trim()) && readItem(item) === seed.value;
     };
@@ -258,9 +302,12 @@ export function createAutofillInspector() {
         /^mm\/dd\/yyyy$/i.test(field.placeholder || "") ? `${date[1]}/${date[2]}/${date[0]}` : "" : "";
       const discovery = /^(?:how did you (?:learn about|hear about|find) (?:this (?:job(?: opening)?|position|role)|us))\s*[?*]*$/i.test(item.label);
       const sourceValue = discovery && item.options.includes("Other") ? "Other" : "";
-      const completion = completed.get(field) || completedByIdentity.get(identity(item));
+      const completion = completed.get(field) || completedByIdentity.get(identity(item)) ||
+        (item.phoneField && completedPhoneCountries.get(item.phoneField));
       return { id: item.id, label: item.label, title: item.title, profileKey: item.profileKey, required: item.required,
         profileLabel: item.profileLabel,
+        updated: completion?.updated === true && equivalent(completion.value, readItem(item), item.profileKey),
+        reviewRequired: issues.get(field)?.reviewRequired === true,
         maxLength: item.maxLength, maxWords: item.maxWords,
         ...(dateValue ? { suggestedAnswer: dateValue, suggestionLabel: "Use today's date" } : sourceValue ? { suggestedAnswer: sourceValue, suggestionLabel: "Use Other as job source" } : {}),
         kind: item.kind, options: item.options, canAnswer: !item.manual && !invalid,
@@ -269,10 +316,21 @@ export function createAutofillInspector() {
         reason: invalid ? "An existing value is invalid. Correct it on the employer form." : item.notApplicable && !notApplicable ? "Review this follow-up against your answer on the form." : item.reason,
       };
     });
+    const localLists = field => {
+      const trigger = selectTriggers.get(field), owner = trigger?.parentElement;
+      if (!owner || [...owner.querySelectorAll('input,select,textarea,[role="combobox"]')]
+        .some(node => node !== field && !node.closest('[role="listbox"]'))) return [];
+      return [...owner.querySelectorAll('[role="listbox"]')].filter(node => visible(node) && !trigger.contains(node));
+    };
     const closeOptions = async field => {
       const before = read(field);
-      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
-      field.blur();
+      const trigger = selectTriggers.get(field) || field;
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+      trigger.blur();
+      if (trigger !== field) {
+        await delay(35);
+        if (trigger.isConnected && location.href === operationUrl && read(field) === before && localLists(field).length === 1) trigger.click();
+      }
       // Button-only widgets may not implement Escape. Let framework state
       // settle before toggling, and only close an explicitly owned visible menu.
       if (field instanceof HTMLButtonElement && field.getAttribute("aria-expanded") === "true") {
@@ -282,18 +340,48 @@ export function createAutofillInspector() {
         if (field.isConnected && location.href === operationUrl && read(field) === before && field.getAttribute("aria-expanded") === "true" && lists.length === 1) field.click();
       }
     };
-    const chooseOption = option => (option.querySelector('[data-uxi-widget-type="multiselectlistitem"]') || option).click();
+    const chooseOption = option => {
+      const target = option.querySelector('[data-uxi-widget-type="multiselectlistitem"]') || option;
+      // Some menus commit on pointer/mousedown rather than click. Dispatch the
+      // normal activation sequence only on the uniquely matched owned option.
+      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, buttons: 1 }));
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
+      target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0 }));
+      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, view: window }));
+      target.click();
+    };
+    const rebind = item => {
+      const field = item.field;
+      if (field.isConnected || !field.id || !form.isConnected) return field;
+      let replacements = [...form.querySelectorAll(`#${CSS.escape(field.id)}`)];
+      if (!replacements.length && item.profileKey === "phoneCountry" && item.phoneGroup?.isConnected && form.contains(item.phoneGroup))
+        replacements = [...item.phoneGroup.querySelectorAll('[role="combobox"][aria-haspopup="listbox"]')];
+      replacements = replacements.filter(node => visible(node) && labelFor(node) === (item.originalLabel || item.label) && node.tagName === field.tagName && node.type === field.type);
+      if (replacements.length === 1) {
+        item.field = replacements[0]; ids.set(item.field, item.id);
+        const seed = countrySeeds.get(field);
+        if (seed) countrySeeds.set(item.field, seed);
+      }
+      return item.field;
+    };
     async function loadOptions(item, keepOpen = false, search = "", previousOptions = []) {
       const field = item.field;
-      if (!safe(item) || item.kind !== "combobox" || read(field).trim()) return [];
+      if (!safe(item) || item.kind !== "combobox" || (read(field).trim() && !phonePrefixOnly(item))) return [];
+      const trigger = item.selectTrigger || field;
       const promptIdentity = field.getAttribute("data-uxi-multiselect-id");
-      const expanded = field.getAttribute("aria-expanded") === "true" || Boolean(promptIdentity && [...document.querySelectorAll('[role="listbox"]')].some(node => visible(node) && !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptIdentity)}"]`)));
+      const expanded = localLists(field).length === 1 || field.getAttribute("aria-expanded") === "true" || Boolean(promptIdentity && [...document.querySelectorAll('[role="listbox"]')].some(node => visible(node) && !node.matches('[data-automation-id="selectedItemList"]') && node.querySelector(`[data-uxi-multiselect-id="${CSS.escape(promptIdentity)}"]`)));
       const previousLists = new Set([...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(visible));
-      if (!expanded) { field.focus(); field.click(); }
-      if (!expanded && field.getAttribute("aria-expanded") !== "true") {
+      if (!expanded) {
+        trigger.focus(); trigger.click();
+        // Controlled widgets commit their opening state asynchronously. Typing
+        // in the same batch can be overwritten by the previous selected value.
+        await delay(35);
+      }
+      if (!expanded && !item.selectTrigger && field.getAttribute("aria-expanded") !== "true") {
         field.focus();
         field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
         field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, view: window }));
+        await delay(35);
       }
       if (search && field instanceof HTMLInputElement && !field.readOnly) { field.focus(); setValue(field, search); }
       let options = [];
@@ -311,7 +399,8 @@ export function createAutofillInspector() {
         // Some accessible widgets omit aria-controls. Bind only the unique new
         // popup created by this focused control, never an already-open list.
         const opened = [...document.querySelectorAll('[role="listbox"],[role="tree"]')].filter(node => visible(node) && !previousLists.has(node) && !node.matches('[data-automation-id="selectedItemList"]'));
-        const list = lists.length === 1 ? lists[0] : promptLists.length === 1 ? promptLists[0] :
+        const local = localLists(field);
+        const list = local.length === 1 ? local[0] : lists.length === 1 ? lists[0] : promptLists.length === 1 ? promptLists[0] :
           !ownedIds.length && !promptId && !lists.length && !promptLists.length && opened.length === 1 && (document.activeElement === field || opened[0].contains(document.activeElement)) ? opened[0] : null;
         // One explicit saved choice is also safe in an empty multi-select.
         // Existing chips are read above, so we never add to a user's selection.
@@ -355,7 +444,21 @@ export function createAutofillInspector() {
     }
     async function write(item, value) {
       if (performance.now() > deadline) { item.reason = "Click Autofill again to continue on this long form."; return false; }
-      if (!safe(item) || item.manual || (readItem(item).trim() && !phonePrefixOnly(item)) || typeof value !== "string" || !value.trim()) return false;
+      if (!safe(item) || item.manual || typeof value !== "string" || !value.trim()) return false;
+      const existing = readItem(item).trim();
+      const contactFact = /^(givenName|middleName|familyName|fullName|preferredName|email|phone|phoneCountry|phoneType|phoneExtension|streetAddress|addressLine2|city|cityRegion|region|country|postalCode|fullAddress|linkedin|linkedinUrl|github|githubUrl|website|portfolio|portfolioUrl|professionalUrl|portfolioGithubUrl)$/.test(item.profileKey || "");
+      const correcting = Boolean(existing && !phonePrefixOnly(item));
+      if (userEdited(item.field)) { item.reason = "You edited this field. Left unchanged."; return false; }
+      if (correcting) {
+        if (!payload.reconcilePrefilled || !contactFact) return false;
+        const display = item.kind === "select" ? item.field.selectedOptions[0]?.textContent : existing;
+        if (equivalent(display, value, item.profileKey)) { issues.delete(item.field); item.reason = ""; return false; }
+        if (!["text", "select"].includes(item.kind)) {
+          item.reason = "The selected value differs from your profile. Review it on the form.";
+          issues.set(item.field, { label: item.label, reason: item.reason, reviewRequired: true });
+          return false;
+        }
+      }
       if (value.length > item.maxLength || (item.maxWords && value.trim().split(/\s+/).length > item.maxWords)) {
         item.reason = `Shorten this answer to ${item.maxWords ? `${item.maxWords} words and ` : ""}${item.maxLength} characters.`; return false;
       }
@@ -474,18 +577,16 @@ export function createAutofillInspector() {
       }
       await delay(35);
       phoneEditField?.removeEventListener("input", watchPhoneEdit);
-      if (!field.isConnected && field.id && form.isConnected) {
-        const replacements = [...form.querySelectorAll(`#${CSS.escape(field.id)}`)].filter(node => visible(node) && labelFor(node) === (item.originalLabel || item.label) && node.tagName === field.tagName && node.type === field.type);
-        if (replacements.length === 1) { field = replacements[0]; item.field = field; ids.set(field, item.id); }
-      }
+      field = rebind(item);
       const valid = safe(item) && Boolean(readItem(item).trim()) &&
         (item.kind === "select" ? equivalent(field.selectedOptions[0]?.textContent, value, item.profileKey) : equivalent(readItem(item), value, item.profileKey || saved?.answerKey)) && validity(field) !== false;
       if (!valid) {
         if (safe(item) && item.kind === "text" && (read(field) === value || (phoneEditField && !phoneEdited))) setValue(field, before);
         item.reason = "The form did not confirm this value. Check it on the page."; return false;
       }
-      completed.set(field, { label: item.label, value: readItem(item) });
-      if (identity(item)) completedByIdentity.set(identity(item), { label: item.label, value: readItem(item) });
+      completed.set(field, { label: item.label, value: readItem(item), updated: correcting });
+      if (item.phoneField) completedPhoneCountries.set(item.phoneField, { label: item.label, value: readItem(item) });
+      if (identity(item)) completedByIdentity.set(identity(item), { label: item.label, value: readItem(item), updated: correcting });
       issues.delete(field);
       item.reason = "";
       if (!["combobox", "radio"].includes(item.kind)) {
@@ -508,8 +609,9 @@ export function createAutofillInspector() {
         return { error: answerTarget.reason || "This field already has a value or needs entry on the form." };
       }
     }
-    // Fast scalar fields first: a slow remote dropdown must not starve contact fields.
-    const writeOrder = item => confirmedQuestions.get(norm(item.label))?.dependsOn ? 2 : Number(item.kind === "combobox");
+    // Local telephone defaults precede the number; slow remote dropdowns still
+    // follow scalar contact fields so they cannot starve basic information.
+    const writeOrder = item => item.profileKey === "phoneCountry" && countrySeeds.has(item.field) ? -1 : confirmedQuestions.get(norm(item.label))?.dependsOn ? 2 : Number(item.kind === "combobox");
     if (mode === "autofill") for (const item of [...items].sort((a, b) => writeOrder(a) - writeOrder(b))) {
       if (item.profileKey === "skills" && item.field.closest('b-chip-input')) {
         const field = item.field;
@@ -537,7 +639,7 @@ export function createAutofillInspector() {
         (item.canRemember ? payload.answers?.find(answer => norm(answer.label) === norm(item.label))?.answer : undefined);
       if (value) await write(item, value);
       else if (item.profileKey && !readItem(item).trim() && !item.manual) item.reason = "Add this detail to your ApplyOverflow profile, or enter it on the form.";
-      if (item.reason) issues.set(item.field, { label: item.label, reason: item.reason });
+      if (item.reason) issues.set(item.field, { ...issues.get(item.field), label: item.label, reason: item.reason });
     }
     // Some ATS resume parsers overwrite contact fields after upload. Restore
     // only our own previously empty scalar fields, never a user's edits.

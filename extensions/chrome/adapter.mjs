@@ -201,9 +201,29 @@ export function createInspector(resolveContext, history, autofill, submission, w
       getComputedStyle(element).display !== "none";
     const valueControls =
       'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
+    const choiceSelector = 'button[aria-pressed],[role="radio"][aria-checked]:not(input)';
+    const readonlyTrigger = field => {
+      if (!(field instanceof HTMLInputElement) || !field.readOnly || field.tabIndex !== -1 || field.type !== "text") return null;
+      const trigger = field.parentElement?.closest('[tabindex="0"]');
+      return trigger && !trigger.matches('form,body,button,a') &&
+        trigger.querySelectorAll('input,select,textarea,button,a,[role="combobox"]').length === 1 &&
+        trigger.contains(field) && visible(trigger) ? trigger : null;
+    };
+    const phoneGroup = field => {
+      if (!field.matches('[role="combobox"][aria-haspopup="listbox"]')) return null;
+      for (let root = field.parentElement, depth = 0; root && !root.matches('body,form,[role="form"]') && depth < 12; root = root.parentElement, depth++) {
+        const controls = [...root.querySelectorAll('input,select,textarea,button,[role="combobox"]')]
+          .filter(node => visible(node) && !node.closest('[role="listbox"]'));
+        if (controls.length === 2 && controls.includes(field) && controls.some(node => node !== field &&
+          node.matches('input[type="tel"],input[inputmode="tel"],input[autocomplete="tel-national"]'))) return root;
+        if (controls.length > 2) break;
+      }
+      return null;
+    };
     const labelFor = (element) => {
-      if (element.matches('button[aria-pressed],button[role="radio"][aria-checked]'))
+      if (element.matches(choiceSelector))
         return (element.getAttribute("aria-label") || element.textContent).trim().replace(/\s+/g, " ");
+      if (phoneGroup(element)) return "Phone country";
       const salary = hibob && element.closest('b-currency-value-select');
       if (salary && salary.querySelectorAll('input').length === 1 &&
           salary.querySelectorAll('b-single-select > [role="button"]').length === 1 &&
@@ -227,7 +247,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
         if (node.matches('[hidden],[aria-hidden="true"]') || style.display === "none" || style.visibility === "hidden") copies[index].remove();
       });
       label
-        ?.querySelectorAll(valueControls)
+        ?.querySelectorAll(`${valueControls},svg,style,script`)
         .forEach((control) => control.remove());
       for (const node of label?.querySelectorAll('*') || []) {
         if (/^(?:required|optional)[.*:]?$/i.test(node.textContent.trim())) node.remove();
@@ -273,10 +293,16 @@ export function createInspector(resolveContext, history, autofill, submission, w
           (node.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) && node.textContent.trim());
         if (!labels.length && headings.length === 1) return headings[0].textContent.trim().replace(/\s+/g, " ");
       }
+      // Some forms label a pair of name inputs together and identify each part
+      // only by its placeholder. Keep this fallback semantic and subordinate to
+      // actual labels; example answers and generic "Type here" are not prompts.
+      const placeholder = element.getAttribute("placeholder")?.trim() || "";
+      if (placeholder.length <= 100 && (meaning(placeholder) ||
+        /^(?:company(?: name)?|employer(?: name)?|job title|title|school(?: name)?|university|degree|field of study|major|start date|end date)$/i.test(placeholder))) return placeholder;
       return "";
     };
     const controlSelector =
-      'input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby],button[aria-pressed],button[role="radio"][aria-checked]';
+      `input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby],${choiceSelector}`;
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
@@ -393,24 +419,24 @@ export function createInspector(resolveContext, history, autofill, submission, w
       (field) =>
         visible(field) &&
         !field.matches(':disabled, [aria-disabled="true"]') &&
-        (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]')),
+        (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]') || readonlyTrigger(field)),
     );
     // An accessible segmented choice is one question, not independent commands.
     // Require one local prompt and one isolated set; never click submit buttons.
     const buttonChoices = new Map();
-    for (const field of fields.filter(node => node.matches('button[aria-pressed],button[role="radio"][aria-checked]'))) {
+    for (const field of fields.filter(node => node.matches(choiceSelector))) {
       for (let root = field.parentElement, depth = 0; root && root !== forms[0] && depth < 5; root = root.parentElement, depth++) {
-        const choices = [...root.querySelectorAll('button[aria-pressed],button[role="radio"][aria-checked]')];
+        const choices = [...root.querySelectorAll(choiceSelector)];
         if (choices.length < 2 || choices.length > 12 || choices.some(node => node.form && node.type !== "button")) continue;
         if (choices.some(node => !visible(node) || node.matches(':disabled,[aria-disabled="true"]') ||
           !labelFor(node) || !["true", "false"].includes(node.getAttribute(node.hasAttribute("aria-pressed") ? "aria-pressed" : "aria-checked")))) continue;
         if (new Set(choices.map(node => normalize(labelFor(node)))).size !== choices.length) continue;
         const other = [...root.querySelectorAll('input,select,textarea,button,[role="combobox"]')].filter(node => !choices.includes(node));
-        if (other.some(node => node.type !== "hidden" && !(node.type === "checkbox" && node.tabIndex === -1 &&
+        if (other.some(node => node.type !== "hidden" && !(node.type === "radio" && !node.disabled && choices.some(choice => choice.contains(node))) && !(node.type === "checkbox" && node.tabIndex === -1 &&
           (!visible(node) || getComputedStyle(node).opacity === "0" || !node.getBoundingClientRect().width)))) continue;
         const named = (root.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map(id => document.getElementById(id));
         const labels = [...root.querySelectorAll('label,legend,p,h2,h3,h4,[role="heading"]')].filter(node =>
-          visible(node) && !node.closest('button') && !node.querySelector('input,select,textarea,button'));
+          visible(node) && !node.closest(choiceSelector) && !node.querySelector('input,select,textarea,button,[role="radio"]'));
         const names = [...new Set([root.getAttribute("aria-label"), ...named.filter(node => node && !root.contains(node)).map(node => node.textContent),
           ...labels.map(node => node.textContent)].filter(Boolean).map(text => text.trim().replace(/\s+/g, " ")))];
         if (names.length !== 1 || names[0].length > 500) continue;
@@ -444,10 +470,11 @@ export function createInspector(resolveContext, history, autofill, submission, w
           !field.closest('[hidden],[inert],[aria-hidden="true"],[aria-busy="true"]') &&
           labels.some(label => /^(resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(label)));
       }
-      const hiddenUpload = flexible && !visible(field) && (() => {
+      const hiddenUpload = flexible && (!visible(field) || getComputedStyle(field).opacity === "0" ||
+        !field.getBoundingClientRect().width || !field.getBoundingClientRect().height) && (() => {
         // A local upload widget can expose an accessible button while hiding
         // its file input. Never infer the target from a page-wide resume label.
-        for (let widget = field.parentElement, depth = 0; widget && widget !== forms[0] && depth < 3; widget = widget.parentElement, depth++) {
+        for (let widget = field.parentElement, depth = 0; widget && widget !== forms[0] && depth < 5; widget = widget.parentElement, depth++) {
           if (widget.querySelectorAll('input[type="file"]').length !== 1 ||
             widget.querySelector('input:not([type="file"]):not([type="hidden"]),textarea,select')) break;
           const buttons = [...widget.querySelectorAll('button')].filter(visible);
@@ -455,7 +482,10 @@ export function createInspector(resolveContext, history, autofill, submission, w
             /^(?:select file\s*[-:]\s*)?(?:upload|attach|choose) (?:resume|cv|resume\/cv)$/.test(normalize(labelFor(button) || button.innerText)));
           const walker = document.createTreeWalker(widget, NodeFilter.SHOW_TEXT), parts = [];
           while (walker.nextNode()) parts.push(walker.currentNode.textContent);
-          if (visible(widget) && upload.length === 1 && buttons.length === 1 &&
+          const prompts = [...widget.querySelectorAll('label,p,legend,[role="heading"]')].filter(node => visible(node) &&
+            /^(?:(?:upload|attach|choose) )?(?:resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(node.textContent)));
+          const dropzone = prompts.length === 1 && /\b(?:upload|drag.{0,12}drop|choose file|browse)\b/i.test(parts.join(" "));
+          if (visible(widget) && ((upload.length === 1 && buttons.length === 1) || (!buttons.length && dropzone)) &&
             !/\b(?:remove|replace|delete)\b|[\w-]+\.(?:pdf|docx?)\b/i.test(parts.join(" "))) return true;
         }
         return false;
@@ -708,18 +738,38 @@ export function createInspector(resolveContext, history, autofill, submission, w
         field.getAttribute("aria-labelledby") === `${field.id}-label` &&
         field.getAttribute("aria-autocomplete") === "list" && field.getAttribute("aria-haspopup") === "listbox") profileKey = "city";
       let inferred = meaning(label);
+      if (normalized === "keywords" && /\b(?:eg|e\.g\.|such as)\s*:?\s*(?:your )?skills\b/i.test(field.getAttribute("placeholder") || "")) inferred = "skills";
+      // intl-tel-input exposes a separate country button. Its country belongs
+      // to the adjacent telephone, never the applicant's residence.
+      const telephone = field.matches('button[aria-haspopup="listbox"]') && field.closest('.iti');
+      if (telephone && telephone.querySelectorAll('input[type="tel"]').length === 1 &&
+          telephone.querySelectorAll('button[aria-haspopup="listbox"]').length === 1 &&
+          /^selected country$/i.test(label)) inferred = "phoneCountry";
       if (/^country code$/i.test(normalized) && /country code picker/i.test(field.getAttribute("aria-label") || "")) inferred = "phoneCountry";
+      if (phoneGroup(field)) inferred = "phoneCountry";
       // Choice labels describe options, not applicant facts (e.g. LinkedIn as
       // a referral source). Their question is resolved by the group scanner.
-      if (["checkbox", "radio"].includes(field.type)) {
+      if (["checkbox", "radio"].includes(field.type) || field.matches(choiceSelector)) {
         inferred = undefined; profileKey = undefined; key = undefined;
       }
       const foreign = /\b(?:references?|referral|referrer|referred|emergency|supervisor|manager|employment|work experience|career history|education|billing|shipping)\b/i;
       let foreignContext = Boolean(inferred && foreign.test(label));
       let declaration = /signature|attestation/i.test(`${field.id} ${field.name || ""}`);
       for (let node = field.parentElement; node && node !== forms[0]; node = node.parentElement) {
-        if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control') || node.querySelector(':scope > h2,:scope > h3,:scope > h4,:scope > header h3')) {
-          const title = node.getAttribute("aria-label") || node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header h3')?.textContent || "";
+        const heading = node.querySelector(':scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > header h3') ||
+          [...node.children].filter(child => !child.querySelector('input,textarea,select,button,a,[role="combobox"]'))
+            .flatMap(child => [...child.querySelectorAll('h2,h3,h4,[role="heading"],p')].filter(title => {
+              let parent = title, depth = 0;
+              while (parent && parent !== child && depth < 3) { parent = parent.parentElement; depth++; }
+              return parent === child && /^(?:experience|work (?:experience|history)|employment(?: history)?|career history|education(?: history)?)\s*[*:]?$/i.test(title.textContent.trim());
+            }))[0];
+        // A paragraph can be a short section label, but a question mentioning
+        // employment is not evidence that its controls belong to a past job.
+        const paragraph = [...node.querySelectorAll(':scope > p,:scope > div > p,:scope > header > p')].find(p =>
+          (p.parentElement === node || !p.parentElement.querySelector('input,textarea,select,button,a,[role="combobox"]')) &&
+          /^(?:experience|work experience|employment(?: history)?|career history|education(?: history)?|references?|emergency contact|supervisor|manager|billing|shipping|signature|attestation)\s*[*:]?$/i.test(p.textContent.trim()));
+        if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control') || heading || paragraph) {
+          const title = node.getAttribute("aria-label") || (heading || paragraph)?.textContent || "";
           const eligibilityTitle = /\b(?:work (?:authorization|eligibility)|employment (?:eligibility|visa|authorization))\b/i.test(title);
           const disclosureTitle = /\bequal employment opportunit(?:y|ies)\b/i.test(title) &&
             !/\b(?:references?|emergency|supervisor|work experience|employment history)\b/i.test(title);
@@ -727,7 +777,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
           // It describes the job, not whose contact details the fields request.
           const applicationTitle = /^(?:job application|application(?: for)?|apply(?:ing)? (?:for|to))\s*[:\u2013\u2014-]\s*\S/i.test(title.trim()) &&
             fields.every(control => node.contains(control));
-          if ((foreign.test(title) && !eligibilityTitle && !disclosureTitle && !applicationTitle) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
+          if ((foreign.test(title) && !eligibilityTitle && !disclosureTitle && !applicationTitle) || /^experience\s*[*:]?$/i.test(title.trim()) || node.matches('careers-ui-experience-form-control')) foreignContext = true;
           if (inferred && /disabilit|voluntary self.identification|attestation|declaration|acknowledg|signature|certification/i.test(title)) declaration = true;
         }
       }
@@ -738,12 +788,12 @@ export function createInspector(resolveContext, history, autofill, submission, w
       else if (!profileKey && inferred) profileKey = inferred;
       if (key === "skills") key = undefined;
       if (
-        field.matches(
+        readonlyTrigger(field) || field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
         )
       )
         key = undefined;
-      return { field, label, key, profileKey, identityLabel: Boolean(inferred), inHistory: foreignContext,
+      return { field, label, key, profileKey, selectTrigger: readonlyTrigger(field), phoneGroup: phoneGroup(field), identityLabel: Boolean(inferred), inHistory: foreignContext,
         manualReason: declaration ? "Review this declaration on the employer form." : undefined };
     };
     const entryFor = field => {
@@ -878,7 +928,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
           if (location.href !== expectedUrl || !forms[0].isConnected) break;
           const next = [...forms[0].querySelectorAll(controlSelector)].filter(field => visible(field) &&
             !field.matches(':disabled,[aria-disabled="true"],[aria-readonly="true"]') &&
-            (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]'))).flatMap(entryFor);
+            (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]') || readonlyTrigger(field))).flatMap(entryFor);
           if (!next.some(entry => !known.has(entry.field))) break;
           known = new Set(next.map(entry => entry.field));
           details = await autofill(mode, contact, next, forms[0], labelFor, visible);
@@ -922,8 +972,9 @@ export function createInspector(resolveContext, history, autofill, submission, w
             if (!result.historyWarnings.includes(warning)) result.historyWarnings.push(warning);
             continue;
           }
-          const filled = await history("fill-history", { ...entry, automatic: true }, forms[0], labelFor, visible);
+          const filled = await history("fill-history", { ...entry, automatic: true, reconcilePrefilled: contact.reconcilePrefilled === true, peers: candidates }, forms[0], labelFor, visible);
           result.historyFilled += filled.filled || 0;
+          result.historyUpdated = (result.historyUpdated || 0) + (filled.updated || 0);
           result.historySaved += filled.saved || 0;
           result.historyDateAdjusted += filled.dateAdjusted || 0;
           result.historyNeedsReview += filled.skipped || 0;
@@ -932,7 +983,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
         }
         Object.assign(result, await history("inspect", {}, forms[0], labelFor, visible));
         const refreshed = [...forms[0].querySelectorAll(controlSelector)].filter(field => visible(field) && !field.matches(':disabled,[aria-disabled="true"],[aria-readonly="true"]') &&
-          (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]'))).flatMap(entryFor);
+          (!field.readOnly || field.matches('[role="combobox"][aria-haspopup="listbox"]') || readonlyTrigger(field))).flatMap(entryFor);
         Object.assign(result, await autofill("inspect", {}, refreshed, forms[0], labelFor, visible));
         if (aiRestricted && result.fields) result.fields = result.fields.map(field => ({ ...field, aiRestricted: true }));
       }

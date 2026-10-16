@@ -122,7 +122,8 @@ async function run(type, data = {}) {
       checkVersion(ready);
       if (activeAction) throw new Error(ready.message || "Finishing the previous action. Please wait.");
     }
-    const result = await chrome.runtime.sendMessage({ type, ...data, buildId: BUILD_ID });
+    const result = await chrome.runtime.sendMessage({ type, ...data,
+      ...(type === "autofill" ? { reconcilePrefilled: document.getElementById("reconcile-prefilled").checked } : {}), buildId: BUILD_ID });
     checkVersion(result);
     if (result.tabId !== undefined) activeTabId = result.tabId;
     showRecovery(result.recovery);

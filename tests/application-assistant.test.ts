@@ -175,6 +175,18 @@ test("generic application URLs are explicit, public HTTPS and job scoped", () =>
     false,
   );
 });
+
+test("public hash-router applications preserve vacancy identity without accepting sensitive fragments", () => {
+  const url = "https://employer.example/external/#/recruitment-apply/candidate/vacancy/704";
+  assert.equal(applicationContext(url, true)?.url, url);
+  assert.equal(sameApplication(url, url.replace("/#/", "/#!/")), true);
+  assert.equal(sameApplication(url, url.replace("704", "705")), false);
+  assert.equal(sameApplication(url, url.split("#")[0]), false);
+  for (const hash of ["#/login", "#/apply/token/private", "#/apply?email=private", "#/apply?token=private",
+    "#/apply%2Ftoken", "#//other.example/apply", "#/apply/../account", "#/apply/secret", "#/apply#token"]) {
+    assert.equal(applicationContext(`https://employer.example/external/${hash}`, true), null, hash);
+  }
+});
 test("job identity is tenant- and region-scoped, strips tracking only", () => {
   assert.deepEqual(
     greenhouseContext(

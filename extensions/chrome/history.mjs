@@ -6,6 +6,19 @@ export function createHistoryInspector() {
     expiryTimer;
   const created = new WeakSet();
   const saved = new WeakMap();
+  const ownClicks = new WeakSet();
+  const clickCheck = field => { ownClicks.add(field); try { field.click(); } finally { ownClicks.delete(field); } };
+  let editUrl = "", editedFields = new WeakSet(), editedIds = new Set();
+  const trackEdit = event => {
+    if (!event.isTrusted) return;
+    if (editUrl !== location.href) { editUrl = location.href; editedFields = new WeakSet(); editedIds.clear(); }
+    const field = event.target.closest?.('input,textarea,select,[role="combobox"],button[aria-haspopup="listbox"]');
+    if (!field || ownClicks.has(field)) return;
+    editedFields.add(field);
+    if (field.id) editedIds.add(field.id);
+  };
+  for (const event of ["input", "change", "pointerdown", "keydown"]) globalThis.document?.addEventListener(event, trackEdit, true);
+  const userEdited = field => editUrl === location.href && (editedFields.has(field) || (field.id && editedIds.has(field.id)));
   const normalize = (value) =>
     value
       .trim()
@@ -63,7 +76,9 @@ export function createHistoryInspector() {
     "currently employed here": "current",
     "currently studying here": "current",
     "current position": "current",
+    "current role": "current",
     "currently work here": "current",
+    "i am currently working in this role": "current",
   };
   const keyFor = label => {
     const text = normalize(label);
@@ -93,6 +108,13 @@ export function createHistoryInspector() {
     if (doctorate && !/\bbachelor|\bmaster/.test(text)) return ["Doctor of Philosophy (Ph.D.)", "Doctorate", "Doctoral Degree", "PhD"];
     return [];
   };
+  const schoolAlternatives = value => {
+    // A named faculty is not part of the institution's catalog name. Preserve
+    // campuses, locations and other qualifiers; never guess a similar school.
+    const match = /^(.+?(?:university|college|institute)(?: of [^,]+)?|(?:university|college|institute) of .+?)\s*(?:,| -| \u2013| \u2014)\s*(?:school|faculty|department) of\s+.+$/i.exec(value.trim());
+    return match ? [match[1].trim()] : [];
+  };
+  const alternativesFor = (key, value) => key === "degree" ? degreeAlternatives(value) : key === "school" ? schoolAlternatives(value) : [];
   const setter = (field, value) => {
     const proto =
       field instanceof HTMLTextAreaElement
@@ -124,6 +146,10 @@ export function createHistoryInspector() {
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, 25));
   const write = async (field, value, canWrite) => {
+    if (field.type === "checkbox") {
+      if (canWrite() && field.checked !== (value === "true")) clickCheck(field);
+      return;
+    }
     const segmentedDate = field.getAttribute("role") === "spinbutton" &&
       /^(month|year|day)$/i.test(field.getAttribute("aria-label") || "");
     // Selecting the segment and allowing controlled state to render matters:
@@ -156,22 +182,83 @@ export function createHistoryInspector() {
     if (/^mm\/dd\/yyyy$/i.test(field.placeholder || "")) return `${value.slice(5, 7)}/${value.slice(8)}/${value.slice(0, 4)}`;
     if (/^dd\/mm\/yyyy$/i.test(field.placeholder || "")) return `${value.slice(8)}/${value.slice(5, 7)}/${value.slice(0, 4)}`;
   };
+  // Month-only React Datepicker inputs may expose no format at all. Select the
+  // month through the local component and verify its selected option, rather
+  // than guessing a locale-dependent string that only looks filled.
+  async function chooseMonth(field, value, safe, visible) {
+    const wrapper = field.closest('.react-datepicker-wrapper')?.parentElement;
+    if (!wrapper || wrapper.querySelectorAll('input').length !== 1 || !/^\d{4}-\d{2}(?:-\d{2})?$/.test(value) || !safe()) return null;
+    field.focus(); field.click();
+    const calendar = () => {
+      const nodes = [...wrapper.querySelectorAll('.react-datepicker')].filter(visible);
+      return nodes.length === 1 && nodes[0].querySelector('.react-datepicker__monthPicker[role="listbox"]') ? nodes[0] : null;
+    };
+    for (let i = 0; i < 20 && safe() && !calendar(); i++) await wait();
+    const close = () => { if (safe()) { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); field.blur(); } };
+    const year = Number(value.slice(0, 4)), month = Number(value.slice(5, 7));
+    const names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const options = () => [...calendar()?.querySelectorAll('[role="option"]') || []].filter(node =>
+      visible(node) && node.getAttribute('aria-label') === `Choose ${names[month - 1]} ${year}` &&
+      !node.matches('[aria-disabled="true"],.react-datepicker__month-text--disabled'));
+    for (let i = 0; i < 100 && safe(); i++) {
+      const root = calendar();
+      const current = Number(root?.querySelector('.react-datepicker-year-header')?.textContent.trim());
+      if (!Number.isInteger(current) || current < 1900 || current > 2200) break;
+      if (current === year) {
+        const matches = options();
+        if (matches.length !== 1) break;
+        matches[0].click(); await wait();
+        if (!safe() || !field.value.trim()) break;
+        // Read the component's retained selection after reopening it.
+        const retained = field.value;
+        field.focus(); field.click(); await wait();
+        const selected = options();
+        const accepted = safe() && selected.length === 1 && selected[0].getAttribute('aria-selected') === 'true' && field.value === retained;
+        close();
+        return accepted ? retained : null;
+      }
+      const direction = current > year ? 'Previous Year' : 'Next Year';
+      const buttons = [...root.querySelectorAll('button[type="button"]')].filter(button => visible(button) && !button.disabled && button.getAttribute('aria-label') === direction);
+      if (buttons.length !== 1) break;
+      buttons[0].click(); await wait();
+      const next = Number(calendar()?.querySelector('.react-datepicker-year-header')?.textContent.trim());
+      if (next !== current + (current > year ? -1 : 1)) break;
+    }
+    close(); return null;
+  }
   // Never infer a popup from its position or choose another question's options.
-  async function choose(field, label, safe, visible, restoreLabel, alternatives = []) {
+  async function choose(field, label, safe, visible, restoreLabel, alternatives = [], retried = false) {
+    const allowed = safe;
+    safe = () => allowed(label);
     if (!safe() || !visible(field) ||
         (field instanceof HTMLButtonElement && field.type !== "button") ||
         field.matches(':disabled, [aria-disabled="true"], [aria-readonly="true"]')) return null;
     const expandedBefore = field.getAttribute("aria-expanded") === "true";
     if (!expandedBefore) { field.focus(); field.click(); }
-    if (field.getAttribute("aria-expanded") !== "true") {
+    await wait();
+    if (field.getAttribute("aria-expanded") !== "true" && !field.hasAttribute("data-uxi-multiselect-id")) {
       field.focus();
       field.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1, view: window }));
       field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
     }
     const search = field instanceof HTMLInputElement && custom(field);
+    const promptId = field.getAttribute("data-uxi-multiselect-id");
+    const committed = () => promptId && [label, ...alternatives].some(value => normalize(read(field)) === normalize(value));
+    const dismiss = () => {
+      if (!field.isConnected || userEdited(field)) return;
+      for (const type of ["keydown", "keyup"]) field.dispatchEvent(new KeyboardEvent(type, { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+      field.blur();
+    };
     if (search) { field.focus(); setter(field, label); }
+    // Some prompt catalogs only search on Enter, not on input/change.
+    if (search && field.getAttribute("enterkeyhint") === "search" && field.hasAttribute("data-uxi-multiselect-id") && safe()) {
+      await wait();
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      field.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    }
     let list;
     for (let attempt = 0; attempt < 64 && safe(); attempt++) {
+      if (committed()) { dismiss(); return { beforeLabel: restoreLabel, value: read(field) }; }
       const ids = (field.getAttribute("aria-controls") || field.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean);
       const lists = ids.flatMap((id) => {
         const nodes = document.querySelectorAll(`#${CSS.escape(id)}`);
@@ -184,10 +271,13 @@ export function createHistoryInspector() {
       if (promptLists.length === 1) { list = promptLists[0]; break; }
       await wait();
     }
+    // Search confirmation can itself commit a unique catalog result. Read the
+    // selected chip, never the query string, before reporting a missing menu.
+    if (committed()) { dismiss(); return { beforeLabel: restoreLabel, value: read(field) }; }
     const close = () => {
-      if (safe() && !expandedBefore) {
+      if (safe()) {
         if (search && field.value === label) setter(field, "");
-        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); field.blur();
+        if (!expandedBefore) dismiss();
       }
     };
     if (!safe() || !list || list.getAttribute("aria-multiselectable") === "true") { close(); return null; }
@@ -206,11 +296,20 @@ export function createHistoryInspector() {
     const empty = options.filter((option) => option.getAttribute("data-value") === "" || option.getAttribute("value") === "");
     let matches = options.filter((option) => normalize(option.textContent) === normalize(label));
     if (!matches.length) matches = options.filter(option => alternatives.some(value => normalize(option.textContent) === normalize(value)));
-    if (matches.length !== 1) { close(); return null; }
+    if (matches.length !== 1) {
+      close();
+      await wait();
+      // Searchable catalogs filter before matching. A full program/faculty
+      // name can hide the correct qualification/institution option entirely.
+      if (!matches.length && search && alternatives.length && !retried && allowed(""))
+        return choose(field, alternatives[0], allowed, visible, restoreLabel, [label, ...alternatives.slice(1)], true);
+      return null;
+    }
     const beforeLabel = restoreLabel || (empty.length === 1 ? empty[0].textContent.trim() : undefined);
     if (!safe() || !list.isConnected || !matches[0].isConnected) { close(); return null; }
     (matches[0].querySelector('[data-uxi-widget-type="multiselectlistitem"]') || matches[0]).click();
     await wait();
+    dismiss();
     return { beforeLabel, value: matches[0].textContent.trim() };
   }
   function clear() {
@@ -223,15 +322,35 @@ export function createHistoryInspector() {
     }
     undo = [];
   }
+  const headingSelector = 'legend,h2,h3,h4,[role="heading"],p';
+  const kindFromLabel = label => {
+    if (/^(?:(?:your|previous|professional) )?(?:experience|work experience|work history|career history|employment(?: history| experience)?|professional experience)(?: \d+)?$/.test(label)) return "experience";
+    if (/^(?:your )?(?:education|education history|education background|educational background|highest education qualification)(?: \d+)?$/.test(label)) return "education";
+    return null;
+  };
   const kindOf = (group) => {
     if (/^(?:job-)?boards(?:\.eu)?\.greenhouse\.io$/.test(location.hostname) && group.matches('.education--form,.education--container')) return "education";
     const named = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map(id => document.getElementById(id)?.textContent || "").join(" ");
-    const label = normalize(group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > [role=heading],:scope > header h2,:scope > header h3")?.textContent || group.getAttribute("aria-label") || named);
+    const label = normalize(group.querySelector(":scope > legend,:scope > h2,:scope > h3,:scope > h4,:scope > [role=heading],:scope > header h2,:scope > header h3,:scope > p")?.textContent || group.getAttribute("aria-label") || named);
     const auto = group.getAttribute("data-automation-id") || "";
     const bob = group.matches('careers-ui-experience-edit-item') ? group.parentElement : group;
     const bobType = bob.matches('careers-ui-experience-form-control') && bob.getAttribute("data-testid");
-    if (/^(?:(?:your|previous|professional) )?(?:work experience|work history|career history|employment(?: history| experience)?|professional experience)(?: \d+)?$/.test(label) || /^workExperience-\d+$/.test(auto) || bobType === "efc-experiences") return "experience";
-    if (/^(?:your )?(?:education|education history|education background|educational background|highest education qualification)(?: \d+)?$/.test(label) || /^education-\d+$/.test(auto) || bobType === "efc-education") return "education";
+    if (/^workExperience-\d+$/.test(auto) || bobType === "efc-experiences") return "experience";
+    if (/^education-\d+$/.test(auto) || bobType === "efc-education") return "education";
+    if (kindFromLabel(label)) return kindFromLabel(label);
+    // Presentation wrappers around a section heading do not change ownership.
+    // Only look through short, control-free wrappers, not into another row.
+    const kinds = new Set();
+    for (const child of group.children) {
+      if (child.querySelector('input,textarea,select,button,a,[role="combobox"]')) continue;
+      for (const heading of child.matches(headingSelector) ? [child] : child.querySelectorAll(headingSelector)) {
+        let node = heading, depth = 0;
+        while (node && node !== child && depth < 3) { node = node.parentElement; depth++; }
+        const kind = node === child && kindFromLabel(normalize(heading.textContent));
+        if (kind) kinds.add(kind);
+      }
+    }
+    if (kinds.size === 1) return [...kinds][0];
     return null;
   };
   return async function inspectHistory(mode, payload, form, labelFor, visible) {
@@ -248,10 +367,26 @@ export function createHistoryInspector() {
     }
     // Custom ATSs often use divs rather than fieldsets. Locate the section by
     // its heading, then identify individual rows by unique identity fields.
-    for (const heading of form.querySelectorAll('h2,h3,h4,legend,[role="heading"]')) {
+    for (const heading of form.querySelectorAll('h2,h3,h4,legend,[role="heading"],p')) {
       for (let node = heading.parentElement, depth = 0; node && node !== form && depth < 4; node = node.parentElement, depth++) {
         const kind = kindOf(node);
         if (kind && visible(node) && (node.querySelector(controls) || node.querySelector('button'))) {
+          containers.set(node, kind); break;
+        }
+      }
+    }
+    // A repeater's Add control can be a sibling of its labelled rows. Locate
+    // their nearest shared owner, without absorbing other sections or Submit.
+    for (const button of form.querySelectorAll('button[type="button"]')) {
+      const match = /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work )?(experience|education))?$/i.exec(button.textContent.trim());
+      if (!match || !visible(button)) continue;
+      for (let node = button.parentElement, depth = 0; node && node !== form && depth < 4; node = node.parentElement, depth++) {
+        const kinds = new Set([...containers].filter(([group]) => node.contains(group)).map(([, kind]) => kind));
+        const kind = match[1]?.toLowerCase() || (kinds.size === 1 && [...kinds][0]);
+        if (!kind) continue;
+        const rows = [...containers].filter(([group, type]) => node.contains(group) && type === kind).map(([group]) => group);
+        if (rows.length && ![...containers].some(([group, type]) => node.contains(group) && type !== kind) &&
+            [...node.querySelectorAll(controls)].filter(visible).every(field => rows.some(row => row.contains(field)) || keyFor(labelFor(field)))) {
           containers.set(node, kind); break;
         }
       }
@@ -289,7 +424,7 @@ export function createHistoryInspector() {
             (field) =>
               visible(field) &&
               !field.matches(
-                ':disabled, [aria-disabled="true"], [readonly], [list], select[multiple]',
+                ':disabled, [aria-disabled="true"], [readonly]:not([type="checkbox"]), [list], select[multiple]',
               ) &&
               (!field.hasAttribute("aria-autocomplete") || custom(field)) &&
               (custom(field) || field instanceof HTMLTextAreaElement ||
@@ -300,10 +435,16 @@ export function createHistoryInspector() {
             let key = keyFor(labelFor(field));
             const part = normalize(labelFor(field));
             if (["month", "year", "day"].includes(part)) {
-              const parent = field.closest('[role="group"],[data-automation-id="dateSection"]');
-              const parentLabel = normalize(parent?.getAttribute("aria-label") || field.closest('fieldset')?.querySelector(':scope > legend')?.textContent || "");
-              const direction = /^(?:from|start date)$/.test(parentLabel) ? "start" : /^(?:to|end date)(?: \(actual or expected\))?$/.test(parentLabel) ? "end" : "";
-              if (direction) key = direction + part[0].toUpperCase() + part.slice(1);
+              // Date widgets nest unnamed/value-labelled groups inside the
+              // actual From/To group. Stop at this record, not the first group.
+              for (let parent = field.parentElement; parent && group.contains(parent); parent = parent.parentElement) {
+                const named = (parent.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
+                  .map(id => document.getElementById(id)?.textContent || "").join(" ");
+                const parentLabel = normalize(parent.getAttribute("aria-label") || named || parent.querySelector(':scope > legend')?.textContent || "");
+                const direction = /^(?:from|start date)$/.test(parentLabel) ? "start" : /^(?:to|end date)(?: \(actual or expected\))?$/.test(parentLabel) ? "end" : "";
+                if (direction) { key = direction + part[0].toUpperCase() + part.slice(1); break; }
+                if (parent === group) break;
+              }
             }
             return { field, key };
           })
@@ -364,7 +505,7 @@ export function createHistoryInspector() {
     if (mode === "undo-history") {
       let undone = 0,
         kept = 0;
-      for (const entry of undo) {
+      for (const entry of [...undo].reverse()) {
         if (!validUndo(entry)) {
           kept++;
           continue;
@@ -404,10 +545,18 @@ export function createHistoryInspector() {
       }
     }
     const identityMatches = item => item.required.every(key => values[key] &&
-      normalize(read(item.fields.find(f => f.key === key).field)) === normalize(values[key]));
+      [values[key], ...alternativesFor(key, values[key])].some(value => normalize(read(item.fields.find(f => f.key === key).field)) === normalize(value)));
+    const identified = matching.filter(identityMatches);
+    const peers = (payload.peers || [payload]).filter(peer => peer.kind === payload.kind && requiredIdentity.every(key =>
+      typeof peer.entry?.[key] === "string" && [peer.entry[key], ...alternativesFor(key, peer.entry[key])].some(value =>
+        [values[key], ...alternativesFor(key, values[key])].some(other => normalize(value) === normalize(other)))));
+    const reconcile = payload.reconcilePrefilled === true && identified.length === 1 && peers.length === 1;
+    if (payload.reconcilePrefilled && identified.length && (!reconcile || identified[0].fields.some(({ field }) => userEdited(field))))
+      return { filled: 0, skipped: 1, warning: reconcile ? "You edited this history record. Left unchanged." : "Multiple history records share this identity. Review them on the form." };
     // Resume an identifiable unfinished record, even after reload, but
     // never mix profile values with a conflicting or independently edited row.
-    const compatible = item => identityMatches(item) &&
+    const compatible = item => (identityMatches(item) || saved.get(item.group)?.has(fingerprint)) &&
+      !undo.some(entry => entry.group === item.group && entry.edited) &&
       [...item.group.querySelectorAll('input,textarea,select,[role="combobox"],button[aria-haspopup="listbox"]')].filter(visible).every(field => {
         if (!read(field).trim()) return true;
         const key = item.fields.find(f => f.field === field)?.key;
@@ -415,7 +564,11 @@ export function createHistoryInspector() {
         if (key === "current") return values.dates?.current === true;
         let expected = ["start", "end"].includes(key) && values[key] ? dateValue(values[key], key, field) : values[key];
         if (/^(?:start|end)(?:Month|Year|Day)$/.test(key) && typeof expected === "string") expected = String(Number(expected));
-        if (key === "degree" && typeof expected === "string" && degreeAlternatives(expected).map(normalize).includes(normalize(read(field)))) return true;
+        if (typeof expected === "string" && alternativesFor(key, expected).map(normalize).includes(normalize(read(field)))) return true;
+        if (/Month$/.test(key) && values[key]) {
+          const month = new Date(Date.UTC(2000, Number(values[key]) - 1)).toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+          if ([month, month.slice(0, 3), values[key], String(Number(values[key]))].map(normalize).includes(normalize(read(field)))) return true;
+        }
         return typeof expected === "string" && normalize(read(field)) === normalize(expected);
       });
     const resumable = matching.filter(item => compatible(item) &&
@@ -423,7 +576,7 @@ export function createHistoryInspector() {
       item.fields.some(({ field, key }) => !read(field).trim() && typeof values[key] === "string" && values[key].trim()));
     const knownSaved = repeaters.some(item => item.kind === payload.kind && saved.get(item.group)?.has(fingerprint));
     if (
-      knownSaved || matching.some(item => (identityMatches(item) || saved.get(item.group)?.has(fingerprint)) && !resumable.includes(item))
+      !reconcile && ((knownSaved && !resumable.length) || matching.some(item => (identityMatches(item) || saved.get(item.group)?.has(fingerprint)) && !resumable.includes(item)))
     )
       return {
         error:
@@ -433,7 +586,7 @@ export function createHistoryInspector() {
     const focused = empty.filter(({ group }) =>
       group.contains(document.activeElement),
     );
-    const target = resumable.length === 1 ? resumable[0] :
+    const target = reconcile ? identified[0] : resumable.length === 1 ? resumable[0] :
       payload.automatic ? empty[0] : empty.length === 1 ? empty[0] : focused.length === 1 ? focused[0] : null;
     if (!target && payload.automatic && !payload.addAttempted) {
       if (matching.some(item => !emptyGroup(item) && item.required.some(key => !read(item.fields.find(f => f.key === key).field).trim())))
@@ -492,19 +645,42 @@ export function createHistoryInspector() {
       "november",
       "december",
     ];
+    // Turning off "current" can mount previously absent end-date controls.
+    // Reinspect that row before filling, rather than silently skipping its end.
+    const currentField = target.fields.find(item => item.key === "current")?.field;
+    if (reconcile && values.dates?.current === false && currentField?.checked && !payload.currentAdjusted && !userEdited(currentField)) {
+      const change = { field: currentField, key: "current", before: "true", value: "", group: target.group, edited: false, expires: Date.now() + 10 * 60_000 };
+      change.onEdit = event => { if (event.isTrusted && !ownClicks.has(currentField)) change.edited = true; };
+      currentField.addEventListener("change", change.onEdit);
+      undo.push(change); lastUrl = location.href;
+      clickCheck(currentField);
+      await wait();
+      if (!currentField.checked && currentField.isConnected && !userEdited(currentField)) {
+        const result = await inspectHistory(mode, { ...payload, currentAdjusted: true }, form, labelFor, visible);
+        return { ...result, filled: (result.filled || 0) + 1, updated: (result.updated || 0) + 1 };
+      }
+      return { filled: 0, skipped: 1, warning: "Current role could not be changed safely. Review this record." };
+    }
     let filled = 0,
-      skipped = 0, savedCount = 0, dateAdjusted = 0;
+      skipped = 0, savedCount = 0, dateAdjusted = 0, updated = 0;
     const warnings = [];
     const writes = [];
     const atUrl = location.href;
     const baseline = new Map([...target.group.querySelectorAll('input,textarea,select')].map(field => [field, read(field)]));
     for (const { field, key } of target.fields) {
       if (location.href !== atUrl || !form.isConnected || !target.group.contains(field)) break;
+      if (userEdited(field)) { skipped++; warnings.push("You edited this history record. Left unchanged."); continue; }
+      if (/^end(?:Month|Year|Day)?$/.test(key) && values.dates?.current === true) continue;
       let value = values[key];
       if (key === "current") {
-        if (values.dates?.current === true && !field.checked && field.isConnected && visible(field) && !field.matches(':disabled,[aria-disabled="true"]')) {
-          field.click();
-          if (field.checked) filled++; else skipped++;
+        if (typeof values.dates?.current === "boolean" && field.checked !== values.dates.current && (!field.checked || reconcile) && field.isConnected && visible(field) && !field.matches(':disabled,[aria-disabled="true"]')) {
+          const wasChecked = field.checked;
+          const change = { field, key, before: wasChecked ? "true" : "", value: values.dates.current ? "true" : "", group: target.group, edited: false, expires: Date.now() + 10 * 60_000 };
+          change.onEdit = event => { if (event.isTrusted && !ownClicks.has(field)) change.edited = true; };
+          field.addEventListener("change", change.onEdit);
+          undo.push(change); lastUrl = atUrl;
+          clickCheck(field);
+          if (field.checked === values.dates.current) { filled++; if (wasChecked) updated++; } else skipped++;
         }
         continue;
       }
@@ -517,7 +693,8 @@ export function createHistoryInspector() {
         if (field.required && key !== "end") warnings.push(`${labelFor(field)} is missing from this profile entry.`);
         continue;
       }
-      if (key === "start" || key === "end") {
+      const pickerDate = (key === "start" || key === "end") && !dateValue(value, key, field) && field.closest('.react-datepicker-wrapper');
+      if ((key === "start" || key === "end") && !pickerDate) {
         value = dateValue(value, key, field);
         if (!value) {
           skipped++;
@@ -540,8 +717,8 @@ export function createHistoryInspector() {
                 ].includes(normalize(option.text))
               : normalize(option.text) === normalize(value)),
         );
-        if (!matches.length && key === "degree") {
-          const alternatives = degreeAlternatives(value).map(normalize);
+        if (!matches.length && ["degree", "school"].includes(key)) {
+          const alternatives = alternativesFor(key, value).map(normalize);
           matches = [...field.options].filter(option => !option.disabled && option.value && alternatives.includes(normalize(option.text)));
         }
         if (matches.length !== 1) {
@@ -555,11 +732,17 @@ export function createHistoryInspector() {
         !field.isConnected ||
         !target.group.contains(field) ||
         !visible(field) ||
-        read(field).trim() ||
+        (read(field).trim() && !reconcile) ||
         (field.maxLength > 0 && value.length > field.maxLength)
       ) {
         skipped++;
         continue;
+      }
+      if (normalize(read(field)) === normalize(value) || alternativesFor(key, value).some(option => normalize(option) === normalize(read(field)))) continue;
+      // Selected multi-value chips need an explicit remove/replace transaction.
+      // Do not append another selection or erase an unrelated saved credential.
+      if (read(field).trim() && custom(field) && field.hasAttribute('data-uxi-multiselect-id')) {
+        skipped++; warnings.push(`${labelFor(field)} differs from your profile. Review the selected value on the form.`); continue;
       }
       const entry = {
         field,
@@ -579,23 +762,31 @@ export function createHistoryInspector() {
       field.addEventListener("keydown", entry.onEdit);
       undo.push(entry);
       lastUrl = atUrl;
-      if (custom(field)) {
-        const safe = () => location.href === atUrl && field.isConnected &&
-          target.group.contains(field) && (!read(field).trim() || field instanceof HTMLInputElement && field.value === value && !field.hasAttribute('data-uxi-multiselect-id')) && !entry.edited;
+      if (pickerDate) {
+        const selected = await chooseMonth(field, value, () => !entry.edited && location.href === atUrl && form.isConnected &&
+          field.isConnected && target.group.contains(field) && visible(field) && !field.matches(':disabled,[readonly],[aria-disabled="true"]'), visible);
+        if (!selected) { skipped++; warnings.push(`${labelFor(field)} needs review; the date selection could not be verified.`); continue; }
+        entry.value = selected;
+        entry.custom = true;
+      } else if (custom(field)) {
+        const safe = (query = value) => location.href === atUrl && field.isConnected &&
+          target.group.contains(field) && (!read(field).trim() || (reconcile && read(field) === entry.before) || field instanceof HTMLInputElement && field.value === query && !field.hasAttribute('data-uxi-multiselect-id')) && !entry.edited && !userEdited(field);
+        const alternatives = /Month$/.test(key) && months[Number(value) - 1]
+          ? [months[Number(value) - 1].slice(0, 3), String(Number(value)), value] : alternativesFor(key, value);
         if (/Month$/.test(key)) value = months[Number(value) - 1] || value;
-        const selected = await choose(field, value, safe, visible, undefined, key === "degree" ? degreeAlternatives(value) : []);
-        if (!selected) { skipped++; continue; }
+        const selected = await choose(field, value, safe, visible, reconcile && entry.before || undefined, alternatives);
+        if (!selected) { skipped++; warnings.push(`${labelFor(field)}: no unique matching option was available. Retry or review this field.`); continue; }
         value = selected.value;
         entry.custom = true;
         entry.beforeLabel = selected.beforeLabel;
         entry.value = read(field);
         // A click is not evidence the intended value was accepted by the site.
         if (normalize(entry.value) !== normalize(value)) { skipped++; continue; }
-      } else await write(field, value, () => !entry.edited && location.href === atUrl && form.isConnected &&
+      } else await write(field, value, () => !entry.edited && !userEdited(field) && location.href === atUrl && form.isConnected &&
         target.group.contains(field) && visible(field) && !field.matches(':disabled,[readonly],[aria-disabled="true"],[aria-readonly="true"]'));
       writes.push(entry);
     }
-    if (writes.length) {
+    if (undo.length) {
       clearTimeout(expiryTimer);
       expiryTimer = setTimeout(
         clear,
@@ -611,6 +802,7 @@ export function createHistoryInspector() {
     for (const entry of writes) {
       if (entry.field.isConnected && target.group.contains(entry.field) && read(entry.field) === entry.value && valid(entry.field)) {
         filled++;
+        if (entry.before.trim()) updated++;
         if (["start", "end"].includes(entry.key) && values[entry.key]?.length === 7 && entry.value.length === 10) dateAdjusted++;
       }
       else skipped++;
@@ -628,7 +820,7 @@ export function createHistoryInspector() {
     }
     // A local row editor needs Save + Cancel (or a verified editor contract), a unique record identity and
     // valid unchanged controls. Never click an application's Next or Submit.
-    if (payload.automatic && rowEditor && (created.has(target.group) || resumable.includes(target) || empty.includes(target))) {
+    if (payload.automatic && rowEditor && (reconcile || created.has(target.group) || resumable.includes(target) || empty.includes(target))) {
       const controls = [...target.group.querySelectorAll('input,textarea,select,[role="combobox"],button[aria-haspopup="listbox"],[role="checkbox"],[role="radio"]')].filter(visible);
       const complete = controls.every(field => field.matches('[role="checkbox"],[role="radio"]') ?
         field.getAttribute('aria-required') !== 'true' || field.getAttribute('aria-checked') === 'true' : field.type === "checkbox" ?
@@ -651,6 +843,6 @@ export function createHistoryInspector() {
         } else warnings.push("The history row was filled but Save needs review on the form.");
       }
     }
-    return { filled, skipped, saved: savedCount, dateAdjusted, warning: warnings[0], historyUndoAvailable: undo.some(validUndo) };
+    return { filled, updated, skipped, saved: savedCount, dateAdjusted, warning: warnings[0], historyUndoAvailable: undo.some(validUndo) };
   };
 }

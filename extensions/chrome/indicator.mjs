@@ -72,7 +72,7 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
     await scan();
     const atUrl = location.href;
     try {
-      const response = await send(type, data);
+      const response = await send(type, { ...data, ...(type === "autofill" ? { reconcilePrefilled: view.reconcile.checked } : {}) });
       if (location.href !== atUrl) return;
       if (!response)
         throw new Error(
@@ -165,6 +165,10 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
         () => void run("connect"),
       );
       const fill = button("Autofill", () => void run("autofill"));
+      const reconcileLabel = document.createElement("label");
+      reconcileLabel.className = "remember";
+      const reconcile = document.createElement("input"); reconcile.type = "checkbox"; reconcile.checked = true;
+      reconcileLabel.append(reconcile, " Update saved contact and history");
       const aiDisclosure = document.createElement("p");
       aiDisclosure.textContent = "Answers use your profile and this job description. Review and edit them on the form.";
       const resume = button("Change resume", () => void run("resume"), true);
@@ -177,7 +181,7 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
       const more = document.createElement("details");
       const moreLabel = document.createElement("summary"); moreLabel.textContent = "More actions";
       more.append(moreLabel, undo);
-      content.append(summary, recovery, connect, fill, aiDisclosure, resume, submitReview, status, remainingFields, more);
+      content.append(summary, recovery, connect, reconcileLabel, fill, aiDisclosure, resume, submitReview, status, remainingFields, more);
       section.append(content);
       root.append(section);
       view = {
@@ -188,6 +192,8 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
         summary,
         connect,
         fill,
+        reconcile,
+        reconcileLabel,
         resume,
         submitReview,
         remaining: remainingFields,
@@ -201,6 +207,8 @@ export function installIndicator(buildId, renderQuestions, renderRecovery) {
     // Preserve DOM identity across scans: replacing a pressed button can swallow
     // the click between pointer-down/up (or Space-down/up for keyboard users).
     const focus = root.activeElement;
+    view.reconcile.disabled = busy;
+    view.reconcileLabel.hidden = !connection;
     view.brand.hidden = !expanded;
     view.launcher.hidden = expanded;
     view.content.hidden = !expanded;

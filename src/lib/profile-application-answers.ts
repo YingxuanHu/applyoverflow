@@ -98,10 +98,11 @@ export function applicationAnswerKey(label: string, employmentCountry?: "CA" | "
   }
   if (/receive|receiving|contact|opt[ -]?in/.test(text) && /application|hiring|recruit/.test(text) &&
     !/marketing|promotional|advertis|third.part|partners/.test(text)) {
-    if (/text messages|sms/.test(text) && !/email|e-mail/.test(text)) return "smsUpdates";
-    if (/email|e-mail/.test(text) && !/text messages|sms/.test(text)) return "emailUpdates";
+    if (/text messages?|sms/.test(text) && !/email|e-mail/.test(text)) return "smsUpdates";
+    if (/email|e-mail/.test(text) && !/text messages?|sms/.test(text)) return "emailUpdates";
   }
-  if (/^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job(?: opening)?|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(text)) return "jobSource";
+  const sourcePrompt = text.replace(/\?\s*\([^()?]{1,200}\)$/, "?");
+  if (/^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about (?:(?:this|the|our) (?:position|role|job(?: opening)?|opportunity|opening)(?: with .+)?|us)\??$|^where did you (?:hear about|find) (?:this|the) (?:job|role|position|opening)\??$/.test(sourcePrompt)) return "jobSource";
   if (/^(?:earliest (?:available )?start date|(?:what is )?your (?:ideal|earliest|preferred|available) start date|(?:date |when are you |when would you be )available(?: to start(?: work)?)?|when (?:can|could) you start(?: work)?|availability date)\??$/.test(text)) return "startDate";
   if (/^(?:what (?:weekdays|days)(?: and times| and hours)? are you available(?: to work)?|(?:work |weekly )?availability|available (?:days|hours)(?: and (?:days|hours))?)\??$/.test(text)) return "availability";
   if (/^(?:please (?:indicate|provide) |what are )?(?:your )?(?:desired (?:starting )?(?:pay|salary(?: expectations)?|compensation)|salary expectations)(?:\s*\([^)]*\))?[.!?]?$/.test(text)) return "desiredPay";
@@ -122,6 +123,8 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
     const text = cleanQuestion(label), previous = cleanQuestion(labels[index - 1] || "");
     const tenant = context && context.tenant.replace(/[^a-z0-9]/gi, "").toLowerCase();
     let key: string | undefined = applicationAnswerKey(label, employmentCountry);
+    const currentSponsorship = /^do you currently (?:need|require) (?:visa |work )?sponsorship to work in (canada|the united states)\??$/.exec(text);
+    if (currentSponsorship) key = currentSponsorship[1] === "canada" ? "sponsorshipCA" : "sponsorshipUS";
     const sourceEmployer = /^how did you (?:(?:initially|first) )?(?:hear|learn|find out) about ([^?]{1,100})\??$/.exec(text)?.[1];
     // Employer display names need not equal ATS tenant slugs. On a verified
     // application, this bounded discovery question uses the saved job source.
@@ -129,6 +132,9 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       !/\b(?:why|how|you|your)\b/.test(sourceEmployer) && sourceEmployer.split(/\s+/).length <= 10) key = "jobSource";
     let notApplicable = false;
     let answer = key ? saved.values[key as ApplicationAnswerKey] : undefined;
+    // "No, now or in future" also answers "currently". A future Yes does not
+    // establish a present requirement, so that narrower question stays manual.
+    if (currentSponsorship && answer !== "No") answer = undefined;
     let profileLabel: string | undefined = [...applicationAnswerFields, ...applicationTextFields].find(f => f.key === key)?.label;
     const residence = location && profileLocationAnswer(label, location);
     if (residence) {
@@ -176,7 +182,9 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       (answer === "Other" && saved.values.sourceDetails?.trim().toLowerCase() === "applyoverflow"));
     const alternatives = applyOverflowSource ? ["Other", "Other Website", "Job Board", "Job Boards", "Job Site", "Job Sites", "Job board / aggregator", "Website"] :
       answer === "Prefer not to answer" || answer === "I don't wish to answer" || answer === "I do not want to answer" ? ["Decline to self-identify", "Decline to self identify", "I decline to self-identify", "I decline to self-identify for protected veteran status", "I prefer not to say", "I prefer not to answer", "Prefer not to say", "Prefer not to answer", "Prefer not to disclose", "Prefer not to indicate", "Choose not to disclose", "Choose not to answer", "I don't wish to answer", "I do not wish to answer", "I do not want to answer"] :
-      key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] : undefined;
+      key === "gender" ? ({ Man: ["Male"], Woman: ["Female"] } as Record<string, string[]>)[answer || ""] :
+      key === "smsUpdates" && answer === "No" ? ["No - I do not consent to receiving text messages"] :
+      key === "smsUpdates" && answer === "Yes" ? ["Yes - I consent to receiving text messages"] : undefined;
     if ((saved.enabled || residence) && answer) answers.push({ label, answer, answerKey: key, ...(alternatives ? { alternatives } : {}),
       ...(key === "sourceDetails" ? { dependsOn: { answerKey: "jobSource", answer: "Other" } } :
         key === "desiredPayAmount" ? { dependsOn: { answerKey: "desiredPayCurrency", answer: `${saved.values.desiredPay!.slice(0, 3).toUpperCase()} $` } } : {}) });
@@ -185,7 +193,9 @@ export function applicationAnswerPlan(raw: unknown, labels: string[], url?: stri
       reason: "Not applicable based on your saved answer. Left blank." });
     else details.push({ label, profileLabel, answerKey: key, reason: residence ? residence.reason! : !saved.enabled
       ? "Enable sharing in Profile > Optional application answers to use your saved choices."
-      : `Add ${profileLabel.toLowerCase()} in Profile, or answer on the form.` });
+      : currentSponsorship && saved.values[key as ApplicationAnswerKey] === "Yes"
+        ? "Your saved answer covers now or in the future. Confirm your current sponsorship requirement on this form."
+        : `Add ${profileLabel.toLowerCase()} in Profile, or answer on the form.` });
   });
   return { answers, details };
 }

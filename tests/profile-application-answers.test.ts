@@ -2,6 +2,34 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applicationAnswerFields, applicationAnswerKey, applicationAnswerPlan, commonApplicationAnswers, normalizeApplicationAnswers, profileApplicationAnswersSchema } from "../src/lib/profile-application-answers";
 
+test("application SMS radio sentences use explicit preferences, never inferred consent", () => {
+  const label = "Check Yes or No to indicate your agreement to receive text message updates from Example regarding your job application. Frequency may vary. Message and data rates may apply. Reply HELP for assistance. Reply STOP to opt out of future messaging.";
+  assert.equal(applicationAnswerKey(label), "smsUpdates");
+  const plan = applicationAnswerPlan({ enabled: true, values: { smsUpdates: "No" } }, [label]);
+  assert.equal(plan.answers[0].answer, "No");
+  assert.deepEqual(plan.answers[0].alternatives, ["No - I do not consent to receiving text messages"]);
+  assert.equal(applicationAnswerPlan({ enabled: false, values: { smsUpdates: "No" } }, [label]).answers.length, 0);
+  assert.equal(applicationAnswerPlan({ enabled: true, values: {} }, [label]).answers.length, 0);
+  assert.equal(applicationAnswerKey(`${label} Also receive promotional offers from partners.`), undefined);
+});
+
+test("a current-only sponsorship question can reuse a broader No but cannot invent a current Yes", () => {
+  const label = "Do you currently require sponsorship to work in Canada?";
+  const plan = (sponsorshipCA: string) => applicationAnswerPlan({ enabled: true, values: { sponsorshipCA } }, [label]);
+  assert.equal(plan("No").answers[0].answer, "No");
+  assert.equal(plan("Yes").answers.length, 0);
+  assert.match(plan("Yes").details[0].reason, /current sponsorship/);
+  assert.equal(plan("").answers.length, 0);
+});
+
+test("source questions retain their meaning with parenthesized example channels", () => {
+  const label = "How did you hear about us? (Internal, LinkedIn, Indeed, Recruiter, Referral, Social Media, Other Job Portals, etc.)*";
+  assert.equal(applicationAnswerKey(label), "jobSource");
+  assert.equal(applicationAnswerPlan({ enabled: true, values: { jobSource: "ApplyOverflow" } }, [label]).answers[0].answer, "ApplyOverflow");
+  assert.equal(applicationAnswerKey(`${label} And who referred you?`), undefined);
+  assert.equal(applicationAnswerKey("How did you hear about us? (I agree to receive promotional offers)"), undefined);
+});
+
 test("entitlement is scoped authorization, never citizenship or compound promises", () => {
   assert.equal(applicationAnswerKey("Are you legally entitled to work in Canada?"), "authorizedCA");
   assert.equal(applicationAnswerKey("Are you legally entitled to work in the United States?"), "authorizedUS");
