@@ -8,13 +8,16 @@ import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 type ResetPasswordFormProps = {
   token?: string;
   errorCode?: string;
+  callbackUrl?: string;
 };
 
-export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) {
+export function ResetPasswordForm({ token, errorCode, callbackUrl }: ResetPasswordFormProps) {
+  const destination = getSafeSignInCallback(callbackUrl);
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +72,7 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
         return;
       }
 
-      router.replace("/sign-in?passwordReset=true");
+      router.replace(`/sign-in?passwordReset=true&callbackUrl=${encodeURIComponent(destination)}`);
       router.refresh();
     } catch {
       setError("Unable to reset password. Request a new link and try again.");
@@ -151,7 +154,7 @@ export function ResetPasswordForm({ token, errorCode }: ResetPasswordFormProps) 
         </form>
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Need another link?{" "}
-          <Link className="text-foreground underline-offset-4 hover:underline" href="/forgot-password">
+          <Link className="text-foreground underline-offset-4 hover:underline" href={`/forgot-password?callbackUrl=${encodeURIComponent(destination)}`}>
             Request reset email
           </Link>
         </p>

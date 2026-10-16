@@ -62,7 +62,10 @@ async function hasValidSession(request: NextRequest) {
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
-  if (isProtectedRoute(pathname) && !(await hasValidSession(request))) {
+  // Setup actions enforce their own authentication and return a recoverable
+  // session error. Redirecting their POST would discard the open editor.
+  const setupAction = pathname === "/onboarding" && request.method === "POST" && request.headers.has("next-action");
+  if (isProtectedRoute(pathname) && !setupAction && !(await hasValidSession(request))) {
     const signInUrl = new URL("/", request.url);
     signInUrl.searchParams.set("callbackUrl", `${pathname}${search}`);
     return NextResponse.redirect(signInUrl);

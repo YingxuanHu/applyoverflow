@@ -70,7 +70,8 @@ try {
     };
   });
   await page.getByRole("button", { name: "Autofill", exact: true }).click();
-  assert.equal(await page.locator("#applyoverflow-assistant input,#applyoverflow-assistant textarea,#applyoverflow-assistant select").count(), 0);
+  assert.equal(await page.locator('#applyoverflow-assistant input:not([type="checkbox"]),#applyoverflow-assistant textarea,#applyoverflow-assistant select').count(), 0);
+  assert.equal(await page.getByLabel("Update saved contact and history").isChecked(), true);
   await page.getByRole("button", { name: "Show field: Office preference" }).click();
   await page.getByRole("status").filter({ hasText: "Field focused." }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.answerMessage), {
@@ -123,6 +124,8 @@ try {
     window.calls = [];
     window.busy = location.search.includes("busy");
     window.chrome = {
+      storage: { local: { get: async () => ({ firstVerifiedFill: true }), set: async () => {} } },
+      tabs: { query: async () => [] },
       permissions: {
         getAll: async () => ({ origins: window.granted }),
         request: async ({ origins }) => { window.granted = origins; return true; },
@@ -150,7 +153,7 @@ try {
   await popup.getByText("Connection & site access", { exact: true }).click();
   await popup.getByLabel("Show autofill on supported sites").check();
   await popup.getByText("Supported sites enabled", { exact: true }).waitFor();
-  await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
+  await popup.getByRole("button", { name: "Set up autofill" }).click();
   await popup.getByText("Connected", { exact: true }).waitFor();
   await popup.getByRole("button", { name: "Autofill" }).waitFor();
   assert.deepEqual(await popup.evaluate(() => window.calls), ["status", "detection-updated", "version", "connect"]);
@@ -160,10 +163,10 @@ try {
   console.log("PASS: independent profile/site-access status, explicit consent only, compact 320px popup");
   await popup.goto("https://extension.fixture/popup.html?busy");
   await popup.getByText(/Connection in progress/).waitFor();
-  assert.equal(await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).isDisabled(), true);
+  assert.equal(await popup.getByRole("button", { name: "Set up autofill" }).isDisabled(), true);
   await popup.evaluate(() => { window.busy = false; });
   await popup.getByText("Connect to your ApplyOverflow profile.", { exact: true }).waitFor();
-  assert.equal(await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).isEnabled(), true);
+  assert.equal(await popup.getByRole("button", { name: "Set up autofill" }).isEnabled(), true);
   assert.ok((await popup.evaluate(() => window.calls)).every(type => type === "status"));
   console.log("PASS: reopened popup explains pending consent, blocks duplicate actions and recovers without reopening");
 } finally {

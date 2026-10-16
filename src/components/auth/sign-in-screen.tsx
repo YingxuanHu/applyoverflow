@@ -2,6 +2,7 @@
 
 import { AuthShell } from "@/components/auth/auth-shell";
 import { SignInForm } from "@/components/auth/sign-in-form";
+import { isExtensionSetupPath } from "@/lib/profile-setup";
 
 type SignInScreenProps = {
   callbackUrl?: string;
@@ -28,10 +29,11 @@ export function SignInScreen({
   mobileMode = "form",
   reauthenticate = false,
 }: SignInScreenProps) {
+  const extension = isExtensionSetupPath(callbackUrl);
   return (
     <AuthShell
       contextTitle={
-        <>
+        extension ? "Use your profile with the Chrome extension" : <>
           Higher Quality Jobs
           <br />
           Fresher Leads
@@ -39,7 +41,7 @@ export function SignInScreen({
           Fewer Loose Ends
         </>
       }
-      contextDescription="A cleaner feed, fresher openings, and personalized help from first look to final follow-up."
+      contextDescription={extension ? "Sign in to prepare your details, then connect this browser. Your employer application stays open." : "A cleaner feed, fresher openings, and personalized help from first look to final follow-up."}
       mobileMode={mobileMode}
     >
       <SignInForm

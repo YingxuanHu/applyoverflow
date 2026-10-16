@@ -41,6 +41,10 @@ jobs:
       - run: npx prisma generate
       - run: npx prisma migrate deploy
       - run: npm run test:unit
+      - name: Verify onboarding bridge and account isolation
+        run: |
+          node --test scripts/test-extension-setup-bridge.mjs
+          node --conditions=react-server --import tsx tests/integration/connected-onboarding.ts
       - run: npx playwright install --with-deps chromium
       - run: npm run extension:test:autofill
       - run: npm run extension:test:modern
@@ -92,11 +96,17 @@ jobs:
             sleep 1
           done
           npm run test:auto-apply:ui
+          node --import tsx tests/e2e/profile-onboarding.ts
+          node --import tsx tests/e2e/connected-onboarding-recovery.ts
       - name: Keep workflow screenshots, traces and benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: application-workflow-benchmark
-          path: output/playwright/auto-apply/
+          path: |
+            output/playwright/auto-apply/
+            output/playwright/extension-setup-*.png
+            output/playwright/onboarding-*.png
+            output/playwright/profile-history-*.png
           retention-days: 14
           if-no-files-found: ignore

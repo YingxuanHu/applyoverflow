@@ -4,6 +4,7 @@ import { createFillProgress } from "./fill-progress.mjs";
 import { createRecoveryView, recoveryForError } from "./recovery.mjs";
 const renderQuestions = createFillProgress();
 const renderRecovery = createRecoveryView();
+document.getElementById("release-channel").textContent = chrome.runtime.getManifest?.().name?.includes("preview") ? "Preview" : "";
 let failure;
 function showRecovery(value) {
   failure = value;
@@ -127,7 +128,7 @@ async function run(type, data = {}) {
     checkVersion(result);
     if (result.tabId !== undefined) activeTabId = result.tabId;
     showRecovery(result.recovery);
-    if (result.fields) showFields(result.fields);
+    if (result.fields) { showFields(result.fields); void updateAccess(); }
     if (result.reconnect) {
       if (!result.fields) clearQuestions();
       document.getElementById("connection-state").textContent = "Reconnect needed";
@@ -188,6 +189,11 @@ async function run(type, data = {}) {
       document.getElementById("account").textContent = result.email;
       document.getElementById("account").hidden = !result.email;
     }
+    const readiness = document.getElementById("profile-readiness");
+    readiness.hidden = !result.connected || !result.capabilities;
+    if (result.capabilities) readiness.textContent = [result.capabilities.contact ? "Basic contact autofill available." : "Review your details in ApplyOverflow.",
+      result.capabilities.pendingReview ? "Imported changes await review." : "",
+      result.capabilities.resume === "enabled" ? "Default resume sharing enabled." : "Resume sharing is separate from autofill."].filter(Boolean).join(" ");
     if (!result.connected) document.getElementById("account").hidden = true;
     document.getElementById("connection-state").textContent = result.connected
       ? result.connectionVerified === false ? "Could not verify" : "Connected"
@@ -293,7 +299,8 @@ async function updateAccess() {
   currentOrigin = applicationContext(tab?.url, true) ? `${new URL(tab.url).origin}/*` : undefined;
   const currentEnabled = currentOrigin && await chrome.permissions.contains({ origins: [currentOrigin] });
   document.getElementById("enable-current-site").hidden = !currentOrigin || currentEnabled;
-  document.getElementById("detection-reminder").hidden = Boolean(all || currentEnabled);
+  const preferences = await chrome.storage.local.get(["firstVerifiedFill", "dismissOnPageOffer"]);
+  document.getElementById("detection-reminder").hidden = Boolean(all || currentEnabled || !currentOrigin || !preferences.firstVerifiedFill || preferences.dismissOnPageOffer);
   document.getElementById("access-state").textContent = all ? "All application sites" : currentEnabled ? "This site enabled" : !count
     ? "Toolbar only"
     : detection.checked
@@ -325,4 +332,8 @@ detection.addEventListener("change", () => void changeDetection(detection.checke
 allDetection.addEventListener("change", () => void changeDetection(allDetection.checked, APPLICATION_ORIGINS));
 document.getElementById("enable-current-site").addEventListener("click", () => currentOrigin && void changeDetection(true, [currentOrigin]));
 document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true, currentOrigin ? [currentOrigin] : APPLICATION_ORIGINS));
+document.getElementById("dismiss-detection").addEventListener("click", async () => {
+  await chrome.storage.local.set({ dismissOnPageOffer: true });
+  await updateAccess();
+});
 void updateAccess();

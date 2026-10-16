@@ -152,7 +152,7 @@ export function SignInForm({
           <div className="flex justify-end">
             <Link
               className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              href="/forgot-password"
+              href={`/forgot-password?callbackUrl=${encodeURIComponent(safeCallbackUrl)}`}
             >
               Forgot password?
             </Link>

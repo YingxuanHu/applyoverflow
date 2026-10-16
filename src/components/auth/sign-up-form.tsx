@@ -318,7 +318,7 @@ export function SignUpForm({ googleEnabled = false, callbackUrl = "/jobs" }: { g
                 <Button
                   className="h-10 flex-1 rounded-full"
                   render={
-                    <Link href={`/forgot-password?email=${encodeURIComponent(accountCheckEmail)}`} />
+                    <Link href={`/forgot-password?email=${encodeURIComponent(accountCheckEmail)}&callbackUrl=${encodeURIComponent(destination)}`} />
                   }
                   variant="outline"
                 >
@@ -357,7 +357,7 @@ export function SignUpForm({ googleEnabled = false, callbackUrl = "/jobs" }: { g
                 <Button
                   className="h-10 flex-1 rounded-full"
                   render={
-                    <Link href={`/forgot-password?email=${encodeURIComponent(existingEmail)}`} />
+                    <Link href={`/forgot-password?email=${encodeURIComponent(existingEmail)}&callbackUrl=${encodeURIComponent(destination)}`} />
                   }
                   variant="outline"
                 >
@@ -412,7 +412,7 @@ export function SignUpForm({ googleEnabled = false, callbackUrl = "/jobs" }: { g
             Sign in
           </Link>
           {" "}or{" "}
-          <Link className="text-foreground underline-offset-4 hover:underline" href="/forgot-password">
+          <Link className="text-foreground underline-offset-4 hover:underline" href={`/forgot-password?callbackUrl=${encodeURIComponent(destination)}`}>
             reset your password
           </Link>
         </p>

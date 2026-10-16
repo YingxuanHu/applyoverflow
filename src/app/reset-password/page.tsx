@@ -2,7 +2,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { ResetPasswordForm } from "@/components/auth/reset-password-form";
 
 type ResetPasswordPageProps = {
-  searchParams: Promise<{ token?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string; callbackUrl?: string }>;
 };
 
 export default async function ResetPasswordPage({
@@ -15,7 +15,7 @@ export default async function ResetPasswordPage({
       contextTitle="Set a new password and continue."
       contextDescription="After the update, sign in again and return to the workspace that holds your jobs, documents, answers, and application history."
     >
-      <ResetPasswordForm errorCode={params.error} token={params.token} />
+      <ResetPasswordForm errorCode={params.error} token={params.token} callbackUrl={params.callbackUrl} />
     </AuthShell>
   );
 }

@@ -97,8 +97,19 @@ async function main() {
     await work.getByRole("button", { name: "Set dates" }).click();
     await work.getByLabel("Start year", { exact: true }).fill("2021");
     await work.getByLabel("End year", { exact: true }).fill("2020");
-    await page.getByRole("button", { name: "Confirm details" }).click();
+    await page.getByLabel("I reviewed this work experience").check();
+    await page.getByRole("button", { name: "Use reviewed details" }).click();
     await page.getByRole("alert").filter({ hasText: "Entry 1" }).waitFor();
+    await page.getByLabel("I reviewed this work experience").uncheck();
+    await page.getByRole("button", { name: "Use reviewed details" }).click();
+    await page.getByRole("heading", { name: "What comes next?" }).waitFor();
+    const contactOnly = await prisma.userProfile.findUniqueOrThrow({ where: { id: user.profile!.id } });
+    assert.equal((contactOnly.contactJson as { fullName: string }).fullName, "Jordan History");
+    assert.deepEqual(contactOnly.experiencesJson, [], "invalid unreviewed history remains a draft");
+    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.waitForURL(`${root}/profile`);
+    await page.goto(setupUrl);
+    await page.locator("summary").filter({ hasText: "Work experience" }).click();
     await work.getByLabel("I currently work here").check();
     assert.equal(
       await work.getByLabel("End year", { exact: true }).isDisabled(),
@@ -110,13 +121,13 @@ async function main() {
       where: { userId_key: { userId: user.profile!.id, key: ONBOARDING_KEY } },
     });
     assert.equal(parseOnboardingState(deferred.value)?.status, "deferred");
-    assert.equal(
+    assert.deepEqual(
       (
         await prisma.userProfile.findUniqueOrThrow({
           where: { id: user.profile!.id },
         })
       ).experiencesJson,
-      null,
+      [],
       "draft is not confirmed profile data",
     );
     await page.goto(setupUrl, { waitUntil: "domcontentloaded" });
@@ -155,13 +166,18 @@ async function main() {
       path: "output/playwright/profile-history-onboarding.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Confirm details" }).click();
+    await page.getByLabel("I reviewed this work experience").check();
+    await page.getByLabel("I reviewed this education").check();
+    await page.getByRole("button", { name: "Use reviewed details" }).click();
     await page.getByRole("heading", { name: "What comes next?" }).waitFor();
+    const confirmedBeforeGoals = await prisma.userProfile.findUniqueOrThrow({ where: { id: user.profile!.id } });
+    assert.equal((confirmedBeforeGoals.contactJson as { fullName: string }).fullName, "Jordan History", "contact is usable before optional goals");
+    assert.equal((confirmedBeforeGoals.experiencesJson as unknown[]).length, 1);
     await page
       .getByLabel("Roles you are interested in")
       .fill("Financial analyst");
     await page.getByLabel("Preferred country").selectOption("CA");
-    await page.getByRole("button", { name: "Finish setup" }).click();
+    await page.getByRole("button", { name: "Save interests and continue" }).click();
     await page.waitForURL(`${root}/profile`);
     let profile = await prisma.userProfile.findUniqueOrThrow({
       where: { id: user.profile!.id },
@@ -251,6 +267,7 @@ async function main() {
     const answer = page.getByLabel("Describe your reporting experience", {
       exact: true,
     });
+    await page.waitForLoadState("networkidle");
     await answer.fill("I prepared financial reports using Excel.");
     await page
       .getByRole("button", { name: "Copy answer", exact: true })

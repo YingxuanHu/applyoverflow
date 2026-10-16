@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Download, Trash2, Unplug } from "lucide-react";
 import release from "../../../../extensions/chrome/release.json";
+import { EXTENSION_STORE_URL } from "@/lib/extension-setup";
 import { requireCurrentUserIds } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { Button } from "@/components/ui/button";
@@ -35,29 +36,29 @@ export default async function ExtensionSettingsPage() {
           <h2 className="text-base font-semibold">
             Chrome extension{" "}
             <span className="text-xs font-normal text-muted-foreground">
-              Preview {release.version}
+              Chrome Web Store
             </span>
           </h2>
           <Button
             variant="outline"
             render={
-              <a href="/downloads/applyoverflow-assistant.zip" download />
+              <a href={EXTENSION_STORE_URL} target="_blank" rel="noopener noreferrer" />
             }
           >
             <Download className="size-4" />
-            Download ZIP
+            Get the extension
           </Button>
         </div>
+        <Button render={<Link href="/extension/setup" />}>Check this browser&apos;s connection</Button>
+        <p className="text-sm text-muted-foreground">Connect your saved profile, then open ApplyOverflow from Chrome&apos;s toolbar on an employer application. Resume sharing and submission approval are separate choices.</p>
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium">Developer and testing preview ({release.version})</summary>
+          <a className="mt-3 inline-block underline" href="/downloads/applyoverflow-assistant.zip" download>Download preview ZIP</a>
         {!allowedExtension(release.previewId) && (
           <p className="text-sm text-muted-foreground">
-            Preview connections are not enabled on this deployment yet. You can
-            download and install the preview now.
+            Preview connections are not enabled on this deployment. Use the Store version for your applications.
           </p>
         )}
-        <details className="text-sm">
-          <summary className="cursor-pointer font-medium">
-            Install the preview
-          </summary>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-muted-foreground">
             <li>Extract the downloaded ZIP into a folder.</li>
             <li>
@@ -74,7 +75,7 @@ export default async function ExtensionSettingsPage() {
             </li>
           </ol>
           <p className="mt-3 text-muted-foreground">
-            This is not a Chrome Web Store release. Contact fields and selected
+            This ZIP is a testing build, separate from the Chrome Web Store version. Contact fields and selected
             PDF/DOCX resumes up to 5 MB are supported. Each resume needs
             approval in Profile or through Change resume. Embedded forms use their own hint
             after site access is enabled; reload the employer page if needed.
@@ -89,7 +90,8 @@ export default async function ExtensionSettingsPage() {
         </Link>
       </section>
       <section className="divide-y">
-        <h2 className="py-4 text-base font-semibold">Connected extensions</h2>
+        <h2 className="py-4 text-base font-semibold">Authorized extension sessions</h2>
+        <p className="py-3 text-sm text-muted-foreground">These records may belong to other browsers. Use Check this browser&apos;s connection above to verify the current account.</p>
         {!connections.length && (
           <p className="py-4 text-sm text-muted-foreground">
             No active connections.

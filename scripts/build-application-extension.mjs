@@ -67,6 +67,7 @@ for (const file of [
   "question-policy.mjs",
   "recovery.mjs",
   "workspace-bridge.mjs",
+  "setup-bridge.mjs",
 ])
   await cp(`extensions/chrome/${file}`, `${destination}/${file}`);
 await cp("public/brand/applyoverflow-favicon.png", `${destination}/icon.png`);

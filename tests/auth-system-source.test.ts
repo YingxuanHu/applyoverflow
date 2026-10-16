@@ -123,7 +123,8 @@ test("app password reset flow stores hashed reset tokens and revokes sessions", 
   assert.match(resetSource, /session\.deleteMany/);
   assert.match(forgotForm, /\/api\/auth\/password-reset\/request/);
   assert.match(resetForm, /\/api\/auth\/password-reset\/confirm/);
-  assert.match(resetForm, /router\.replace\("\/sign-in\?passwordReset=true"\)/);
+  assert.match(resetForm, /getSafeSignInCallback\(callbackUrl\)/);
+  assert.match(resetForm, /router\.replace\(`\/sign-in\?passwordReset=true&callbackUrl=\$\{encodeURIComponent\(destination\)\}`\)/);
   assert.match(signInPage, /passwordReset=\{params\.passwordReset === "true"\}/);
   assert.match(signInScreen, /passwordReset=\{passwordReset\}/);
   assert.doesNotMatch(forgotForm, /requestPasswordReset/);

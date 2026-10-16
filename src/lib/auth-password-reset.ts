@@ -5,6 +5,7 @@ import { hashPassword } from "better-auth/crypto";
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { resolveCanonicalAppUrl } from "@/lib/runtime-origin";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 const LOCAL_DEV_AUTH_SECRET = "autoapplication-local-dev-auth-secret-2026";
@@ -87,7 +88,7 @@ async function sendPasswordChangedEmail(input: { email: string; name: string }) 
   });
 }
 
-export async function requestPasswordResetEmail(emailInput: string, _request?: Request) {
+export async function requestPasswordResetEmail(emailInput: string, _request?: Request, callbackUrl?: unknown) {
   const email = normalizeEmail(emailInput);
   if (!email) {
     return;
@@ -111,6 +112,7 @@ export async function requestPasswordResetEmail(emailInput: string, _request?: R
   const token = randomBytes(32).toString("base64url");
   const resetUrl = new URL("/reset-password", resolveCanonicalAppUrl());
   resetUrl.searchParams.set("token", token);
+  resetUrl.searchParams.set("callbackUrl", getSafeSignInCallback(callbackUrl));
 
   await prisma.$transaction(async (tx) => {
     await tx.authSecurityToken.updateMany({

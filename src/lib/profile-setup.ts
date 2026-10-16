@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { getSafeSignInCallback } from "./auth-return-path";
-import { historyDatesSchema } from "./profile-history";
 import { profileApplicationAnswersSchema } from "./profile-application-answers";
 
 export const ONBOARDING_KEY = "profile-onboarding-v1";
 export const JOB_GOALS_KEY = "job-goals-v1";
 const text = (max: number) => z.string().trim().max(max);
+// Drafts may contain unfinished dates. Canonical confirmation validates only
+// the sections the user actually reviewed with historyValidationError.
+const draftDatesSchema = z.object({ start: text(20), end: text(20), current: z.boolean() }).strict();
 export const jobGoalsSchema = z
   .object({
     targetTitles: z
@@ -68,7 +70,7 @@ export const setupProfileSchema = z
           title: text(140),
           company: text(140),
           time: text(100),
-          dates: historyDatesSchema.optional(),
+          dates: draftDatesSchema.optional(),
           location: text(140),
           description: text(3000),
         }),
@@ -81,7 +83,7 @@ export const setupProfileSchema = z
           degree: text(160),
           fieldOfStudy: text(160).optional(),
           time: text(100),
-          dates: historyDatesSchema.optional(),
+          dates: draftDatesSchema.optional(),
           location: text(140),
           description: text(3000),
         }),
@@ -101,6 +103,44 @@ export const setupProfileSchema = z
   })
   .strict();
 export type SetupProfile = z.infer<typeof setupProfileSchema>;
+export const REVIEW_SCOPES = ["contact", "address", "experiences", "educations", "projects", "summary"] as const;
+export const reviewScopeSchema = z.enum(REVIEW_SCOPES);
+export type ReviewScope = z.infer<typeof reviewScopeSchema>;
+const CONTACT_KEYS = ["fullName", "givenName", "familyName", "preferredName", "email", "phone", "phoneCountry", "location"] as const;
+const ADDRESS_KEYS = ["streetAddress", "addressLine2", "city", "region", "postalCode", "country", "linkedInUrl", "githubUrl", "portfolioUrl"] as const;
+
+// Review only exposes these fields. In particular, importing a resume must not
+// change sharing consent, optional application answers, or demographic choices.
+export function applyReviewedSetup(current: SetupProfile, draft: SetupProfile, scopes: readonly ReviewScope[]): SetupProfile {
+  const next = structuredClone(current);
+  for (const scope of scopes) {
+    if (scope === "contact" || scope === "address") {
+      for (const key of scope === "contact" ? CONTACT_KEYS : ADDRESS_KEYS) {
+        if (draft.contact[key] !== undefined || current.contact[key] !== undefined)
+          Object.assign(next.contact, { [key]: draft.contact[key] ?? "" });
+      }
+    } else if (scope === "summary") {
+      next.headline = draft.headline;
+      next.summary = draft.summary;
+      next.skills = structuredClone(draft.skills);
+    } else {
+      Object.assign(next, { [scope]: structuredClone(draft[scope]) });
+    }
+  }
+  return next;
+}
+
+export function pendingSetupScopes(current: SetupProfile, draft?: SetupProfile): ReviewScope[] {
+  if (!draft) return [];
+  const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(ordered) : value && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, ordered(item)])) : value;
+  const canonical = JSON.stringify(ordered(current));
+  return REVIEW_SCOPES.filter(scope => JSON.stringify(ordered(applyReviewedSetup(current, draft, [scope]))) !== canonical);
+}
+
+export function isExtensionSetupPath(value: string) {
+  return new URL(getSafeSignInCallback(value), "https://applyoverflow.local").pathname === "/extension/setup";
+}
 export function getSetupCompletionError(profile: SetupProfile) {
   if (!profile.contact.fullName.trim())
     return "Add your full name before finishing.";
@@ -110,7 +150,7 @@ export function getSetupCompletionError(profile: SetupProfile) {
 }
 export const onboardingStateSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     status: z.enum(["pending", "deferred", "complete"]),
     step: z.number().int().min(0).max(2),
     revision: z.number().int().min(0),
@@ -118,6 +158,7 @@ export const onboardingStateSchema = z
     goals: jobGoalsSchema.optional(),
     confirmedAt: z.string().datetime().optional(),
     profileUpdatedAt: z.string().datetime().optional(),
+    confirmedScopes: z.array(reviewScopeSchema).optional(),
   })
   .strict();
 export type OnboardingState = z.infer<typeof onboardingStateSchema>;
@@ -150,7 +191,10 @@ export function onboardingDestination(
   destination: unknown,
 ) {
   const next = setupReturnPath(destination);
-  return state?.status === "pending"
+  // Setup and brief authorization are coordinated outside the timed identity
+  // window. Never insert the full onboarding wizard into extension consent.
+  const extensionPath = /^\/extension\/(?:setup|connect)(?:\?|$)/.test(next);
+  return state?.status === "pending" && !extensionPath
     ? `/onboarding?from=${encodeURIComponent(next)}`
     : next;
 }

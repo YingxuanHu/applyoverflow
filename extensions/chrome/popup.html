@@ -10,20 +10,22 @@
     <header>
       <img src="icon.png" width="24" height="24" alt="" /><strong
         >ApplyOverflow</strong
-      ><span>Preview</span>
+      ><span id="release-channel"></span>
     </header>
     <main>
       <p id="account" hidden></p>
       <dl class="readiness" aria-label="Autofill setup">
-        <div><dt>Profile</dt><dd id="connection-state">Checking...</dd></div>
+        <div><dt>Account</dt><dd id="connection-state">Checking...</dd></div>
         <div><dt>Site access</dt><dd id="access-state">Checking...</dd></div>
       </dl>
+      <p id="profile-readiness" class="question-hint" hidden></p>
       <div id="detection-reminder" hidden>
         <p class="question-hint">Show the assistant directly on application pages.</p>
         <button id="enable-detection" type="button" class="secondary">Enable on-page assistant</button>
+        <button id="dismiss-detection" type="button" class="secondary">Not now</button>
       </div>
       <p id="page-status" hidden></p>
-      <button id="connect" type="button">Connect to ApplyOverflow</button>
+      <button id="connect" type="button">Set up autofill</button>
       <button id="reload-extension" type="button" hidden>Reload extension</button>
       <p id="status" role="status" aria-live="polite">Checking connection...</p>
       <div id="recovery" hidden></div>

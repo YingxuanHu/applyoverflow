@@ -25,8 +25,10 @@ await context.route("**/*", async route => {
   const url = new URL(route.request().url());
   if (!['http:', 'https:'].includes(url.protocol)) return route.continue();
   if (url.hostname === "applyoverflow.com") {
+    if (!url.pathname.startsWith('/api/extension/v1/')) return route.fulfill({ contentType: 'text/html', body: '<h1>Fixture setup</h1>' });
     const action = url.pathname.split("/").at(-1);
     if (action === "connection-status") return route.fulfill({ json: { connected: true } });
+    if (action === "onboarding-event") return route.fulfill({ json: { ok: true } });
     if (action === "autofill-plan") { apiCalls++; return route.fulfill({ json: { contact: facts, answers: [], history: [], revision: "2026-10-12T00:00:00Z", includeResume: false } }); }
     throw new Error(`Unexpected API ${action}`);
   }

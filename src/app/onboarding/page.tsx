@@ -37,7 +37,9 @@ export default async function OnboardingPage({
   });
   return (
     <ProfileSetup
-      initialState={profileChanged ? { ...state, draft: undefined } : state}
+      key={user.id}
+      profileId={user.id}
+      initialState={state}
       profileChanged={profileChanged}
       initialProfile={buildProfileFormValues(user, user)}
       initialGoals={

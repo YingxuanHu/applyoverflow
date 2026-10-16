@@ -126,6 +126,13 @@ export async function requireFreshSensitiveSession() {
   };
 }
 
+export async function requireCurrentWebSession() {
+  const session = await getPolicySession(await headers());
+  const user = await getSessionUser();
+  if (!user || !session || session.userId !== user.id || !isSessionUsableByPolicy(session)) throw new UnauthorizedError();
+  return { authUserId: user.id, sessionId: session.id };
+}
+
 async function ensureProfileForUser(user: SessionUser) {
   return syncProfileForAuthUser(user);
 }

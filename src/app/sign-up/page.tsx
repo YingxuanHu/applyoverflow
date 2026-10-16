@@ -6,6 +6,7 @@ import { isGoogleAuthEnabled } from "@/lib/auth";
 import { getOptionalSessionUser } from "@/lib/current-user";
 import { getSafeSignInCallback } from "@/lib/auth-return-path";
 import { getPostSignInDestination } from "@/lib/queries/profile-setup";
+import { isExtensionSetupPath } from "@/lib/profile-setup";
 
 export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ callbackUrl?: string }> }) {
   const sessionUser = await getOptionalSessionUser();
@@ -17,8 +18,8 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
 
   return (
     <AuthShell
-      contextTitle="Build a workspace around the jobs worth applying to."
-      contextDescription="Set up once, then use better job signals, reusable documents, saved answers, and reminders across every application."
+      contextTitle={isExtensionSetupPath(callbackUrl) ? "Set up your profile for autofill" : "Build a workspace around the jobs worth applying to."}
+      contextDescription={isExtensionSetupPath(callbackUrl) ? "Create an account to save the details your extension will use. A resume is optional, and you review before submitting." : "Set up once, then use better job signals, reusable documents, saved answers, and reminders across every application."}
       footer={null}
     >
       <SignUpForm googleEnabled={isGoogleAuthEnabled()} callbackUrl={callbackUrl} />

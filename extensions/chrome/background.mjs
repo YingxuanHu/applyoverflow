@@ -4,6 +4,7 @@ import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 import { recoveryForError, stoppedFields, planQuestions } from "./recovery.mjs";
 import { createWorkspaceBridge, allowedWorkspaceSender } from "./workspace-bridge.mjs";
+import { createSetupBridge, allowedSetupSender } from "./setup-bridge.mjs";
 
 let verifiedConnection = null;
 const recovery = (error, action) => {
@@ -129,7 +130,10 @@ function syncDetection() {
     });
   return registration;
 }
-chrome.runtime.onInstalled.addListener(() => void syncDetection());
+chrome.runtime.onInstalled.addListener(details => {
+  void syncDetection();
+  if (details?.reason === "install") void chrome.tabs.create({ url: `${APP_ORIGIN}/extension/setup` });
+});
 chrome.runtime.onStartup.addListener(() => void syncDetection());
 chrome.permissions.onAdded.addListener(() => void syncDetection());
 chrome.permissions.onRemoved.addListener(() => void syncDetection());
@@ -247,7 +251,7 @@ async function connect() {
       verifier: pending.verifier,
     });
     await clearAccountSession();
-    await chrome.storage.local.set({ connection: { ...connection, origin: APP_ORIGIN } });
+    await chrome.storage.local.set({ connection: { ...connection, origin: APP_ORIGIN, onboardingJourney: crypto.randomUUID() } });
     await notifyConnectionChanged();
     return {
       connected: true,
@@ -257,6 +261,19 @@ async function connect() {
   } finally {
     await chrome.storage.session.remove("authorization");
   }
+}
+
+async function openSetup(sender) {
+  const tab = sender.tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const context = tab?.id && supportedOrigin(tab.url) ? random() : null;
+  const setup = await chrome.tabs.create({ url: `${APP_ORIGIN}/extension/setup${context ? `?context=${context}` : ""}` });
+  if (context) {
+    const entries = await chrome.storage.session.get(null);
+    await chrome.storage.session.remove(Object.keys(entries).filter(key => key.startsWith("setup-return:") && entries[key].expires < Date.now()));
+    const { connection } = await chrome.storage.local.get("connection");
+    await chrome.storage.session.set({ [`setup-return:${context}`]: { tabId: tab.id, url: tab.url, ownerTabId: setup.id, account: connection?.email, expires: Date.now() + 2 * 60 * 60_000 } });
+  }
+  return { opened: true, message: "Continue setup in the ApplyOverflow tab. Your application stays open." };
 }
 
 let working = null;
@@ -372,15 +389,16 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
     let connectionError;
     if (connected && !working && (verifiedConnection?.token !== connection.token || verifiedConnection.until < Date.now())) {
       try {
-        await api("connection-status", {}, connection.token);
-        verifiedConnection = { token: connection.token, until: Date.now() + 60_000 };
+        const status = await api("connection-status", {}, connection.token);
+        verifiedConnection = { token: connection.token, until: Date.now() + 60_000, capabilities: status.capabilities, metricsEnabled: status.metricsEnabled === true };
       } catch (error) { connectionError = error; }
     }
     const failure = connectionError ? recovery(connectionError, "connection-status") : expired ? recovery({ code: "SIGN_IN_REQUIRED" }, "connection-status") : progress?.recovery;
     return {
       connected: connected && !connectionError?.reconnect,
       reconnect: connectionError?.reconnect === true || Boolean(expired),
-      connectionVerified: connected && !connectionError,
+      connectionVerified: connected && !connectionError && verifiedConnection?.token === connection.token && verifiedConnection.until > Date.now(),
+      capabilities: verifiedConnection?.token === connection?.token ? verifiedConnection?.capabilities : undefined,
       recovery: failure,
       tabId: tab?.id,
       submissionResult: connected && savedSubmission && submissionPageMatches(tab.url, savedSubmission.url) ? savedSubmission : null,
@@ -434,11 +452,9 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
       )
         throw new Error("No supported empty fields found.");
     }
-    const result = await connect();
+    const result = await openSetup(sender);
     autofillProgress = null;
-    return fromPage
-      ? { connected: result.connected, message: result.message }
-      : result;
+    return result;
   }
   if (!connected && type !== "undo")
     return {
@@ -454,7 +470,17 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
     autofillProgress = null;
     return { connected: false, message: "Disconnected." };
   }
-  if (type === "autofill") autofillProgress = null;
+  const journey = connection?.onboardingJourney || crypto.randomUUID();
+  const run = type === "autofill" ? crypto.randomUUID() : null;
+  const measure = (event, counts = {}) => {
+    if (!run || !connection?.token || (verifiedConnection?.token === connection.token && verifiedConnection.metricsEnabled === false)) return;
+    // Include unsupported/failed scans in attempts. The server opt-in controls
+    // storage; this independent request cannot alter credentials or execution.
+    void fetch(`${APP_ORIGIN}/api/extension/v1/onboarding-event`, { method: "POST", credentials: "omit", redirect: "error",
+      signal: AbortSignal.timeout(3000), headers: { "Content-Type": "application/json", Authorization: `Bearer ${connection.token}` },
+      body: JSON.stringify({ event, entry: "extension", journey, run, ...counts }) }).catch(() => {});
+  };
+  if (type === "autofill") { autofillProgress = null; measure("autofill_attempted"); }
   if (type === "history")
     return {
       connected,
@@ -727,6 +753,13 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
     }
     response.fields = response.fields.map(field => field.state === "needed" && !field.blocked && field.label.length > 500
       ? { ...field, reason: "This question exceeds the supported length. Other fields were processed; answer this one on the employer form." } : field);
+    const emptyBefore = new Set((scan.fields || []).filter(field => field.state === "needed").map(field => field.id));
+    const newlyFilled = response.fields.filter(field => field.state === "filled" && emptyBefore.has(field.id)).length;
+    measure("autofill_completed", { filled: Math.min(500, newlyFilled), remaining: Math.min(500, response.fields.filter(field => field.state === "needed").length) });
+    if (newlyFilled) {
+      await chrome.storage.local.set({ firstVerifiedFill: true });
+      measure("first_real_autofill_succeeded", { filled: Math.min(500, newlyFilled) });
+    }
     await publish(response.fields, response.message, false, response.recovery);
     return response;
   }
@@ -951,7 +984,13 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
 
 const workspaceBridge = createWorkspaceBridge({ origin: APP_ORIGIN, api, inspect, inspectActive, handle, sameApplication,
   busy: () => working, setBusy: value => { working = value; }, version: chrome.runtime.getManifest?.().version || BUILD_ID });
+const setupBridge = createSetupBridge({ origin: APP_ORIGIN, api, connect, random, sameApplication,
+  busy: () => working, setBusy: value => { working = value; }, version: chrome.runtime.getManifest?.().version || BUILD_ID });
 chrome.runtime.onMessageExternal?.addListener((message, sender, respond) => {
+  if (allowedSetupSender(sender, APP_ORIGIN)) {
+    setupBridge(message, sender).then(respond).catch(error => respond({ error: error.message || "Check the connection again." }));
+    return true;
+  }
   if (!allowedWorkspaceSender(sender, APP_ORIGIN)) return false;
   workspaceBridge(message, sender).then(respond).catch(error => respond({ error: error.message || "Workspace action failed. Check the employer tab before retrying." }));
   return true;

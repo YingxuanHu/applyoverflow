@@ -22,7 +22,7 @@ export function GoogleAuthButton({
 
   async function startGoogleFlow() {
     setPending(true);
-    const errorCallbackURL = "/sign-in?google=error";
+    const errorCallbackURL = `/sign-in?google=error&callbackUrl=${encodeURIComponent(getSafeSignInCallback(callbackUrl))}`;
 
     const result = await authClient.signIn.social({
       provider: "google",

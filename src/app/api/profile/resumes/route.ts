@@ -70,6 +70,8 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
+    if (formData.get("profileId") && formData.get("profileId") !== user.id)
+      return errorResponse("Your signed-in account changed. Reload setup before importing.", 409);
     const file = formData.get("file");
     if (!(file instanceof File)) {
       return errorResponse("Choose a supported resume file.", 400);

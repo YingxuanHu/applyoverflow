@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
@@ -10,6 +10,16 @@ const password = process.env.ASSISTANT_TEST_PASSWORD ?? "password";
 const embedded = process.env.EXTENSION_EMBEDDED_FIXTURE === "1";
 assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/);
 const extension = resolve("output/extension/local");
+const manifestPath = `${extension}/manifest.json`;
+const originalManifest = await readFile(manifestPath, "utf8");
+const setupFixture = process.env.EXTENSION_SETUP_ONLY === "1";
+if (setupFixture) {
+  // Disposable local build only: pregrant one synthetic host to test the
+  // post-permission handoff. Shipping permissions are checked by package tests.
+  const manifest = JSON.parse(originalManifest);
+  manifest.host_permissions.push("https://job-boards.greenhouse.io/*");
+  await writeFile(manifestPath, JSON.stringify(manifest));
+}
 const config = await readFile(`${extension}/config.mjs`, "utf8");
 assert.ok(
   config.includes(JSON.stringify(origin)),
@@ -115,9 +125,10 @@ try {
     console.log("PASS unified Profile: address persistence, explicit voluntary-answer consent and desktop/mobile layout");
     await app.goto(`${origin}/settings/extension`);
   }
-  await app.getByRole("button", { name: "Download ZIP" }).waitFor();
+  await app.getByRole("button", { name: "Get the extension" }).waitFor();
+  await app.locator("summary").filter({ hasText: "Developer and testing preview" }).click();
   const downloaded = app.waitForEvent("download");
-  await app.getByRole("button", { name: "Download ZIP" }).click();
+  await app.getByRole("link", { name: "Download preview ZIP" }).click();
   const zip = await downloaded;
   assert.equal(zip.suggestedFilename(), "applyoverflow-assistant.zip");
   assert.equal(await zip.failure(), null);
@@ -131,7 +142,6 @@ try {
     fullPage: true,
   });
   await app.setViewportSize({ width: 390, height: 844 });
-  await app.getByText("Install the preview", { exact: true }).click();
   assert.equal(
     await app.evaluate(() => document.documentElement.scrollWidth > innerWidth),
     false,
@@ -163,22 +173,54 @@ try {
   await popup.screenshot({
     path: "output/playwright/assistant-popup-disconnected.png",
   });
+  let originalApplication;
+  if (setupFixture) {
+    const fixture = fixtures[0];
+    await context.route("https://job-boards.greenhouse.io/ao-fixture/**", route => route.fulfill({ contentType: "text/html", body: fixtureHtml(fixture, { resume: false }) + '<label>My notes<input id="keep-existing" value="Already entered by user"></label>' }));
+    originalApplication = await context.newPage();
+    await originalApplication.goto(fixture.url);
+    await originalApplication.getByRole("button", { name: /^(Autofill|Application help) available$/ }).click();
+    await originalApplication.evaluate(() => { window.originalSetupDocument = "unchanged"; });
+  }
+  const setupPromise = context.waitForEvent("page", { timeout: 60_000 });
+  if (originalApplication) await originalApplication.getByRole("button", { name: "Connect to ApplyOverflow", exact: true }).click();
+  else await popup.getByRole("button", { name: "Set up autofill" }).click();
+  const setup = await setupPromise;
+  await setup.getByRole("button", { name: "Connect extension", exact: true }).waitFor();
+  assert.equal(await setup.getByText("Basic contact autofill available", { exact: true }).isVisible(), true);
+  for (const width of [320, 390, 768, 1440]) {
+    await setup.setViewportSize({ width, height: 900 });
+    assert.equal(await setup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await setup.screenshot({ path: `output/playwright/extension-setup-${width}.png`, fullPage: true });
+  }
+  const setupTabId = await worker.evaluate(async url => (await chrome.tabs.query({})).find(tab => tab.url === url)?.id, setup.url());
+  assert.ok(Number.isInteger(setupTabId));
+  await worker.evaluate(tabId => chrome.tabs.setZoom(tabId, 2), setupTabId);
+  await setup.waitForFunction(() => innerWidth === 720);
+  assert.equal(await setup.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "200% browser zoom keeps controls reachable");
+  const zoomSession = await context.newCDPSession(setup);
+  const zoomScreenshot = await zoomSession.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false, fromSurface: true });
+  await writeFile("output/playwright/extension-setup-zoom-200.png", Buffer.from(zoomScreenshot.data, "base64"));
+  await zoomSession.detach();
+  await worker.evaluate(tabId => chrome.tabs.setZoom(tabId, 1), setupTabId);
+  await setup.waitForFunction(() => innerWidth === 1440);
   const cancelledPagePromise = context.waitForEvent("page", { timeout: 60_000 });
-  await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
+  await setup.getByRole("button", { name: "Connect extension", exact: true }).focus();
+  await setup.keyboard.press("Enter");
   const cancelledPage = await cancelledPagePromise;
   await cancelledPage.getByRole("button", { name: "Allow connection" }).waitFor({ timeout: 60_000 });
   const reopenedPopup = await context.newPage();
   await reopenedPopup.goto(`chrome-extension://${id}/popup.html`);
   await reopenedPopup.getByText(/Connection in progress/).waitFor();
-  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isDisabled(), true);
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Set up autofill" }).isDisabled(), true);
   await cancelledPage.getByRole("link", { name: "Cancel", exact: true }).click();
-  await popup.getByRole("alert").getByText("Connection cancelled.", { exact: true }).waitFor();
+  await setup.getByRole("alert").filter({ hasText: "Connection cancelled." }).waitFor();
   await reopenedPopup.getByText("Connect to your ApplyOverflow profile.", { exact: true }).waitFor();
-  assert.equal(await reopenedPopup.getByRole("button", { name: "Connect to ApplyOverflow" }).isEnabled(), true);
+  assert.equal(await reopenedPopup.getByRole("button", { name: "Set up autofill" }).isEnabled(), true);
   await reopenedPopup.close();
   console.log("PASS: real web cancellation closes Chrome identity, reopened popup recovers and reconnect remains available");
   const authPagePromise = context.waitForEvent("page", { timeout: 60_000 });
-  await popup.getByRole("button", { name: "Connect to ApplyOverflow" }).click();
+  await setup.getByRole("button", { name: "Connect extension", exact: true }).click();
   const authPage = await authPagePromise;
   await authPage
     .getByRole("button", { name: "Allow connection" })
@@ -188,8 +230,10 @@ try {
     fullPage: true,
   });
   await authPage.getByRole("button", { name: "Allow connection" }).click();
+  await setup.getByText("Connected to this account", { exact: true }).waitFor();
+  await popup.reload();
   await popup
-    .getByText("Connected. Open an employer application form.")
+    .getByText("Connected", { exact: true })
     .waitFor({ timeout: 60_000 });
   console.log("Connected through Chrome identity");
   connection = await popup.evaluate(
@@ -212,7 +256,23 @@ try {
   const confirmed = await contact.json();
   console.log("Confirmed contact API response");
   assert.equal("workAuthorization" in confirmed, false);
-  if (process.env.EXTENSION_TEST_PROFILE) {
+  if (originalApplication) {
+    await setup.getByRole("button", { name: "Return to application", exact: true }).click();
+    assert.equal(await originalApplication.evaluate(() => window.originalSetupDocument), "unchanged", "handoff never reloads the original document");
+    assert.equal(await originalApplication.locator("#keep-existing").inputValue(), "Already entered by user");
+    assert.equal(await originalApplication.locator("#email").inputValue(), "", "setup does not automatically fill");
+    const hint = originalApplication.getByRole("button", { name: /^(Autofill|Application help) available$/ });
+    if (await hint.isVisible()) await hint.click();
+    await originalApplication.getByRole("button", { name: "Autofill", exact: true }).click();
+    await originalApplication.waitForFunction(email => document.querySelector("#email").value === email, confirmed.email);
+    assert.equal(await originalApplication.locator("#keep-existing").inputValue(), "Already entered by user");
+    assert.equal(await originalApplication.evaluate(() => window.submissions + window.steps), 0);
+    await originalApplication.screenshot({ path: "output/playwright/connected-setup-first-fill.png", fullPage: true });
+    console.log("PASS: verified setup returns to the original document; explicit real MV3/API autofill on a synthetic form preserves edits and never submits");
+    await originalApplication.close();
+    await popup.bringToFront();
+  }
+  if (process.env.EXTENSION_TEST_PROFILE && process.env.EXTENSION_SETUP_ONLY !== "1") {
     // Previously approved test-profile host permission; never submit a real form.
     const fixture = fixtures[0];
     const fixtureUrl = embedded
@@ -445,4 +505,5 @@ try {
     })
     .catch(() => {});
   await context.close();
+  if (setupFixture) await writeFile(manifestPath, originalManifest);
 }

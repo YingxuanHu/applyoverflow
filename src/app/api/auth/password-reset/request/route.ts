@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsedBody = await parseJsonBodyWithLimit<{ email?: unknown }>(
+  const parsedBody = await parseJsonBodyWithLimit<{ email?: unknown; callbackUrl?: unknown }>(
     request,
     API_BODY_LIMITS.authJson,
     "Password reset request"
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const body = parsedBody.data;
   const email = typeof body?.email === "string" ? body.email : "";
 
-  await requestPasswordResetEmail(email, request).catch((error) => {
+  await requestPasswordResetEmail(email, request, body?.callbackUrl).catch((error) => {
     console.error("[auth] Password reset request failed:", error);
   });
 

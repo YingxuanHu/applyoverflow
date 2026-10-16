@@ -31,6 +31,9 @@ UserProfile, ResumeVariant, JobRaw, JobCanonical, JobSourceMapping, JobEligibili
 - `/saved` → shortlist workspace
 - `/applications` → package and submission history across tracked jobs
 - `/profile` → current profile, preferences, and structured resume source content
+- `/onboarding` → account-bound draft autosave, scoped review confirmation, optional job goals, and concurrent-edit reconciliation
+- `/extension/setup` → normal-tab setup coordinator with capability status and same-account extension proof; `/extension/connect` remains the brief PKCE consent step
+- `extensions/chrome/setup-bridge.mjs` → exact-origin/top-document setup messages and one-use return focus; separate from the application workspace bridge
 - `/documents` → document hub for resume files, templates, and cover letters
 - `/documents/resume-builder` → profile-backed resume selection, AI revision review, and unified PDF output
 - `/ops/ingestion` → internal ingestion runs, source coverage, and pool counts

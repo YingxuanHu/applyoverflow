@@ -114,7 +114,7 @@ export default async function ProfilePage() {
 
       {setup && setup.status !== "complete" ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-y border-border py-4">
-          <p className="text-sm">Your profile setup is saved.</p>
+          <p className="text-sm">{setup.confirmedAt ? "Reviewed details are available for autofill. Other setup changes remain in your draft." : "Your setup draft is saved. Review it before using new details for autofill."}</p>
           <Button variant="outline" render={<Link href="/onboarding?from=%2Fprofile" />}>
             Continue setup
           </Button>

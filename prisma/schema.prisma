@@ -379,6 +379,21 @@ model User {
   notifications       Notification[]
   reminderLogs        ReminderLog[]
   extensionConnections ExtensionConnection[]
+  onboardingEvents OnboardingEvent[]
+}
+
+model OnboardingEvent {
+  id String @id
+  userId String?
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  journey String
+  event String
+  entry String
+  filled Int?
+  remaining Int?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@index([userId, event, createdAt])
 }
 
 model UserProfile {

@@ -7,12 +7,15 @@ import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getSafeSignInCallback } from "@/lib/auth-return-path";
 
 type ForgotPasswordFormProps = {
   defaultEmail?: string;
+  callbackUrl?: string;
 };
 
-export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProps) {
+export function ForgotPasswordForm({ defaultEmail = "", callbackUrl }: ForgotPasswordFormProps) {
+  const destination = getSafeSignInCallback(callbackUrl);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +41,7 @@ export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProp
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, callbackUrl: destination }),
       });
 
       if (!response.ok && response.status !== 429) {
@@ -111,7 +114,7 @@ export function ForgotPasswordForm({ defaultEmail = "" }: ForgotPasswordFormProp
         </form>
         <p className="mt-5 text-center text-sm text-muted-foreground">
           Remembered your password?{" "}
-          <Link className="text-foreground underline-offset-4 hover:underline" href="/sign-in">
+          <Link className="text-foreground underline-offset-4 hover:underline" href={`/sign-in?callbackUrl=${encodeURIComponent(destination)}`}>
             Sign in
           </Link>
         </p>

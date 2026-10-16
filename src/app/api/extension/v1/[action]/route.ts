@@ -27,6 +27,9 @@ import { getAutofillPlan, rememberAutofillAnswer } from "@/lib/queries/extension
 import { suggestApplicationAnswer } from "@/lib/queries/extension-suggestions";
 import { extensionValidationFields } from "@/lib/extension-errors";
 import { resolveAutoApplyTarget } from "@/lib/queries/auto-apply";
+import { answerSetupChallenge, extensionSetupCapabilities } from "@/lib/queries/extension-setup";
+import { onboardingEventSchema } from "@/lib/onboarding-events";
+import { recordOnboardingEvent } from "@/lib/queries/onboarding-events";
 
 const json = (body: unknown, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -43,6 +46,8 @@ export async function POST(
         "token",
         "contact",
         "connection-status",
+        "setup-check",
+        "onboarding-event",
         "workspace-target",
         "history",
         "history-entry",
@@ -77,7 +82,14 @@ export async function POST(
       }).allowed
     )
       return json({ error: "Too many requests. Try again shortly." }, 429);
-    if (action === "connection-status") return json({ connected: true });
+    if (action === "connection-status") return json({ connected: true, capabilities: await extensionSetupCapabilities(identity.userId), metricsEnabled: process.env.ONBOARDING_METRICS_ENABLED === "1" });
+    if (action === "setup-check") return json(await answerSetupChallenge(identity, body.data));
+    if (action === "onboarding-event") {
+      const event = onboardingEventSchema.parse(body.data);
+      if (!["autofill_attempted", "autofill_completed", "first_real_autofill_succeeded"].includes(event.event) || event.entry !== "extension") return json({ error: "Unsupported event" }, 400);
+      await recordOnboardingEvent(event, identity.userId);
+      return json({ recorded: true });
+    }
     if (action === "workspace-target") return json(await resolveAutoApplyTarget(identity.userId, body.data));
     if (action === "contact")
       return json(await getExtensionContact(identity.userId));

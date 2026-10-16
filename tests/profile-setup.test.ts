@@ -65,7 +65,7 @@ test("setup return paths reject external destinations and auth loops", () => {
 test("state and goals reject corrupt, oversized and incompatible input", () => {
   assert.equal(parseOnboardingState('{"status":"pending"}'), null);
   assert.equal(
-    parseOnboardingState(JSON.stringify({ ...INITIAL_ONBOARDING, version: 2 })),
+    parseOnboardingState(JSON.stringify({ ...INITIAL_ONBOARDING, version: 3 })),
     null,
   );
   assert.equal(

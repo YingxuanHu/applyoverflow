@@ -44,6 +44,7 @@ for (const [args, name] of [
       "question-policy.mjs",
       "question-review.mjs",
       "recovery.mjs",
+      "setup-bridge.mjs",
       "sites.mjs",
       "workspace-bridge.mjs",
     ].sort(),

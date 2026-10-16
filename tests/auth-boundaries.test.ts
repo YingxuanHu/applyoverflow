@@ -35,3 +35,12 @@ test("ops pages require ops admin authorization", () => {
     assert.match(source, /requireOpsAdmin/);
   }
 });
+
+test("expired setup saves stay in the editor while their action enforces authentication", () => {
+  const proxy = readRepoFile("src/proxy.ts");
+  const actions = readRepoFile("src/app/onboarding/actions.ts");
+  assert.match(proxy, /pathname === "\/onboarding" && request\.method === "POST" && request\.headers\.has\("next-action"\)/);
+  assert.match(actions, /await requireCurrentUserProfile\(\)/);
+  assert.match(actions, /input\.profileId !== user\.id/);
+  assert.match(actions, /error instanceof UnauthorizedError/);
+});
