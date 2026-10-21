@@ -13,16 +13,18 @@ import {
 import { hasUnresolvedGenericCompanyName } from "@/lib/job-cleanup";
 import { isClearlyNonJobPosting } from "@/lib/job-integrity";
 import { isExcludedJobTitle } from "@/lib/jobs/scope-policy";
-
-const RECENT_SOURCE_EVIDENCE_MAX_AGE_MS = 14 * 86_400_000;
-const RECENT_ALIVE_EVIDENCE_MAX_AGE_MS = 30 * 86_400_000;
-const JOB_BOARD_MIN_AVAILABILITY_SCORE = 60;
+import {
+  RECENT_SOURCE_EVIDENCE_MAX_AGE_MS,
+  RECENT_ALIVE_EVIDENCE_MAX_AGE_MS,
+  JOB_BOARD_MIN_AVAILABILITY_SCORE,
+} from "@/lib/jobs/visibility";
 
 export type JobFeedIndexRepairMode = "missing" | "stale" | "all";
 
 export function shouldExcludeFromFeedIndex(input: {
   title: string;
   description: string;
+  descriptionStatus?: string | null;
   shortSummary: string;
   location: string;
   region: "US" | "CA" | null;
@@ -71,9 +73,11 @@ export function shouldExcludeFromFeedIndex(input: {
     assessJobDataQuality({
       title: input.title,
       company: input.company,
-      description: input.description || input.shortSummary,
+      description: input.description,
       applyUrl: input.applyUrl,
-    }).severity === "reject"
+    }).severity !== "accept" ||
+    input.descriptionStatus === "page_chrome" ||
+    input.descriptionStatus === "missing"
   ) {
     return true;
   }
@@ -163,6 +167,7 @@ export async function upsertJobFeedIndex(canonicalJobId: string) {
   const indexStatus = shouldExcludeFromFeedIndex({
     title: canonical.title,
     description: canonical.description,
+    descriptionStatus: canonical.descriptionStatus,
     shortSummary: canonical.shortSummary,
     location: canonical.location,
     region: canonical.region,

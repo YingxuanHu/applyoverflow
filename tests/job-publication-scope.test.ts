@@ -14,6 +14,9 @@ test("publication rechecks occupation and geography independently of old classif
     applyUrlValidationStatus: null, deadline: null, deadSignalAt: null, lastSourceSeenAt: now, lastConfirmedAliveAt: now, now,
   };
   assert.equal(shouldExcludeFromFeedIndex(valid), false);
+  assert.equal(shouldExcludeFromFeedIndex({ ...valid, description: "", shortSummary: valid.description }), true, "a summary cannot substitute for a missing posting");
+  assert.equal(shouldExcludeFromFeedIndex({ ...valid, description: "<div class='padding'>".repeat(20) + "Apply now" + "</div>".repeat(20) }), true, "markup is not description content");
+  assert.equal(shouldExcludeFromFeedIndex({ ...valid, descriptionStatus: "page_chrome" }), true);
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, title: "Grocery Clerk Part Time Day" }), true);
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, title: "HMR Clerk Part Time Evening" }), true);
   assert.equal(shouldExcludeFromFeedIndex({ ...valid, title: "Account Manager:in - Vertriebsaußendienst in Berlin", location: "Remote job", region: null }), true);
@@ -39,5 +42,11 @@ test("publication rechecks occupation and geography independently of old classif
   }
   for (const title of ["Pharmacy Technician", "Dental Assistant", "Police Officer", "Registered Nurse"]) {
     assert.equal(shouldExcludeFromFeedIndex({ ...valid, title }), true, title);
+  }
+  for (const title of ["Overnight Driver-Warehouse", "Housekeeping & Laundry Assistant", "Warehouse Worker", "Material Handler II", "Production Operator", "Assembly Technician", "Security Guard", "Field Technician II", "Geotechnical Lab Technician", "Retail Sales Associate", "Automotive General Service Technician", "Quick Lube Technician", "Skilled Auto Technician"] ) {
+    assert.equal(shouldExcludeFromFeedIndex({ ...valid, title }), true, title);
+  }
+  for (const title of ["Warehouse Systems Analyst", "Manufacturing Software Engineer", "Hospitality Manager", "Director of Housekeeping", "IT Field Technician", "Research Scientist", "Supply Chain Analyst", "Retail Sales Operations Analyst"]) {
+    assert.equal(shouldExcludeFromFeedIndex({ ...valid, title }), false, title);
   }
 });

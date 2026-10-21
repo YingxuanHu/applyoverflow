@@ -152,3 +152,52 @@ test("bad validation statuses are feed-exclusion statuses", () => {
   assert.equal(hasBadApplyLinkValidationStatus("ACTIVE"), false);
   assert.equal(hasBadApplyLinkValidationStatus("NEEDS_REVALIDATION"), false);
 });
+
+test("a retained job URL cannot confirm a generic page or JavaScript shell", () => {
+  for (const bodyText of [
+    "Welcome to ExampleCo. Sign in to your account to continue. Enable JavaScript and accept cookies to use this website.",
+    '<html><head><link rel="canonical" href="https://example.com/jobs/123456/software-engineer"></head><body>Welcome to ExampleCo. Sign in to your account to continue. Enable JavaScript and accept cookies to use this website.</body></html>',
+  ]) {
+    const result = classify({ bodyText });
+    assert.equal(result.contentMatch.jobIdMatched, false);
+    assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION);
+  }
+  assert.equal(classify({ bodyText: "Search by keyword. Search by location. View all jobs. Join our talent community to receive job alerts." }).status,
+    APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE);
+});
+
+test("redirect identities, tracking IDs and partial ID matches are not posting evidence", () => {
+  for (const overrides of [
+    { finalUrl: "https://example.com/jobs/987654", bodyText: "Requisition 987654. Accountant ExampleCo. Prepare financial reports and reconcile accounts with our team." },
+    { requestedUrl: "https://example.com/roles/developer?utm_campaign=987654", bodyText: "Welcome to our website. Campaign 987654. Find career opportunities and read more about our company and products." },
+    { bodyText: "Welcome to our website. Reference 1234567. Find career opportunities and read more about our company and products." },
+  ]) {
+    const result = classify(overrides);
+    assert.equal(result.contentMatch.jobIdMatched, false);
+    assert.notEqual(result.status, APPLY_LINK_VALIDATION_STATUS.ACTIVE);
+  }
+});
+
+test("job-specific title content still confirms postings without a printed requisition ID", () => {
+  const result = classify({ bodyText: "Software Engineer at ExampleCo. Build distributed services, maintain APIs, and collaborate with our product team." });
+  assert.equal(result.contentMatch.jobIdMatched, false);
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.ACTIVE);
+});
+
+test("UUID posting identities must match in full", () => {
+  const requestedUrl = "https://jobs.example.com/co/12345678-abcd-1234-abcd-123456789012";
+  const bodyText = "Requisition 12345678-abcd-1234-abcd-123456789012. Build APIs and distributed systems with our engineering team.";
+  assert.equal(classify({ requestedUrl, finalUrl: requestedUrl, bodyText }).contentMatch.jobIdMatched, true);
+  assert.equal(classify({ requestedUrl, finalUrl: requestedUrl, bodyText: bodyText.replace("12345678-abcd-1234-abcd-123456789012", "12345678") }).contentMatch.jobIdMatched, false);
+});
+
+test("an unrendered embedded application is unverified, not a confirmed generic redirect", () => {
+  const result = classify({
+    requestedUrl: "https://example.com/careers/?gh_jid=123456",
+    finalUrl: "https://example.com/careers/?gh_jid=123456",
+    bodyText: "Explore our careers. Search by keyword. Search by location. View all jobs. Join our talent community.",
+  });
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION);
+  assert.equal(result.isBadForFeed, false);
+  assert.equal(result.contentMatch.jobIdMatched, false);
+});

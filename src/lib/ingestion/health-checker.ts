@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { healthCheckStorageSnippet } from "@/lib/ingestion/health-check-storage";
+import { buildUrlHealthDueWhere, URL_HEALTH_CHECK_ORDER } from "@/lib/ingestion/url-health-cadence";
 import { normalizeApplyUrlKey } from "@/lib/ingestion/dedupe";
 import {
   APPLY_LINK_VALIDATION_STATUS,
@@ -371,6 +372,7 @@ async function selectHealthCandidates(limit: number, now: Date) {
     prisma.jobCanonical.findMany({
       where: {
         status: { in: ["AGING", "STALE"] },
+        AND: [buildUrlHealthDueWhere(now)],
       },
       // Cap to limit rows — prevents loading all 32k AGING rows into memory.
       // Ordered by lastApplyCheckAt asc so we get the most overdue candidates.
@@ -391,12 +393,13 @@ async function selectHealthCandidates(limit: number, now: Date) {
         },
         _count: { select: { savedJobs: true, applicationSubmissions: true } },
       },
-      orderBy: { lastApplyCheckAt: "asc" },
+      orderBy: URL_HEALTH_CHECK_ORDER,
     }),
     prisma.jobCanonical.findMany({
       where: {
         status: "LIVE",
-        OR: [{ deadSignalAt: null }],
+        deadSignalAt: null,
+        AND: [buildUrlHealthDueWhere(now)],
       },
       select: {
         id: true,
@@ -414,7 +417,7 @@ async function selectHealthCandidates(limit: number, now: Date) {
         },
         _count: { select: { savedJobs: true, applicationSubmissions: true } },
       },
-      orderBy: { lastApplyCheckAt: "asc" },
+      orderBy: URL_HEALTH_CHECK_ORDER,
       take: Math.max(limit, 500),
     }),
   ]);
@@ -577,7 +580,7 @@ export async function checkUrlHealth(input: {
       fetchedAt: input.now,
     });
 
-    if ([404, 410, 451].includes(response.status) || deadSignal.detected || quality.isBadForFeed) {
+    if ([404, 410, 451].includes(response.status) || (response.ok && deadSignal.detected) || quality.isBadForFeed) {
       return {
         result: "DEAD",
         statusCode: response.status,

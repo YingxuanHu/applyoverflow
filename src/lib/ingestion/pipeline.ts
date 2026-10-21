@@ -3164,7 +3164,7 @@ function shouldRunApplyUrlCheck({
   );
 }
 
-async function checkApplyUrlAvailability(
+export async function checkApplyUrlAvailability(
   applyUrl: string,
   now: Date
 ): Promise<ApplyUrlCheckOutcome> {
@@ -3218,11 +3218,13 @@ async function checkApplyUrlAvailability(
     if (response.ok || (status >= 300 && status < 400)) {
       return {
         checkedAt: now,
-        aliveConfirmedAt: now,
+        // HEAD proves reachability only. Soft-404s, expired postings and login
+        // shells also return 200. Only a source poll or body check renews life.
+        aliveConfirmedAt: null,
         deadSignalAt: null,
         deadSignalReason: null,
-        validationStatus: APPLY_LINK_VALIDATION_STATUS.ACTIVE,
-        validationReason: null,
+        validationStatus: APPLY_LINK_VALIDATION_STATUS.NEEDS_REVALIDATION,
+        validationReason: "URL is reachable; posting content still needs verification.",
         finalResolvedApplyUrl: response.url,
         redirectDepth: response.redirected ? 1 : 0,
       };
