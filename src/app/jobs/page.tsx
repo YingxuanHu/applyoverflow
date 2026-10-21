@@ -19,7 +19,7 @@ import { JobsAutoRefresh } from "@/components/jobs/jobs-auto-refresh";
 import { JobsBoardActivity } from "@/components/jobs/jobs-board-activity";
 import { JobsFeedList } from "@/components/jobs/jobs-feed-list";
 import { JobsSavedFiltersControl } from "@/components/jobs/jobs-saved-filters-control";
-import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
+import { JobsWorkspaceHeader } from "@/components/jobs/jobs-workspace-header";
 import { UserTimeZoneCookie } from "@/components/jobs/user-time-zone-cookie";
 import { JobsSearchCountProvider, JobsSearchCountHeadline, JobsSearchPagination } from "@/components/jobs/jobs-search-count";
 import { ScrollPositionMemory } from "@/components/navigation/scroll-position-memory";
@@ -197,12 +197,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       />
       <JobsAutoRefresh initialLastUpdatedAt={ingestionStatus.lastUpdatedAt} />
 
-      <header className="page-header items-center justify-start gap-x-10 gap-y-3">
-        <div>
-          <h1 className="page-title">Jobs</h1>
-        </div>
-        <JobsSectionTabs active="jobs" />
-      </header>
+      <JobsWorkspaceHeader active="jobs" />
 
       <section aria-label="Job search" className="border-b border-border/60 pb-4">
           <JobsBoardActivity

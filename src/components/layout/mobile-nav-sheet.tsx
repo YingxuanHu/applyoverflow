@@ -11,6 +11,7 @@ import {
   Menu,
   Settings,
   Sparkles,
+  WandSparkles,
   User,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { getJobsWorkspaceTab, JOBS_WORKSPACE_LINKS } from "@/lib/navigation/jobs-workspace";
 
 type MobileNavItem = {
   href: string;
@@ -35,27 +37,18 @@ type MobileNavItem = {
 };
 
 const MOBILE_NAV_ITEMS: MobileNavItem[] = [
-  {
-    href: "/jobs",
-    label: "Jobs",
-    icon: BriefcaseBusiness,
-    isActive: (pathname) =>
-      pathname === "/jobs" ||
-      (pathname.startsWith("/jobs/") && !pathname.startsWith("/jobs/top-picks")),
-  },
-  {
-    href: "/jobs/top-picks",
-    label: "Picks for you",
-    icon: Sparkles,
-    isActive: (pathname) =>
-      pathname === "/jobs/top-picks" || pathname.startsWith("/jobs/top-picks/"),
-  },
+  ...JOBS_WORKSPACE_LINKS.map((link) => ({
+    href: link.href,
+    label: link.label,
+    icon: { jobs: BriefcaseBusiness, "top-picks": Sparkles, "auto-apply": WandSparkles }[link.key],
+    isActive: (pathname: string) => getJobsWorkspaceTab(pathname) === link.key,
+  })),
   {
     href: "/applications",
     label: "Applications",
     icon: FileCheck2,
     isActive: (pathname) =>
-      pathname === "/applications" || pathname.startsWith("/applications/"),
+      getJobsWorkspaceTab(pathname) === null && (pathname === "/applications" || pathname.startsWith("/applications/")),
   },
   {
     href: "/notifications",

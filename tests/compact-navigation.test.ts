@@ -6,6 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PaginationControls } from "../src/components/navigation/pagination-controls";
 import { JobsSearchCountHeadline } from "../src/components/jobs/jobs-search-count";
 import { JobsSectionTabs } from "../src/components/jobs/jobs-section-tabs";
+import { JobsWorkspaceHeader } from "../src/components/jobs/jobs-workspace-header";
+import { AUTO_APPLY_HREF, getJobsWorkspaceTab, JOBS_WORKSPACE_LINKS } from "../src/lib/navigation/jobs-workspace";
 
 const pagination = {
   ariaLabel: "Jobs pagination",
@@ -46,12 +48,34 @@ test("unresolved counts do not render an oversized counting/loading headline", (
   assert.match(html, /Retry matching total/);
 });
 
-test("workspace navigation keeps both views discoverable with current-page semantics", () => {
+test("workspace navigation keeps all three Jobs views discoverable with current-page semantics", () => {
   const html = renderToStaticMarkup(createElement(JobsSectionTabs, { active: "top-picks" }));
   assert.match(html, /href="\/jobs"/);
   assert.match(html, /href="\/jobs\/top-picks"/);
+  assert.match(html, /href="\/applications\/auto-apply"/);
   assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
   assert.doesNotMatch(html, /Full searchable|Ranked matches/);
+});
+
+test("Auto Apply belongs to Jobs without breaking the installed extension's trusted URL", () => {
+  assert.equal(AUTO_APPLY_HREF, "/applications/auto-apply");
+  assert.deepEqual(JOBS_WORKSPACE_LINKS.map(link => link.key), ["jobs", "top-picks", "auto-apply"]);
+  const html = renderToStaticMarkup(createElement(JobsWorkspaceHeader, { active: "auto-apply" }));
+  assert.match(html, /<h1[^>]*>Jobs<\/h1>/);
+  assert.match(html, /aria-current="page"[^>]*href="\/applications\/auto-apply"/);
+  assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
+  const tracker = readFileSync(new URL("../src/app/applications/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(tracker, /WorkflowTabs|AutoApplyWorkspace/);
+});
+
+test("desktop and mobile route classification separates Jobs from application tracking", () => {
+  for (const path of ["/jobs", "/jobs/123", "/jobs/123/apply"]) assert.equal(getJobsWorkspaceTab(path), "jobs");
+  assert.equal(getJobsWorkspaceTab("/jobs/top-picks"), "top-picks");
+  assert.equal(getJobsWorkspaceTab(AUTO_APPLY_HREF), "auto-apply");
+  assert.equal(getJobsWorkspaceTab(`${AUTO_APPLY_HREF}/`), "auto-apply");
+  for (const path of ["/applications", "/applications/123", "/applications/compare", "/applications/auto-apply-other", "/jobs-other", "/profile"]) {
+    assert.equal(getJobsWorkspaceTab(path), null, path);
+  }
 });
 
 test("icon-triggered menus size to their content rather than the trigger", () => {
