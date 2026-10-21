@@ -5,7 +5,7 @@ export default function JobsLoading() {
     <>
       <JobsLoadingPopup />
       <div aria-hidden="true" className="app-page app-page-workspace space-y-6 animate-pulse motion-reduce:animate-none">
-        <header className="page-header items-center justify-start gap-x-10"><div className="h-8 w-24 rounded bg-muted" /><div className="flex gap-5"><div className="h-8 w-16 rounded bg-muted" /><div className="h-8 w-28 rounded bg-muted" /></div></header>
+        <header className="page-header items-center justify-start gap-x-10"><div className="h-8 w-24 rounded bg-muted" /><div className="flex flex-wrap gap-4"><div className="h-11 w-12 rounded bg-muted" /><div className="h-11 w-24 rounded bg-muted" /><div className="h-11 w-20 rounded bg-muted" /></div></header>
         <div className="space-y-4 border-b border-border/60 pb-4">
           <div className="h-6 w-44 rounded bg-muted" />
           <div className="flex gap-3">

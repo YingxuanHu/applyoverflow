@@ -15,15 +15,11 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { cn } from "@/lib/utils";
+import { getJobsWorkspaceTab, JOBS_WORKSPACE_LINKS } from "@/lib/navigation/jobs-workspace";
 
 const PRIMARY_NAV_ITEMS = [
   { href: "/applications", label: "Applications", icon: FileCheck2 },
   { href: "/notifications", label: "Notifications", icon: Bell },
-];
-
-const JOBS_LINKS = [
-  { href: "/jobs", label: "Jobs" },
-  { href: "/jobs/top-picks", label: "Picks for you" },
 ];
 
 const PROFILE_LINKS = [
@@ -65,7 +61,7 @@ export function NavSidebar() {
 
   const isDocumentsActive = pathname.startsWith("/documents");
   const isNotificationsActive = pathname === "/notifications";
-  const isJobsActive = pathname === "/jobs" || pathname.startsWith("/jobs/");
+  const isJobsActive = getJobsWorkspaceTab(pathname) !== null;
   const isProfileActive = pathname === "/profile" || pathname.startsWith("/profile/");
   const isSettingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
 
@@ -86,22 +82,24 @@ export function NavSidebar() {
       <nav className="flex-1 space-y-5 px-3 pb-4">
         <div className="space-y-1">
           <NavGroup
+            key={`jobs:${isJobsActive}`}
             activePathname={pathname}
             defaultOpen={isJobsActive}
             href="/jobs"
             icon={BriefcaseBusiness}
             isActive={isJobsActive}
             label="Jobs"
-            links={JOBS_LINKS}
+            links={JOBS_WORKSPACE_LINKS}
           />
           {PRIMARY_NAV_ITEMS.map((item) => {
             const isActive =
               item.label === "Notifications"
                 ? isNotificationsActive
-                : pathname === item.href || pathname.startsWith(item.href + "/");
+                : !isJobsActive && (pathname === item.href || pathname.startsWith(item.href + "/"));
             return (
               <Link
                 key={item.href}
+                aria-current={isActive ? "page" : undefined}
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-[12px] px-3 py-2.5 text-sm font-medium transition-colors",
@@ -167,7 +165,7 @@ function NavGroup({
   icon: LucideIcon;
   isActive: boolean;
   label: string;
-  links: Array<{ href: string; label: string }>;
+  links: ReadonlyArray<{ href: string; label: string }>;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -229,9 +227,8 @@ function NavGroup({
 }
 
 function isNestedNavLinkActive(href: string, pathname: string) {
-  if (href === "/jobs") {
-    return pathname === "/jobs" || (pathname.startsWith("/jobs/") && !pathname.startsWith("/jobs/top-picks"));
-  }
+  const jobsLink = JOBS_WORKSPACE_LINKS.find((link) => link.href === href);
+  if (jobsLink) return getJobsWorkspaceTab(pathname) === jobsLink.key;
 
   if (href === "/documents") {
     return pathname === "/documents";

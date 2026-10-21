@@ -74,7 +74,20 @@ try {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.waitForURL(/\/applications\/auto-apply/);
   await page.goto(`${origin}/applications/auto-apply`);
+  await page.getByRole('heading', { name: 'Jobs', exact: true }).waitFor();
+  const jobsNavigation = page.getByRole('navigation', { name: 'Jobs workspace', exact: true });
+  assert.deepEqual(await jobsNavigation.getByRole('link').allTextContents(), ['Jobs', 'Picks for you', 'Auto Apply']);
+  assert.equal(await jobsNavigation.getByRole('link', { name: 'Auto Apply', exact: true }).getAttribute('aria-current'), 'page');
+  await page.setViewportSize({ width: 1440, height: 950 });
+  assert.equal(await page.locator('aside').getByRole('link', { name: 'Auto Apply', exact: true }).getAttribute('aria-current'), 'page');
+  assert.equal(await page.locator('aside').getByRole('link', { name: 'Applications', exact: true }).getAttribute('aria-current'), null);
+  await page.getByRole('button', { name: 'Submitted', exact: true }).click();
   await page.getByRole('heading', { name: 'Applications', exact: true }).waitFor();
+  assert.equal(await jobsNavigation.count(), 0, 'Applications is tracking only, without workspace tabs');
+  await page.getByRole('button', { name: 'Expand Jobs', exact: true }).click();
+  await page.locator('aside').getByRole('link', { name: 'Auto Apply', exact: true }).click();
+  await page.getByRole('heading', { name: 'Jobs', exact: true }).waitFor();
+  await benchmark.checkpoint('Auto Apply is a Jobs view; Submitted opens tracking; Jobs navigation returns to review');
   const matchProfile = await prisma.userMatchProfile.findUniqueOrThrow({ where: { userId: user.profile.id } });
   await prisma.userTopPick.create({ data: { userId: user.profile.id, jobId: job.id, score: 90, rank: 1,
     scoreBreakdown: {}, matchReasons: ['Strong role match: software engineering.', 'Remote work matches your preferences.'], concerns: [],
@@ -135,13 +148,13 @@ try {
   assert.match(page.url(), /\/applications\/auto-apply$/);
   assert.equal(await answer.inputValue(), 'A second unsaved edit.', 'cancelled link navigation retains answer edits');
   page.once('dialog', dialog => dialog.dismiss());
-  await page.getByRole('navigation', { name: 'Application workflow', exact: true }).getByRole('link', { name: 'Tracker', exact: true }).click();
+  await jobsNavigation.getByRole('link', { name: 'Jobs', exact: true }).click();
   assert.match(page.url(), /\/applications\/auto-apply$/);
-  assert.equal(await name.inputValue(), 'Jordan Updated', 'tracker navigation also protects edits');
+  assert.equal(await name.inputValue(), 'Jordan Updated', 'Jobs navigation also protects edits');
   await page.getByRole('button', { name: 'Check readiness' }).click();
   await page.getByRole('alert').filter({ hasText: /Save or discard/ }).waitFor();
   assert.equal(await page.evaluate(() => window.fixtureCommands.includes('check')), false);
-  await benchmark.checkpoint('Independent pending edits; workspace and tracker navigation protected');
+  await benchmark.checkpoint('Independent pending edits; workspace and Jobs navigation protected');
   await page.getByRole('button', { name: 'Update field', exact: true }).first().click();
   await page.getByText('Answer updated on the employer form.', { exact: true }).waitFor();
   assert.equal(await answer.inputValue(), 'A second unsaved edit.', 'saving one field retains other pending edits');
@@ -218,6 +231,14 @@ try {
   await page.getByRole('alert').filter({ hasText: /Sign in to ApplyOverflow/ }).waitFor({ state: 'hidden' });
   await page.getByRole('alert').filter({ hasText: /Submission attempted; acceptance is unknown/ }).waitFor();
   await benchmark.checkpoint('Recovered API session retains the submission retry lock');
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  const mobileNavigation = page.getByRole('navigation', { name: 'Mobile navigation', exact: true });
+  assert.equal(await mobileNavigation.locator('[aria-current="page"]').count(), 1);
+  assert.equal(await mobileNavigation.getByRole('link', { name: 'Auto Apply', exact: true }).getAttribute('aria-current'), 'page');
+  await capture('jobs-navigation-320');
+  await mobileNavigation.getByRole('link', { name: 'Auto Apply', exact: true }).click();
+  await mobileNavigation.waitFor({ state: 'hidden' });
+  await benchmark.checkpoint('Narrow-phone navigation identifies Auto Apply within Jobs without selecting Applications');
   assert.deepEqual(errors, []);
   console.log('PASS actual workspace UI/API: authenticated queue, desktop/mobile layouts, consent, edits retained independently, unsaved-edit gate, explicit approval, unknown-outcome retry block, synchronized relocation; synthetic extension transport');
 } catch (error) { failure = error; await page.screenshot({ path: `${output}/failure.png`, fullPage: true }).catch(() => {}); throw error; }

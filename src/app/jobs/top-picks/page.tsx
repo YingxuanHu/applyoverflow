@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 
 import { JobsActiveFilterChips } from "@/components/jobs/jobs-active-filter-chips";
 import { JobsFilterDropdownField } from "@/components/jobs/jobs-filter-field";
-import { JobsSectionTabs } from "@/components/jobs/jobs-section-tabs";
+import { JobsWorkspaceHeader } from "@/components/jobs/jobs-workspace-header";
 import { JobsSearchForm } from "@/components/jobs/jobs-search-form";
 import {
   TopPicksList,
@@ -413,12 +413,7 @@ export default async function JobsTopPicksPage({
           restoreSavedPosition={false}
           storageKeyPrefix="autoapplication.top-picks.scroll"
         />
-        <header className="page-header items-center justify-start gap-x-10 gap-y-3">
-          <div>
-            <h1 className="page-title">Jobs</h1>
-          </div>
-          <JobsSectionTabs active="top-picks" />
-        </header>
+        <JobsWorkspaceHeader active="top-picks" />
 
         <section aria-label="Picks search" className="border-b border-border/60 pb-4">
           <TopPicksStatusSummary

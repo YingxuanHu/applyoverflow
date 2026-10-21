@@ -26,6 +26,7 @@ UserProfile, ResumeVariant, JobRaw, JobCanonical, JobSourceMapping, JobEligibili
 ## Route entry points
 
 - `/jobs` → feed-first live job surface with shortlist decisions, collapsible filters, and trust-scored outbound links that hide demo-only records from the default feed
+- Jobs navigation includes the feed, Picks for you, and Auto Apply. Auto Apply retains `/applications/auto-apply` as its extension-compatible transport URL; `/applications` remains the tracker, not its parent workspace.
 - `/jobs/[id]` → full job detail page with classification, source summary, and next-step actions
 - `/jobs/[id]/apply` → apply-review flow with package preview and submission tracking
 - `/saved` → shortlist workspace
