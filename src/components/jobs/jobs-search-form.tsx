@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   type FormEvent,
   type MutableRefObject,
+  type SetStateAction,
   useEffect,
   useRef,
   useState,
@@ -26,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { normalizeLocationSearch } from "@/lib/location-search";
+import { appendLocationSearch, normalizeLocationSearch } from "@/lib/location-search";
 import { mergeNaturalLanguageJobsSearch } from "@/lib/jobs/search-state";
 import { getUnsupportedSearchConstraints } from "@/lib/jobs/search-constraints";
 import type { NaturalLanguageJobSearchResult } from "@/lib/jobs/natural-language-search";
@@ -180,7 +181,19 @@ export function JobsSearchForm({
   };
   const [scope, setScope] = useState<SearchMode>(initialVisibleScope);
   const [committedValues] = useState<SearchValues>(() => normalizedInitialValues);
-  const [draftValue, setDraftValue] = useState(() => normalizedInitialValues[initialVisibleScope]);
+  const [drafts, setDrafts] = useState<Record<SearchMode, string>>(() => ({
+    title: normalizedInitialValues.title,
+    company: normalizedInitialValues.company,
+    location: "",
+    ai: "",
+  }));
+  const draftValue = drafts[scope];
+  function setDraftValue(value: SetStateAction<string>) {
+    setDrafts((current) => ({
+      ...current,
+      [scope]: typeof value === "function" ? value(current[scope]) : value,
+    }));
+  }
   const [error, setError] = useState<string | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -191,8 +204,12 @@ export function JobsSearchForm({
   const baseTranscriptRef = useRef("");
   const finalTranscriptRef = useRef("");
   const interimTranscriptRef = useRef("");
-  const submittedSearchValue =
-    scope === "ai" ? "" : normalizeSubmittedSearchValue(scope, draftValue);
+  const locationAddition = appendLocationSearch(committedValues.location, drafts.location);
+  const submittedSearchValue = scope === "ai" ? ""
+    : scope === "location" ? locationAddition.value
+      : normalizeSubmittedSearchValue(scope, draftValue);
+  const placeholder = scope === "location" && committedValues.location
+    ? "Add a city, province, state or country" : PLACEHOLDER_BY_SCOPE[scope];
 
   useEffect(() => {
     return () => {
@@ -282,16 +299,16 @@ export function JobsSearchForm({
     cancelAiSearch();
     if (isListening) stopListening();
     setScope(nextScope);
-    setDraftValue((currentDraft) => {
-      if (currentDraft.trim()) return currentDraft;
-      return nextScope === "ai" ? "" : committedValues[nextScope];
-    });
     setError(null);
     setVoiceMessage(null);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (scope === "ai") aiSubmitHandlerRef.current?.(event);
+    else if (scope === "location" && locationAddition.error) {
+      event.preventDefault();
+      setError(locationAddition.error);
+    }
   }
 
   const submittedHiddenFields =
@@ -303,7 +320,7 @@ export function JobsSearchForm({
     <div className="min-w-0 flex-1 space-y-1.5">
       <form
         action={basePath}
-        className="flex min-w-0 items-center gap-2"
+        className="flex min-w-0 items-end gap-2 sm:items-center"
         method="get"
         onSubmit={handleSubmit}
       >
@@ -338,7 +355,7 @@ export function JobsSearchForm({
           />
         ))}
         {filterFormId
-          ? buildCommittedSearchHiddenFields(committedValues).filter((field) => field.name !== "locationSearch").map((field) => (
+          ? buildCommittedSearchHiddenFields(committedValues).map((field) => (
               <input
                 form={filterFormId}
                 key={`filter:${field.name}:${field.value}`}
@@ -349,11 +366,11 @@ export function JobsSearchForm({
             ))
           : null}
 
-        <div className="flex min-w-0 flex-1 overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
           <label className="sr-only" htmlFor="jobs-search-scope">
             Search type
           </label>
-          <div className="relative w-[6.8rem] shrink-0 border-r border-border/60 sm:w-32">
+          <div className="relative w-full shrink-0 border-b border-border/60 sm:w-32 sm:border-r sm:border-b-0">
             <select
               className="h-11 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-11 text-foreground outline-none sm:pl-4 sm:pr-8"
               id="jobs-search-scope"
@@ -377,7 +394,8 @@ export function JobsSearchForm({
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             )}
             <Input
-              aria-label={PLACEHOLDER_BY_SCOPE[scope]}
+              aria-label={placeholder}
+              aria-invalid={Boolean(error)}
               className="h-11 rounded-none border-0 bg-transparent pl-9 pr-16 text-base focus-visible:border-transparent focus-visible:ring-0 sm:pr-[4.25rem] md:text-base"
               maxLength={scope === "ai" ? MAX_AI_SEARCH_LENGTH : 120}
               onChange={(event) => {
@@ -387,7 +405,7 @@ export function JobsSearchForm({
                 setError(null);
                 setVoiceMessage(null);
               }}
-              placeholder={PLACEHOLDER_BY_SCOPE[scope]}
+              placeholder={placeholder}
               value={draftValue}
             />
             <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">

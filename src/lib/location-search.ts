@@ -261,10 +261,10 @@ function matchEntries(raw: string, entries: LocationDictionaryEntry[]) {
 }
 
 /** Preserve city qualifiers; semicolons separate explicit alternative places. */
-export function splitLocationSearchValues(value?: string | null): string[] {
+export function splitLocationSearchValues(value?: string | null, { truncate = true } = {}): string[] {
   if (!value) return [];
   const result: string[] = [];
-  for (const alternative of value.slice(0, MAX_LOCATION_SEARCH_LENGTH).split(";")) {
+  for (const alternative of (truncate ? value.slice(0, MAX_LOCATION_SEARCH_LENGTH) : value).split(";")) {
     let current = "";
     for (const raw of alternative.split(",")) {
       const part = raw.replace(/\s+/g, " ").trim();
@@ -279,11 +279,22 @@ export function splitLocationSearchValues(value?: string | null): string[] {
     }
     if (current) addUnique(result, current);
   }
-  return result.slice(0, MAX_LOCATION_SEARCH_ENTRIES);
+  return truncate ? result.slice(0, MAX_LOCATION_SEARCH_ENTRIES) : result;
 }
 
 export function normalizeLocationSearch(value?: string | null) {
   return splitLocationSearchValues(value).join(";") || undefined;
+}
+
+export function appendLocationSearch(current: string, draft: string) {
+  const locations = splitLocationSearchValues(`${current};${draft}`, { truncate: false });
+  const value = locations.join(";");
+  const error = locations.length > MAX_LOCATION_SEARCH_ENTRIES
+    ? `Choose up to ${MAX_LOCATION_SEARCH_ENTRIES} locations. Remove a location before adding another.`
+    : value.length > MAX_LOCATION_SEARCH_LENGTH
+      ? "These locations exceed the search length limit. Shorten or remove a location."
+      : null;
+  return { value, error };
 }
 
 type LocationWhere = {

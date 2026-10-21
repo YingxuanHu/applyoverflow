@@ -145,8 +145,13 @@ test("empty, default and invalid inputs never produce phantom filters", () => {
         "locationSearch=Toronto%2C+ON&salaryMin=50000&salaryMax=100000&includeUnknownSalary=1",
       ),
     ),
-    2,
+    1,
   );
+});
+
+test("search locations do not count as refinements hidden in the Filters dialog", () => {
+  assert.equal(countActiveJobFilters(parseJobFilters("locationSearch=Canada;Seattle")), 0);
+  assert.equal(countActiveJobFilters(parseJobFilters("locationSearch=Canada&workMode=REMOTE")), 1);
 });
 
 test("URL normalization is idempotent across aliases, multi-selects and saved searches", () => {
