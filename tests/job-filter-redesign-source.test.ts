@@ -59,8 +59,8 @@ test("AI cancellation, search preservation and navigation feedback remain wired"
   assert.match(search, /getUnsupportedSearchConstraints/);
   assert.match(search, /controller.signal.aborted/);
   assert.match(search, /showJobsLoadingPopup/);
-  assert.match(search, /buildCommittedSearchHiddenFields\(committedValues\).filter/);
-  assert.match(search, /field.name !== "locationSearch"/);
+  assert.match(search, /buildCommittedSearchHiddenFields\(committedValues\).map/);
+  assert.doesNotMatch(search, /field.name !== "locationSearch"/);
   assert.match(search, /form=\{filterFormId\}/);
   assert.match(search, /SpeechRecognition/);
 });

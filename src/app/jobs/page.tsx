@@ -1,6 +1,5 @@
 import { buildJobsSearchHref as buildJobsHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
-import { JobsLocationFilter } from "@/components/jobs/jobs-location-filter";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -268,11 +267,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           options={NORMALIZED_ROLE_CATEGORY_OPTIONS}
                           selected={filters.roleCategory}
                           title="Job function"
-                        />
-
-                        <JobsLocationFilter
-                          defaultValue={filters.locationSearch}
-                          key={`location:${filters.locationSearch ?? ""}`}
                         />
 
                         <JobsFilterDropdownField

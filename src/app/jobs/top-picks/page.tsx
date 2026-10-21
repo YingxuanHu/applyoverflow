@@ -1,6 +1,5 @@
 import { buildJobsSearchHref } from "@/lib/jobs/search-navigation";
 import { JobsFilterPanel } from "@/components/jobs/jobs-filter-panel";
-import { JobsLocationFilter } from "@/components/jobs/jobs-location-filter";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -96,6 +95,7 @@ function buildFilterPanelHiddenFields(filters: TopPicksFilters) {
   return buildHiddenFields([
     ["titleSearch", filters.titleSearch],
     ["companySearch", filters.companySearch],
+    ["locationSearch", filters.locationSearch],
     ["searchScope", hasActiveSearch(filters) ? filters.searchScope : undefined],
   ]);
 }
@@ -448,7 +448,6 @@ export default async function JobsTopPicksPage({
                     />
                   ))}
                   <div className="grid gap-2">
-                    <JobsLocationFilter defaultValue={filters.locationSearch} />
                     <JobsFilterDropdownField
                       columnsClassName="sm:grid-cols-2"
                       emptyLabel="Any work mode"

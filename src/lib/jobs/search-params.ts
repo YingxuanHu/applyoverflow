@@ -138,7 +138,6 @@ export function parseTopPicksFilters(input: JobsSearchInput) {
 
 export function countActiveJobFilters(filters: JobFilterParams) {
   return [
-    filters.locationSearch || filters.location,
     filters.source,
     filters.region,
     filters.workMode,

@@ -40,98 +40,126 @@ try {
   await page.goto(`${root}/jobs?reset=1`, { waitUntil: 'networkidle' });
   const filters = page.getByRole('button', { name: /^Filters/ });
   const dialog = page.getByRole('dialog');
-  const input = dialog.getByRole('textbox', { name: 'City, province, state or country', exact: true });
-  const selected = dialog.getByRole('list', { name: 'Selected locations' });
+  const scope = page.getByRole('combobox', { name: 'Search type' });
+  const input = page.getByRole('textbox', { name: /^(Search|Add) a city, province, state or country$/ });
   const apply = dialog.getByRole('button', { name: 'Apply filters', exact: true });
   const expectLocations = async (expected) => {
     await page.waitForURL((url) => (url.searchParams.get('locationSearch') ?? '') === expected);
     await page.waitForLoadState('networkidle');
   };
 
-  await filters.click();
+  // Search scopes must never carry a title into the geographic query.
+  const title = page.getByRole('textbox', { name: 'Search job titles by keyword' });
+  await title.fill('engineer');
+  await scope.selectOption('location');
+  assert.equal(await input.inputValue(), '');
   await input.fill('Toronto, ON');
+  await scope.selectOption('title');
+  assert.equal(await title.inputValue(), 'engineer');
+  await scope.selectOption('location');
+  assert.equal(await input.inputValue(), 'Toronto, ON');
   await input.press('Enter');
+  await expectLocations('Toronto, ON');
+  assert.equal(await input.inputValue(), '', 'applied locations are chips, not an editable semicolon list');
+  assert.equal(new URL(page.url()).searchParams.has('titleSearch'), false, 'unsubmitted title is not applied implicitly');
+
+  await scope.selectOption('title');
+  await title.fill('engineer');
+  await title.press('Enter');
+  await expectLocations('Toronto, ON');
+  assert.equal(new URL(page.url()).searchParams.get('titleSearch'), 'engineer');
+  await scope.selectOption('location');
+  assert.equal(await input.inputValue(), '');
   await input.fill('Seattle, WA');
-  await dialog.getByRole('button', { name: 'Add location', exact: true }).click();
+  await input.press('Enter');
+  await expectLocations('Toronto, ON;Seattle, WA');
+  assert.equal(new URL(page.url()).searchParams.get('titleSearch'), 'engineer');
   await input.fill('toronto, ON');
   await input.press('Enter');
-  assert.deepEqual(await selected.getByRole('listitem').allTextContents(), ['Toronto, ON', 'Seattle, WA']);
-  assert.equal(await dialog.isVisible(), true, 'Enter adds, it does not submit');
+  await expectLocations('Toronto, ON;Seattle, WA');
+  assert.equal(await page.getByRole('link', { name: 'Remove Location: Toronto, ON', exact: true }).count(), 1);
+
+  await filters.click();
+  assert.equal(await dialog.getByRole('textbox', { name: /city|location/i }).count(), 0, 'no duplicate location editor');
+  assert.equal(await dialog.getByText('0 selected', { exact: true }).count(), 1, 'location is a search, not a hidden dialog refinement');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
-    await input.scrollIntoViewIfNeeded();
-    const clipped = await dialog.evaluate((element) => [...element.querySelectorAll('input,button,li,label')].filter((child) => {
-      const rect = child.getBoundingClientRect();
-      return rect.width > 0 && (rect.left < 0 || rect.right > innerWidth + 1);
-    }).map((child) => child.textContent));
-    assert.deepEqual(clipped, [], `controls fit at ${width}px`);
-    await page.screenshot({ path: `output/playwright/location-filter-${width}.png`, animations: 'disabled' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `no overflow at ${width}px`);
+    await page.screenshot({ path: `output/playwright/location-search-${width}.png`, animations: 'disabled' });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await filters.click();
+  await dialog.getByText('Work mode', { exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Remote', exact: true }).check();
   await apply.click();
+  await page.waitForURL((url) => url.searchParams.get('workMode') === 'REMOTE');
   await expectLocations('Toronto, ON;Seattle, WA');
-  assert.equal(await page.getByRole('combobox', { name: 'Search type' }).inputValue(), 'title');
-  assert.equal(await page.getByRole('textbox', { name: 'Search job titles by keyword' }).inputValue(), '');
-
-  await page.reload({ waitUntil: 'networkidle' });
-  await filters.click();
-  assert.equal(await selected.getByRole('listitem').count(), 2, 'reload restores chips');
-  await dialog.getByRole('button', { name: 'Remove Toronto, ON', exact: true }).click();
-  await input.fill('Canada');
-  await apply.click();
-  await expectLocations('Seattle, WA;Canada');
-  await filters.click();
-  await dialog.getByRole('button', { name: 'Clear locations', exact: true }).click();
-  await input.fill('Ottawa');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await filters.click();
-  assert.deepEqual(await selected.getByRole('listitem').allTextContents(), ['Seattle, WA', 'Canada'], 'cancel discards draft changes');
-  assert.equal(await input.inputValue(), '');
-
-  await dialog.getByRole('button', { name: 'Clear locations', exact: true }).click();
-  await input.fill('Canada');
-  await input.press('Enter');
-  await input.fill('United States');
-  await input.press('Enter');
-  await apply.click();
-  await expectLocations('Canada;United States');
+  assert.equal(new URL(page.url()).searchParams.get('workMode'), 'REMOTE');
+  assert.equal(new URL(page.url()).searchParams.get('titleSearch'), 'engineer');
+  await page.getByRole('link', { name: 'Remove Location: Toronto, ON', exact: true }).click();
+  await expectLocations('Seattle, WA');
   await page.goBack({ waitUntil: 'networkidle' });
-  await expectLocations('Seattle, WA;Canada');
+  await expectLocations('Toronto, ON;Seattle, WA');
   await page.goForward({ waitUntil: 'networkidle' });
-  await expectLocations('Canada;United States');
-
+  await expectLocations('Seattle, WA');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('link', { name: 'Remove Location: Seattle, WA', exact: true }).waitFor();
+  await scope.selectOption('location');
+  await input.fill('Canada');
+  await input.press('Enter');
+  await expectLocations('Seattle, WA;Canada');
+  await page.getByRole('link', { name: 'Remove Location: Seattle, WA', exact: true }).click();
+  await expectLocations('Canada');
+  await page.getByRole('link', { name: 'Remove Location: Canada', exact: true }).click();
+  await expectLocations('');
   await filters.click();
-  await dialog.getByRole('button', { name: 'Clear locations', exact: true }).click();
-  for (const place of ['Toronto', 'Seattle', 'Vancouver', 'Ottawa', 'Montreal', 'Boston', 'Austin', 'Calgary', 'Winnipeg', 'Chicago']) {
-    await input.fill(place);
-    await input.press('Enter');
-  }
-  await input.fill('Edmonton');
-  await apply.click();
-  assert.equal(await dialog.isVisible(), true, 'overflow cannot silently drop a location');
-  assert.match(await input.evaluate((element) => element.validationMessage), /up to 10/);
-  await dialog.getByRole('button', { name: 'Remove Chicago', exact: true }).click();
-  await apply.click();
-  await expectLocations('Toronto;Seattle;Vancouver;Ottawa;Montreal;Boston;Austin;Calgary;Winnipeg;Edmonton');
-  await filters.click();
-  await dialog.getByRole('button', { name: 'Clear locations', exact: true }).click();
   await apply.click();
   await expectLocations('');
+  assert.equal(new URL(page.url()).searchParams.get('titleSearch'), 'engineer', 'other refinements survive removing the final place');
 
-  await page.goto(`${root}/jobs/top-picks?locationSearch=Canada`, { waitUntil: 'networkidle' });
-  await filters.click();
-  await dialog.getByRole('button', { name: 'Remove Canada', exact: true }).waitFor();
+  // Invalid additions must not silently truncate the applied locations.
+  const ten = ['Toronto', 'Seattle', 'Vancouver', 'Ottawa', 'Montreal', 'Boston', 'Austin', 'Calgary', 'Winnipeg', 'Chicago'].join(';');
+  await page.goto(`${root}/jobs?searchScope=location&locationSearch=${encodeURIComponent(ten)}`, { waitUntil: 'networkidle' });
+  await input.fill('Edmonton');
+  await input.press('Enter');
+  await page.getByRole('alert').filter({ hasText: /up to 10/ }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('locationSearch'), ten);
+  await page.getByRole('link', { name: 'Remove Location: Chicago', exact: true }).click();
+  await expectLocations(ten.replace(';Chicago', ''));
+  await input.fill('Edmonton');
+  await input.press('Enter');
+  await expectLocations(ten.replace('Chicago', 'Edmonton'));
+
+  await page.goto(`${root}/jobs?location=Canada&searchScope=location`, { waitUntil: 'networkidle' });
+  await page.getByRole('link', { name: 'Remove Location: Canada', exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get('reset') === '1' && !url.searchParams.has('location'));
+  await expectLocations('');
+  assert.equal(new URL(page.url()).searchParams.get('reset'), '1', 'legacy/saved filters cannot resurrect a removed location');
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.getByRole('link', { name: 'Remove Location: Canada', exact: true }).count(), 0);
+
+  await page.goto(`${root}/jobs/top-picks?searchScope=location&locationSearch=Canada`, { waitUntil: 'networkidle' });
   await input.fill('Seattle');
   await input.press('Enter');
-  await apply.click();
   await expectLocations('Canada;Seattle');
   assert.equal(new URL(page.url()).pathname, '/jobs/top-picks');
   await filters.click();
-  await dialog.getByRole('button', { name: 'Remove Canada', exact: true }).click();
+  assert.equal(await dialog.getByRole('textbox', { name: /city|location/i }).count(), 0);
+  await dialog.getByText('Work mode', { exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Remote', exact: true }).check();
   await apply.click();
+  await page.waitForURL((url) => url.searchParams.get('workMode') === 'REMOTE');
+  await expectLocations('Canada;Seattle');
+  assert.equal(new URL(page.url()).searchParams.get('workMode'), 'REMOTE');
+  await page.getByRole('link', { name: 'Remove Location: Canada', exact: true }).click();
   await expectLocations('Seattle');
   assert.deepEqual(errors, []);
-  console.log('PASS: multi-location add/remove/deduplication, pending input, cancel, reload, history, limits, clearing, keyword separation, mobile layout and Picks');
+  console.log('PASS: single location search, isolated scope drafts, OR additions, deduplication, chip removal, filter preservation, reload/history, limits, legacy clearing, mobile layout and Picks');
+} catch (error) {
+  await page.screenshot({ path: 'output/playwright/location-search-failure.png', fullPage: true });
+  throw error;
 } finally {
   await page.evaluate(async () => fetch('/api/auth/sign-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).catch(() => {});
   await browser.close();

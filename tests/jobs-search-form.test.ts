@@ -5,6 +5,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { JobsSearchForm } from "../src/components/jobs/jobs-search-form";
+import { appendLocationSearch } from "../src/lib/location-search";
 
 function readRepoFile(path: string) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -109,14 +110,38 @@ test("submitting a new company search keeps the existing title search as a secon
   assert.match(html, /name="titleSearch" value="backend"/);
 });
 
-test("job search keeps the visible draft when switching search scopes", () => {
+test("job search keeps drafts separate instead of treating a title as a location", () => {
   const source = readRepoFile("src/components/jobs/jobs-search-form.tsx");
 
-  assert.match(source, /const \[draftValue, setDraftValue\]/);
+  assert.match(source, /const \[drafts, setDrafts\]/);
   assert.match(source, /function handleScopeChange/);
-  assert.match(source, /return nextScope === "ai" \? "" : committedValues\[nextScope\]/);
+  assert.match(source, /const draftValue = drafts\[scope\]/);
+  assert.doesNotMatch(source, /if \(currentDraft.trim\(\)\) return currentDraft/);
   assert.match(source, /setDraftValue\(event\.target\.value\)/);
   assert.match(source, /value=\{draftValue\}/);
+});
+
+test("location is edited only in search and survives other filter submissions", () => {
+  for (const path of ["src/app/jobs/page.tsx", "src/app/jobs/top-picks/page.tsx"]) {
+    assert.doesNotMatch(readRepoFile(path), /JobsLocationFilter/);
+  }
+  const html = renderToStaticMarkup(React.createElement(JobsSearchForm, {
+    filterFormId: "jobs-filter-form", hiddenFields: [], initialScope: "location",
+    initialValues: { ...emptyValues, location: "Canada;Seattle, WA", title: "engineer" },
+  }));
+  assert.match(html, /form="jobs-filter-form"[^>]*name="locationSearch"[^>]*value="Canada;Seattle, WA"/);
+  assert.match(html, /Add a city, province, state or country/);
+  assert.match(html, /aria-label="Add a city, province, state or country"[^>]*value=""/);
+});
+
+test("location additions preserve qualifiers, alternatives and explicit limits", () => {
+  assert.deepEqual(appendLocationSearch("Toronto, ON", "Seattle, WA"), { value: "Toronto, ON;Seattle, WA", error: null });
+  assert.deepEqual(appendLocationSearch("Canada", "canada"), { value: "Canada", error: null });
+  assert.deepEqual(appendLocationSearch("Canada;Seattle", ""), { value: "Canada;Seattle", error: null });
+  const ten = Array.from({ length: 10 }, (_, index) => `Place ${index}`).join(";");
+  assert.match(appendLocationSearch(ten, "Another").error ?? "", /up to 10/);
+  assert.equal(appendLocationSearch(ten, "Place 0").error, null);
+  assert.match(appendLocationSearch("x".repeat(990), "y".repeat(20)).error ?? "", /length limit/);
 });
 
 test("job search exposes AI parsing and trailing voice input in the shared search control", () => {
