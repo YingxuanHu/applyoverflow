@@ -205,6 +205,14 @@ test("UUID posting identities must match in full", () => {
   assert.equal(classify({ requestedUrl, finalUrl: requestedUrl, bodyText: bodyText.replace("12345678-abcd-1234-abcd-123456789012", "12345678") }).contentMatch.jobIdMatched, false);
 });
 
+test("postal codes and salaries in SEO slugs are not posting identities", () => {
+  const url = "https://example.com/job/Engineer-CA-90210-Salary-123000/123456/";
+  const result = classify({ requestedUrl: url, finalUrl: url,
+    bodyText: "Welcome to our company, based in 90210. Reference 123000. Explore our teams and learn more about our products." });
+  assert.deepEqual(result.contentMatch.jobIdCandidates, ["123456"]);
+  assert.notEqual(result.status, APPLY_LINK_VALIDATION_STATUS.ACTIVE);
+});
+
 test("an unrendered embedded application is unverified, not a confirmed generic redirect", () => {
   const result = classify({
     requestedUrl: "https://example.com/careers/?gh_jid=123456",

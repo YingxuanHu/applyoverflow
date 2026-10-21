@@ -370,8 +370,12 @@ function extractJobIdCandidates(...urls: string[]) {
       candidates.add(id.toLowerCase());
       return "/";
     });
-    for (const token of pathWithoutUuids.split(/[^a-zA-Z0-9]+/)) {
-      if (isJobIdCandidate(token)) candidates.add(token.toLowerCase());
+    for (const segment of pathWithoutUuids.split("/")) {
+      // A title/location slug may contain a postal code or salary. Only a
+      // standalone numeric/requisition segment can establish posting identity.
+      if (/^[a-z]{0,10}[-_]?\d{5,}$/i.test(segment) && isJobIdCandidate(segment)) {
+        candidates.add(segment.toLowerCase());
+      }
     }
   }
 
