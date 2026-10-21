@@ -1,185 +1,60 @@
+import "dotenv/config";
+import { setTimeout as delay } from "node:timers/promises";
 import { prisma } from "@/lib/db";
-import { hasBadApplyLinkValidationStatus } from "@/lib/ingestion/apply-link-quality";
-import { isClearlyNonJobPosting } from "@/lib/job-integrity";
+import { shouldExcludeFromFeedIndex } from "@/lib/ingestion/search-index";
+import { buildFeedVisibilityRepair } from "@/lib/ingestion/feed-visibility-repair";
 
-function readIntArg(name: string, fallback: number) {
-  const exact = process.argv.find((arg) => arg.startsWith(`${name}=`));
-  if (!exact) return fallback;
-  const parsed = Number.parseInt(exact.slice(name.length + 1), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function integerArg(name: string, fallback: number, maximum: number) {
+  const raw = process.argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new Error(`Invalid ${name}`);
+  return value;
 }
 
 async function main() {
-  const batchSize = readIntArg("--batch-size", 2000);
-  const maxBatches = readIntArg("--max-batches", Number.MAX_SAFE_INTEGER);
-  const dryRun = process.argv.includes("--dry-run");
-  const fastSql = process.argv.includes("--fast-sql");
-  let cursor: string | undefined;
-  const summary = {
-    batchSize,
-    maxBatches,
-    dryRun,
-    fastSql,
-    scanned: 0,
-    removed: 0,
-    samples: [] as Array<{ id: string; title: string; company: string }>,
-  };
-
-  if (fastSql) {
-    for (let batch = 0; batch < maxBatches; batch += 1) {
-      const rows = await prisma.$queryRaw<Array<{ canonicalJobId: string }>>`
-        WITH candidates AS (
-          SELECT jfi."canonicalJobId"
-          FROM "JobFeedIndex" jfi
-          JOIN "JobCanonical" jc
-            ON jc.id = jfi."canonicalJobId"
-          WHERE jfi.status = 'LIVE'::"JobStatus"
-            AND (
-              jfi."sourceCount" <= 0
-              OR jc.status != 'LIVE'::"JobStatus"
-              OR jc."availabilityScore" < 60
-              OR jc."deadSignalAt" IS NOT NULL
-              OR jc.title ~* '^search jobs?$'
-              OR jc.title ~* '^(careers?|jobs?)( at .+)?$'
-              OR jc.title ~* '^(open positions?|current opportunities|benefits and perks|work (at|with|for) .+|join (us|our team|the team|.+)|come work with us|build your career|grow your career|help us)'
-              OR jc."applyUrl" ~* '/(ai-guidelines|blog|guides?|docs?|events|support|resources?|case-studies|collections|datasets?|insights|media/videos?|models?|news(room)?|partners?|papers?|press(-release)?|protect-yourself|products?|posts|spaces|videos|faqs?|thank-you|download|webinars?|whitepapers?|lesson-center|people-ops)(/|$)'
-              OR COALESCE(jc."applyUrlValidationStatus", 'ACTIVE') IN (
-                'EXPIRED',
-                'BROKEN_APPLY_LINK',
-                'GENERIC_APPLY_PAGE',
-                'SOURCE_STALE',
-                'HIDDEN_LOW_QUALITY'
-              )
-              OR (jc.deadline IS NOT NULL AND jc.deadline < NOW())
-              OR jc."applyUrl" !~* '^https?://'
-            )
-          ORDER BY jfi."canonicalJobId"
-          LIMIT ${batchSize}
-        )
-        UPDATE "JobFeedIndex" jfi
-        SET
-          status = 'REMOVED'::"JobStatus",
-          "indexedAt" = NOW(),
-          "updatedAt" = NOW()
-        FROM candidates
-        WHERE jfi."canonicalJobId" = candidates."canonicalJobId"
-        RETURNING jfi."canonicalJobId"
-      `;
-
-      summary.scanned += rows.length;
-      summary.removed += rows.length;
-      console.log(
-        JSON.stringify(
-          {
-            batch: batch + 1,
-            removed: rows.length,
-            totalRemoved: summary.removed,
-          },
-          null,
-          2
-        )
-      );
-      if (rows.length === 0) break;
-    }
-
-    console.log(JSON.stringify(summary, null, 2));
-    return;
-  }
-
+  if (process.argv.includes("--fast-sql")) throw new Error("--fast-sql is retired; repair must use the shared publication policy.");
+  if (process.argv.includes("--apply") && process.argv.includes("--dry-run")) throw new Error("Choose either --apply or --dry-run.");
+  const dryRun = !process.argv.includes("--apply");
+  const batchSize = integerArg("--batch-size", 500, 2000);
+  const maxBatches = integerArg("--max-batches", 10_000, 100_000);
+  let cursor = process.argv.find((arg) => arg.startsWith("--after="))?.slice(8);
+  const summary = { dryRun, scanned: 0, excluded: 0, hidden: 0, concurrentChangesSkipped: 0, complete: false, lastId: cursor, samples: [] as Array<{ id: string; title: string; company: string }> };
   for (let batch = 0; batch < maxBatches; batch += 1) {
     const rows = await prisma.jobFeedIndex.findMany({
-      where: {
-        status: "LIVE",
-        ...(cursor ? { canonicalJobId: { gt: cursor } } : {}),
-      },
-      orderBy: { canonicalJobId: "asc" },
-      take: batchSize,
+      where: { status: "LIVE", ...(cursor ? { canonicalJobId: { gt: cursor } } : {}) },
+      orderBy: { canonicalJobId: "asc" }, take: batchSize,
       select: {
-        canonicalJobId: true,
-        sourceCount: true,
-        canonicalJob: {
-          select: {
-            title: true,
-            company: true,
-            description: true,
-            shortSummary: true,
-            applyUrl: true,
-            status: true,
-            availabilityScore: true,
-            deadline: true,
-            deadSignalAt: true,
-            applyUrlValidationStatus: true,
-          },
-        },
+        canonicalJobId: true, sourceCount: true, updatedAt: true,
+        canonicalJob: { select: {
+          title: true, company: true, description: true, descriptionStatus: true,
+          shortSummary: true, location: true, region: true, workMode: true,
+          applyUrl: true, status: true, availabilityScore: true,
+          titleConfidence: true, titleStatus: true, deadline: true, deadSignalAt: true,
+          applyUrlValidationStatus: true, lastSourceSeenAt: true,
+          lastConfirmedAliveAt: true, updatedAt: true,
+        } },
       },
     });
-
-    if (rows.length === 0) break;
-
-    const removeIds: string[] = [];
-    for (const row of rows) {
-      const job = row.canonicalJob;
-      if (
-        row.sourceCount <= 0 ||
-        job.status !== "LIVE" ||
-        job.availabilityScore < 60 ||
-        job.deadSignalAt !== null ||
-        (job.deadline !== null && job.deadline.getTime() < Date.now()) ||
-        hasBadApplyLinkValidationStatus(job.applyUrlValidationStatus) ||
-        !/^https?:\/\//i.test(job.applyUrl) ||
-        isClearlyNonJobPosting({
-          title: job.title,
-          description: job.description || job.shortSummary,
-          applyUrl: job.applyUrl,
-        })
-      ) {
-        removeIds.push(row.canonicalJobId);
-        if (summary.samples.length < 20) {
-          summary.samples.push({
-            id: row.canonicalJobId,
-            title: job.title,
-            company: job.company,
-          });
-        }
-      }
+    if (!rows.length) { summary.complete = true; break; }
+    const now = new Date();
+    const excluded = rows.filter((row) => shouldExcludeFromFeedIndex({ ...row.canonicalJob, sourceCount: row.sourceCount, now }));
+    if (excluded.length && !dryRun) {
+      const hidden = await prisma.$executeRaw(buildFeedVisibilityRepair(excluded.map((row) => ({
+        id: row.canonicalJobId, canonicalUpdatedAt: row.canonicalJob.updatedAt, indexUpdatedAt: row.updatedAt,
+      }))));
+      summary.hidden += hidden;
+      summary.concurrentChangesSkipped += excluded.length - hidden;
     }
-
-    if (removeIds.length > 0 && !dryRun) {
-      await prisma.jobFeedIndex.updateMany({
-        where: { canonicalJobId: { in: removeIds } },
-        data: {
-          status: "REMOVED",
-          indexedAt: new Date(),
-        },
-      });
-    }
-
+    for (const row of excluded.slice(0, Math.max(0, 20 - summary.samples.length))) summary.samples.push({ id: row.canonicalJobId, title: row.canonicalJob.title, company: row.canonicalJob.company });
     summary.scanned += rows.length;
-    summary.removed += removeIds.length;
-    cursor = rows.at(-1)?.canonicalJobId;
-
-    console.log(
-      JSON.stringify(
-        {
-          batch: batch + 1,
-          scanned: summary.scanned,
-          removed: summary.removed,
-          lastId: cursor,
-        },
-        null,
-        2
-      )
-    );
+    summary.excluded += excluded.length;
+    cursor = rows.at(-1)!.canonicalJobId;
+    summary.lastId = cursor;
+    console.log(JSON.stringify({ ...summary, samples: undefined, batch: batch + 1 }));
+    await delay(50);
   }
-
-  console.log(JSON.stringify(summary, null, 2));
+  console.log(JSON.stringify(summary));
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => prisma.$disconnect());

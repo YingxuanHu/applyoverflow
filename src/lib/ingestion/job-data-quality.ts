@@ -6,6 +6,7 @@ import {
   classifyNonJobPosting,
   isClearlyNonJobContentUrl,
 } from "@/lib/job-integrity";
+import { descriptionHtmlToText } from "@/lib/jobs/description-html";
 
 export type JobDataQualityIssue =
   | "missing_title"
@@ -36,7 +37,7 @@ export function assessJobDataQuality(input: {
 }): JobDataQualityAssessment {
   const title = compact(input.title);
   const company = compact(input.company);
-  const description = compact(input.description);
+  const description = compact(descriptionHtmlToText(input.description ?? ""));
   const applyUrl = compact(input.applyUrl);
   const issues: JobDataQualityIssue[] = [];
   let hardRejectIssue: JobDataQualityIssue | null = null;

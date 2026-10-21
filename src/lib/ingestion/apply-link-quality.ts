@@ -165,6 +165,15 @@ export function classifyApplyLinkQuality(input: {
     contentMatch.genericUrlSignals.length > 0 || contentMatch.genericPageSignals.length >= 2;
 
   if (hasGenericDestinationEvidence && !contentMatch.jobIdMatched) {
+    // Embedded/JS applications can keep a requisition query parameter on a
+    // careers root. Missing server-rendered content is uncertainty, not proof
+    // of closure. A redirect that loses the posting identity is still bad.
+    const identityRetained = contentMatch.jobIdCandidates.some((id) =>
+      Array.from(safeParseUrl(finalUrl)?.searchParams.values() ?? []).some((value) => value.toLowerCase() === id)
+    );
+    if (identityRetained && !contentMatch.genericUrlSignals.includes("job_specific_path_lost_after_redirect")) {
+      return needsRevalidation("Application identity remains in the URL, but embedded posting content could not be verified.", contentMatch);
+    }
     return bad(
       APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE,
       buildGenericReason(contentMatch),
@@ -225,12 +234,11 @@ function buildContentMatch(input: {
   const matchedTitleTokens = titleTokens.filter((token) => input.bodyText.includes(token));
   const titleMatchRatio =
     titleTokens.length > 0 ? matchedTitleTokens.length / titleTokens.length : 0;
-  const jobIdCandidates = extractJobIdCandidates(input.requestedUrl, input.finalUrl);
-  const searchableFinalUrl = input.finalUrl.toLowerCase();
+  // A retained URL (or a different job's redirect target) is not evidence that
+  // the requested posting still exists. Require the identity in page content.
+  const jobIdCandidates = extractJobIdCandidates(input.requestedUrl);
   const jobIdMatched = jobIdCandidates.some(
-    (candidate) =>
-      input.bodyText.includes(candidate.toLowerCase()) ||
-      searchableFinalUrl.includes(candidate.toLowerCase())
+    (candidate) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(candidate)}($|[^a-z0-9])`, "i").test(input.bodyText)
   );
   const companyMatched = input.company
     ? normalizeText(input.company)
@@ -345,16 +353,26 @@ function extractJobIdCandidates(...urls: string[]) {
     const parsed = safeParseUrl(value);
     if (!parsed) continue;
 
-    for (const [, paramValue] of Array.from(parsed.searchParams.entries())) {
+    for (const [param, paramValue] of Array.from(parsed.searchParams.entries())) {
+      if (!/^(?:job|job_?id|gh_jid|req(?:uisition)?_?id|position_?id|vacancy_?id|pid|jid|id)$/i.test(param)) continue;
       if (isJobIdCandidate(paramValue)) candidates.add(paramValue.toLowerCase());
     }
 
-    for (const token of parsed.pathname.split(/[^a-zA-Z0-9]+/)) {
+    // Preserve UUIDs as a single identity, not several short numeric fragments.
+    const pathWithoutUuids = parsed.pathname.replace(/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}/gi, (id) => {
+      candidates.add(id.toLowerCase());
+      return "/";
+    });
+    for (const token of pathWithoutUuids.split(/[^a-zA-Z0-9]+/)) {
       if (isJobIdCandidate(token)) candidates.add(token.toLowerCase());
     }
   }
 
   return Array.from(candidates).slice(0, 8);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isJobIdCandidate(value: string) {

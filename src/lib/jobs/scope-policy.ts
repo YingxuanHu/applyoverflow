@@ -7,11 +7,17 @@ export const EXCLUDED_TITLE_PATTERNS = [
   /\b(mechanic|electrician|plumber|welder|carpenter|painter|roofer|mason|hvac|installer(?!\s+(?:software|engineer))|pipefitter|millwright|machinist|sheet metal|ironworker|boilermaker|glazier|drywall|framing)\b/i,
   // Driving / Transportation
   /\b(cdl|truck driver|bus driver|delivery driver|forklift|warehouse associate|sorter|picker|packer)\b/i,
+  /\b(?:warehouse\s+(?:worker|clerk|driver|loader|handler|operative)|driver[\s/-]+warehouse|material[s]?\s+handler|order\s+(?:picker|filler)|shipping\s+(?:clerk|loader))\b/i,
+  // Production, facilities and field labour, not office operations or R&D.
+  /\b(?:production\s+(?:operator|worker|assembler)|assembly\s+(?:operator|worker|technician)|machine\s+operator|manufacturing\s+(?:operator|assembler)|custodian|janitor|housekeeper|room\s+attendant|laundry\s+(?:assistant|attendant|worker)|housekeeping\s+(?:assistant|attendant|aide)|security\s+guard)\b/i,
+  /\b(?:field\s+(?:service\s+)?technician|geotechnical\s+(?:lab\s+)?technician|construction\s+materials?\s+(?:testing\s+)?technician)\b/i,
+  /\b(?:automotive|auto|lube|tire)\s+(?:(?:general|service|repair)\s+){0,2}technician\b/i,
   // Childcare / Domestic
   /\b(babysitter|nanny|caregiver|childcare|au pair)\b/i,
   // Food service / Retail frontline
   /\b(?:bakery|deli|produce|meat|grocery)\s+(?:in[ -]?store\s+)?(?:clerk|associate|assistant|team member)\b/i,
   /\bin[ -]?store\s+(?:clerk|associate|cashier|stocker)\b/i,
+  /\bretail\s+sales\s+(?:associate|representative|consultant)\b/i,
   /\b(barista|server|cook\b|chef\b|dishwasher|busser|bartender|cashier|stocker|grocery|h\.?m\.?r\.?\s+clerk|salad\s+bar|meat\s+clerk|produce\s+clerk|deli\s+clerk|bakery\s+clerk|retail\s+store\s+manager|retail\s+associate|store\s+associate|store\s+clerk)\b/i,
   // Education (non-tech). "dean" alone is too broad — academic deans of
   // operations / career services / student affairs / business admin /
@@ -38,6 +44,8 @@ export const EXCLUDED_TITLE_PATTERNS = [
  * classifier must never turn an excluded title into a publishable job.
  */
 export function isExcludedJobTitle(title: string) {
+  // Explicit IT support is knowledge work even when delivered in the field.
+  if (/\b(?:IT|computer|network|desktop)\s+field\s+(?:service\s+)?technician\b/i.test(title)) return false;
   if (/\bnurse(?:\s+manager)?\b/i.test(title) && !/\b(informatics|research|analyst)\b/i.test(title)) return true;
   // Non-clinical healthcare and public-sector administration are GENERAL work.
   // Require an office occupation, not just the industry (e.g. dental assistant).
