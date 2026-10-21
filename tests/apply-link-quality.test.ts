@@ -184,6 +184,20 @@ test("job-specific title content still confirms postings without a printed requi
   assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.ACTIVE);
 });
 
+test("posting descriptions override generic navigation without requiring a printed URL id", () => {
+  for (const title of ["Junior Technologist Designer / Drafter", "General Manager II"]) {
+    const result = classify({ title, bodyText: `Search by keyword. Search by location. Join our talent community. ${title}. Responsibilities: ${"Maintain accurate documentation, coordinate projects and work with the team. ".repeat(5)} Apply now.` });
+    assert.equal(result.contentMatch.jobIdMatched, false);
+    assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.ACTIVE);
+  }
+});
+
+test("generic redirects still fail even with repeated title and description keywords", () => {
+  const result = classify({ finalUrl: "https://example.com/careers", redirectDepth: 1,
+    bodyText: `Search by keyword. Search by location. Software Engineer. Qualifications: ${"Find opportunities across teams and learn more about our company. ".repeat(6)}` });
+  assert.equal(result.status, APPLY_LINK_VALIDATION_STATUS.GENERIC_APPLY_PAGE);
+});
+
 test("UUID posting identities must match in full", () => {
   const requestedUrl = "https://jobs.example.com/co/12345678-abcd-1234-abcd-123456789012";
   const bodyText = "Requisition 12345678-abcd-1234-abcd-123456789012. Build APIs and distributed systems with our engineering team.";

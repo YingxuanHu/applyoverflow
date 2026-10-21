@@ -161,8 +161,15 @@ export function classifyApplyLinkQuality(input: {
     );
   }
 
-  const hasGenericDestinationEvidence =
-    contentMatch.genericUrlSignals.length > 0 || contentMatch.genericPageSignals.length >= 2;
+  // Search controls and talent-community links often surround a real posting.
+  // They are only generic-page evidence when the job itself is absent. A lost
+  // posting URL remains a hard signal, even if a careers page repeats its title.
+  const normalizedTitle = normalizeText(input.title);
+  const hasDetailedPostingContent = normalizedTitle.length >= 8 &&
+    normalizedBody.includes(normalizedTitle) && normalizedBody.length >= 250 &&
+    /\b(responsibilities|qualifications|requirements|about the role|job description|essential functions)\b/.test(normalizedBody);
+  const hasGenericDestinationEvidence = contentMatch.genericUrlSignals.length > 0 ||
+    (contentMatch.genericPageSignals.length >= 2 && !hasDetailedPostingContent);
 
   if (hasGenericDestinationEvidence && !contentMatch.jobIdMatched) {
     // Embedded/JS applications can keep a requisition query parameter on a
