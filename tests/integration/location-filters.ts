@@ -8,6 +8,7 @@ import { buildFeedLocationSql } from "../../src/lib/queries/job-location-sql";
 import { getJobs } from "../../src/lib/queries/jobs";
 import { parseJobFilters } from "../../src/lib/jobs/search-params";
 import { upsertJobFeedIndex } from "../../src/lib/ingestion/search-index";
+import { inferRegion } from "../../src/lib/region";
 
 async function main() {
   assert.notEqual(process.env.NODE_ENV, "production");
@@ -30,6 +31,10 @@ async function main() {
     ["Remote", null, "REMOTE"],
     ["London, UK", null, "REMOTE"],
     ["North America - US only", null, "REMOTE"],
+    ["Worldwide", "CA", "REMOTE"],
+    ["Vancouver, Washington", inferRegion("Vancouver, Washington"), "ONSITE"],
+    ["Cambridge, Ontario", inferRegion("Cambridge, Ontario"), "HYBRID"],
+    ["Montréal, Québec, Canada", "CA", "HYBRID"],
   ] as const;
   try {
     for (const [location, region, workMode] of cases) {
@@ -50,12 +55,16 @@ async function main() {
       await upsertJobFeedIndex(job.id);
     }
     const queries = [
-      ["Canada", [0, 1, 2, 3, 4, 5, 6]],
-      ["United States", [4, 5, 6, 7, 8]],
+      ["Canada", [0, 1, 2, 3, 4, 5, 6, 12, 14, 15]],
+      ["United States", [4, 5, 6, 7, 8, 12, 13]],
       ["Toronto, ON;Seattle, WA", [1, 7]],
-      ["Canada;Seattle, WA", [0, 1, 2, 3, 4, 5, 6, 7]],
-      ["Canada;United States", [0, 1, 2, 3, 4, 5, 6, 7, 8]],
+      ["Canada;Seattle, WA", [0, 1, 2, 3, 4, 5, 6, 7, 12, 14, 15]],
+      ["Canada;United States", [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15]],
       ["Toronto, ON, Canada", [1]],
+      ["Vancouver, WA", [13]],
+      ["Cambridge, ON", [14]],
+      ["Montreal, QC", [15]],
+      ["Montréal, QC", [15]],
       ["Toronto%", []],
       ["Toronto' OR TRUE --", []],
     ] as const;
@@ -77,7 +86,7 @@ async function main() {
       checks += 5;
     }
     const remote = await getJobs(parseJobFilters({ companySearch: company, locationSearch: "Canada", workMode: "REMOTE" }), { viewerProfileId: null, authUserId: null });
-    assert.deepEqual(new Set(remote.data.map((row) => row.id)), new Set([2, 3, 4, 5, 6].map((index) => ids[index])));
+    assert.deepEqual(new Set(remote.data.map((row) => row.id)), new Set([2, 3, 4, 5, 6, 12].map((index) => ids[index])));
     console.log(`PASS: ${checks + 1} location checks across canonical, index, SQL, feed totals and remote work-mode intersection`);
   } finally {
     await prisma.jobCanonical.deleteMany({ where: { id: { in: ids } } });

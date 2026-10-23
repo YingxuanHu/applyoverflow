@@ -68,7 +68,8 @@ test("location search keeps location OR additions without duplicate values", () 
   );
 
   assert.match(html, /name="locationSearch" value="Toronto;Montreal"/);
-  assert.match(html, /name="searchScope" value="location"/);
+  assert.doesNotMatch(html, /<option value="location"/);
+  assert.match(html, /Locations/);
 });
 
 test("legacy all scope is rendered as title keyword search", () => {
@@ -130,8 +131,9 @@ test("location is edited only in search and survives other filter submissions", 
     initialValues: { ...emptyValues, location: "Canada;Seattle, WA", title: "engineer" },
   }));
   assert.match(html, /form="jobs-filter-form"[^>]*name="locationSearch"[^>]*value="Canada;Seattle, WA"/);
-  assert.match(html, /Add a city, province, state or country/);
-  assert.match(html, /aria-label="Add a city, province, state or country"[^>]*value=""/);
+  assert.match(html, /Locations/);
+  assert.match(html, /Search job titles by keyword/);
+  assert.doesNotMatch(html, /<option value="location"/);
 });
 
 test("location additions preserve qualifiers, alternatives and explicit limits", () => {

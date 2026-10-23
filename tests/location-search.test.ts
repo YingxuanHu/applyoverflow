@@ -4,7 +4,29 @@ import test from "node:test";
 import {
   expandLocationSearchTerm,
   inferLocationSearchRegion,
+  locationSearchOptions,
 } from "../src/lib/location-search";
+import { inferRegion } from "../src/lib/region";
+
+test("location suggestions distinguish cities, states and countries", () => {
+  assert.ok(locationSearchOptions("").some((place) => place.value === "Canada"));
+  assert.ok(locationSearchOptions("toronto").some((place) => place.value === "Toronto, ON"));
+  assert.ok(locationSearchOptions("Seattle").some((place) => place.value === "Seattle, WA"));
+  assert.ok(locationSearchOptions("USA").some((place) => place.value === "United States"));
+  assert.ok(locationSearchOptions("Montréal").some((place) => place.value === "Montreal, QC"));
+  assert.ok(locationSearchOptions("Washington, DC").some((place) => place.value === "Washington, DC"));
+  assert.equal(locationSearchOptions("Unknown custom place").length, 0);
+});
+
+test("explicit states and provinces outrank ambiguous city guesses", () => {
+  for (const place of ["Vancouver, Washington", "Vancouver, WA", "Toronto, OH", "Hamilton, New Jersey"]) {
+    assert.equal(inferRegion(place), "US", place);
+  }
+  for (const place of ["Cambridge, Ontario", "Cambridge, ON", "Vancouver, BC, CA", "Waterloo, Ontario"]) {
+    assert.equal(inferRegion(place), "CA", place);
+  }
+  assert.equal(inferRegion("London, UK"), null);
+});
 
 test("country location filters expand to stored feed regions", () => {
   const canada = expandLocationSearchTerm("Canada");

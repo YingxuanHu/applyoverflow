@@ -260,13 +260,13 @@ test("country filters include all assigned cities and explicit eligible remote g
     { location: "US & Canada", region: "US", workMode: "REMOTE" },
     { location: "Remote - North America", region: null, workMode: "REMOTE" },
     { location: "Worldwide", region: null, workMode: "REMOTE" },
+    { location: "Worldwide", region: "US", workMode: "REMOTE" },
   ]) assert.equal(matches(row, canada), true, row.location);
   for (const row of [
     { location: "Remote - US", region: "US", workMode: "REMOTE" },
     { location: "Remote", region: null, workMode: "REMOTE" },
     { location: "London, UK", region: null, workMode: "REMOTE" },
     { location: "North America - US only", region: null, workMode: "REMOTE" },
-    { location: "Worldwide", region: "US", workMode: "REMOTE" },
     { location: "North America", region: null, workMode: "ONSITE" },
   ]) assert.equal(matches(row, canada), false, row.location);
   assert.equal(matches({ location: "Remote - North America", region: null, workMode: "REMOTE" }, buildLocationSearchPredicate("United States")), true);

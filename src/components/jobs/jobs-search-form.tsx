@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import Form from "next/form";
 import {
   type FormEvent,
   type MutableRefObject,
@@ -27,7 +28,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { appendLocationSearch, normalizeLocationSearch } from "@/lib/location-search";
+import { normalizeLocationSearch } from "@/lib/location-search";
+import { JobsLocationPicker } from "./jobs-location-picker";
 import { mergeNaturalLanguageJobsSearch } from "@/lib/jobs/search-state";
 import { getUnsupportedSearchConstraints } from "@/lib/jobs/search-constraints";
 import type { NaturalLanguageJobSearchResult } from "@/lib/jobs/natural-language-search";
@@ -39,7 +41,7 @@ type HiddenField = {
 };
 
 type SearchValues = Record<JobSearchScope, string>;
-type VisibleJobSearchScope = Exclude<JobSearchScope, "all">;
+type VisibleJobSearchScope = Exclude<JobSearchScope, "all" | "location">;
 type SearchMode = VisibleJobSearchScope | "ai";
 
 type SpeechRecognitionAlternativeLike = {
@@ -84,7 +86,6 @@ const MAX_AI_SEARCH_LENGTH = 600;
 const SEARCH_SCOPE_OPTIONS: Array<{ label: string; value: SearchMode }> = [
   { label: "Title", value: "title" },
   { label: "Company", value: "company" },
-  { label: "Location", value: "location" },
   { label: "AI search", value: "ai" },
 ];
 
@@ -103,12 +104,14 @@ const SEARCH_FIELD_PARAM_NAMES = new Set([
   "titleSearch",
   "companySearch",
   "locationSearch",
+  "location",
+  "page",
+  "reset",
 ]);
 
 const PLACEHOLDER_BY_SCOPE: Record<SearchMode, string> = {
   ai: "Describe a role, location, level, or work style",
   company: "Search companies by keyword",
-  location: "Search a city, province, state or country",
   title: "Search job titles by keyword",
 };
 
@@ -143,16 +146,12 @@ function getSpeechErrorMessage(error?: string) {
   return "Voice input stopped. You can keep typing or try again.";
 }
 
-function normalizeSearchList(value: string) {
-  return normalizeLocationSearch(value) ?? "";
-}
-
-function normalizeSubmittedSearchValue(scope: VisibleJobSearchScope, value: string) {
+function normalizeSubmittedSearchValue(scope: Exclude<JobSearchScope, "all">, value: string) {
   const normalizedValue = value.trim();
-  return scope === "location" ? normalizeSearchList(normalizedValue) : normalizedValue;
+  return scope === "location" ? normalizeLocationSearch(normalizedValue) ?? "" : normalizedValue;
 }
 
-function getSubmittedValue(scope: VisibleJobSearchScope, values: SearchValues) {
+function getSubmittedValue(scope: Exclude<JobSearchScope, "all">, values: SearchValues) {
   return normalizeSubmittedSearchValue(scope, values[scope]);
 }
 
@@ -170,7 +169,7 @@ export function JobsSearchForm({
   initialValues: SearchValues;
 }) {
   const initialVisibleScope =
-    initialScope === "all" ? DEFAULT_SEARCH_SCOPE : initialScope;
+    initialScope === "all" || initialScope === "location" ? DEFAULT_SEARCH_SCOPE : initialScope;
   const normalizedInitialValues = {
     all: "",
     title:
@@ -184,7 +183,6 @@ export function JobsSearchForm({
   const [drafts, setDrafts] = useState<Record<SearchMode, string>>(() => ({
     title: normalizedInitialValues.title,
     company: normalizedInitialValues.company,
-    location: "",
     ai: "",
   }));
   const draftValue = drafts[scope];
@@ -204,12 +202,9 @@ export function JobsSearchForm({
   const baseTranscriptRef = useRef("");
   const finalTranscriptRef = useRef("");
   const interimTranscriptRef = useRef("");
-  const locationAddition = appendLocationSearch(committedValues.location, drafts.location);
   const submittedSearchValue = scope === "ai" ? ""
-    : scope === "location" ? locationAddition.value
-      : normalizeSubmittedSearchValue(scope, draftValue);
-  const placeholder = scope === "location" && committedValues.location
-    ? "Add a city, province, state or country" : PLACEHOLDER_BY_SCOPE[scope];
+    : normalizeSubmittedSearchValue(scope, draftValue);
+  const placeholder = PLACEHOLDER_BY_SCOPE[scope];
 
   useEffect(() => {
     return () => {
@@ -305,9 +300,9 @@ export function JobsSearchForm({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (scope === "ai") aiSubmitHandlerRef.current?.(event);
-    else if (scope === "location" && locationAddition.error) {
-      event.preventDefault();
-      setError(locationAddition.error);
+    else {
+      const params = new URLSearchParams([...new FormData(event.currentTarget)].map(([key, value]) => [key, String(value)]));
+      showJobsLoadingPopup(`${basePath}?${params}`);
     }
   }
 
@@ -315,13 +310,15 @@ export function JobsSearchForm({
     scope === "ai"
       ? buildCommittedSearchHiddenFields(committedValues)
       : buildSubmittedSearchHiddenFields(scope, submittedSearchValue, committedValues);
+  const preservedFields = hiddenFields.filter((field) => !SEARCH_FIELD_PARAM_NAMES.has(field.name));
 
   return (
     <div className="min-w-0 flex-1 space-y-1.5">
-      <form
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+      <Form
         action={basePath}
-        className="flex min-w-0 items-end gap-2 sm:items-center"
-        method="get"
+        scroll={false}
+        className="flex min-w-0 flex-1 items-center gap-2"
         onSubmit={handleSubmit}
       >
         {scope === "ai" ? (
@@ -336,8 +333,7 @@ export function JobsSearchForm({
             submitHandlerRef={aiSubmitHandlerRef}
           />
         ) : null}
-        {hiddenFields
-          .filter((field) => !SEARCH_FIELD_PARAM_NAMES.has(field.name))
+        {preservedFields
           .map((field) => (
             <input
               key={`${field.name}:${field.value}`}
@@ -346,6 +342,7 @@ export function JobsSearchForm({
               value={field.value}
             />
           ))}
+        {!preservedFields.length && !submittedHiddenFields.length ? <input type="hidden" name="reset" value="1" /> : null}
         {submittedHiddenFields.map((field) => (
           <input
             key={`${field.name}:${field.value}`}
@@ -366,11 +363,11 @@ export function JobsSearchForm({
             ))
           : null}
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-input bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25 sm:flex-row">
           <label className="sr-only" htmlFor="jobs-search-scope">
             Search type
           </label>
-          <div className="relative w-full shrink-0 border-b border-border/60 sm:w-32 sm:border-r sm:border-b-0">
+          <div className="relative w-full shrink-0 border-b border-border/60 sm:w-28 sm:border-r sm:border-b-0">
             <select
               className="h-11 w-full appearance-none bg-transparent pl-3 pr-7 text-left text-sm font-medium leading-11 text-foreground outline-none sm:pl-4 sm:pr-8"
               id="jobs-search-scope"
@@ -465,7 +462,7 @@ export function JobsSearchForm({
             render={
               <Button
                 aria-label={scope === "ai" ? "Run AI job search" : "Search jobs"}
-                className="h-11 w-11 rounded-[14px] p-0"
+                className="h-11 w-11 shrink-0 rounded-lg p-0"
                 disabled={isPending}
                 type="submit"
               >
@@ -475,7 +472,13 @@ export function JobsSearchForm({
           />
           <TooltipContent>{scope === "ai" ? "Run AI job search" : "Search jobs"}</TooltipContent>
         </Tooltip>
-      </form>
+      </Form>
+      <JobsLocationPicker
+        basePath={basePath}
+        value={committedValues.location}
+        hiddenFields={[...preservedFields, ...submittedHiddenFields]}
+      />
+      </div>
 
       {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
       {voiceMessage ? <p role="alert" className="text-xs text-destructive">{voiceMessage}</p> : null}
@@ -579,11 +582,11 @@ function buildSubmittedSearchHiddenFields(
     fields.push({ name: SEARCH_PARAM_BY_SCOPE[scope], value: submittedSearchValue });
   }
 
-  for (const option of SEARCH_SCOPE_OPTIONS) {
-    if (option.value === "ai" || option.value === scope) continue;
-    const value = getSubmittedValue(option.value, committedValues);
+  for (const otherScope of ["title", "company", "location"] as const) {
+    if (otherScope === scope) continue;
+    const value = getSubmittedValue(otherScope, committedValues);
     if (!value) continue;
-    fields.push({ name: SEARCH_PARAM_BY_SCOPE[option.value], value });
+    fields.push({ name: SEARCH_PARAM_BY_SCOPE[otherScope], value });
   }
 
   return fields;
