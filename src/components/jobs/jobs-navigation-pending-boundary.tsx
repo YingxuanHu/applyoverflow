@@ -85,7 +85,8 @@ export function JobsNavigationPendingBoundary({
           setPendingNavigation({ href: nextHref, originHref: currentUrlRef.current });
         }
       }}
-      onSubmitCapture={(event) => {
+      onSubmit={(event) => {
+        if (event.defaultPrevented) return;
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
         const method = (form.method || "get").toLowerCase();

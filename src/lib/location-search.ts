@@ -22,6 +22,12 @@ type SubdivisionTuple = [
 ];
 
 const MAX_EXPANDED_LOCATION_TERMS = 48;
+const LOCATION_SPELLINGS = [
+  ["Montreal", "Montr\u00e9al"],
+  ["Quebec", "Qu\u00e9bec"],
+  ["Quebec City", "Qu\u00e9bec City"],
+  ["St. John's", "St Johns", "Saint John's"],
+];
 export const MAX_LOCATION_SEARCH_ENTRIES = 10;
 export const MAX_LOCATION_SEARCH_LENGTH = 1000;
 
@@ -232,6 +238,8 @@ export function applicantLivesIn(area: string, contact: { city?: string; region?
 
 function normalizeLookupText(value: string) {
   return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\bu\.s\.a?\b/g, " usa ")
     .replace(/[^a-z0-9]+/g, " ")
@@ -297,6 +305,31 @@ export function appendLocationSearch(current: string, draft: string) {
   return { value, error };
 }
 
+export type LocationSearchOption = { value: string; label: string; kind: string };
+
+/** Suggestions reuse the query dictionary, so selecting a label has the same meaning as typing it. */
+export function locationSearchOptions(query: string): LocationSearchOption[] {
+  const options = [
+    ...COUNTRY_ENTRIES.map((entry) => ({ value: entry.label, label: entry.label, kind: "Country", aliases: entry.aliases })),
+    ...METRO_ENTRIES.map((entry) => ({ value: entry.label, label: entry.label, kind: "Metro area", aliases: entry.aliases })),
+    ...SUBDIVISION_ENTRIES.flatMap((entry) => {
+      const code = entry.containsTerms[1].replace(", ", "");
+      return [
+        { value: entry.label, label: entry.label, kind: entry.region === "CA" ? "Province / territory" : "State / district", aliases: entry.aliases },
+        ...entry.containsTerms.slice(2).map((city) => {
+          const label = city.endsWith(`, ${code}`) ? city : `${city}, ${code}`;
+          return { value: label, label, kind: entry.region === "CA" ? "Canada" : "United States", aliases: [city] };
+        }),
+      ];
+    }),
+  ];
+  const text = normalizeLookupText(query);
+  const matches = options.filter((option) => !text || normalizeLookupText(option.label).includes(text) || option.aliases.some((alias) => normalizeLookupText(alias) === text));
+  matches.sort((a, b) => Number(normalizeLookupText(b.label) === text) - Number(normalizeLookupText(a.label) === text));
+  return matches.filter((option, index) => matches.findIndex((other) => other.value === option.value) === index).slice(0, text ? 12 : 8)
+    .map(({ value, label, kind }) => ({ value, label, kind }));
+}
+
 type LocationWhere = {
   location?: { contains: string; mode: "insensitive" } | { in: string[]; mode: "insensitive" };
   region?: LocationSearchRegion | null;
@@ -333,8 +366,8 @@ function countryPredicate(region: LocationSearchRegion): LocationWhere {
       ] }] },
       { location: { in: CROSS_BORDER_LOCATIONS, mode: "insensitive" } },
       // Unknown "Remote" is not evidence of eligibility. Only broad, explicit
-      // remote locations with no conflicting country assignment are included.
-      { AND: [{ region: null }, { workMode: "REMOTE" }, { location: { in: BROAD_REMOTE_LOCATIONS, mode: "insensitive" } }] },
+      // remote labels qualify for both countries even if ingestion assigned one.
+      { AND: [{ workMode: "REMOTE" }, { location: { in: BROAD_REMOTE_LOCATIONS, mode: "insensitive" } }] },
     ],
   };
 }
@@ -349,7 +382,8 @@ export function buildLocationSearchPredicate(value?: string | null): LocationWhe
       if (isCaliforniaCode && index === parts.length - 1 && parts.length > 2) return countryPredicate("CA");
       const expanded = expandLocationSearchTerm(isCaliforniaCode ? "California" : part);
       if (expanded.region) return countryPredicate(expanded.region);
-      const terms = expanded.containsTerms.length ? expanded.containsTerms : [part.length <= 2 ? `, ${part}` : part];
+      const terms = (expanded.containsTerms.length ? expanded.containsTerms : [part.length <= 2 ? `, ${part}` : part])
+        .flatMap((term) => LOCATION_SPELLINGS.find((spellings) => spellings.some((spelling) => normalizeLookupText(spelling) === normalizeLookupText(term))) ?? [term]);
       const clauses: LocationWhere[] = terms.map((term) => ({ location: { contains: term.replace(/[%_\\]/g, "\\$&"), mode: "insensitive" } }));
       const textWhere = clauses.length === 1 ? clauses[0]! : { OR: clauses };
       const subdivision = matchEntries(isCaliforniaCode ? "California" : part, SUBDIVISION_ENTRIES)[0];

@@ -237,14 +237,6 @@ export function inferRegion(location: string): Region | null {
     return "CA";
   }
 
-  const loweredLocation = location.toLowerCase();
-  if (US_CITY_MARKERS.some((cityMarker) => loweredLocation.includes(cityMarker))) {
-    return "US";
-  }
-  if (CA_CITY_MARKERS.some((cityMarker) => loweredLocation.includes(cityMarker))) {
-    return "CA";
-  }
-
   const parts = location
     .split(",")
     .map((segment) => segment.trim().toUpperCase())
@@ -277,6 +269,16 @@ export function inferRegion(location: string): Region | null {
   if (CA_PROVINCE_NAMES.has(trailingPart)) return "CA";
   if (US_STATE_NAMES.has(secondTrailingPart)) return "US";
   if (CA_PROVINCE_NAMES.has(secondTrailingPart)) return "CA";
+
+  // A named state/province outranks an ambiguous city (Vancouver, Washington;
+  // Cambridge, Ontario). City-only guesses are the last geographic fallback.
+  const loweredLocation = location.toLowerCase();
+  if (US_CITY_MARKERS.some((cityMarker) => loweredLocation.includes(cityMarker))) {
+    return "US";
+  }
+  if (CA_CITY_MARKERS.some((cityMarker) => loweredLocation.includes(cityMarker))) {
+    return "CA";
+  }
 
   // Handle remote, worldwide, and work-from-home locations.
   // Pure "Remote" and similar strings are treated as US-eligible: the structured

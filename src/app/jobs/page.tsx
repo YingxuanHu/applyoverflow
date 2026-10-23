@@ -210,7 +210,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           <div className="mt-3 space-y-3">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-col gap-3">
-                <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex min-w-0 flex-col gap-2.5 xl:flex-row xl:items-center xl:gap-3">
                   <JobsSearchForm
                     filterFormId={JOBS_FILTER_FORM_ID}
                     hiddenFields={searchFormHiddenFields}
