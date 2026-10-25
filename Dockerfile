@@ -20,8 +20,9 @@ ENV DATABASE_URL="postgresql://autoapplication:placeholder@localhost:5432/autoap
 ENV BETTER_AUTH_SECRET="build-time-placeholder"
 ENV BETTER_AUTH_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
-# Keep compilation inside the volume-backed release builder's memory budget.
-RUN NODE_OPTIONS=--max-old-space-size=1280 npm run build -- --webpack
+# Leave native/process headroom inside the 4 GiB release builder while allowing
+# the full application and integration-test TypeScript graph to be checked.
+RUN NODE_OPTIONS=--max-old-space-size=2048 npm run build -- --webpack
 RUN node --import tsx scripts/build-pdf-smoke-fixtures.ts /app/pdf-smoke
 
 # Keep TeX out of ingestion workers and build dependencies.
