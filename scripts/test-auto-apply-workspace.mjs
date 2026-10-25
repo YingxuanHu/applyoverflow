@@ -70,11 +70,23 @@ try {
   const send = (action, extra = {}, page = workspace) => page.evaluate(({ id, action, extra }) => new Promise(resolve => chrome.runtime.sendMessage(id, { token: 'same-account-capability', action, ...extra }, result => resolve(result || { error: chrome.runtime.lastError?.message }))), { id, action, extra });
   assert.equal((await send('ping')).protocol, 1);
   assert.match((await send('open', { token: 'wrong-account' })).error, /account|expired/i);
-  const next = context.waitForEvent('page');
   assert.equal((await send('open')).opened, true);
-  const application = await next;
-  // Attach Playwright's route before navigating the extension-created target.
+  const targetTabId = await worker.evaluate(async () =>
+    (await chrome.storage.session.get('workspace:fixture-application'))['workspace:fixture-application']?.tabId);
+  assert.ok(Number.isInteger(targetTabId), 'open binds a real employer tab');
+  // Installation can open a setup tab concurrently. Identify the bound target,
+  // then navigate after Playwright has attached routing to that exact page.
+  const marker = 'about:blank#workspace-fixture-target';
+  await worker.evaluate(({ targetTabId, marker }) => chrome.tabs.update(targetTabId, { url: marker }), { targetTabId, marker });
+  let application;
+  const attachDeadline = Date.now() + 10_000;
+  while (!application && Date.now() < attachDeadline) {
+    application = context.pages().find(page => page.url() === marker);
+    if (!application) await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.ok(application, 'Playwright attached to the workspace-bound employer tab');
   await application.goto(employer);
+  await application.getByRole('heading', { name: 'Software Engineer Application' }).waitFor();
   assert.equal(plans, 0, 'opening is not consent to export profile');
   const otherWorkspace = await context.newPage();
   await otherWorkspace.goto(`${origin}/applications/auto-apply`);
