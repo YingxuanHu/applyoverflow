@@ -276,6 +276,13 @@ const overnightAccelerationApps = overnightAccelerationEnabled
 
 const maintenanceApps = [
   buildMaintenanceShellApp(
+    "maintenance-storage-deletions",
+    "-lc 'sleep 120; while true; do timeout --kill-after=10s 180s node_modules/.bin/tsx -r dotenv/config scripts/retry-storage-deletions.ts || echo storage-deletion-retry-pass-failed >&2; sleep 900; done'",
+    "./logs/maintenance-storage-deletions-out.log",
+    "./logs/maintenance-storage-deletions-err.log",
+    { DATABASE_POOL_MAX_MAINTENANCE: "1" }
+  ),
+  buildMaintenanceShellApp(
     "maintenance-saved-job-changes",
     "-lc 'sleep 120; while true; do timeout 180s node_modules/.bin/tsx -r dotenv/config scripts/refresh-saved-job-changes.ts || true; sleep 300; done'",
     "./logs/maintenance-saved-job-changes-out.log",
@@ -998,16 +1005,6 @@ module.exports = {
       cron_restart: "*/15 * * * *",
       autorestart: false,
       max_memory_restart: "384M",
-      env: { ...process.env, DATABASE_PROCESS_ROLE: "maintenance" },
-    }, ["maintenance"]),
-    withWorkerGroups({
-      name: "maintenance-storage-deletions",
-      script: "node_modules/.bin/tsx",
-      args: "-r dotenv/config scripts/retry-storage-deletions.ts",
-      cwd: __dirname,
-      cron_restart: "*/15 * * * *",
-      autorestart: false,
-      max_memory_restart: "256M",
       env: { ...process.env, DATABASE_PROCESS_ROLE: "maintenance" },
     }, ["maintenance"]),
     ...steadyWorkerApps,
