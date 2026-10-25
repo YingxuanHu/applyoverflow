@@ -101,7 +101,7 @@ export async function parseJsonBodyWithLimit<T = unknown>(
   }
 }
 
-async function readRequestTextWithLimit(
+export async function readRequestTextWithLimit(
   request: Request,
   maxBytes: number,
   label: string,

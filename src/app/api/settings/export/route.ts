@@ -42,6 +42,7 @@ export async function GET(request: Request) {
           name: true,
           emailVerified: true,
           emailNotificationsEnabled: true,
+          productUpdatesEnabled: true,
           image: true,
           createdAt: true,
           updatedAt: true,

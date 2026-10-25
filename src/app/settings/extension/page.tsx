@@ -51,6 +51,7 @@ export default async function ExtensionSettingsPage() {
         </div>
         <Button render={<Link href="/extension/setup" />}>Check this browser&apos;s connection</Button>
         <p className="text-sm text-muted-foreground">Connect your saved profile, then open ApplyOverflow from Chrome&apos;s toolbar on an employer application. Resume sharing and submission approval are separate choices.</p>
+        <Link href="/extension/guide" className="block text-sm text-primary underline underline-offset-4">New to autofill? Follow the five-step screenshot guide</Link>
         <details className="text-sm">
           <summary className="cursor-pointer font-medium">Developer and testing preview ({release.version})</summary>
           <a className="mt-3 inline-block underline" href="/downloads/applyoverflow-assistant.zip" download>Download preview ZIP</a>

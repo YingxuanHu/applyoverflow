@@ -364,6 +364,7 @@ model User {
   name                      String
   emailVerified             Boolean  @default(false)
   emailNotificationsEnabled Boolean  @default(true)
+  productUpdatesEnabled     Boolean  @default(false)
   status                    UserStatus @default(ACTIVE)
   lastLoginAt               DateTime?
   image                     String?
@@ -380,6 +381,7 @@ model User {
   reminderLogs        ReminderLog[]
   extensionConnections ExtensionConnection[]
   onboardingEvents OnboardingEvent[]
+  announcementDeliveries AnnouncementDelivery[]
 }
 
 model OnboardingEvent {
@@ -1655,6 +1657,7 @@ model Notification {
   type                 NotificationType
   title                String
   message              String
+  actionPath           String?
   readAt               DateTime?
   createdAt            DateTime         @default(now())
 
@@ -1664,6 +1667,27 @@ model Notification {
   @@index([userId, createdAt])
   @@index([trackedApplicationId])
   @@index([readAt])
+}
+
+enum AnnouncementEmailStatus {
+  NOT_SENT
+  SENDING
+  ACCEPTED
+  UNKNOWN
+}
+
+// Independent of Notification so dismissing an announcement cannot resend it.
+model AnnouncementDelivery {
+  id String @id @default(cuid())
+  userId String
+  campaignKey String
+  notifiedAt DateTime?
+  emailStatus AnnouncementEmailStatus @default(NOT_SENT)
+  attemptedAt DateTime?
+  acceptedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, campaignKey])
+  @@index([campaignKey, emailStatus])
 }
 
 model ReminderLog {

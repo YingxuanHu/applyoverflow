@@ -266,8 +266,10 @@ export function PreferencesForm({
 
 export function NotificationsForm({
   defaultEnabled,
+  productUpdatesEnabled,
 }: {
   defaultEnabled: boolean;
+  productUpdatesEnabled: boolean;
 }) {
   const [state, formAction] = useActionState(
     saveNotificationSettings,
@@ -290,6 +292,14 @@ export function NotificationsForm({
             Send reminder emails for upcoming and overdue tracked application
             deadlines.
           </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-card px-4 py-3 text-sm text-foreground">
+        <input className="mt-1 h-4 w-4 rounded border border-input" type="checkbox"
+          name="productUpdatesEnabled" defaultChecked={productUpdatesEnabled} />
+        <span className="min-w-0">
+          <span className="font-medium">Email product updates</span>
+          <span className="mt-0.5 block text-muted-foreground">Occasional feature announcements and setup guides from ApplyOverflow. Unsubscribe at any time.</span>
         </span>
       </label>
       <div>

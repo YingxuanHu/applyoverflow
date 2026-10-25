@@ -734,6 +734,7 @@ export async function getNotificationCenterData() {
         type: true,
         title: true,
         message: true,
+        actionPath: true,
         createdAt: true,
         readAt: true,
         trackedApplication: {
@@ -766,6 +767,7 @@ export async function getTrackerSettingsData() {
       select: {
         email: true,
         emailNotificationsEnabled: true,
+        productUpdatesEnabled: true,
         emailVerified: true,
         name: true,
         image: true,
@@ -1863,6 +1865,7 @@ function cleanOptionalUrl(value: string | null | undefined): string | null {
 
 export async function saveTrackerSettings(input: {
   emailNotificationsEnabled?: boolean;
+  productUpdatesEnabled?: boolean;
   name?: string | null;
   preferredWorkMode?: WorkModeInput | null;
   experienceLevel?: ExperienceLevelInput | null;
@@ -1882,6 +1885,9 @@ export async function saveTrackerSettings(input: {
   const userData: Prisma.UserUpdateInput = {};
   if (typeof input.emailNotificationsEnabled === "boolean") {
     userData.emailNotificationsEnabled = input.emailNotificationsEnabled;
+  }
+  if (typeof input.productUpdatesEnabled === "boolean") {
+    userData.productUpdatesEnabled = input.productUpdatesEnabled;
   }
   if (typeof input.name === "string") {
     const trimmed = input.name.trim();

@@ -11,6 +11,7 @@ import {
   markNotificationRead,
 } from "@/lib/queries/tracker";
 import { revalidateNotificationCenterViews } from "@/lib/revalidation";
+import { announcementPath } from "@/lib/announcements/content";
 
 function getNotificationHref(notification: Awaited<ReturnType<typeof getNotificationCenterData>>["notifications"][number]) {
   if (notification.trackedApplicationId) {
@@ -21,7 +22,7 @@ function getNotificationHref(notification: Awaited<ReturnType<typeof getNotifica
     return `/jobs/${notification.trackedApplication.canonicalJobId}`;
   }
 
-  return null;
+  return announcementPath(notification.actionPath);
 }
 
 function getNotificationCategory(
@@ -29,7 +30,7 @@ function getNotificationCategory(
 ) {
   if (type === "DEADLINE_REMINDER") return "Deadline";
   if (type === "APPLICATION_STATUS_CHANGED") return "Status update";
-  return "Reminder";
+  return "System update";
 }
 
 export default async function NotificationsPage() {
@@ -81,7 +82,7 @@ export default async function NotificationsPage() {
         <div>
           <h1 className="page-title">Notifications</h1>
           <p className="page-description">
-            Deadlines, scheduled reminders, and automated application updates.
+            Deadlines, application activity, and product updates.
           </p>
         </div>
       </div>
