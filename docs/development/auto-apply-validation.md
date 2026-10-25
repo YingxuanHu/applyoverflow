@@ -49,6 +49,8 @@ Never run this recorder on private production accounts or publish private traces
   failure-finalization hit Prisma transaction acquisition timeouts. Completion
   now uses one fenced atomic update, bounded transient retries, and per-claim
   error containment. Match transactions have explicit acquisition/runtime budgets.
+  Candidate searches now start sequentially instead of overflowing the worker's
+  two-connection pool; queued searches never outlive a failed channel.
   Local database mechanism tests cover concurrent enqueue, superseded claims,
   expired leases, retries and empty results; retry unit tests cover pool failures.
 - Auto Apply filters the bounded 300-recommendation pool before pagination.
@@ -69,7 +71,8 @@ Never run this recorder on private production accounts or publish private traces
   URL after client navigation from Jobs. The bridge now reads the live location
   in the exact sender document, retaining origin/top-frame/route checks. Tests
   also reject navigation away, replaced documents and hostile senders.
-- All 1,256 unit tests passed. These are controlled regression measurements, not
+- The unit suite covers matching backpressure as well as application behavior.
+  These are controlled regression measurements, not
   evidence of universal employer compatibility or unattended application success.
   No real employer submission or private resume upload was performed.
 

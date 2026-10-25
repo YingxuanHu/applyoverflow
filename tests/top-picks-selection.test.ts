@@ -1,12 +1,34 @@
 import { describe, it } from "node:test";
-import { deepStrictEqual, strictEqual, ok } from "node:assert";
-import { mergeCandidateChannels, selectTopPicks } from "../src/lib/top-picks/selection";
+import { deepStrictEqual, strictEqual, ok, rejects } from "node:assert";
+import { collectCandidateChannels, mergeCandidateChannels, selectTopPicks } from "../src/lib/top-picks/selection";
 
 const pick = (id: string, company = "Company A", score = 90, title = `Engineer ${id}`) => ({
   score, job: { id, company, title, location: "Toronto, ON", postedAt: new Date("2026-09-01") },
 });
 
 describe("top picks candidate selection", () => {
+  it("starts channels lazily and preserves order without exhausting a small pool", async () => {
+    let running = 0, peak = 0;
+    const batches = await collectCandidateChannels(["role", "skills", "location"].map(channel => async () => {
+      peak = Math.max(peak, ++running);
+      await new Promise(resolve => setImmediate(resolve));
+      running--;
+      return { channel, ids: [channel] };
+    }));
+    strictEqual(peak, 1);
+    deepStrictEqual(batches.map(batch => batch.channel), ["role", "skills", "location"]);
+    deepStrictEqual(await collectCandidateChannels([]), []);
+  });
+
+  it("does not start queued searches after a failed channel", async () => {
+    let laterStarted = false;
+    await rejects(collectCandidateChannels([
+      async () => { throw new Error("Database unavailable"); },
+      async () => { laterStarted = true; return { channel: "later", ids: [] }; },
+    ]), /Database unavailable/);
+    strictEqual(laterStarted, false);
+  });
+
   it("reserves capacity for every channel and retains overlapping provenance", () => {
     const result = mergeCandidateChannels([
       { channel: "role", ids: ["a", "b", "c", "d"] },
