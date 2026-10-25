@@ -1,8 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, stat, unlink } from "node:fs/promises";
+import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { randomUUID } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
+import { assertDigest, digestStream, parseManifest, readRemoteManifest, verifyRemoteBackup, type BackupManifest } from "./db-restore-storage";
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
@@ -54,7 +57,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    const [key, value] = rawArg.replace(/^--/, "").split("=");
+    const separator = rawArg.indexOf("=");
+    const key = rawArg.slice(0, separator).replace(/^--/, "");
+    const value = rawArg.slice(separator + 1);
     if (key === "label" && value) {
       parsed.label = value;
       continue;
@@ -62,7 +67,9 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     if (key === "upload-file" && value) {
       parsed.uploadFile = value;
+      continue;
     }
+    throw new Error(`Unknown argument: ${rawArg}`);
   }
 
   return parsed;
@@ -141,27 +148,15 @@ function runCommand(command: string, args: string[]) {
   });
 }
 
-function runCommandToFile(command: string, args: string[], outputFile: string) {
-  return new Promise<void>((resolve, reject) => {
-    const output = createWriteStream(outputFile);
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "inherit"],
-      env: process.env,
-    });
-
-    child.stdout.pipe(output);
+async function runCommandToFile(command: string, args: string[], outputFile: string) {
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"], env: process.env });
+  const exited = new Promise<void>((resolve, reject) => {
     child.on("error", reject);
-    output.on("error", reject);
-    child.on("exit", (code) => {
-      output.end();
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${command} exited with code ${code ?? "unknown"}`));
-    });
+    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${command} exited with code ${code}`)));
   });
+  try {
+    await Promise.all([exited, pipeline(child.stdout, createWriteStream(outputFile, { flags: "wx", mode: 0o600 }))]);
+  } catch (error) { child.kill("SIGTERM"); throw error; }
 }
 
 async function dumpDatabase(input: { databaseUrl: string; outputFile: string }) {
@@ -343,7 +338,7 @@ async function pruneOldBackups(input: {
   for (let i = 0; i < expiredKeys.length; i += 1000) {
     const batch = expiredKeys.slice(i, i + 1000);
     if (batch.length === 0) continue;
-    await client.send(
+    const deleted = await client.send(
       new DeleteObjectsCommand({
         Bucket: input.config.bucket,
         Delete: {
@@ -352,6 +347,7 @@ async function pruneOldBackups(input: {
         },
       })
     );
+    if (deleted.Errors?.length) throw new Error("Storage retention deletion failed for one or more objects.");
   }
 
   if (expiredKeys.length > 0) {
@@ -360,6 +356,7 @@ async function pruneOldBackups(input: {
 }
 
 async function main() {
+  process.umask(0o077);
   const args = parseArgs(process.argv.slice(2));
   const databaseUrl =
     process.env.DATABASE_URL_FOR_BACKUP?.trim() || requireEnv("DATABASE_URL");
@@ -374,6 +371,7 @@ async function main() {
   const sourceFile =
     args.uploadFile ??
     path.join(backupDir, `${label}-${dbName}-${stamp}.dump`);
+  const dumpStartedAt = new Date().toISOString();
 
   if (!args.uploadFile) {
     console.log(`Dumping ${dbName} to ${sourceFile}`);
@@ -383,7 +381,9 @@ async function main() {
     console.log(`Uploading existing dump ${sourceFile}`);
   }
 
-  const sizeBytes = (await stat(sourceFile)).size;
+  const fileStat = await stat(sourceFile);
+  const { sizeBytes, sha256 } = await digestStream(createReadStream(sourceFile));
+  if (sizeBytes === 0 || sizeBytes !== fileStat.size) throw new Error("Backup dump is empty or changed while hashing.");
   console.log(`Backup file ready (${Math.ceil(sizeBytes / 1024 / 1024)} MB).`);
 
   if (!args.localOnly) {
@@ -391,11 +391,34 @@ async function main() {
     const prefix = (
       process.env.DB_BACKUP_STORAGE_PREFIX?.trim() || "database-backups"
     ).replace(/^\/+|\/+$/g, "");
-    const objectKey = `${prefix}/${dbName}/${label}-${dbName}-${stamp}.dump`;
+    const objectKey = `${prefix}/${dbName}/${label}-${dbName}-${stamp}-${randomUUID().slice(0, 8)}.dump`;
+    const manifest: BackupManifest = parseManifest({
+      schemaVersion: 1, bucket: config.bucket, key: objectKey, database: dbName,
+      sizeBytes, sha256, createdAt: args.uploadFile ? fileStat.mtime.toISOString() : dumpStartedAt,
+    });
 
     console.log(`Uploading backup to ${config.bucket}/${objectKey}`);
     await uploadBackup({ filePath: sourceFile, key: objectKey, config });
-    console.log("Upload complete.");
+    const client = createStorageClient(config);
+    try {
+      console.log("Reading uploaded object back to verify size and SHA256 (streamed, no second local copy).");
+      const verification = await verifyRemoteBackup(client, manifest);
+      manifest.remoteVerifiedAt = verification.verifiedAt;
+      manifest.versionId = verification.versionId;
+      await client.send(new PutObjectCommand({
+        Bucket: config.bucket, Key: `${objectKey}.manifest.json`,
+        Body: JSON.stringify(manifest, null, 2) + "\n", ContentType: "application/json", IfNoneMatch: "*",
+      }));
+      const remoteManifest = await readRemoteManifest(client, config.bucket, objectKey);
+      assertDigest(remoteManifest, manifest);
+      if (JSON.stringify(remoteManifest) !== JSON.stringify(manifest)) throw new Error("Uploaded manifest read-back differs.");
+      await writeFile(`${sourceFile}.manifest.json`, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      const receipt = path.join(args.uploadFile ? path.dirname(sourceFile) : backupDir, "latest-verified-backup.json");
+      const temporary = `${receipt}.${randomUUID()}.tmp`;
+      await writeFile(temporary, JSON.stringify({ status: "verified", manifest }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      await rename(temporary, receipt);
+      console.log(JSON.stringify({ status: "verified", manifest }));
+    } finally { client.destroy(); }
 
     if (!args.noRetention) {
       const retentionDays = Number(process.env.DB_BACKUP_RETENTION_DAYS ?? "14");
@@ -407,7 +430,7 @@ async function main() {
     }
   }
 
-  if (process.env.DB_BACKUP_KEEP_LOCAL !== "1" && !args.uploadFile) {
+  if (!args.localOnly && process.env.DB_BACKUP_KEEP_LOCAL !== "1" && !args.uploadFile) {
     await unlink(sourceFile).catch(() => undefined);
   }
 }
