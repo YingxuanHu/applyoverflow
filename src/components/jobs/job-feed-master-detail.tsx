@@ -1,5 +1,7 @@
 "use client";
 
+import { QueueApplicationButton } from "@/components/jobs/queue-application-button";
+
 import { ReportJobDetails } from "@/components/jobs/report-job-details";
 
 import Link from "next/link";
@@ -382,6 +384,7 @@ function JobFeedDetailPanel({
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             ) : null}
+            {!hasApplied && job.eligibility?.submissionCategory !== "MANUAL_ONLY" && job.applyUrl.startsWith("https:") && <QueueApplicationButton jobId={job.id} />}
             <MarkAppliedButton
               jobId={job.id}
               applied={hasApplied}

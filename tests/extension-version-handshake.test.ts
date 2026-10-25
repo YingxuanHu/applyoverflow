@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { recoveryForError } from "../extensions/chrome/recovery.mjs";
 import { applicationContext, detectionOrigins, sameApplication } from "../extensions/chrome/sites.mjs";
-import { createWorkspaceBridge, allowedWorkspaceSender } from "../extensions/chrome/workspace-bridge.mjs";
+import { createWorkspaceBridge, allowedWorkspaceSender, resolveAppPageSender } from "../extensions/chrome/workspace-bridge.mjs";
 import { createSetupBridge, allowedSetupSender } from "../extensions/chrome/setup-bridge.mjs";
 
 type Message = { type: string; buildId?: string };
@@ -36,7 +36,7 @@ function worker() {
   runInNewContext(source, {
     chrome, APP_ORIGIN: "https://applyoverflow.com", BUILD_ID: "current-build",
     detectionOrigins, applicationContext, sameApplication, fetch: forbidden, URL,
-    recoveryForError, createWorkspaceBridge, allowedWorkspaceSender,
+    recoveryForError, createWorkspaceBridge, allowedWorkspaceSender, resolveAppPageSender,
     createSetupBridge, allowedSetupSender,
   });
   assert.ok(listener);

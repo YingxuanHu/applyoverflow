@@ -78,6 +78,7 @@ async function main() {
     assert.equal(retry?.attemptCount, 1);
     assert.equal(retry?.notBeforeAt.toISOString(), retryAt.toISOString());
     assert.equal(await finish(recovered, "SUCCESS"), null);
+    assert.equal(retry?.lastError, "fixture transient error");
     console.log("PASS: concurrent enqueue/claim, coalesced follow-up, publication fencing, stale completion, lease recovery, bounded retries, empty-result TTL");
   } finally {
     await prisma.userProfile.deleteMany({ where: { id: { in: users } } });

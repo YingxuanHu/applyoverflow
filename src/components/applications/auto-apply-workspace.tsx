@@ -9,6 +9,8 @@ import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { MatchRequirementsForm } from "@/components/profile/match-requirements-form";
 import type { getAutoApplyWorkspace } from "@/lib/queries/auto-apply";
 import { cn } from "@/lib/utils";
+import { checkWorkspaceConnection, type WorkspaceConnection } from "@/lib/applications/workspace-connection";
+import { EXTENSION_STORE_URL } from "@/lib/extension-setup";
 
 type WorkspaceData = Awaited<ReturnType<typeof getAutoApplyWorkspace>>;
 type ReviewField = { id: string; label: string; value: string; type: string; required: boolean; readOnly: boolean; section: string; maxLength: number; options: { value: string; label: string; disabled: boolean }[] };
@@ -21,13 +23,15 @@ function sendToExtension(id: string, message: Record<string, unknown>): Promise<
   const runtime = (window as Window & { chrome?: { runtime?: BrowserRuntime } }).chrome?.runtime;
   if (!runtime?.sendMessage) return Promise.reject(new Error("Open this workspace in Chrome with the updated ApplyOverflow extension installed."));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message.action === "submit" ? "Submission status is unknown. Check the employer confirmation; do not submit again." : "The browser action timed out. Check the employer tab before retrying.")), message.action === "ping" ? 2500 : 240_000);
-    runtime.sendMessage(id, message, result => {
-      clearTimeout(timer);
-      if (runtime.lastError || !result) reject(new Error("The extension is unavailable. Update or reload it, reconnect in Settings, then retry."));
-      else if (result.error) reject(new Error(result.error));
-      else resolve(result);
-    });
+    const timer = setTimeout(() => reject(new Error(message.action === "submit" ? "Submission status is unknown. Check the employer confirmation; do not submit again." : "The browser action timed out. Check the employer tab before retrying.")), message.action === "ping" ? 2500 : message.action === "fill" || message.action === "submit" ? 240_000 : 30_000);
+    try {
+      runtime.sendMessage(id, message, result => {
+        clearTimeout(timer);
+        if (runtime.lastError || !result) reject(new Error("The extension is unavailable. Update or reload it, reconnect in Settings, then retry."));
+        else if (result.error) reject(new Error(result.error));
+        else resolve(result);
+      });
+    } catch (cause) { clearTimeout(timer); reject(cause); }
   });
 }
 async function request(action: string, id: string) {
@@ -37,12 +41,13 @@ async function request(action: string, id: string) {
   return data;
 }
 
-export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
+export function AutoApplyWorkspace({ initial, initialSelected = "" }: { initial: WorkspaceData; initialSelected?: string }) {
   const [data, setData] = useState(initial);
-  const [view, setView] = useState<"matches" | "queue">("matches");
-  const [selected, setSelected] = useState("");
+  const [view, setView] = useState<"matches" | "queue">(initialSelected ? "queue" : "matches");
+  const [selected, setSelected] = useState(initialSelected);
   const [extension, setExtension] = useState("");
-  const [connection, setConnection] = useState("Checking extension...");
+  const [connection, setConnection] = useState<WorkspaceConnection>({ state: "checking", id: "", message: "Checking extension..." });
+  const [connectionCheck, setConnectionCheck] = useState(0);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -53,6 +58,8 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
   const [confirm, setConfirm] = useState<"fill" | "submit" | "remove" | null>(null);
   const [outcome, setOutcome] = useState("");
   const [opened, setOpened] = useState(false);
+  const [refreshPaused, setRefreshPaused] = useState(() => Boolean(initial.refreshing && initial.refreshStartedAt && Date.now() - Date.parse(initial.refreshStartedAt) > 120_000));
+  const [refreshError, setRefreshError] = useState("");
   const [dirtyFields, setDirtyFields] = useState<string[]>([]);
   const dirtyChanged = useCallback((id: string, dirty: boolean) => {
     setDirtyFields(current => dirty ? current.includes(id) ? current : [...current, id] : current.filter(item => item !== id));
@@ -63,6 +70,7 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
   const initialRefresh = useRef<Promise<void> | null>(null);
   const refreshPolls = useRef(0);
   const active = data.queued.find(item => item.id === selected);
+  const extensionKey = data.extensionIds.join(",");
 
   useEffect(() => {
     if (!data.profileReady || !data.stale || data.refreshing) return;
@@ -80,18 +88,22 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
   }, [data.profileReady, data.stale, data.refreshing, data.page]);
 
   useEffect(() => {
-    if (!data.refreshing || busy || refreshPolls.current >= 20) return;
+    if (!data.refreshing || busy || refreshPaused) return;
     let live = true;
     const timer = setTimeout(() => {
       refreshPolls.current++;
       void fetch(`/api/applications/auto-apply?page=${data.page}`, { cache: "no-store" }).then(async response => {
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(response.status === 401 ? "Sign in again to check match progress." : "Could not check match progress. Retry to reconnect.");
         const next = await response.json();
-        if (live) setData(next);
-      }).catch(() => {});
+        if (live) {
+          setData(next); setRefreshError("");
+          if (!next.refreshing) { refreshPolls.current = 0; setMessage(""); }
+          else if (refreshPolls.current >= 20) setRefreshPaused(true);
+        }
+      }).catch(cause => { if (live) { setRefreshPaused(true); setRefreshError(cause.message || "Could not check match progress."); } });
     }, 6000);
     return () => { live = false; clearTimeout(timer); };
-  }, [data, busy]);
+  }, [data, busy, refreshPaused]);
 
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); };
@@ -112,17 +124,12 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
 
   useEffect(() => {
     let live = true;
-    void (async () => {
-      for (const id of data.extensionIds) {
-        try {
-          const reply = await sendToExtension(id, { action: "ping" });
-          if (reply.protocol === 1 && live) { setExtension(id); setConnection(`Extension ${reply.version} connected`); return; }
-        } catch { /* Check other connections on this account. */ }
-      }
-      if (live) { setExtension(""); setConnection("Updated Chrome extension required"); }
-    })();
+    const runtime = (window as Window & { chrome?: { runtime?: BrowserRuntime } }).chrome?.runtime;
+    void checkWorkspaceConnection(!!runtime?.sendMessage, extensionKey.split(",").filter(Boolean), id => sendToExtension(id, { action: "ping" })).then(result => {
+      if (live) { setExtension(result.id); setConnection(result); }
+    });
     return () => { live = false; };
-  }, [data.extensionIds]);
+  }, [extensionKey, connectionCheck]);
 
   useEffect(() => {
     if (!approval?.ready) return;
@@ -134,6 +141,10 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
     const response = await fetch(`/api/applications/auto-apply?page=${page}`, { cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 401 ? "Sign in to ApplyOverflow to continue." : "Could not refresh the queue. Your current review is unchanged.");
     setData(await response.json());
+  }
+  async function recheck() {
+    await reload();
+    setConnectionCheck(value => value + 1);
   }
   async function run(label: string, task: () => Promise<void>) {
     if (running.current) return;
@@ -148,7 +159,10 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
     return true;
   }
   function changeView(next: "matches" | "queue") {
-    if (next !== view && discardEdits()) setView(next);
+    if (next !== view && discardEdits()) {
+      setView(next);
+      if (next === "queue" && !selected && data.queued[0]) select(data.queued[0].id);
+    }
   }
   function select(id: string) {
     if (!discardEdits()) return;
@@ -172,6 +186,32 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
     await run("Adding to queue", async () => { const result = await request("queue", jobId); await reload(); select(result.id); setView("queue"); setMessage("Added to review queue. Nothing submitted."); });
   }
 
+  async function prepare() {
+    setApproval(null); setReviewed(false);
+    if (!opened || !handoff.current || handoff.current.expires <= Date.now()) {
+      setBusy("Opening employer form");
+      await command("open"); setOpened(true);
+    }
+    setBusy("Waiting for application fields");
+    // Only read operations are retried while an employer page hydrates. A fill
+    // or submission with an uncertain result must never be retried automatically.
+    let ready = false;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        const result = await command("snapshot");
+        if (result.review?.fields.length) { ready = true; break; }
+      } catch (cause) {
+        if (!(cause instanceof Error) || !/page changed|no .*(?:form|fields)|single application form was not found|open .*application form/i.test(cause.message)) throw cause;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    if (!ready) throw new Error("No application fields are available yet. Open the employer form to sign in or select Apply, then prepare again.");
+    setBusy("Filling saved details, work history and answers");
+    await command("fill");
+    setBusy("Checking required fields and submission");
+    await command("check");
+  }
+
   return <section className="min-w-0 space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Auto Apply views">
@@ -181,23 +221,29 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
       </div>
       <div className="flex gap-2">
         <Button type="button" variant="ghost" aria-label="Matching settings" title="Matching settings" onClick={() => setSettings(!settings)}><Settings2 className="size-4" /></Button>
-        <Button type="button" variant="outline" disabled={!!busy} onClick={() => void run("Refreshing matches", async () => {
+        <Button type="button" variant="outline" disabled={!!busy || data.refreshing && !refreshPaused} onClick={() => void run("Refreshing matches", async () => {
+          if (data.refreshing) { refreshPolls.current = 0; setRefreshPaused(false); setRefreshError(""); await reload(); return; }
           const response = await fetch("/api/jobs/top-picks/refresh", { method: "POST" });
           if (!response.ok) throw new Error("Could not request new matches. Try again shortly.");
-          refreshPolls.current = 0;
-          await reload(); setMessage("Match refresh requested. Your prepared applications are unchanged.");
-        })}><RefreshCw className="size-4" />Refresh matches</Button>
+          refreshPolls.current = 0; setRefreshPaused(false); setRefreshError("");
+          await reload();
+        })}><RefreshCw className="size-4" />{data.refreshing ? refreshPaused ? "Check match progress" : "Finding matches" : "Refresh matches"}</Button>
       </div>
     </div>
     {settings && <MatchRequirementsForm defaultOpen initial={data.requirements} homeLocation={data.homeLocation} onSaved={() => { refreshPolls.current = 0; return reload(); }} />}
     <div className="flex flex-wrap items-center justify-between gap-2 border-y py-3 text-sm">
-      <span className="text-muted-foreground">{connection}</span>
-      <div className="flex flex-wrap gap-3 whitespace-nowrap"><Link href="/profile#application-profile" className="text-primary">Profile & resume</Link><Link href="/settings/extension" className="text-primary">Extension settings</Link><button type="button" disabled={!!busy} className="text-primary" onClick={() => void run("Checking connection", () => reload())}>Recheck</button></div>
+      <span className="text-muted-foreground">{connection.message}</span>
+      <div className="flex flex-wrap gap-3"><Link href="/profile#application-profile" className="text-primary">Profile & resume</Link>
+        {connection.state !== "ready" && <Link href="/extension/guide" className="text-primary">Set up autofill</Link>}
+        {connection.state === "outdated" && <a href={EXTENSION_STORE_URL} target="_blank" rel="noreferrer" className="text-primary">Chrome Web Store</a>}
+        <Link href="/settings/extension" className="text-primary">Extension settings</Link><button type="button" disabled={!!busy} className="text-primary" onClick={() => void run("Checking connection", recheck)}>Recheck</button></div>
     </div>
     <div aria-live="polite" aria-atomic="true" className="min-h-6 text-sm">
-      {busy ? <span className="flex items-center gap-2"><LoadingSpinner className="size-4" />{busy}...</span> : error ? <p role="alert" className="text-destructive">{error}</p> : message || (data.refreshing ? "Finding new matches. Existing applications remain available." : "")}
+      {busy ? <span className="flex items-center gap-2"><LoadingSpinner className="size-4" />{busy}...</span> : error ? <p role="alert" className="text-destructive">{error}</p> : message}
     </div>
     {view === "matches" ? <>
+      {data.refreshing && <p role="status" className="text-sm text-muted-foreground">{refreshError || (refreshPaused ? "Matching is taking longer than expected. Check progress or continue a queued application." : "Finding new matches. Your queued applications remain available.")}</p>}
+      {!data.refreshing && data.refreshStatus === "FAILED" && <p role="alert" className="text-sm text-destructive">Matching failed. Retry Refresh matches; your queued applications are unchanged.</p>}
       {!data.profileReady && <div className="border-l-2 border-primary py-2 pl-4 text-sm"><p>{data.profileMessage}</p><Link className="mt-2 inline-block text-primary" href="/profile">Complete profile <ArrowRight className="inline size-3" /></Link></div>}
       <ul className="divide-y border-y">
         {data.matches.map(job => <li key={job.jobId} className="grid min-w-0 gap-3 py-5 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -211,15 +257,23 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
           </div>
         </li>)}
       </ul>
-      {!data.matches.length && <p className="py-8 text-sm text-muted-foreground">No new matches on this page. Refresh matches, adjust your requirements, or continue a queued application.</p>}
-      <div className="flex items-center justify-between gap-3"><Button variant="outline" disabled={!!busy || data.page <= 1} onClick={() => void run("Loading matches", () => reload(data.page - 1))}><ChevronLeft className="size-4" />Previous</Button><span className="text-sm text-muted-foreground">Page {data.page}</span><Button variant="outline" disabled={!!busy || !data.hasNextPage} onClick={() => void run("Loading matches", () => reload(data.page + 1))}>Next<ChevronRight className="size-4" /></Button></div>
+      {!data.matches.length && <div className="space-y-3 py-6 text-sm">
+        <p className="text-muted-foreground">{!data.profileReady ? data.profileMessage : data.refreshing ? "Matches will appear when matching finishes." : data.excludedByRequirements ? `${data.excludedByRequirements} recommendations do not meet your current requirements.` : "No new matching jobs are available right now."}</p>
+        <div className="flex flex-wrap gap-2">
+          {data.queued.length > 0 && <Button disabled={!!busy} onClick={() => changeView("queue")}>Continue queued applications<ArrowRight className="size-4" /></Button>}
+          <Button variant="outline" onClick={() => setSettings(true)}><Settings2 className="size-4" />Review requirements</Button>
+          <Button render={<Link href="/jobs" />} variant="ghost">Browse jobs<ArrowRight className="size-4" /></Button>
+        </div>
+      </div>}
+      {data.matches.length > 0 && <div className="flex items-center justify-between gap-3"><Button variant="outline" disabled={!!busy || data.page <= 1} onClick={() => void run("Loading matches", () => reload(data.page - 1))}><ChevronLeft className="size-4" />Previous</Button><span className="text-sm text-muted-foreground">{data.totalMatches} matches · Page {data.page}</span><Button variant="outline" disabled={!!busy || !data.hasNextPage} onClick={() => void run("Loading matches", () => reload(data.page + 1))}>Next<ChevronRight className="size-4" /></Button></div>}
     </> : <div className="auto-apply-layout">
-      <aside aria-label="Preparation queue" className="min-w-0 lg:border-r lg:pr-4"><ul className="divide-y">{data.queued.map(item => <li key={item.id}><button type="button" disabled={!!busy} aria-pressed={selected === item.id} className={cn("w-full min-w-0 border-l-2 py-3 pl-3 text-left", selected === item.id ? "border-primary bg-muted/50" : "border-transparent")} onClick={() => select(item.id)}><span className="block break-words text-sm font-medium">{item.roleTitle}</span><span className="text-xs text-muted-foreground">{item.company}</span></button></li>)}</ul>{!data.queued.length && <p className="py-6 text-sm text-muted-foreground">No applications queued.</p>}</aside>
+      <aside aria-label="Preparation queue" className="min-w-0 lg:border-r lg:pr-4"><ul className="divide-y">{data.queued.map(item => <li key={item.id}><button type="button" disabled={!!busy} aria-pressed={selected === item.id} className={cn("w-full min-w-0 border-l-2 py-3 pl-3 text-left", selected === item.id ? "border-primary bg-muted/50" : "border-transparent")} onClick={() => select(item.id)}><span className="block break-words text-sm font-medium">{item.roleTitle}</span><span className="text-xs text-muted-foreground">{item.company}</span>{item.blockedReason && <span className="block text-xs text-amber-700 dark:text-amber-300">Needs attention</span>}</button></li>)}</ul>{!data.queued.length && <p className="py-6 text-sm text-muted-foreground">No applications queued.</p>}</aside>
       <div className="min-w-0">{!active ? <p className="py-8 text-sm text-muted-foreground">Select an application to prepare and review.</p> : <>
         <header className="flex items-start justify-between gap-3 border-b pb-4"><div className="min-w-0"><h2 className="break-words text-lg font-semibold">{active.roleTitle}</h2><p className="text-sm text-muted-foreground">{active.company}</p><Link className="mt-1 inline-block text-xs text-primary" href={`/applications/${active.id}`}>Documents & timeline</Link></div><Button type="button" variant="ghost" title="Remove from review queue" aria-label="Remove from review queue" disabled={!!busy || !!dirtyFields.length || outcome === "unverified"} onClick={() => setConfirm("remove")}><Trash2 className="size-4" /></Button></header>
+        {active.blockedReason && <p role="status" className="border-l-2 border-amber-500 py-3 pl-3 text-sm">{active.blockedReason}</p>}
         <div className="flex flex-wrap gap-2 py-4">
-          <Button variant="outline" disabled={!!busy || !extension || outcome === "confirmed" || outcome === "unverified"} onClick={() => void run("Opening employer form", async () => { await command("open"); setOpened(true); setApproval(null); setReviewed(false); })}><ExternalLink className="size-4" />{opened ? "Reconnect employer tab" : "Open employer tab"}</Button>
-          <Button disabled={!!busy || !opened || !!outcome} onClick={() => setConfirm("fill")}><WandSparkles className="size-4" />Prepare application</Button>
+          <Button disabled={!!busy || !extension || !!active.blockedReason || !!outcome} onClick={() => setConfirm("fill")}><WandSparkles className="size-4" />Prepare application</Button>
+          <Button variant="outline" disabled={!!busy || !extension || !!active.blockedReason || !!outcome} onClick={() => void run("Opening employer form", async () => { await command("open"); setOpened(true); setApproval(null); setReviewed(false); })}><ExternalLink className="size-4" />{opened ? "Reconnect employer tab" : "Open employer tab"}</Button>
           <Button variant="ghost" disabled={!!busy || !opened} onClick={() => void run("Reading employer form", async () => { setApproval(null); setReviewed(false); await command("snapshot"); })}><RefreshCw className="size-4" />Refresh review</Button>
           <Button variant="ghost" disabled={!!busy || !opened} onClick={() => void run("Opening employer tab", async () => { await command("focus"); })}>View employer form<ExternalLink className="size-4" /></Button>
         </div>
@@ -243,7 +297,7 @@ export function AutoApplyWorkspace({ initial }: { initial: WorkspaceData }) {
       confirmLabel={busy ? "Working..." : confirm === "fill" ? "Prepare with my profile" : confirm === "submit" ? "Approve and submit once" : "Remove from queue"}
       onConfirm={() => void run(confirm === "fill" ? "Filling saved details, work history and answers" : confirm === "submit" ? "Submitting once and verifying employer confirmation" : "Removing from queue", async () => {
         const action = confirm; setConfirm(null);
-        if (action === "fill") { setApproval(null); setReviewed(false); await command("fill"); }
+        if (action === "fill") await prepare();
         if (action === "submit") {
           try { await command("submit", { approvalToken: approval?.token, confirmed: true, documentsReviewed: reviewed }); }
           catch (cause) { setOutcome("unverified"); setApproval(null); throw cause; }

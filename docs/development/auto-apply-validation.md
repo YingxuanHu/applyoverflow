@@ -1,6 +1,7 @@
 # Auto Apply Release Validation
 
-The workspace is `/applications/auto-apply`, alongside the application tracker.
+The workspace belongs to Jobs; `/applications/auto-apply` is its stable transport
+URL. Applications is the separate tracker.
 Matches reuse Picks for you and explicit profile requirements. Review preparation
 does not submit anything. Final submission requires current employer readiness,
 document review and a second explicit approval for one application. Login,
@@ -18,6 +19,8 @@ npm run extension:test:questions
 npm run extension:test:package
 NODE_PATH=./node_modules/next/dist/compiled DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local node --conditions=react-server --import tsx -r dotenv/config tests/integration/auto-apply-workspace.ts
 TEST_APP_URL=http://127.0.0.1:3004 npm run test:auto-apply:ui
+TEST_APP_URL=http://127.0.0.1:3004 npm run test:auto-apply:connected
+node --test scripts/test-workspace-sender.mjs
 ```
 
 The UI test requires a running app and local database. It creates and deletes a
@@ -27,7 +30,7 @@ MV3 test exercises the packaged service worker, actual employer DOM writes,
 same-account handoff, stale revisions, readback, confirmation and duplicate locks.
 All its HTTP is intercepted; its final submission is a synthetic DOM event.
 
-The UI benchmark records 17 checkpoint screenshots, visible state, API statuses
+The UI benchmark records 22 checkpoint screenshots, visible state, API statuses
 and response timings, browser errors and a Playwright trace. It checks desktop,
 390px and 320px widths, queue idempotence/removal/requeue, consent cancellation,
 permission recovery, independent edits, navigation protection, stale approval,
@@ -39,6 +42,47 @@ against the production build and retains synthetic screenshots/traces for 14 day
 Checkpoint duration includes navigation, assertions and capture overhead; it is
 not a service latency SLA. API timings are recorded separately for each checkpoint.
 Never run this recorder on private production accounts or publish private traces.
+
+## Validation On 2026-10-25
+
+- Production inspection found a matching task stranded after both refresh and
+  failure-finalization hit Prisma transaction acquisition timeouts. Completion
+  now uses one fenced atomic update, bounded transient retries, and per-claim
+  error containment. Match transactions have explicit acquisition/runtime budgets.
+  Candidate searches now start sequentially instead of overflowing the worker's
+  two-connection pool; queued searches never outlive a failed channel.
+  Local database mechanism tests cover concurrent enqueue, superseded claims,
+  expired leases, retries and empty results; retry unit tests cover pool failures.
+- Auto Apply filters the bounded 300-recommendation pool before pagination.
+  A 65-candidate database fixture verifies country filtering, pagination,
+  queue backfill and unavailable/conflicting queued-job warnings. It does not
+  prove ranking relevance or production matching throughput.
+- The production-build UI benchmark passed 22 checkpoints in 12,842ms with zero
+  browser errors (median checkpoint 374ms, p95 1,765ms). Extension transport is
+  synthetic in this suite. Screenshots cover desktop, 390px and 320px widths.
+- The connected benchmark passed six checkpoints in 9,503ms with zero browser
+  errors (median checkpoint 1,360ms, p95 3,623ms). It runs actual authenticated
+  Next UI/API/database and the packaged MV3 worker against three loopback HTTPS
+  employer layouts: native, delayed and cross-origin iframe. Native and delayed
+  forms verify consent, DOM filling/readback, edits, explicit approval, exactly
+  one synthetic submission and persisted APPLIED status. Embedded forms verify
+  filling/editing and the manual-submission gate, not automated submission.
+- This integration test exposed Chrome retaining the document's original sender
+  URL after client navigation from Jobs. The bridge now reads the live location
+  in the exact sender document, retaining origin/top-frame/route checks. Tests
+  also reject navigation away, replaced documents and hostile senders.
+- The unit suite covers matching backpressure as well as application behavior.
+  These are controlled regression measurements, not
+  evidence of universal employer compatibility or unattended application success.
+  No real employer submission or private resume upload was performed.
+
+The connected suite requires a disposable local database, a running build and
+the official store ID in `APPLICATION_EXTENSION_IDS`. Its certificate bypass is
+limited to its temporary test-browser profile and local synthetic HTTPS server;
+non-fixture external requests are blocked. It records synthetic artifacts under
+`output/playwright/auto-apply-connected/` and removes its accounts/jobs afterward.
+Both browser suites and the matching mechanism test run in Verify CI. Timing
+includes test assertions and screenshots, not just user-visible processing.
 
 ## Validation On 2026-10-12
 

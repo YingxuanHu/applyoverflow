@@ -27,7 +27,7 @@ jobs:
       BETTER_AUTH_SECRET: test-only-ci-secret-not-for-deployment
       BETTER_AUTH_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_BETTER_AUTH_URL: http://127.0.0.1:3000
-      APPLICATION_EXTENSION_IDS: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      APPLICATION_EXTENSION_IDS: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,mhkkioknljkgnhgnhcamilkgbadjnmil
       TOP_PICKS_INLINE_REFRESH_KICK: '0'
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +51,7 @@ jobs:
       - name: Verify onboarding bridge and account isolation
         run: |
           node --test scripts/test-extension-setup-bridge.mjs
+          node --test scripts/test-workspace-sender.mjs
           node --conditions=react-server --import tsx tests/integration/connected-onboarding.ts
       - run: npx playwright install --with-deps chromium
       - run: npm run extension:test:autofill
@@ -63,7 +64,9 @@ jobs:
         env:
           NODE_PATH: ./node_modules/next/dist/compiled
       - name: Verify Auto Apply queue and ownership
-        run: node --conditions=react-server --import tsx tests/integration/auto-apply-workspace.ts
+        run: |
+          node --conditions=react-server --import tsx tests/integration/auto-apply-workspace.ts
+          node --conditions=react-server --import tsx tests/e2e/top-picks-mechanism.ts
         env:
           NODE_PATH: ./node_modules/next/dist/compiled
       - run: npm run extension:test:workday
@@ -116,6 +119,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null || { cat /tmp/workspace-server.log; exit 1; }
           npm run test:auto-apply:ui
+          npm run test:auto-apply:connected
           node --import tsx tests/e2e/profile-onboarding.ts
           node --import tsx tests/e2e/connected-onboarding-recovery.ts
           node --import tsx tests/e2e/announcements.ts
@@ -129,6 +133,7 @@ jobs:
           name: application-workflow-benchmark
           path: |
             output/playwright/auto-apply/
+            output/playwright/auto-apply-connected/
             output/playwright/extension-setup-*.png
             output/playwright/onboarding-*.png
             output/playwright/profile-history-*.png

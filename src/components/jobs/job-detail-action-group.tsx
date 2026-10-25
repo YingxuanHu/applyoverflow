@@ -6,12 +6,14 @@ import { CheckCircle2, ExternalLink } from "lucide-react";
 import { JobCardActions } from "@/components/jobs/job-card-actions";
 import { Button } from "@/components/ui/button";
 import { MarkAppliedButton } from "@/components/jobs/mark-applied-button";
+import { QueueApplicationButton } from "@/components/jobs/queue-application-button";
 
 type JobDetailActionGroupProps = {
   applyHref: string | null;
   initialApplied: boolean;
   initialSaved: boolean;
   jobId: string;
+  canPrepare?: boolean;
 };
 
 export function JobDetailActionGroup({
@@ -19,6 +21,7 @@ export function JobDetailActionGroup({
   initialApplied,
   initialSaved,
   jobId,
+  canPrepare = false,
 }: JobDetailActionGroupProps) {
   const [isApplied, setIsApplied] = useState(initialApplied);
   const [isSaved, setIsSaved] = useState(initialSaved);
@@ -47,6 +50,7 @@ export function JobDetailActionGroup({
         </div>
       )}
 
+      {!isApplied && canPrepare && <QueueApplicationButton jobId={jobId} />}
       {applyHref ? (
         <Button
           className="h-11 w-full rounded-full px-4 sm:h-8 sm:w-auto"

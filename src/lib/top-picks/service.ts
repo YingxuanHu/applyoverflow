@@ -9,7 +9,7 @@ import { trustedWorkMode } from "@/lib/job-metadata";
 import { REQUIREMENTS_KEY, parseRequirements } from "@/lib/top-picks/requirements";
 import { JOB_GOALS_KEY, parseJobGoals } from "@/lib/profile-setup";
 import { loadScoringDescriptions } from "@/lib/top-picks/source-descriptions";
-import { mergeCandidateChannels, selectTopPicks } from "./selection";
+import { collectCandidateChannels, mergeCandidateChannels, selectTopPicks } from "./selection";
 import { prisma } from "@/lib/db";
 import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
 import {
@@ -215,7 +215,7 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${userId} FOR UPDATE`;
     return buildUserMatchProfileSnapshot(tx, userId);
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, userId: string) {
@@ -534,11 +534,11 @@ export async function retrieveTopPickCandidates(
       : {};
   const largestChannelLimit = Math.min(MAX_CHANNEL_LIMIT, limit, Math.max(30, Math.ceil(limit / 2)));
   const smallChannelLimit = Math.min(MAX_CHANNEL_LIMIT, limit, Math.max(15, Math.ceil(limit / 5)));
-  const candidateBatchPromises: Array<Promise<{ channel: string; ids: string[] }>> = [];
+  const candidateBatchTasks: Array<() => Promise<{ channel: string; ids: string[] }>> = [];
 
   if (intent.explicitTargetRoleCategories.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "explicit_role",
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.explicitTargetRoleCategories },
@@ -551,8 +551,8 @@ export async function retrieveTopPickCandidates(
   }
 
   if (intent.inferredTargetRoleCategories.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "inferred_role",
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.inferredTargetRoleCategories },
@@ -569,8 +569,8 @@ export async function retrieveTopPickCandidates(
     .filter((title) => title.length >= 4)
     .slice(0, 4);
   if (titleTerms.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "target_title",
         andFeedWhere(baseWhere, {
           AND: [seniorityWhere],
@@ -587,8 +587,8 @@ export async function retrieveTopPickCandidates(
     .filter((skill) => normalizeText(skill).length >= 3)
     .slice(0, MAX_TEXT_SKILL_TERMS);
   if (skills.length > 0 && allowedRoles.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "skill_inside_compatible_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
@@ -601,8 +601,8 @@ export async function retrieveTopPickCandidates(
       )
     );
   } else if (skills.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "skill_text_fallback",
         andFeedWhere(baseWhere, {
           AND: [
@@ -619,8 +619,8 @@ export async function retrieveTopPickCandidates(
   }
 
   if (intent.positiveSignals.likedRoleCategories.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "positive_feedback_role",
         andFeedWhere(baseWhere, {
           normalizedRoleCategory: { in: intent.positiveSignals.likedRoleCategories },
@@ -637,8 +637,8 @@ export async function retrieveTopPickCandidates(
     .filter((title) => title.length >= 4)
     .slice(0, 4);
   if (likedTitleTerms.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "positive_feedback_title",
         andFeedWhere(baseWhere, {
           AND: [seniorityWhere],
@@ -657,8 +657,8 @@ export async function retrieveTopPickCandidates(
     intent.preferredLocationCountry,
   ].filter((value): value is string => Boolean(value));
   if (allowedRoles.length > 0 && (locationTerms.length > 0 || intent.preferredWorkModes.length > 0)) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "location_work_mode_inside_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
@@ -678,8 +678,8 @@ export async function retrieveTopPickCandidates(
   }
 
   if (allowedRoles.length > 0) {
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "top_applicant_proxy",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
@@ -690,8 +690,8 @@ export async function retrieveTopPickCandidates(
         largestChannelLimit
       )
     );
-    candidateBatchPromises.push(
-      fetchCandidateIds(
+    candidateBatchTasks.push(
+      () => fetchCandidateIds(
         "fresh_quality_inside_role",
         andFeedWhere(baseWhere, {
           ...roleCompatibleWhere,
@@ -702,7 +702,7 @@ export async function retrieveTopPickCandidates(
     );
   }
 
-  const candidateBatches = await Promise.all(candidateBatchPromises);
+  const candidateBatches = await collectCandidateChannels(candidateBatchTasks);
   const { ids: candidateIds, channelsById, candidatesByChannel } =
     mergeCandidateChannels(candidateBatches, limit);
   if (candidateIds.length === 0) return { candidates: [], candidatesByChannel };
@@ -927,7 +927,7 @@ export async function replaceUserTopPicks(input: {
         },
       });
     }
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 export async function refreshTopPicksForUser(

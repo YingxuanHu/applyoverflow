@@ -1,5 +1,13 @@
 type CandidateBatch = { channel: string; ids: string[] };
 
+export async function collectCandidateChannels(tasks: Array<() => Promise<CandidateBatch>>) {
+  const batches: CandidateBatch[] = [];
+  // A refresh shares a small pool with status and lease writes. Start searches
+  // lazily so a slow channel cannot fill the pool queue or outlive a failed run.
+  for (const task of tasks) batches.push(await task());
+  return batches;
+}
+
 export function mergeCandidateChannels(batches: CandidateBatch[], limit: number) {
   const channelsById = new Map<string, Set<string>>();
   const ids: string[] = [];

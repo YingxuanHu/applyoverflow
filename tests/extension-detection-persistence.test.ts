@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { applicationContext, detectionOrigins, sameApplication } from "../extensions/chrome/sites.mjs";
-import { createWorkspaceBridge, allowedWorkspaceSender } from "../extensions/chrome/workspace-bridge.mjs";
+import { createWorkspaceBridge, allowedWorkspaceSender, resolveAppPageSender } from "../extensions/chrome/workspace-bridge.mjs";
 import { createSetupBridge, allowedSetupSender } from "../extensions/chrome/setup-bridge.mjs";
 
 type Script = { id: string; matches: string[]; allFrames: boolean; persistAcrossSessions?: boolean };
@@ -19,7 +19,7 @@ async function detectionFixture(origins: string[], existing?: Script) {
   const sandbox = {
     APP_ORIGIN: "https://applyoverflow.com", BUILD_ID: "test", URL,
     applicationContext, detectionOrigins, sameApplication,
-    createWorkspaceBridge, allowedWorkspaceSender, createSetupBridge, allowedSetupSender,
+    createWorkspaceBridge, allowedWorkspaceSender, resolveAppPageSender, createSetupBridge, allowedSetupSender,
     fetch: forbidden,
     chrome: {
       runtime: { id: "test", onInstalled: event("installed"), onStartup: event("startup"), onMessage: event("message") },

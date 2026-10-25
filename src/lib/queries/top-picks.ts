@@ -85,6 +85,27 @@ function serializePick(input: {
   };
 }
 
+// Auto Apply applies additional requirements and excludes queued applications.
+// Read the bounded recommendation pool before pagination, not one feed page.
+export async function getAutoApplyCandidatePool(profileId: string, authUserId: string) {
+  const status = await getTopPicksRefreshStatus(profileId);
+  const base = buildTopPickWhere(profileId);
+  const rows = await prisma.userTopPick.findMany({
+    where: {
+      ...base,
+      profileVersion: status.profileVersion ?? -1,
+      job: { is: { AND: [base.job.is, { preferenceFeedback: { none: { userId: profileId } } }] } },
+    },
+    orderBy: [{ rank: "asc" }, { id: "asc" }],
+    take: 300,
+    select: {
+      id: true, score: true, rank: true, matchReasons: true, concerns: true, computedAt: true,
+      job: { select: { ...TOP_PICK_JOB_SELECT(profileId, authUserId), description: false } },
+    },
+  });
+  return { data: rows.map(serializePick), status };
+}
+
 function buildTopPickWhere(
   userId: string,
   options: TopPicksQueryOptions = {}
