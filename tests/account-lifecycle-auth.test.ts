@@ -108,7 +108,7 @@ for (const path of ["delete-user", "revoke-session", "revoke-sessions", "revoke-
 
 test("delete-user only deletes the authenticated user even with a foreign user ID", async () => {
   const { post, db } = await authFixture();
-  const response = await post("delete-user", { userId: "other" });
+  const response = await post("delete-user", { userId: "other", password });
   assert.equal(response.status, 200);
   assert.deepEqual(db.user.map((user) => user.id), ["other"]);
   assert.deepEqual(db.session.map((session) => session.userId), ["other"]);
@@ -132,7 +132,120 @@ test("a deletion verification token for another account cannot authorize deletin
     id: "delete-verification", identifier: "delete-account-other-verification",
     value: "other", expiresAt: new Date(Date.now() + 60_000), createdAt: new Date(), updatedAt: new Date(),
   });
-  assert.equal((await post("delete-user", { token: "other-verification" })).status, 404);
+  assert.equal((await post("delete-user", { token: "other-verification", password })).status, 404);
   assert.equal(db.user.length, 2);
   assert.equal(db.session.length, 3);
+});
+
+test("even a fresh credential session needs a nonempty valid password before deletion", async () => {
+  const { post, db } = await authFixture();
+  for (const body of [{}, { password: "" }, { password: "incorrect-password" }]) {
+    assert.equal((await post("delete-user", body)).status, 400);
+    assert.equal(db.user.length, 2);
+    assert.equal(db.account.length, 1);
+    assert.equal(db.session.length, 3);
+  }
+  assert.equal((await post("delete-user", { password })).status, 200);
+  assert.deepEqual(db.user.map((user) => user.id), ["other"]);
+});
+
+test("credential deletion cannot bypass the password requirement with a token or callback", async () => {
+  const { post, db, auth, cookie } = await authFixture();
+  db.verification.push({
+    id: "own-delete-verification", identifier: "delete-account-own-verification",
+    value: "owner", expiresAt: new Date(Date.now() + 60_000), createdAt: new Date(), updatedAt: new Date(),
+  });
+  assert.equal((await post("delete-user", { token: "own-verification" })).status, 400);
+  const response = await auth.handler(new Request(`${origin}/api/auth/delete-user/callback?token=own-verification`, {
+    headers: { Cookie: cookie("current-token") },
+  }));
+  assert.equal(response.status, 400);
+  assert.equal(db.user.length, 2);
+  assert.equal(db.account.length, 1);
+  assert.equal(db.session.length, 3);
+});
+
+test("a trailing slash cannot bypass the credential password requirement", async () => {
+  const { post, db } = await authFixture();
+  const response = await post("delete-user/");
+  assert.ok(response.status >= 400);
+  assert.equal(db.user.length, 2);
+  assert.equal(db.account.length, 1);
+});
+
+function useGoogleAccount(db: Record<string, Record<string, unknown>[]>) {
+  db.account = [{
+    id: "google-account", userId: "owner", providerId: "google", accountId: "google-owner",
+    accessToken: "synthetic-oauth-token", createdAt: new Date(), updatedAt: new Date(),
+  }];
+}
+
+test("a fresh Google-only session can delete without an unusable password challenge", async () => {
+  const { post, db } = await authFixture();
+  useGoogleAccount(db);
+  assert.equal((await post("delete-user")).status, 200);
+  assert.deepEqual(db.user.map((user) => user.id), ["other"]);
+  assert.equal(db.account.length, 0);
+});
+
+test("an expired Google session cannot authorize deletion", async () => {
+  const { post, db } = await authFixture();
+  useGoogleAccount(db);
+  db.session[0].expiresAt = new Date(Date.now() - 1000);
+  assert.equal((await post("delete-user")).status, 401);
+  assert.equal(db.user.length, 2);
+  assert.equal(db.account.length, 1);
+});
+
+test("a credential-store failure cannot fall back to passwordless deletion", async (t) => {
+  const { post, db, auth } = await authFixture();
+  const context = await auth.$context;
+  t.mock.method(console, "error", () => {});
+  context.internalAdapter.findCredentialAccount = async () => { throw new Error("Synthetic credential-store outage"); };
+  const response = await post("delete-user");
+  assert.equal(response.status, 500);
+  assert.doesNotMatch(await response.text(), /Synthetic credential-store outage/);
+  assert.equal(db.user.length, 2);
+  assert.equal(db.account.length, 1);
+  assert.equal(db.session.length, 3);
+});
+
+test("Google-only deletion requires a fresh session and succeeds after reauthentication", async () => {
+  const { post, db } = await authFixture();
+  useGoogleAccount(db);
+  db.session[0].createdAt = new Date(Date.now() - 2 * 86_400_000);
+  assert.equal((await post("delete-user")).status, 400);
+  assert.equal((await post("delete-user", { password })).status, 400);
+  assert.equal(db.user.length, 2);
+  db.session[0].createdAt = new Date();
+  assert.equal((await post("delete-user")).status, 200);
+});
+
+test("a Google deletion token cannot bypass session freshness on either endpoint", async () => {
+  const { post, db, auth, cookie } = await authFixture();
+  useGoogleAccount(db);
+  db.session[0].createdAt = new Date(Date.now() - 2 * 86_400_000);
+  db.verification.push({
+    id: "google-delete-verification", identifier: "delete-account-google-verification",
+    value: "owner", expiresAt: new Date(Date.now() + 60_000), createdAt: new Date(), updatedAt: new Date(),
+  });
+  assert.equal((await post("delete-user", { token: "google-verification" })).status, 400);
+  const response = await auth.handler(new Request(`${origin}/api/auth/delete-user/callback?token=google-verification`, {
+    headers: { Cookie: cookie("current-token") },
+  }));
+  assert.equal(response.status, 400);
+  assert.equal(db.user.length, 2);
+  assert.equal(db.account.length, 1);
+  db.session[0].createdAt = new Date();
+  assert.equal((await post("delete-user")).status, 200);
+});
+
+test("having a Google account does not waive an existing credential password", async () => {
+  const { post, db } = await authFixture();
+  const credential = db.account[0];
+  useGoogleAccount(db);
+  db.account.push(credential);
+  assert.equal((await post("delete-user")).status, 400);
+  assert.equal(db.user.length, 2);
+  assert.equal((await post("delete-user", { password })).status, 200);
 });

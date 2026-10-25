@@ -89,7 +89,11 @@ type Query = { where: Record<string, unknown>; select?: Record<string, unknown> 
 type Row = Record<string, unknown>;
 function selected(row: Row, query: Query): Row {
   return query.select
-    ? Object.fromEntries(Object.keys(query.select).filter((key) => key in row).map((key) => [key, row[key]]))
+    ? Object.fromEntries(Object.entries(query.select).filter(([key]) => key in row).map(([key, selection]) => [
+      key,
+      typeof selection === "object" && selection !== null && Array.isArray(row[key])
+        ? row[key].map((nested: Row) => selected(nested, selection as Query)) : row[key],
+    ]))
     : row;
 }
 
@@ -104,8 +108,10 @@ function exportFixture(failure?: "anonymous" | "stale") {
     ["reminderLog", "userId", "owner"], ["savedJob", "userId", "owner-profile"],
     ["userBehaviorSignal", "userId", "owner-profile"], ["applicationPackage", "userId", "owner-profile"],
     ["applicationSubmission", "userId", "owner-profile"],
+    ["resumeLibraryEntry", "userId", "owner-profile"], ["resumeBuild", "userId", "owner-profile"],
+    ["onboardingEvent", "userId", "owner"],
   ]) {
-    const rows = [
+    const rows: Row[] = [
       { id: `${model}-own`, [field]: owner, name: "Own data", password: "fixture-password-hash", token: "fixture-token" },
       { id: `${model}-foreign`, [field]: "foreign", name: "FOREIGN PRIVATE DATA" },
     ];
@@ -115,10 +121,23 @@ function exportFixture(failure?: "anonymous" | "stale") {
       return rows.filter((row) => Object.entries(query.where).every(([key, value]) => row[key as keyof typeof row] === value))
         .map((row) => selected(row, query));
     };
-    // Only auth records have credential columns; the other tables contain data.
-    if (!["user", "userProfile"].includes(model)) {
-      delete (rows[0] as Row).password;
-      delete (rows[0] as Row).token;
+    if (model === "resumeLibraryEntry") Object.assign(rows[0], {
+      title: "Owned library entry", archivedAt: new Date("2026-01-01"),
+      variations: [{ id: "owned-variation", name: "Owned variation", bulletsJson: ["Owned bullet"], token: "fixture-token" }],
+    });
+    if (model === "resumeBuild") Object.assign(rows[0], {
+      name: "Owned resume build", snapshotJson: { summary: "Owned snapshot" },
+      items: [{ id: "owned-build-item", entryId: "resumeLibraryEntry-own", includedBulletIds: ["bullet-1"], snapshotJson: { title: "Owned item snapshot" }, token: "fixture-token" }],
+    });
+    if (model === "onboardingEvent") {
+      Object.assign(rows[0], { event: "setup_completed", entry: "profile", filled: 4, remaining: 0 });
+      rows.push({ id: "anonymous-event", userId: null, event: "ANONYMOUS PRIVATE DATA" });
+    }
+    // Synthetic secret fields prove explicit selections on auth/new exports;
+    // existing non-auth tables have no credential columns.
+    if (!["user", "userProfile", "resumeLibraryEntry", "resumeBuild", "onboardingEvent"].includes(model)) {
+      delete rows[0].password;
+      delete rows[0].token;
     }
     models[model] = { findUnique: async (query: Query) => read(query)[0], findMany: async (query: Query) => read(query) };
   }
@@ -147,8 +166,16 @@ test("export ignores supplied account identifiers, scopes every root query and e
   assert.match(response.headers.get("content-disposition") ?? "", /^attachment;/);
   const body = await response.text();
   assert.match(body, /Own data/);
-  assert.doesNotMatch(body, /FOREIGN PRIVATE DATA|fixture-password-hash|fixture-token/);
-  assert.equal(readCount(), 9);
+  assert.doesNotMatch(body, /FOREIGN PRIVATE DATA|ANONYMOUS PRIVATE DATA|fixture-password-hash|fixture-token/);
+  assert.equal(readCount(), 12);
+  const payload = JSON.parse(body);
+  assert.equal(payload.resumeLibrary.entries[0].title, "Owned library entry");
+  assert.ok(payload.resumeLibrary.entries[0].archivedAt);
+  assert.equal(payload.resumeLibrary.entries[0].variations[0].bulletsJson[0], "Owned bullet");
+  assert.equal(payload.resumeLibrary.builds[0].snapshotJson.summary, "Owned snapshot");
+  assert.equal(payload.resumeLibrary.builds[0].items[0].snapshotJson.title, "Owned item snapshot");
+  assert.deepEqual(payload.resumeLibrary.builds[0].items[0].includedBulletIds, ["bullet-1"]);
+  assert.equal(payload.onboardingEvents[0].event, "setup_completed");
 });
 
 for (const failure of ["anonymous", "stale"] as const) {
