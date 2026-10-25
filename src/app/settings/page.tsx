@@ -174,7 +174,7 @@ export default async function SettingsPage() {
           Choose when we email you. In-app notifications remain on for
           everyone.
         </p>
-        <NotificationsForm defaultEnabled={user.emailNotificationsEnabled} />
+        <NotificationsForm defaultEnabled={user.emailNotificationsEnabled} productUpdatesEnabled={user.productUpdatesEnabled} />
       </section>
 
       {/* Appearance */}

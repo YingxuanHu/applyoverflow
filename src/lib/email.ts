@@ -6,6 +6,7 @@ type SendEmailInput = {
   subject: string;
   text: string;
   html: string;
+  headers?: Record<string, string>;
 };
 
 const smtpHost = process.env.SMTP_HOST;
@@ -17,6 +18,11 @@ const SMTP_TIMEOUT_MS = 15_000;
 const SMTP_SLOW_SEND_MS = 3_000;
 
 let cachedTransporter: Transporter | null = null;
+
+export function closeEmailDelivery() {
+  cachedTransporter?.close();
+  cachedTransporter = null;
+}
 
 export function isEmailDeliveryConfigured() {
   return Boolean(smtpHost && smtpUser && smtpPass && smtpFrom && !Number.isNaN(smtpPort));
@@ -69,6 +75,7 @@ export async function sendEmail(input: SendEmailInput) {
       subject: input.subject,
       text: input.text,
       html: input.html,
+      headers: input.headers,
     });
   } catch (error) {
     cachedTransporter?.close();

@@ -131,6 +131,7 @@ export async function saveNotificationSettings(
     await saveTrackerSettings({
       emailNotificationsEnabled:
         formData.get("emailNotificationsEnabled") === "on",
+      productUpdatesEnabled: formData.get("productUpdatesEnabled") === "on",
     });
     revalidatePaths(["/settings", "/notifications"]);
     return { error: null, success: "Notification preferences saved." };

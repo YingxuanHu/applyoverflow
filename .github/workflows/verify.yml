@@ -118,6 +118,7 @@ jobs:
           npm run test:auto-apply:ui
           node --import tsx tests/e2e/profile-onboarding.ts
           node --import tsx tests/e2e/connected-onboarding-recovery.ts
+          node --import tsx tests/e2e/announcements.ts
           node --import tsx tests/e2e/location-filters.mjs
           node --import tsx tests/e2e/deferred-search-count.ts
           npm run test:jobs:activity
@@ -134,6 +135,8 @@ jobs:
             output/playwright/location-*.png
             output/playwright/search-count-*.png
             output/playwright/jobs-activity-*.png
+            output/playwright/autofill-guide-*.png
+            output/playwright/autofill-email-*.png
             /tmp/workspace-server.log
           retention-days: 14
           if-no-files-found: ignore

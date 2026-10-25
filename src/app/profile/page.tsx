@@ -105,6 +105,7 @@ export default async function ProfilePage() {
           <p className="page-description">
             Personal information, experience, and job preferences used to tailor your search and applications.
           </p>
+          <Link href="/extension/guide" className="mt-2 inline-block text-sm text-primary underline">Set up application autofill</Link>
         </div>
         <Button render={<Link href="/documents" />} size="sm" variant="outline">
           <FileText />

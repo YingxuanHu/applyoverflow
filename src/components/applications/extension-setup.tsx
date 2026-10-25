@@ -33,7 +33,7 @@ async function api(body: object) {
 }
 const LABELS: Record<SetupBrowserState, string> = {
   checking: "Checking this browser", unsupported: "Extension needs desktop Chrome", unavailable: "Connection could not be verified",
-  "not-detected": "Extension not detected in this browser", outdated: "Extension update needed", disconnected: "Account not connected",
+  "not-detected": "Extension not detected by this checker", outdated: "Use the toolbar to check this version", disconnected: "Account not connected",
   mismatch: "Extension connected to another account", verified: "Connected to this account",
 };
 
@@ -162,7 +162,8 @@ export function ExtensionSetup({ accountId, email, context, extensionIds, initia
       {action !== "jobs" && action !== "continue" && <Link href="/jobs" className="text-sm underline">Browse jobs</Link>}
     </div>
     {state === "verified" && <p className="mt-5 text-sm text-muted-foreground">Open ApplyOverflow from Chrome&apos;s extensions menu. Select Autofill, then review the fields on the form. Pin it there for easier access.</p>}
-    {(state === "not-detected" || state === "outdated") && <p className="mt-5 text-sm text-muted-foreground">Already installed? Open ApplyOverflow from the Chrome toolbar, then <button className="underline" onClick={() => void check()}>check again</button>.</p>}
+    {(["not-detected", "outdated", "unavailable"] as SetupBrowserState[]).includes(state) && <p className="mt-5 text-sm leading-6 text-muted-foreground">The published 0.15.1 extension does not support this newer checker. Open ApplyOverflow from Chrome&apos;s toolbar, choose Connect to ApplyOverflow if needed, and verify your email and Connected status there. A developer preview is not required. <Link href="/extension/guide#connect" className="underline">View the connection guide</Link>.</p>}
+    <Link href="/extension/guide" className="mt-5 inline-block text-sm text-primary underline">Step-by-step setup with screenshots</Link>
     {email && <div className="mt-7 flex flex-wrap gap-4 border-t pt-5 text-sm">
       <Link href={capabilities?.pendingReview ? `/onboarding?from=${encodeURIComponent(destination)}` : "/profile"} className="underline">{capabilities?.pendingReview ? "Review imported details" : "Edit profile and resume sharing"}</Link>
       <Link href="/settings/extension" className="underline">Manage connections</Link>
