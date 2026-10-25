@@ -150,11 +150,14 @@ async function main() {
       await guide.setViewportSize({ width, height: 900 });
       await guide.goto(`${root}/extension/guide`);
       await guide.getByRole("heading", { name: "Your first application with autofill" }).waitFor();
-      await guide.locator("article img").evaluateAll(images => { for (const image of images) (image as HTMLImageElement).loading = "eager"; });
-      await guide.waitForFunction(() => [...document.querySelectorAll("article img")].every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0), null, { timeout: 30000 });
-      assert.equal(await guide.locator("article").evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, `guide fits ${width}px`);
-      assert.equal(await guide.locator("article img").count(), 4);
-      assert.equal(await guide.locator('a[href*="chromewebstore.google.com"]').count(), 1);
+      // Navigation can retain hidden route trees; assess the displayed guide.
+      const article = guide.locator("article:visible");
+      assert.equal(await article.count(), 1, "one visible guide");
+      await article.locator("img").evaluateAll(images => { for (const image of images) (image as HTMLImageElement).loading = "eager"; });
+      await guide.waitForFunction(() => [...document.querySelectorAll("article")].filter(article => article.checkVisibility()).every(article => [...article.querySelectorAll("img")].every(image => image.complete && image.naturalWidth > 0)), null, { timeout: 30000 });
+      assert.equal(await article.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, `guide fits ${width}px`);
+      assert.equal(await article.locator("img").count(), 4);
+      assert.equal(await article.locator('a[href*="chromewebstore.google.com"]').count(), 1);
       await guide.getByRole("link", { name: "5. Autofill", exact: true }).click();
       assert.ok(guide.url().endsWith("#fill"));
       await guide.getByRole("heading", { name: "Your first application with autofill" }).scrollIntoViewIfNeeded();
