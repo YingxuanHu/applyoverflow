@@ -20,6 +20,7 @@ import {
   type ProfileSkill,
 } from "@/lib/profile";
 import { getFastModel, getOpenAIClient, getOpenAIReadiness } from "@/lib/openai";
+import { parseResumeFile } from "@/lib/resume-parser";
 import {
   type MergeCollectionSummary,
   type ResumeImportSummary,
@@ -253,12 +254,14 @@ export async function ingestResumeIntoProfile(input: {
    * parser instead (cost gate for non-allowlisted accounts). Defaults to true.
    */
   allowAi?: boolean;
+  signal?: AbortSignal;
 }) {
   const extraction = await extractStructuredResume({
     fileBuffer: input.fileBuffer,
     fileName: input.fileName,
     mimeType: input.mimeType,
     allowAi: input.allowAi ?? true,
+    signal: input.signal,
   });
 
   const mergeResult = mergeResumeProfile({
@@ -299,22 +302,28 @@ async function extractStructuredResume(input: {
   fileName: string;
   mimeType: string;
   allowAi: boolean;
+  signal?: AbortSignal;
 }): Promise<ExtractedResumePayload> {
-  const localText = await extractLocalText(input.fileBuffer, input.fileName, input.mimeType);
   const openAIReadiness = getOpenAIReadiness();
+  // Parsing and PDF previews share one process deadline. Safety failures must
+  // escape before the AI fallback catch; never retry the same bytes inline.
+  const parsed = await parseResumeFile({
+    ...input,
+    preview: input.allowAi && openAIReadiness.configured,
+  });
+  const localText = sanitizePlainText(parsed.text);
 
   if (input.allowAi && openAIReadiness.configured) {
     try {
-      const extractionMode = await chooseExtractionMode({
-        fileBuffer: input.fileBuffer,
-        fileName: input.fileName,
-        mimeType: input.mimeType,
+      const extractionMode = chooseExtractionMode({
+        kind: parsed.kind,
+        previews: parsed.previews,
         localText,
       });
       const profile = await requestResumeExtraction({
         fileBuffer: input.fileBuffer,
         fileName: input.fileName,
-        mimeType: input.mimeType,
+        mimeType: parsed.mimeType,
         localText,
         extractionMode: extractionMode.mode,
         pdfPreviewDataUrls: extractionMode.pdfPreviewDataUrls,
@@ -401,26 +410,23 @@ function chooseExtractedText(localText: string, profile: ResumeExtractionResult)
     .join("\n\n");
 }
 
-async function chooseExtractionMode(input: {
-  fileBuffer: Buffer;
-  fileName: string;
-  mimeType: string;
+function chooseExtractionMode(input: {
+  kind: string;
+  previews: string[];
   localText: string;
 }) {
-  if (isImageFile(input.fileName, input.mimeType)) {
+  if (["png", "jpg", "jpeg", "webp"].includes(input.kind)) {
     return {
       mode: "image" as const,
       pdfPreviewDataUrls: [] as string[],
     };
   }
 
-  const extension = fileNameExtension(input.fileName);
-  if (extension === ".pdf" && input.localText.length < MIN_RELIABLE_TEXT_LENGTH) {
-    const previewDataUrls = await renderPdfPreviewDataUrls(input.fileBuffer);
-    if (previewDataUrls.length > 0) {
+  if (input.kind === "pdf" && input.localText.length < MIN_RELIABLE_TEXT_LENGTH) {
+    if (input.previews.length > 0) {
       return {
         mode: "pdf_image" as const,
-        pdfPreviewDataUrls: previewDataUrls,
+        pdfPreviewDataUrls: input.previews,
       };
     }
   }
@@ -547,68 +553,6 @@ async function requestResumeExtraction(input: {
   }
 
   return sanitizeExtraction(parsed);
-}
-
-async function extractLocalText(fileBuffer: Buffer, fileName: string, mimeType: string) {
-  const extension = fileNameExtension(fileName);
-
-  try {
-    if (extension === ".txt") {
-      return sanitizePlainText(fileBuffer.toString("utf8"));
-    }
-
-    if (extension === ".rtf") {
-      return sanitizePlainText(stripRtfMarkup(fileBuffer.toString("utf8")));
-    }
-
-    if (extension === ".docx") {
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ buffer: fileBuffer });
-      return sanitizePlainText(result.value);
-    }
-
-    if (extension === ".doc") {
-      const { default: WordExtractor } = await import("word-extractor");
-      const extractor = new WordExtractor();
-      const document = await extractor.extract(fileBuffer);
-      return sanitizePlainText(document.getBody());
-    }
-
-    if (extension === ".pdf" || mimeType === "application/pdf") {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: fileBuffer });
-      try {
-        const result = await parser.getText();
-        return sanitizePlainText(result.text);
-      } finally {
-        await parser.destroy();
-      }
-    }
-  } catch {
-    return "";
-  }
-
-  return "";
-}
-
-async function renderPdfPreviewDataUrls(fileBuffer: Buffer) {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: fileBuffer });
-
-  try {
-    const result = await parser.getScreenshot({
-      first: 2,
-      imageBuffer: false,
-      imageDataUrl: true,
-      scale: 1.8,
-    });
-
-    return result.pages.map((page) => page.dataUrl).filter(Boolean);
-  } catch {
-    return [];
-  } finally {
-    await parser.destroy();
-  }
 }
 
 function sanitizeExtraction(parsed: ResumeExtractionResult): ResumeExtractionResult {
@@ -1416,26 +1360,9 @@ function splitIntoLines(value: string) {
     .filter(Boolean);
 }
 
-function stripRtfMarkup(value: string) {
-  return value
-    .replace(/\\par[d]?/gi, "\n")
-    .replace(/\\tab/gi, " ")
-    .replace(/\\'[0-9a-f]{2}/gi, (match) =>
-      String.fromCharCode(Number.parseInt(match.slice(2), 16))
-    )
-    .replace(/\\u-?\d+\??/gi, " ")
-    .replace(/\\[a-z]+-?\d* ?/gi, " ")
-    .replace(/[{}]/g, " ");
-}
-
 function fileNameExtension(fileName: string) {
   const match = /\.[^.]+$/.exec(fileName.toLowerCase());
   return match ? match[0] : "";
-}
-
-function isImageFile(fileName: string, mimeType: string) {
-  return imageMimeTypes.has(mimeType.toLowerCase()) ||
-    [".png", ".jpg", ".jpeg", ".webp"].includes(fileNameExtension(fileName));
 }
 
 function bufferToDataUrl(buffer: Buffer, mimeType: string) {

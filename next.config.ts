@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { traceResumeParserFiles } from "./scripts/resume-parser/trace.mjs";
 
 const projectRoot = __dirname;
 
@@ -68,4 +69,12 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default async function config(): Promise<NextConfig> {
+  const parserFiles = await traceResumeParserFiles(projectRoot);
+  return {
+    ...nextConfig,
+    outputFileTracingIncludes: {
+      "/*": [...nextConfig.outputFileTracingIncludes!["/*"], ...parserFiles],
+    },
+  };
+}
