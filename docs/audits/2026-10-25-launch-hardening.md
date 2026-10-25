@@ -40,6 +40,10 @@ must not be described as deployed or as public-launch approval.
   runtime copies hidden underneath those mounts. Root now has approximately
   **137 GiB available (5% used)**; attached storage has approximately **180 GiB
   available (53% used)**. The external PostgreSQL tablespace is unchanged.
+- After the application release, root remained at **5% used / 137 GiB free**;
+  attached storage was **54% used / 174 GiB free**, including the retained rollback
+  images. User/profile/document/submission counts remained **15/15/16/4**; the
+  migration count increased to **68** after the onboarding-events migration.
 
 The obsolete root runtime copies have been removed. Never remove the live
 mounted paths or attempt to roll back to the old root storage. Cutover evidence
@@ -49,12 +53,15 @@ was copied off-host into private operational output, not committed to source.
 
 - Host monitoring runs every five minutes with the owner recipient persisted in
   its cron configuration. A test reached **SMTP acceptance**, with no pending
-  delivery. Inbox receipt has not been confirmed. Active conditions include
-  load and a missing new-format verified-backup receipt; these are not cleared
-  merely because the storage migration passed.
+  delivery. Inbox receipt has not been confirmed. The load condition recovered;
+  the latest check still reports a missing new-format verified-backup receipt
+  and partial supply-health reporting. Feed, flow, cadence and retention-lane
+  report queries exceeded their 25-second budgets. These are not cleared merely
+  because the storage migration passed.
 - The GitHub `public-health-alerts` environment is restricted to `main`; its five
   SMTP secrets are configured without exposing their values. External workflow
-  execution and delivery must still be verified after merge.
+  run **40219771427** passed, including one explicit test alert accepted by SMTP.
+  This is not inbox-receipt confirmation or a real host-outage rehearsal.
 - The co-hosted staging site's public proxy now returns **403**, verified
   externally. Production remains available. Staging containers and data were
   preserved; only public routing was disabled.
@@ -62,9 +69,10 @@ was copied off-host into private operational output, not committed to source.
 ## Code And Local Verification
 
 - Patched framework/runtime dependencies; `npm audit --omit=dev` reports **zero
-  vulnerabilities**. This does not mean production already runs those versions.
-- Local full unit run: **1,246 passed, zero failed** after the implementation
-  batches. Typecheck and lint passed (one pre-existing unused-variable warning).
+  known dependency vulnerabilities**. Production now runs **Next.js 16.4.3**.
+- Latest local full unit run: **1,249 passed, zero failed** including the
+  deployment-finalization regression. Typecheck and lint passed in the application
+  release CI (one pre-existing unused-variable warning).
 - Standalone resume parsing and preview smoke tests passed. A Linux/amd64 web
   image diagnostic also passed native rendering and 11 parser-security tests;
   this working-tree diagnostic is not the final immutable release image.
@@ -77,21 +85,40 @@ was copied off-host into private operational output, not committed to source.
   repair and real GitHub enforcement are separate from a local test pass. Main
   branch protection now requires the successful `application` check, up-to-date
   branches, pull requests and resolved conversations, including for admins.
-  PR #29 passed the complete Verify workflow at `8819e86` (run `40215965770`).
-  Subsequent proxy changes still require verification for the final release SHA.
+  The final application release, **d58f6b1211ba00418b79365d0b612158b46a7e55**,
+  passed the complete main-push Verify workflow **40221044730**. PRs #29 and #30
+  were merged after verification. The onboarding fixture now waits for visible,
+  ready form controls; the MV3 workspace fixture selects the session-bound tab,
+  not a potentially racing installation tab. Three local onboarding and six
+  local workspace runs passed, plus the connected-account recovery scenarios.
 - Backup tools require integrity manifests and isolated restore targets. A
   fresh new-format verified backup and full restoration remain unverified here.
-- The production application still runs revision `9836985` at this checkpoint;
-  repository changes and local diagnostic images are not deployed app evidence.
+- Production readiness now reports **d58f6b1211ba00418b79365d0b612158b46a7e55**.
+  Web and all three worker labels match; backup-runner uses the same verified
+  worker image. Candidate HTTP-transport and PDF-generation checks passed before
+  restart. PostgreSQL retained its **17:40:26** start time through this app release.
+- The remote health check consumed the tail of the SSH script, skipping release
+  finalization despite exit code zero. Finalization was then executed explicitly
+  under the migration lock: health and image labels checked, Caddy validated and
+  reloaded, old backup-runner retained, new runner promoted, transport aliases
+  removed. PR #31 fixes stdin isolation and tests success and fail-closed errors.
+  This operations-only follow-up does not change the running application revision.
+- Live unauthenticated checks passed: health 200/ready, resume and export APIs
+  401, Jobs redirecting to sign-in, sign-in 200 with report-only CSP, staging 403.
+  The deletion-retry supervisor is online. The downloaded extension is **0.16.1**
+  and its SHA256 matches the deployed container; installed Chrome and Web Store
+  versions were not changed. Production signed-in browser verification remains
+  incomplete because the Mac was locked.
 
 ## Remaining Launch Gates
 
-1. Pass the complete CI pipeline for the exact committed release, promote the
-   same checked images, verify the running revision, and enforce merge checks.
-2. Verify external outage notification execution and actual alert receipt.
+1. Rehearse host restart and controlled rollback; mount checks and retained
+   images alone are not those rehearsals. Preserve the enforced CI release gate.
+2. Verify actual alert receipt and a real external outage/recovery sequence.
 3. Restore a real backup on an isolated, adequately sized host, verify database
    and document recovery, and measure RTO/RPO. Daily backups are not PITR.
 4. Measure representative capacity, background-work contention, and public-feed
-   quality. A tiny HTTP fixture is not production capacity evidence.
+   quality, including the timed-out health-report sections. A tiny HTTP fixture
+   is not production capacity evidence.
 5. Finish signed-in journey, ownership, installed-extension compatibility, and
    provider security checks. Do not promise every employer website is proven.
