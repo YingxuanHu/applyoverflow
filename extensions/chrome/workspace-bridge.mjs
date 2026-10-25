@@ -1,3 +1,20 @@
+export async function resolveAppPageSender(sender, origin) {
+  try {
+    if (new URL(sender.url).origin !== origin || sender.origin !== origin ||
+      !Number.isInteger(sender.tab?.id) || sender.frameId !== 0 || !sender.documentId) return null;
+    // Chrome retains a document's original sender URL across history navigation.
+    // Read the live location from that exact document, never from message data or
+    // a different document that may have replaced it in the same tab.
+    const [current] = await chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id, documentIds: [sender.documentId] },
+      func: () => ({ href: location.href, origin: location.origin, top: window === window.top }),
+    });
+    if (current?.documentId !== sender.documentId || current.frameId !== 0 ||
+      !current.result?.top || current.result.origin !== origin) return null;
+    return { ...sender, url: current.result.href };
+  } catch { return null; }
+}
+
 export function allowedWorkspaceSender(sender, origin) {
   try {
     const url = new URL(sender.url);

@@ -3,7 +3,7 @@ import { detectionOrigins, applicationContext, sameApplication } from "./sites.m
 import { questionAssistance } from "./question-policy.mjs";
 import { canPrepareAnswer as canDraft, fillProfessionalAnswers } from "./answer-runner.mjs";
 import { recoveryForError, stoppedFields, planQuestions } from "./recovery.mjs";
-import { createWorkspaceBridge, allowedWorkspaceSender } from "./workspace-bridge.mjs";
+import { createWorkspaceBridge, allowedWorkspaceSender, resolveAppPageSender } from "./workspace-bridge.mjs";
 import { createSetupBridge, allowedSetupSender } from "./setup-bridge.mjs";
 
 let verifiedConnection = null;
@@ -992,12 +992,11 @@ const workspaceBridge = createWorkspaceBridge({ origin: APP_ORIGIN, api, inspect
 const setupBridge = createSetupBridge({ origin: APP_ORIGIN, api, connect, random, sameApplication,
   busy: () => working, setBusy: value => { working = value; }, version: chrome.runtime.getManifest?.().version || BUILD_ID });
 chrome.runtime.onMessageExternal?.addListener((message, sender, respond) => {
-  if (allowedSetupSender(sender, APP_ORIGIN)) {
-    setupBridge(message, sender).then(respond).catch(error => respond({ error: error.message || "Check the connection again." }));
-    return true;
-  }
-  if (!allowedWorkspaceSender(sender, APP_ORIGIN)) return false;
-  workspaceBridge(message, sender).then(respond).catch(error => respond({ error: error.message || "Workspace action failed. Check the employer tab before retrying." }));
+  resolveAppPageSender(sender, APP_ORIGIN).then(current => {
+    if (allowedSetupSender(current, APP_ORIGIN)) return setupBridge(message, current);
+    if (allowedWorkspaceSender(current, APP_ORIGIN)) return workspaceBridge(message, current);
+    throw new Error("Open Auto Apply or extension setup in ApplyOverflow, then retry.");
+  }).then(respond).catch(error => respond({ error: error.message || "Workspace action failed. Check the employer tab before retrying." }));
   return true;
 });
 
