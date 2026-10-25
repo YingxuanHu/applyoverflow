@@ -1,0 +1,29 @@
+{
+  "environment": "local",
+  "isolatedSyntheticData": true,
+  "noProductionInfrastructure": true,
+  "evidenceKind": "fixture",
+  "target": "http://127.0.0.1:4319",
+  "allowOrigins": ["http://127.0.0.1:4319"],
+  "ramp": [1, 2, 4],
+  "stageDurationMs": 5000,
+  "requestTimeoutMs": 2000,
+  "requestsPerSecond": 8,
+  "maxRequests": 150,
+  "maxResponseBytes": 262144,
+  "thresholds": {
+    "p95Ms": 1000,
+    "maxErrorRate": 0.01,
+    "minRequestsPerWorkload": 4
+  },
+  "workloads": {
+    "feed": { "minRows": 1, "requiredIds": ["synthetic-feed"] },
+    "title": { "minRows": 1, "requiredIds": ["synthetic-title"] },
+    "canada": { "minRows": 1, "requiredIds": ["synthetic-canada"] },
+    "us": { "minRows": 1, "requiredIds": ["synthetic-us"] },
+    "city": { "minRows": 1, "requiredIds": ["synthetic-city"] },
+    "tech": { "minRows": 1, "requiredIds": ["synthetic-tech"] },
+    "finance": { "minRows": 1, "requiredIds": ["synthetic-finance"] },
+    "general": { "minRows": 1, "requiredIds": ["synthetic-general"] }
+  }
+}
