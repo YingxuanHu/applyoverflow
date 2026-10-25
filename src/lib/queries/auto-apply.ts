@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getAuthSecret, isSessionUsableByPolicy } from "@/lib/auth-session-policy";
 import { buildDefaultCanonicalVisibilityWhere } from "@/lib/jobs/visibility";
-import { getTopPicksForUser } from "@/lib/queries/top-picks";
+import { getAutoApplyCandidatePool } from "@/lib/queries/top-picks";
 import { evaluateRequirements, parseRequirements, REQUIREMENTS_KEY } from "@/lib/top-picks/requirements";
 import { issueWorkspaceToken, verifyWorkspaceToken } from "@/lib/applications/workspace-token";
 import { AssistantError } from "@/lib/queries/application-assistant";
@@ -17,19 +17,23 @@ async function profileRules(userId: string) {
 
 export async function getAutoApplyWorkspace(userId: string, page = 1) {
   const { profile, requirements } = await profileRules(userId);
-  const picks = await getTopPicksForUser(profile.id, { page, pageSize: 30 });
+  const picks = await getAutoApplyCandidatePool(profile.id, userId);
   const queued = await prisma.trackedApplication.findMany({ where: { userId, status: "PREPARING" }, orderBy: { updatedAt: "desc" }, take: 100,
     select: { id: true, canonicalJobId: true, company: true, roleTitle: true, roleUrl: true, updatedAt: true } });
-  const rows = await prisma.jobCanonical.findMany({ where: { id: { in: picks.data.map(pick => pick.job.id) } }, select: {
+  const rows = await prisma.jobCanonical.findMany({ where: {
+    id: { in: [...new Set([...picks.data.map(pick => pick.job.id), ...queued.flatMap(row => row.canonicalJobId ? [row.canonicalJobId] : [])])] },
+    AND: [buildDefaultCanonicalVisibilityWhere()],
+  }, select: {
     id: true, location: true, workMode: true, workModeConfidence: true, workModeStatus: true, employmentType: true, salaryMin: true, salaryMax: true, salaryCurrency: true, description: true,
+    applyUrl: true, eligibility: { select: { submissionCategory: true } },
   } });
   const connections = await prisma.extensionConnection.findMany({ where: { userId, connectedAt: { not: null }, expiresAt: { gt: new Date() } }, select: { clientId: true, session: true } });
-  return {
-    matches: picks.data.filter(pick => !pick.job.hasApplied && !queued.some(row => row.canonicalJobId === pick.job.id)).flatMap(pick => {
+  let excludedByRequirements = 0;
+  const matches = picks.data.filter(pick => !pick.job.hasApplied && !queued.some(row => row.canonicalJobId === pick.job.id)).flatMap(pick => {
       const job = rows.find(row => row.id === pick.job.id);
       if (!job) return [];
       const checks = evaluateRequirements(requirements, job, profile.location ?? "");
-      if (!checks.passed) return [];
+      if (!checks.passed) { excludedByRequirements++; return []; }
       const context = applicationContext(pick.job.applyUrl, true);
       return [{ jobId: pick.job.id, title: pick.job.title, company: pick.job.company, location: pick.job.location,
         workMode: pick.job.workMode, score: pick.score, reasons: pick.matchReasons,
@@ -37,11 +41,26 @@ export async function getAutoApplyWorkspace(userId: string, page = 1) {
         category: context && pick.job.eligibility?.submissionCategory !== "MANUAL_ONLY" ? "REVIEW_REQUIRED" as const : "MANUAL_ONLY" as const,
         automationReason: !context ? "The employer link cannot be identified as an application." : pick.job.eligibility?.submissionCategory === "MANUAL_ONLY" ? pick.job.eligibility.reasonDescription : "The live employer form must pass readiness checks before submission.",
         applyUrl: pick.job.applyUrl }];
+    });
+  const currentPage = Math.min(Math.max(1, page), Math.max(1, Math.ceil(matches.length / 30)));
+  return {
+    matches: matches.slice((currentPage - 1) * 30, currentPage * 30),
+    totalMatches: matches.length, excludedByRequirements,
+    queued: queued.map(item => {
+      const job = rows.find(row => row.id === item.canonicalJobId);
+      const checks = job && evaluateRequirements(requirements, job, profile.location ?? "");
+      const blockedReason = !job ? "This posting is no longer available in the live feed." :
+        job.eligibility?.submissionCategory === "MANUAL_ONLY" || !applicationContext(job.applyUrl, true) || !job.applyUrl.startsWith("https:")
+          ? "This posting needs a manual application." :
+          !checks?.passed ? `No longer meets your requirements: ${[...checks!.conflicts, ...checks!.unknown].join(", ")}.` : null;
+      return { ...item, blockedReason, updatedAt: item.updatedAt.toISOString() };
     }),
-    queued: queued.map(item => ({ ...item, updatedAt: item.updatedAt.toISOString() })),
-    requirements, homeLocation: profile.location ?? "", page: picks.page, hasNextPage: picks.hasNextPage,
+    requirements, homeLocation: profile.location ?? "", page: currentPage, hasNextPage: currentPage * 30 < matches.length,
     refreshing: picks.status.refreshing, stale: picks.status.stale, profileReady: picks.status.profileReady,
     profileMessage: picks.status.profileReadinessMessage,
+    refreshStatus: picks.status.refreshTask?.status ?? null,
+    refreshStartedAt: picks.status.refreshTask?.startedAt ?? picks.status.refreshTask?.notBeforeAt ?? null,
+    lastComputedAt: picks.status.lastComputedAt,
     extensionIds: [...new Set(connections.filter(item => allowedExtension(item.clientId) && isSessionUsableByPolicy(item.session)).map(item => item.clientId))],
   };
 }

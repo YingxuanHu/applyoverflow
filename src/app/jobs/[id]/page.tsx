@@ -127,6 +127,7 @@ export default async function JobDetailPage({
           initialApplied={hasAppliedStatus}
           initialSaved={job.isSaved && !hasAppliedStatus}
           jobId={job.id}
+          canPrepare={job.status === "LIVE" && job.eligibility?.submissionCategory !== "MANUAL_ONLY" && job.applyUrl.startsWith("https:")}
         />
       </div>
 

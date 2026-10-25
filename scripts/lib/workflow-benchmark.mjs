@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 // Benchmarks use synthetic accounts; record response metadata, never cookies,
 // credentials, capability tokens or application answer bodies.
-export async function workflowBenchmark(page, directory, name) {
+export async function workflowBenchmark(page, directory, name, environment = "local application and database; synthetic account and extension transport") {
   await mkdir(directory, { recursive: true });
   const steps = [], responses = [], errors = [], started = performance.now();
   let previous = started;
@@ -19,6 +19,9 @@ export async function workflowBenchmark(page, directory, name) {
   });
   page.on("pageerror", error => errors.push(error.message));
   return {
+    assertHealthy() {
+      if (errors.length) throw new Error(`Browser errors: ${errors.join("; ")}`);
+    },
     async checkpoint(label) {
       const elapsedMs = Math.round(performance.now() - previous);
       const screenshot = `${name}-${steps.length + 1}.png`;
@@ -32,7 +35,7 @@ export async function workflowBenchmark(page, directory, name) {
       const durations = steps.map(step => step.elapsedMs).sort((a, b) => a - b);
       const report = { createdAt: new Date().toISOString(), revision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
         workingTreeDirty: Boolean(execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()),
-        environment: "local application and database; synthetic account and extension transport",
+        environment,
         status: error || errors.length ? "failed" : "passed", failure: error ? String(error) : null,
         elapsedMs: Math.round(performance.now() - started), checkpoints: steps.length,
         stepMedianMs: durations[Math.floor(durations.length / 2)] ?? null,

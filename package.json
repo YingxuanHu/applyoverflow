@@ -29,6 +29,7 @@
     "repo:check": "node scripts/check-repository.mjs",
     "test:workspace:layout": "node scripts/test-workspace-layout.mjs",
     "test:auto-apply:ui": "DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local node --import tsx -r dotenv/config scripts/test-auto-apply-workspace-ui.mjs",
+    "test:auto-apply:connected": "DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local node --import tsx -r dotenv/config scripts/test-auto-apply-connected.mjs",
     "test:jobs:activity": "DATABASE_URL_DO_PRIVATE= DOTENV_CONFIG_PATH=.env.local node --import tsx -r dotenv/config scripts/test-jobs-board-activity.mjs",
     "extension:build": "node scripts/build-application-extension.mjs",
     "extension:test": "node scripts/test-application-extension.mjs",

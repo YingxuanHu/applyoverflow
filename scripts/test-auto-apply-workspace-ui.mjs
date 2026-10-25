@@ -24,6 +24,9 @@ const clientId = process.env.APPLICATION_EXTENSION_IDS.split(',')[0].trim();
 await prisma.extensionConnection.create({ data: { userId: user.id, sessionId: session.id, clientId, challenge: 'fixture', connectedAt: new Date(), expiresAt: session.expiresAt } });
 const job = await prisma.jobCanonical.create({ data: { title: 'Software Engineer, Application Systems', company: 'Workspace UI Fixture', location: 'Toronto, Canada', workMode: 'REMOTE', employmentType: 'FULL_TIME', description: 'Synthetic frontend test only', shortSummary: 'Synthetic', roleFamily: 'TECH', applyUrl: `https://careers.example.test/jobs/${tag}/apply`, postedAt: new Date(), lastConfirmedAliveAt: new Date(), status: 'LIVE', availabilityScore: 100 } });
 await prisma.jobCanonical.update({ where: { id: job.id }, data: { workModeConfidence: 1, workModeStatus: 'accepted' } });
+await prisma.jobFeedIndex.create({ data: { canonicalJobId: job.id, title: job.title, company: job.company, location: job.location,
+  workMode: job.workMode, employmentType: job.employmentType, roleFamily: job.roleFamily, applyUrl: job.applyUrl,
+  postedAt: job.postedAt, status: 'LIVE', searchText: job.title } });
 const browser = await chromium.launch();
 const context = await browser.newContext();
 const output = 'output/playwright/auto-apply';
@@ -109,16 +112,21 @@ try {
   await page.getByText('Removed from review queue. Kept in Wishlist.', { exact: true }).waitFor();
   assert.equal(await prisma.trackedApplication.count({ where: { userId: user.id, canonicalJobId: job.id, status: 'WISHLIST' } }), 1);
   await benchmark.checkpoint('Removal can be cancelled; confirmed removal preserves Wishlist');
-  await page.getByRole('button', { name: 'Matches', exact: true }).click();
-  await page.getByRole('button', { name: 'Add to review', exact: true }).click();
-  await page.getByText('Added to review queue. Nothing submitted.', { exact: true }).waitFor();
+  // A ranking outage must not prevent preparation of a job the user found.
+  await prisma.userTopPick.deleteMany({ where: { userId: user.profile.id } });
+  await page.goto(`${origin}/jobs/${job.id}`);
+  await page.getByRole('button', { name: 'Prepare application', exact: true }).click();
+  await page.waitForURL(/\/applications\/auto-apply\?application=/);
+  await page.getByText('Extension 0.15.0 connected').waitFor();
   assert.equal(await prisma.trackedApplication.count({ where: { userId: user.id, canonicalJobId: job.id } }), 1);
-  await page.getByRole('button', { name: 'Open employer tab', exact: true }).click();
+  await benchmark.checkpoint('Jobs detail queues and selects an application even with no recommendations');
+  assert.equal(await page.getByRole('button', { name: 'Prepare application', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: 'Prepare application', exact: true }).click();
   assert.equal(await page.evaluate(() => window.fixtureCommands.includes('fill')), false, 'no profile export before consent');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.equal(await page.evaluate(() => window.fixtureCommands.includes('fill')), false, 'cancelling consent exports nothing');
-  await benchmark.checkpoint('Dedicated employer tab; preparation consent can be cancelled');
+  assert.equal(await page.evaluate(() => window.fixtureCommands.includes('open')), false, 'cancelled consent does not open an employer tab');
+  await benchmark.checkpoint('One-step preparation is available; cancelling consent neither opens nor exports');
   await page.evaluate(() => { window.fixtureState.errors.fill = 'Site access is needed. Open the employer tab, click the extension, and enable it on this site.'; });
   await page.getByRole('button', { name: 'Prepare application', exact: true }).click();
   await page.getByRole('button', { name: 'Prepare with my profile', exact: true }).click();
@@ -129,6 +137,9 @@ try {
   await page.getByRole('button', { name: 'Prepare application', exact: true }).click();
   await page.getByRole('button', { name: 'Prepare with my profile', exact: true }).click();
   await page.getByLabel('First name *', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Submit this application', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Submit this application', exact: true }).isDisabled(), true, 'automatic readiness is not submission approval');
+  assert.equal(await page.evaluate(() => window.fixtureCommands.filter(action => action === 'open').length), 1, 'retry reuses the dedicated tab');
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 950 });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -145,15 +156,16 @@ try {
   assert.equal(await name.inputValue(), 'Jordan Updated', 'cancelled navigation keeps pending edits');
   page.once('dialog', dialog => dialog.dismiss());
   await page.getByRole('link', { name: 'Documents & timeline', exact: true }).click();
-  assert.match(page.url(), /\/applications\/auto-apply$/);
+  assert.match(page.url(), /\/applications\/auto-apply(?:\?|$)/);
   assert.equal(await answer.inputValue(), 'A second unsaved edit.', 'cancelled link navigation retains answer edits');
   page.once('dialog', dialog => dialog.dismiss());
   await jobsNavigation.getByRole('link', { name: 'Jobs', exact: true }).click();
-  assert.match(page.url(), /\/applications\/auto-apply$/);
+  assert.match(page.url(), /\/applications\/auto-apply(?:\?|$)/);
   assert.equal(await name.inputValue(), 'Jordan Updated', 'Jobs navigation also protects edits');
+  const previousChecks = await page.evaluate(() => window.fixtureCommands.filter(action => action === 'check').length);
   await page.getByRole('button', { name: 'Check readiness' }).click();
   await page.getByRole('alert').filter({ hasText: /Save or discard/ }).waitFor();
-  assert.equal(await page.evaluate(() => window.fixtureCommands.includes('check')), false);
+  assert.equal(await page.evaluate(() => window.fixtureCommands.filter(action => action === 'check').length), previousChecks);
   await benchmark.checkpoint('Independent pending edits; workspace and Jobs navigation protected');
   await page.getByRole('button', { name: 'Update field', exact: true }).first().click();
   await page.getByText('Answer updated on the employer form.', { exact: true }).waitFor();
@@ -215,7 +227,7 @@ try {
   await benchmark.checkpoint('Relocation and remote-only settings persist without enabling answer sharing');
   await page.evaluate(() => { window.fixtureState.disconnected = true; });
   await page.getByRole('button', { name: 'Recheck', exact: true }).click();
-  await page.getByText('Updated Chrome extension required', { exact: true }).waitFor();
+  await page.getByText('ApplyOverflow is not responding in this browser. Check that the extension is installed and enabled, then reconnect it.', { exact: true }).waitFor();
   await benchmark.checkpoint('Disconnected extension reports actionable connection state');
   await page.evaluate(() => { window.fixtureState.disconnected = false; });
   await page.getByRole('button', { name: 'Recheck', exact: true }).click();
@@ -239,6 +251,19 @@ try {
   await mobileNavigation.getByRole('link', { name: 'Auto Apply', exact: true }).click();
   await mobileNavigation.waitFor({ state: 'hidden' });
   await benchmark.checkpoint('Narrow-phone navigation identifies Auto Apply within Jobs without selecting Applications');
+  await prisma.topPickRefreshTask.upsert({ where: { userId: user.profile.id },
+    create: { userId: user.profile.id, status: 'FAILED', lastError: 'Synthetic matching failure' },
+    update: { status: 'FAILED', lastError: 'Synthetic matching failure' } });
+  await page.goto(`${origin}/applications/auto-apply`);
+  await page.getByRole('alert').filter({ hasText: /Matching failed/ }).waitFor();
+  await page.getByRole('button', { name: 'Continue queued applications', exact: true }).waitFor();
+  await benchmark.checkpoint('Failed matching is explicit and does not block the queue');
+  await prisma.topPickRefreshTask.update({ where: { userId: user.profile.id }, data: {
+    status: 'RUNNING', startedAt: new Date(Date.now() - 180000), leaseExpiresAt: new Date(Date.now() + 600000) } });
+  await page.reload();
+  await page.getByRole('status').filter({ hasText: /Matching is taking longer/ }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Check match progress', exact: true }).isEnabled(), true);
+  await benchmark.checkpoint('Old running task shows a recovery action instead of indefinite finding-matches state');
   assert.deepEqual(errors, []);
   console.log('PASS actual workspace UI/API: authenticated queue, desktop/mobile layouts, consent, edits retained independently, unsaved-edit gate, explicit approval, unknown-outcome retry block, synchronized relocation; synthetic extension transport');
 } catch (error) { failure = error; await page.screenshot({ path: `${output}/failure.png`, fullPage: true }).catch(() => {}); throw error; }
