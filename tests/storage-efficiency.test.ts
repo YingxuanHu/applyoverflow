@@ -240,6 +240,10 @@ df() {
 }
 mock_docker() {
   case "$*" in
+    *"exec -T -e EXPECTED_REVISION="*)
+      cat >/dev/null
+      [[ "\${MOCK_HEALTH_FAILURE:-0}" != 1 ]] || return 44
+      printf 'DOCKER %s\\n' "$*";;
     *"exec -T caddy caddy "*)
       [[ "$*" == *" --config /dev/stdin --adapter caddyfile" ]] || return 90
       cmp -s - "$TEST_DEPLOY_VOLUME/Caddyfile" || return 91
@@ -309,6 +313,23 @@ test("failed candidate transport verification blocks migrations and service rest
   assert.equal(result.status, 1, result.stderr);
   assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d|caddy reload/);
   assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest/);
+});
+
+test("remote health verification cannot consume finalization or promote after a failure", () => {
+  const env = {
+    REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
+    BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "", PRUNE_UNUSED_IMAGES: "0",
+  };
+  const success = runDeployment(deployRemote(), env);
+  assert.equal(success.status, 0, success.stderr);
+  assert.match(success.stdout, /caddy reload/);
+  assert.match(success.stdout, /image tag .*single-vps-backup-runner:latest/);
+  assert.match(success.stdout, /image rm applyoverflow-release:test-release-web/);
+  assert.match(success.stdout, /Disk after cleanup:/);
+
+  const failure = runDeployment(deployRemote(), { ...env, MOCK_HEALTH_FAILURE: "1" });
+  assert.equal(failure.status, 44, failure.stderr);
+  assert.doesNotMatch(failure.stdout, /caddy reload|image tag .*single-vps-backup-runner:latest|image rm/);
 });
 
 test("deployment can direct builds and pruning to an attached-volume builder", () => {

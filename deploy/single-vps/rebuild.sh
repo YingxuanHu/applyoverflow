@@ -157,10 +157,11 @@ echo "Restarting: $SERVICES"
 "${COMPOSE[@]}" up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 $SERVICES
 
 if [[ " $SERVICES " == *" app "* ]]; then
+  # bash reads this remote script from stdin; Compose must not consume its tail.
   "${COMPOSE[@]}" exec -T -e EXPECTED_REVISION="$BUILD_SHA" app node -e '
     fetch("http://127.0.0.1:3000/api/health", {signal: AbortSignal.timeout(10000)})
       .then(async response => { const body = await response.json(); if (!response.ok || body.status !== "ready" || body.revision !== process.env.EXPECTED_REVISION) throw new Error("Released health/revision verification failed"); })
-      .catch(error => { console.error(error.message); process.exit(1); });'
+      .catch(error => { console.error(error.message); process.exit(1); });' </dev/null
 fi
 
 # Read the host file directly: rsync may have replaced its bind-mounted inode.
