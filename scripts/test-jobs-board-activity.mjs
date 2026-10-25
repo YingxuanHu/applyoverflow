@@ -17,7 +17,8 @@ const token = `activitytest${randomUUID().replaceAll("-", "")}`;
 const email = `${token}@example.test`;
 const password = randomUUID();
 const browser = await chromium.launch();
-const context = await browser.newContext();
+// Distinct proxy client for this local-only suite; keep real rate limits enabled.
+const context = await browser.newContext({ extraHTTPHeaders: { "X-Real-IP": "192.0.2.43" } });
 const page = await context.newPage();
 page.setDefaultTimeout(60_000);
 page.setDefaultNavigationTimeout(120_000);
@@ -46,9 +47,12 @@ try {
     ...row, canonicalJobId: id, searchText: row.title, rankingScore: index,
   })) });
   await page.goto(`${origin}/sign-in?callbackUrl=%2Fjobs`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Sign in" && !button.disabled));
   await page.getByRole("textbox", { name: /^Email/ }).fill(email);
   await page.getByRole("textbox", { name: "Password", exact: true }).fill(password);
+  const signedIn = page.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/sign-in/email");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  assert.equal((await signedIn).status(), 200, "fixture sign-in succeeds");
   await page.waitForURL(/\/jobs(?:\?|$)/, { timeout: 120_000, waitUntil: "domcontentloaded" });
   await page.goto(`${origin}/jobs?titleSearch=${token}`, { waitUntil: "domcontentloaded" });
   await page.getByText("70 matches", { exact: true }).waitFor();

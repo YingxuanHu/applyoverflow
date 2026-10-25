@@ -69,7 +69,10 @@ try {
       workMode: job.workMode, employmentType: job.employmentType, roleFamily: job.roleFamily, applyUrl: job.applyUrl,
       postedAt: job.postedAt, status: 'LIVE', searchText: job.title } });
   }
+  // Emulate a distinct Caddy client for this loopback-only suite so unrelated
+  // fixture accounts do not share Better Auth's real sign-in rate-limit bucket.
   context = await chromium.launchPersistentContext('', { channel: 'chromium', headless: true,
+    extraHTTPHeaders: { 'X-Real-IP': '192.0.2.42' },
     args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`, '--ignore-certificate-errors', '--no-proxy-server', `--host-resolver-rules=MAP careers.fixture.example 127.0.0.1:${server.address().port}, MAP forms.fixture.example 127.0.0.1:${server.address().port}`] });
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
