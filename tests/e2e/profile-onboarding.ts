@@ -62,6 +62,9 @@ async function main() {
     reducedMotion: "reduce",
   });
   const page = await context.newPage();
+  const activePage = page.getByRole("main");
+  const historySection = (title: string) => activePage.locator("summary:visible").filter({ hasText: title });
+  const waitForReviewForm = () => activePage.locator("form > fieldset:enabled").waitFor({ state: "visible" });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.setDefaultTimeout(30000);
@@ -83,10 +86,7 @@ async function main() {
       .getByRole("heading", { name: "Make these details yours" })
       .waitFor();
     await page.getByLabel("Full name", { exact: true }).fill("Jordan History");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Work experience" })
-      .click();
+    await historySection("Work experience").click();
     await page.getByRole("button", { name: "Add work experience" }).click();
     const work = page.getByRole("group", {
       name: "Work experience 1",
@@ -109,7 +109,8 @@ async function main() {
     await page.getByRole("button", { name: "Skip for now" }).click();
     await page.waitForURL(`${root}/profile`);
     await page.goto(setupUrl);
-    await page.locator("summary").filter({ hasText: "Work experience" }).click();
+    await waitForReviewForm();
+    await historySection("Work experience").click();
     await work.getByLabel("I currently work here").check();
     assert.equal(
       await work.getByLabel("End year", { exact: true }).isDisabled(),
@@ -131,13 +132,8 @@ async function main() {
       "draft is not confirmed profile data",
     );
     await page.goto(setupUrl, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() =>
-      document.querySelector("form > fieldset")?.matches(":enabled"),
-    );
-    await page
-      .locator("summary")
-      .filter({ hasText: "Work experience" })
-      .click();
+    await waitForReviewForm();
+    await historySection("Work experience").click();
     assert.equal(
       await work.getByLabel("Start year", { exact: true }).inputValue(),
       "2021",
@@ -148,7 +144,7 @@ async function main() {
       "unknown month stays unknown after reload",
     );
     await work.getByLabel("Start month", { exact: true }).selectOption("09");
-    await page.locator("summary").filter({ hasText: "Education" }).click();
+    await historySection("Education").click();
     await page
       .getByRole("button", { name: "Add education", exact: true })
       .click();
