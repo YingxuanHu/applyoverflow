@@ -215,7 +215,7 @@ export async function buildAndStoreUserMatchProfile(userId: string) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "UserProfile" WHERE id = ${userId} FOR UPDATE`;
     return buildUserMatchProfileSnapshot(tx, userId);
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 async function buildUserMatchProfileSnapshot(tx: PrismaTypes.TransactionClient, userId: string) {
@@ -927,7 +927,7 @@ export async function replaceUserTopPicks(input: {
         },
       });
     }
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 export async function refreshTopPicksForUser(

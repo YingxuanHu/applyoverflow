@@ -1,5 +1,6 @@
 import { Prisma, type TopPickRefreshTask } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { retryRefreshCompletion } from "./completion-retry";
 
 export type TopPickRefreshTaskStatus =
   | "PENDING"
@@ -36,10 +37,6 @@ function getMaxAttempts() {
     "TOP_PICKS_REFRESH_MAX_ATTEMPTS",
     DEFAULT_TOP_PICKS_REFRESH_MAX_ATTEMPTS
   );
-}
-
-function toJsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
 }
 
 function normalizePositiveLimit(value: number | undefined) {
@@ -96,7 +93,7 @@ export async function enqueueDurableTopPicksRefresh(input: {
       },
     });
     return { status: running ? "running" as const : "queued" as const, task };
-  });
+  }, { maxWait: 10_000, timeout: 10_000 });
 }
 
 async function recoverStaleRunningTopPicksTasks(now: Date) {
@@ -139,28 +136,30 @@ export async function finishTopPicksRefreshTask(
   status: Extract<TopPickRefreshTaskStatus, "SUCCESS" | "FAILED" | "SKIPPED">,
   options: { finishedAt?: Date; lastError?: string | null; lastResult?: unknown; retryAt?: Date | null } = {}
 ) {
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "TopPickRefreshTask" WHERE id = ${claim.id} FOR UPDATE`;
-    const finishedAt = options.finishedAt ?? new Date();
-    const current = await tx.topPickRefreshTask.findFirst({
-      where: { ...topPicksClaimWhere(claim), leaseExpiresAt: { gt: finishedAt } },
-    });
-    if (!current) return null; // A superseded or expired worker must not finish a newer claim.
-    const followUp = current.requestedVersion > claim.claimedVersion;
-    const retry = status === "FAILED" && options.retryAt && current.attemptCount < current.maxAttempts;
-    return tx.topPickRefreshTask.update({
-      where: { id: claim.id },
-      data: {
-        status: followUp || retry ? "PENDING" : status,
-        attemptCount: followUp ? 0 : current.attemptCount,
-        startedAt: followUp || retry ? null : current.startedAt,
-        finishedAt: followUp || retry ? null : finishedAt,
-        notBeforeAt: followUp ? finishedAt : retry ? options.retryAt! : current.notBeforeAt,
-        leaseExpiresAt: null,
-        lastError: options.lastError ?? null,
-        lastResult: options.lastResult !== undefined ? toJsonValue(options.lastResult) : Prisma.DbNull,
-      },
-    });
+  const finishedAt = options.finishedAt ?? new Date();
+  const followUp = Prisma.sql`"requestedVersion" > ${claim.claimedVersion}`;
+  const retry = Prisma.sql`${status === "FAILED" && !!options.retryAt} AND "attemptCount" < "maxAttempts"`;
+  // One fenced statement avoids acquiring an interactive transaction when the
+  // pool is congested. PostgreSQL rechecks the claim after any concurrent update.
+  const query = Prisma.sql`
+    UPDATE "TopPickRefreshTask"
+    SET "status" = CASE WHEN (${followUp}) OR (${retry}) THEN 'PENDING' ELSE ${status} END,
+        "attemptCount" = CASE WHEN ${followUp} THEN 0 ELSE "attemptCount" END,
+        "startedAt" = CASE WHEN (${followUp}) OR (${retry}) THEN NULL ELSE "startedAt" END,
+        "finishedAt" = CASE WHEN (${followUp}) OR (${retry}) THEN NULL ELSE ${finishedAt}::timestamp END,
+        "notBeforeAt" = CASE WHEN ${followUp} THEN ${finishedAt} WHEN ${retry} THEN ${options.retryAt ?? finishedAt} ELSE "notBeforeAt" END,
+        "leaseExpiresAt" = NULL, "updatedAt" = ${finishedAt},
+        "lastError" = ${options.lastError ?? null},
+        "lastResult" = ${options.lastResult === undefined ? null : JSON.stringify(options.lastResult ?? null)}::jsonb
+    WHERE "id" = ${claim.id} AND "status" = 'RUNNING'
+      AND "startedAt" = ${claim.startedAt} AND "attemptCount" = ${claim.attemptCount}
+      AND "claimedVersion" = ${claim.claimedVersion}
+      AND "leaseExpiresAt" > GREATEST(${finishedAt}::timestamp, clock_timestamp() AT TIME ZONE 'UTC')
+    RETURNING *
+  `;
+  return retryRefreshCompletion(async () => {
+    const rows = await prisma.$queryRaw<TopPickRefreshTask[]>(query);
+    return rows[0] ?? null;
   });
 }
 

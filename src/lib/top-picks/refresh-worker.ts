@@ -82,10 +82,16 @@ export async function runTopPicksRefreshQueue(options: {
       const message = errorMessage(error);
       const shouldRetry = task.attemptCount < task.maxAttempts;
       const retryAt = shouldRetry ? new Date(Date.now() + getTopPicksRetryDelayMs(task.attemptCount)) : null;
-      const finished = await finishTopPicksRefreshTask(task, "FAILED", {
-        lastError: message,
-        retryAt,
-      });
+      let finished;
+      try {
+        finished = await finishTopPicksRefreshTask(task, "FAILED", { lastError: message, retryAt });
+      } catch (completionError) {
+        // A database outage must not abandon the other claims in this batch.
+        // This claim remains fenced and can be recovered when its lease expires.
+        summary.failed += 1;
+        summary.results.push({ taskId: task.id, status: "COMPLETION_DEFERRED", error: errorMessage(completionError) });
+        return;
+      }
       if (!finished) {
         summary.skipped += 1;
         summary.results.push({ taskId: task.id, userId: task.userId, status: "SUPERSEDED" });
