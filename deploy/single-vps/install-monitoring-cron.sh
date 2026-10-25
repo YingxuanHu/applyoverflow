@@ -3,13 +3,15 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/autoapplication}"
 CRON_FILE="${MONITOR_CRON_FILE:-/etc/cron.d/applyoverflow-health}"
-# A small daily batch avoids a large WAL burst on the root-backed cluster
-# while the attached volume absorbs the index tier.
+# A small daily batch bounds WAL and I/O while maintaining the index tier.
 TABLESPACE_MAX_MOVES="${POSTGRES_TABLESPACE_MAX_MOVES:-8}"
+ALERT_EMAIL="${MONITOR_ALERT_EMAIL:-alvin.hu@mail.utoronto.ca}"
+[[ "$ALERT_EMAIL" == alvin.hu@mail.utoronto.ca ]] || { echo 'Alert recipient is not allowlisted.' >&2; exit 1; }
 
 cat > "$CRON_FILE" <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MONITOR_ALERT_EMAIL=$ALERT_EMAIL
 
 */5 * * * * root APP_DIR=$APP_DIR bash $APP_DIR/deploy/single-vps/monitor-health.sh
 # Repair the managed index tier during the off-peak window. The policy refuses

@@ -11,6 +11,8 @@ x-bounded-logging: &bounded-logging
 services:
   postgres:
     logging: *bounded-logging
+    cpu_shares: 2048
+    pids_limit: 512
     image: ${POSTGRES_IMAGE:-postgres:18-bookworm}
     restart: unless-stopped
     shm_size: ${POSTGRES_SHM_SIZE:-1gb}
@@ -23,9 +25,9 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
-      # The tablespace policy keeps designated live indexes on the attached
-      # volume while the primary cluster remains on root (the cluster is
-      # larger than this volume and the volume also retains logical backups).
+      # migrate-runtime-storage.sh relocates the whole Docker/containerd runtime
+      # to attached storage while preserving this named volume and its paths.
+      # The existing external tablespace stays mounted at its original path.
       - ${POSTGRES_TABLESPACE_HOST_DIR:-/mnt/HC_Volume_105915443/autoapplication/postgres-tablespace}:/var/lib/postgresql/tablespace
     healthcheck:
       test:
@@ -39,6 +41,8 @@ services:
 
   app:
     logging: *bounded-logging
+    cpu_shares: 2048
+    pids_limit: 256
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -62,6 +66,8 @@ services:
 
   worker-ingestion:
     logging: *bounded-logging
+    cpu_shares: 256
+    pids_limit: 512
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -84,6 +90,8 @@ services:
 
   worker-source-workers:
     logging: *bounded-logging
+    cpu_shares: 512
+    pids_limit: 1024
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -106,6 +114,8 @@ services:
 
   worker-maintenance:
     logging: *bounded-logging
+    cpu_shares: 256
+    pids_limit: 512
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -128,6 +138,8 @@ services:
 
   worker:
     logging: *bounded-logging
+    cpu_shares: 256
+    pids_limit: 1024
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -152,6 +164,8 @@ services:
 
   backup-runner:
     logging: *bounded-logging
+    cpu_shares: 256
+    pids_limit: 256
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -169,6 +183,8 @@ services:
 
   caddy:
     logging: *bounded-logging
+    cpu_shares: 1024
+    pids_limit: 128
     image: caddy:2-alpine
     restart: unless-stopped
     env_file: *prod-env

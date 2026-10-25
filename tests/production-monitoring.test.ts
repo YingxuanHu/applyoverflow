@@ -74,6 +74,7 @@ source deploy/single-vps/install-monitoring-cron.sh
 `,
     });
     assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(path.join(dir, "health"), "utf8"), /^MONITOR_ALERT_EMAIL=alvin\.hu@mail\.utoronto\.ca$/m);
     assert.equal(await readFile(path.join(dir, "root-cron"), "utf8"), "0 8 * * * backup-command\n5 * * * * capture-supply-health.sh\n");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
