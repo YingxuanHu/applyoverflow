@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -224,6 +224,7 @@ function deployRemote() {
 function runDeployment(input: string, env: Partial<NodeJS.ProcessEnv>) {
   const volume = mkdtempSync(path.join(tmpdir(), "ao-deploy-volume-"));
   mkdirSync(path.join(volume, "autoapplication/storage-cutover"), { recursive: true });
+  writeFileSync(path.join(volume, "Caddyfile"), 'dev.example.test {\n  respond "Private" 403\n}\n');
   try {
     return spawnSync("bash", ["-s"], {
       cwd: root, encoding: "utf8", timeout: 5000,
@@ -239,6 +240,12 @@ df() {
 }
 mock_docker() {
   case "$*" in
+    *"exec -T caddy caddy "*)
+      [[ "$*" == *" --config /dev/stdin --adapter caddyfile" ]] || return 90
+      cmp -s - "$TEST_DEPLOY_VOLUME/Caddyfile" || return 91
+      printf 'DOCKER %s\\nCADDY_STDIN_MATCH\\n' "$*"
+      if [[ "\${MOCK_CADDY_FAILURE:-}" == validate && "$*" == *" caddy validate "* ]]; then return 42; fi
+      if [[ "\${MOCK_CADDY_FAILURE:-}" == reload && "$*" == *" caddy reload "* ]]; then return 43; fi;;
     *"config --images"*)
       [[ "$*" == *"--profile ops"* ]] || return 1
       printf 'single-vps-app\\nsingle-vps-worker-maintenance\\nsingle-vps-worker-source-workers\\n'
@@ -254,7 +261,8 @@ mock_docker() {
 }
 docker() { mock_docker "$@"; }
 ${input}`,
-      env: { ...process.env, MOCK_MOUNT: "healthy", MOCK_ROOT_FREE: "10000000000", ...env, TEST_DEPLOY_VOLUME: volume },
+      env: { ...process.env, MOCK_MOUNT: "healthy", MOCK_ROOT_FREE: "10000000000", ...env,
+        TEST_DEPLOY_VOLUME: volume, COMPOSE_FILE: path.join(volume, "test.yml") },
     });
   } finally { rmSync(volume, { recursive: true, force: true }); }
 }
@@ -285,6 +293,11 @@ test("app-only releases build current migrations and never recreate database dep
   assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d).*postgres/);
   assert.match(result.stdout, /image tag single-vps-worker-maintenance:latest single-vps-backup-runner:latest/);
   assert.doesNotMatch(result.stdout, /(?:build|up -d|run -T).*backup-runner/);
+  assert.ok(result.stdout.indexOf("caddy validate") < result.stdout.indexOf("image tag"));
+  assert.ok(result.stdout.indexOf("caddy validate") < result.stdout.indexOf("build app"));
+  assert.ok(result.stdout.indexOf("EXPECTED_REVISION=") < result.stdout.indexOf("caddy reload"));
+  assert.equal(result.stdout.match(/CADDY_STDIN_MATCH/g)?.length, 2);
+  assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d|restart|run -T).*caddy/);
 });
 
 test("failed candidate transport verification blocks migrations and service restarts", () => {
@@ -294,7 +307,7 @@ test("failed candidate transport verification blocks migrations and service rest
       DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "",
   });
   assert.equal(result.status, 1, result.stderr);
-  assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d/);
+  assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d|caddy reload/);
   assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest/);
 });
 
@@ -377,7 +390,38 @@ test("ops image mismatch or failed app health prevents backup-runner promotion",
     });
     assert.notEqual(result.status, 0, failure);
     assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest/);
+    assert.doesNotMatch(result.stdout, /caddy reload/);
     if (failure === "ops-name") assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d/);
+  }
+});
+
+test("Caddy validation and reload fail closed without recreating Caddy or the database", () => {
+  for (const prebuilt of ["", "test-release"]) {
+    for (const failure of ["validate", "reload", "restart", "migration"] as const) {
+      const result = runDeployment(`docker() {
+        if [[ "$MOCK_FAILURE" == restart && "$*" == *" up -d "* ]]; then return 44; fi
+        if [[ "$MOCK_FAILURE" == migration && "$*" == *"prisma migrate deploy"* ]]; then return 45; fi
+        mock_docker "$@"
+      }\n${deployRemote()}`, {
+        REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: prebuilt, ENV_FILE: "test.env",
+        BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "", REMOTE_BUILDER: "",
+        DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "1",
+        MOCK_FAILURE: failure, MOCK_CADDY_FAILURE: failure,
+      });
+      assert.equal(result.status, { validate: 42, reload: 43, restart: 44, migration: 45 }[failure], `${prebuilt}:${failure}: ${result.stderr}`);
+      assert.match(result.stdout, /exec -T caddy caddy validate --config \/dev\/stdin --adapter caddyfile/);
+      assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d|restart|run -T).*\b(?:caddy|postgres)\b/);
+      assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest|image rm|prune/);
+      if (failure === "validate") {
+        assert.doesNotMatch(result.stdout, /network create|image tag|DOCKER.*build|prisma migrate deploy|up -d/);
+      }
+      if (failure === "reload") {
+        assert.ok(result.stdout.indexOf("EXPECTED_REVISION=") < result.stdout.indexOf("caddy reload"));
+        assert.equal(result.stdout.match(/CADDY_STDIN_MATCH/g)?.length, 2);
+      } else {
+        assert.doesNotMatch(result.stdout, /caddy reload/);
+      }
+    }
   }
 });
 

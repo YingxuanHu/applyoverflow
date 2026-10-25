@@ -85,6 +85,10 @@ flock -n 8 || { echo 'Storage migration is in progress.' >&2; exit 1; }
 root_free=$(df -B1 --output=avail / | tail -1)
 read -r volume_size volume_free < <(df -B1 --output=size,avail "$VOLUME" | tail -1)
 (( root_free >= 5368709120 && volume_free >= volume_size / 5 )) || { echo 'Insufficient deployment disk reserve (5 GiB root and 20% attached required).' >&2; exit 1; }
+CADDYFILE="$(dirname "$COMPOSE_FILE")/Caddyfile"
+echo "Validating the candidate Caddy configuration"
+"${COMPOSE[@]}" exec -T caddy caddy validate --config /dev/stdin --adapter caddyfile < "$CADDYFILE"
+
 BUILD_COMMAND=("${COMPOSE[@]}" build)
 if [[ -n "${REMOTE_BUILDER:-}" ]]; then
   BUILD_COMMAND+=(--builder "$REMOTE_BUILDER")
@@ -158,6 +162,10 @@ if [[ " $SERVICES " == *" app "* ]]; then
       .then(async response => { const body = await response.json(); if (!response.ok || body.status !== "ready" || body.revision !== process.env.EXPECTED_REVISION) throw new Error("Released health/revision verification failed"); })
       .catch(error => { console.error(error.message); process.exit(1); });'
 fi
+
+# Read the host file directly: rsync may have replaced its bind-mounted inode.
+echo "Reloading the validated Caddy configuration"
+"${COMPOSE[@]}" exec -T caddy caddy reload --config /dev/stdin --adapter caddyfile < "$CADDYFILE"
 
 # Cron's ops runner must use the verified worker dependencies, including on an
 # app-only release. Promote only after runtime checks, and retain its old alias.
