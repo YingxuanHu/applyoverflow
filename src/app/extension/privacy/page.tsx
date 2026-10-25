@@ -18,7 +18,7 @@ export default function ExtensionPrivacyPage() {
         <h1 className="text-2xl font-semibold">
           Application assistant data use
         </h1>
-        <p className="text-muted-foreground">Updated September 21, 2026</p>
+        <p className="text-muted-foreground">Updated October 25, 2026</p>
         <p>
           This notice describes the ApplyOverflow Chrome extension and its
           application-review workflow.
@@ -31,17 +31,29 @@ export default function ExtensionPrivacyPage() {
         <p>
           Connecting requires sign-in and your approval. The connection can read
           your confirmed name, address, email, phone, preferred name, pronouns, professional links and skills. Filling
-          happens only after you choose it; existing answers, passwords, legal
-          consent and signatures stay unchanged. Optional demographic and work-eligibility
+          happens only after you choose it. Passwords, legal consent and signatures
+          remain manual. Optional demographic and work-eligibility
           answers are shared only after you enter them and separately enable their use in Profile.
           Only supported questions with an exact matching choice are filled; ambiguous choices stay manual.
+        </p>
+        <p>
+          &quot;Update saved contact and history&quot; is checked by default in
+          the toolbar and on-page assistant. With it enabled, Autofill can replace
+          supported prefilled contact fields and correct a uniquely matched work
+          or education record using your saved profile. Turn it off before
+          Autofill to keep prefilled values. Edits detected while the assistant is
+          active are left unchanged; it cannot reliably identify edits made before
+          it started or after a page reload. Review all corrections on the employer form.
+          Other existing answers and ambiguous history matches are left for your review.
         </p>
         <p>
           Autofill shares up to ten work entries and ten education entries to fill
           empty rows and add rows in supported work/education sections. Complete
           HiBob row editors can be saved before the next row is added. You can also
           select a single entry in More actions. Unknown dates and unsupported
-          controls remain manual. Autofill never submits an application.
+          controls remain manual. When a form requires full dates but your profile
+          has only a month, supported history fields use the first day for starts
+          and the last day for ends; review these dates. Autofill never submits an application.
         </p>
         <p>
           Resume sharing is off by default. You can explicitly enable sharing your
@@ -83,9 +95,11 @@ export default function ExtensionPrivacyPage() {
           ApplyOverflow are stored with your account. Remembering an answer is a
           separate choice, scoped to the same employer and question.
           Autofill sends the application URL and up to 40 question labels to find
-          matching saved answers. Only answers explicitly enabled for reuse are filled,
+          matching saved answers. Saved answers must be explicitly enabled for reuse,
           and they require review again when your profile changes. Answers entered in
-          the popup or on-page assistant stay on the form unless you choose to save them to your profile.
+          the popup or on-page assistant can be inserted with Fill answer or Use answer.
+          They are not saved for reuse unless you separately choose to save a supported
+          fact to your profile. You can also edit answers directly on the employer form.
           Older explicitly remembered answers remain scoped to the same employer and question. Optional demographic
           answers are not included in ranking or AI-generated materials. Legal agreements,
           signatures and unsupported sensitive fields remain manual.
@@ -109,6 +123,23 @@ export default function ExtensionPrivacyPage() {
           No answers already entered on the employer form are sent for drafting. Normal
           authentication and service requests may also produce operational logs,
           such as request time, status and network address.
+        </p>
+        <p>
+          When onboarding measurement is enabled, ApplyOverflow records setup and
+          autofill event names, random journey/run identifiers, website or extension
+          entry, and bounded filled/remaining field counts. These events can be linked
+          to your account; they do not contain application URLs, answer values,
+          profile fields or document contents. Records older than 30 days are
+          scheduled for cleanup when new events are recorded, not erased on an exact timer.
+        </p>
+        <p>
+          The website also tests a Content Security Policy in report-only mode;
+          it does not enforce that policy. Browsers may send violation reports to
+          ApplyOverflow, including page and resource URLs. The report handler
+          discards those URLs, referrers, code samples and other free-form details,
+          and logs only allowed directive names and broad resource categories.
+          Report sizes and volume are limited. These summaries use operational log
+          retention, not the onboarding-event cleanup period.
         </p>
         <p>
           The extension contains no advertising, third-party analytics or

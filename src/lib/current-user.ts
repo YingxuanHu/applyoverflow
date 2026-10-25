@@ -1,15 +1,19 @@
 import { headers } from "next/headers";
 import { cache } from "react";
+import { isAPIError } from "better-auth/api";
 
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import {
+  getAuthSecret,
   getSensitiveActionSessionFailure,
   getVerifiedSessionTokenFromHeaders,
+  hasPotentialSessionCookie,
   isSessionUsableByPolicy,
   type SessionPolicyReason,
 } from "@/lib/auth-session-policy";
 import { syncProfileForAuthUser } from "@/lib/user-profile-sync";
+import { ServiceUnavailableError, withServiceAvailability } from "@/lib/service-availability";
 
 export class UnauthorizedError extends Error {
   constructor(message = "Authentication required") {
@@ -42,12 +46,15 @@ type SessionUser = {
 };
 
 async function getPolicySession(requestHeaders: Headers) {
+  if (hasPotentialSessionCookie(requestHeaders) && !getAuthSecret()) {
+    throw new ServiceUnavailableError(new Error("Session verification is not configured."));
+  }
   const token = await getVerifiedSessionTokenFromHeaders(requestHeaders);
   if (!token) {
     return null;
   }
 
-  return withPrismaConnectionRetry(() =>
+  return withServiceAvailability(() => withPrismaConnectionRetry(() =>
     prisma.session.findUnique({
       where: { token },
       select: {
@@ -61,46 +68,46 @@ async function getPolicySession(requestHeaders: Headers) {
         },
       },
     })
-  );
+  ));
 }
 
 const getSessionUser = cache(async (): Promise<SessionUser | null> => {
-  // Next.js uses headers() to opt out of prerendering. Do not turn that
-  // framework signal into an unauthenticated session in the catch below.
+  // Keep Next request APIs outside dependency error translation.
   const requestHeaders = await headers();
-  try {
-    const policySession = await getPolicySession(requestHeaders);
+  const policySession = await getPolicySession(requestHeaders);
 
-    if (
-      !policySession?.userId ||
-      policySession.user.status !== "ACTIVE" ||
-      !isSessionUsableByPolicy(policySession)
-    ) {
-      return null;
-    }
-
-    const session = await withPrismaConnectionRetry(() =>
-      auth.api.getSession({
-        headers: requestHeaders,
-      })
-    );
-
-    if (!session?.user) {
-      return null;
-    }
-
-    if (session.user.id !== policySession.userId) {
-      return null;
-    }
-
-    return {
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name,
-    };
-  } catch {
+  if (
+    !policySession?.userId ||
+    policySession.user.status !== "ACTIVE" ||
+    !isSessionUsableByPolicy(policySession)
+  ) {
     return null;
   }
+
+  const session = await withServiceAvailability(async () => {
+    try {
+      return await withPrismaConnectionRetry(() => auth.api.getSession({ headers: requestHeaders }));
+    } catch (error) {
+      // Better Auth reports a concurrent session revocation during refresh as
+      // UNAUTHORIZED. Its database/internal failures must not become logout.
+      if (isAPIError(error) && error.status === "UNAUTHORIZED") return null;
+      throw error;
+    }
+  });
+
+  if (!session?.user) {
+    return null;
+  }
+
+  if (session.user.id !== policySession.userId) {
+    return null;
+  }
+
+  return {
+    id: session.user.id,
+    email: session.user.email,
+    name: session.user.name,
+  };
 });
 
 export async function requireFreshSensitiveSession() {
@@ -134,7 +141,7 @@ export async function requireCurrentWebSession() {
 }
 
 async function ensureProfileForUser(user: SessionUser) {
-  return syncProfileForAuthUser(user);
+  return withServiceAvailability(() => syncProfileForAuthUser(user));
 }
 
 export async function getOptionalSessionUser() {

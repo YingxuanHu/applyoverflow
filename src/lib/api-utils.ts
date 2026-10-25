@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { type ApiRateLimitRule, enforceApiRateLimit } from "@/lib/api-rate-limit";
 import { AiAccessDeniedError, UnauthorizedError } from "@/lib/current-user";
+import { ServiceUnavailableError, serviceUnavailableResponse } from "@/lib/service-availability";
 
 export const API_BODY_LIMITS = {
   authJson: 8 * 1024,
@@ -80,12 +81,13 @@ export async function parseJsonBodyWithLimit<T = unknown>(
   request: Request,
   maxBytes: number,
   label = "Request",
-  invalidMessage = "Invalid JSON body"
+  invalidMessage = "Invalid JSON body",
+  options?: { timeoutMs: number }
 ): Promise<JsonBodyResult<T>> {
   const tooLarge = requestSizeLimitResponse(request, maxBytes, label);
   if (tooLarge) return { ok: false, response: tooLarge };
 
-  const body = await readRequestTextWithLimit(request, maxBytes, label);
+  const body = await readRequestTextWithLimit(request, maxBytes, label, options?.timeoutMs);
   if (!body.ok) return body;
 
   if (!body.text.trim()) {
@@ -102,7 +104,8 @@ export async function parseJsonBodyWithLimit<T = unknown>(
 async function readRequestTextWithLimit(
   request: Request,
   maxBytes: number,
-  label: string
+  label: string,
+  timeoutMs?: number
 ): Promise<{ ok: true; text: string } | { ok: false; response: NextResponse }> {
   if (!request.body) {
     return { ok: true, text: "" };
@@ -112,31 +115,41 @@ async function readRequestTextWithLimit(
   const decoder = new TextDecoder();
   let bytesRead = 0;
   let text = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = timeoutMs === undefined ? null : new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const result = timeout ? await Promise.race([reader.read(), timeout]) : await reader.read();
+      if (result === "timeout") {
+        void reader.cancel().catch(() => undefined);
+        return { ok: false, response: errorResponse(`${label} took too long to receive.`, 408) };
+      }
+      const { value, done } = result;
+      if (done) break;
 
-    bytesRead += value.byteLength;
-    if (bytesRead > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      return {
-        ok: false,
-        response: NextResponse.json(
-          {
-            error: `${label} is too large.`,
-            maxBytes,
-          },
-          { status: 413 }
-        ),
-      };
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        void reader.cancel().catch(() => undefined);
+        return {
+          ok: false,
+          response: NextResponse.json(
+            { error: `${label} is too large.`, maxBytes },
+            { status: 413 }
+          ),
+        };
+      }
+
+      text += decoder.decode(value, { stream: true });
     }
-
-    text += decoder.decode(value, { stream: true });
+    text += decoder.decode();
+    return { ok: true, text };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    reader.releaseLock();
   }
-
-  text += decoder.decode();
-  return { ok: true, text };
 }
 
 export function handleApiRouteError(
@@ -147,6 +160,12 @@ export function handleApiRouteError(
     unauthorizedMessage?: string;
   }
 ) {
+  if (error instanceof ServiceUnavailableError) {
+    // Dependency exceptions can contain query parameters, account data or DSNs.
+    console.error(`${logLabel}: SERVICE_UNAVAILABLE`);
+    return serviceUnavailableResponse();
+  }
+
   if (isUnauthorizedApiError(error)) {
     return unauthorizedResponse(options?.unauthorizedMessage);
   }

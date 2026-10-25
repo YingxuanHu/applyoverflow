@@ -11,11 +11,13 @@ const ENV_KEYS = [
   "APP_URL",
   "HETZNER_APP_URL",
   "NEXT_PUBLIC_BETTER_AUTH_URL",
+  "NODE_ENV",
 ] as const;
 
 type EnvKey = (typeof ENV_KEYS)[number];
 
 function withEnv(overrides: Partial<Record<EnvKey, string>>, fn: () => void) {
+  const env: Record<string, string | undefined> = process.env;
   const snapshot = new Map<EnvKey, string | undefined>();
   for (const key of ENV_KEYS) {
     snapshot.set(key, process.env[key]);
@@ -33,7 +35,7 @@ function withEnv(overrides: Partial<Record<EnvKey, string>>, fn: () => void) {
       if (original === undefined) {
         delete process.env[key];
       } else {
-        process.env[key] = original;
+        env[key] = original;
       }
     }
   }
@@ -132,4 +134,36 @@ test("buildRuntimeTrustedOrigins includes configured env URLs and localhost defa
       assert.ok(origins.includes("http://127.0.0.1:3000"));
     }
   );
+});
+
+test("production trusts configured origins only, with no automatic loopback origins", () => {
+  withEnv({ NODE_ENV: "production", BETTER_AUTH_URL: "https://app.example" }, () => {
+    assert.deepEqual(buildRuntimeTrustedOrigins(attackerHeaders), ["https://app.example"]);
+  });
+});
+
+test("production-mode local CI explicitly opts into only its configured local origin", () => {
+  withEnv({ NODE_ENV: "production", BETTER_AUTH_URL: "http://127.0.0.1:4333" }, () => {
+    assert.equal(resolveCanonicalAppUrl(), "http://127.0.0.1:4333");
+    assert.deepEqual(buildRuntimeTrustedOrigins(), ["http://127.0.0.1:4333"]);
+  });
+});
+
+test("production without canonical configuration never generates localhost links", () => {
+  withEnv({ NODE_ENV: "production" }, () => {
+    assert.throws(resolveCanonicalAppUrl, /Configure BETTER_AUTH_URL or APP_URL/);
+    assert.deepEqual(buildRuntimeTrustedOrigins(attackerHeaders), []);
+  });
+});
+
+test("trusted origins normalize paths and whitespace without adding request origins", () => {
+  withEnv({ NODE_ENV: "production", APP_URL: " https://app.example/path?value=1 ", BETTER_AUTH_URL: "https://app.example/" }, () => {
+    assert.deepEqual(buildRuntimeTrustedOrigins(attackerHeaders), ["https://app.example"]);
+  });
+});
+
+test("non-HTTP, credential-bearing and wildcard trusted URLs fail closed", () => {
+  for (const APP_URL of ["javascript:alert(1)", "https://user:password@app.example", "https://*.example", "not a URL"]) {
+    withEnv({ NODE_ENV: "production", APP_URL }, () => assert.throws(buildRuntimeTrustedOrigins));
+  }
 });
