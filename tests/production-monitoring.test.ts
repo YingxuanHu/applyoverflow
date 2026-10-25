@@ -6,6 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { collectReportSections } from "../src/lib/ingestion/supply-report-runner";
 
+test("public development hostname cannot proxy to the co-hosted staging runtime", async () => {
+  const caddy = await readFile("deploy/single-vps/Caddyfile", "utf8");
+  const development = caddy.slice(caddy.indexOf("dev.applyoverflow.com {"));
+  assert.match(development, /respond "Development environment is not publicly available\." 403/);
+  assert.doesNotMatch(development, /reverse_proxy/);
+});
+
 test("supply sections run serially and retain healthy results after a failure", async () => {
   let active = 0;
   let maxActive = 0;
