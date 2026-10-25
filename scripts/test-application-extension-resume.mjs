@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { zipSync, strToU8 } from "fflate";
 import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
 
-const browser = await chromium.launch();
+execFileSync(process.execPath, ["scripts/build-application-extension.mjs", "--test-output"], { stdio: "pipe" });
 const runtime = await readFile(
-  "output/extension/local/adapter-runtime.js",
+  "output/extension/package-test/production/adapter-runtime.js",
   "utf8",
 );
+const browser = await chromium.launch();
 const payload = {
   name: "Jordan Resume.pdf",
   mimeType: "application/pdf",

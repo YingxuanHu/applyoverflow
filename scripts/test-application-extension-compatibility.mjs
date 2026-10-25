@@ -108,12 +108,21 @@ try {
   await page.evaluate(code => { window.inspect = (0, eval)(code); }, source);
   const workable = await inspect();
   assert.equal(workable.available, 3);
-  assert.equal(workable.resumeAvailable, false);
+  assert.equal(workable.resumeAvailable, true);
   assert.equal((await inspect("fill")).filled, 3);
   assert.equal(await page.locator("#QA_reference").inputValue(), "");
   assert.equal(await page.locator('[name="phone"]').inputValue(), "");
   assert.equal(await page.locator("#address").inputValue(), "Toronto, Canada");
   assert.equal(await page.locator("#cover_letter").inputValue(), "");
+  const resumeBytes = Buffer.from('%PDF-1.4\nsynthetic Workable resume\n%%EOF');
+  const resume = await page.evaluate(() => window.inspect('prepare-resume', {}, location.href));
+  const attached = await page.evaluate(payload => window.inspect('attach-resume', payload, location.href), {
+    name: 'Fixture.pdf', mimeType: 'application/pdf', size: resumeBytes.length,
+    base64: resumeBytes.toString('base64'), resumeToken: resume.resumeToken,
+  });
+  assert.equal(attached.resumeSelected, true);
+  assert.equal(await page.locator('#resume').evaluate(input => input.files[0].text()), resumeBytes.toString());
+  assert.equal(await page.locator('#photo').evaluate(input => input.files.length), 0);
   assert.equal((await inspect("undo")).undone, 3);
   for (const attribute of ["id", "name", "data-ui"]) {
     await page.goto(workableUrl);

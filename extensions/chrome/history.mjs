@@ -48,6 +48,7 @@ export function createHistoryInspector() {
     "college or university": "school",
     "college/university": "school",
     degree: "degree",
+    "education level": "degree",
     qualification: "degree",
     "qualification name": "degree",
     "field of study": "fieldOfStudy",
@@ -324,10 +325,14 @@ export function createHistoryInspector() {
   }
   const headingSelector = 'legend,h2,h3,h4,[role="heading"],p';
   const kindFromLabel = label => {
+    label = label.replace(/\s*\(complete or remove this section\)$/, "");
     if (/^(?:(?:your|previous|professional) )?(?:experience|work experience|work history|career history|employment(?: history| experience)?|professional experience)(?: \d+)?$/.test(label)) return "experience";
     if (/^(?:your )?(?:education|education history|education background|educational background|highest education qualification)(?: \d+)?$/.test(label)) return "education";
     return null;
   };
+  const addLabel = button => normalize(button.getAttribute("aria-label") || button.textContent)
+    .replace(/[\uE000-\uF8FF]/g, "").replace(/\s*\(complete or remove this section\)$/, "").trim();
+  const isAdd = button => /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work |employment |education )?(?:experience|entry|education|job|position))?$/.test(addLabel(button));
   const kindOf = (group) => {
     if (/^(?:job-)?boards(?:\.eu)?\.greenhouse\.io$/.test(location.hostname) && group.matches('.education--form,.education--container')) return "education";
     const named = (group.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map(id => document.getElementById(id)?.textContent || "").join(" ");
@@ -342,7 +347,7 @@ export function createHistoryInspector() {
     // Only look through short, control-free wrappers, not into another row.
     const kinds = new Set();
     for (const child of group.children) {
-      if (child.querySelector('input,textarea,select,button,a,[role="combobox"]')) continue;
+      if (child.querySelector('input,textarea,select,a,[role="combobox"]')) continue;
       for (const heading of child.matches(headingSelector) ? [child] : child.querySelectorAll(headingSelector)) {
         let node = heading, depth = 0;
         while (node && node !== child && depth < 3) { node = node.parentElement; depth++; }
@@ -361,7 +366,7 @@ export function createHistoryInspector() {
       clear();
     const controls = 'input,textarea,select,[role="combobox"],button[aria-haspopup="listbox"]';
     const containers = new Map();
-    for (const group of form.querySelectorAll('fieldset,section,[role="group"],[data-automation-id],careers-ui-experience-edit-item,careers-ui-experience-form-control,.education--form,.education--container')) {
+    for (const group of form.querySelectorAll('fieldset,section,[role="group"],[role="region"],[data-automation-id],careers-ui-experience-edit-item,careers-ui-experience-form-control,.education--form,.education--container')) {
       const kind = kindOf(group);
       if (kind && visible(group)) containers.set(group, kind);
     }
@@ -370,7 +375,7 @@ export function createHistoryInspector() {
     for (const heading of form.querySelectorAll('h2,h3,h4,legend,[role="heading"],p')) {
       for (let node = heading.parentElement, depth = 0; node && node !== form && depth < 4; node = node.parentElement, depth++) {
         const kind = kindOf(node);
-        if (kind && visible(node) && (node.querySelector(controls) || node.querySelector('button'))) {
+        if (kind && visible(node) && (node.querySelector(controls) || [...node.querySelectorAll('button')].some(isAdd))) {
           containers.set(node, kind); break;
         }
       }
@@ -378,7 +383,7 @@ export function createHistoryInspector() {
     // A repeater's Add control can be a sibling of its labelled rows. Locate
     // their nearest shared owner, without absorbing other sections or Submit.
     for (const button of form.querySelectorAll('button[type="button"]')) {
-      const match = /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work )?(experience|education))?$/i.exec(button.textContent.trim());
+      const match = /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work )?(experience|education))?$/.exec(addLabel(button));
       if (!match || !visible(button)) continue;
       for (let node = button.parentElement, depth = 0; node && node !== form && depth < 4; node = node.parentElement, depth++) {
         const kinds = new Set([...containers].filter(([group]) => node.contains(group)).map(([, kind]) => kind));
@@ -482,7 +487,7 @@ export function createHistoryInspector() {
         const kind = containers.get(group);
         if (!kind || !visible(group)) return [];
         const buttons = [...group.querySelectorAll('button')].filter(button =>
-          (button.type === "button" || !button.form) && visible(button) && !button.disabled && /^(?:\+\s*)?add(?: (?:another|more))?(?: (?:work |employment |education )?(?:experience|entry|education|job|position))?$/i.test(button.textContent.trim()));
+          (button.type === "button" || !button.form) && visible(button) && !button.disabled && isAdd(button));
         return buttons.length === 1 ? [{ group, kind, button: buttons[0] }] : [];
       }).filter((item, _, all) => !all.some(other => other !== item && item.group.contains(other.group) && item.button === other.button));
     const available = groups.length > 0 || repeaters.length > 0;

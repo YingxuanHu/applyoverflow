@@ -7,6 +7,8 @@ import { createAutofillInspector } from "./autofill.mjs";
 export function createInspector(resolveContext, history, autofill, submission, workspace) {
   let resumeTarget;
   const attemptedResumes = new WeakSet();
+  const resumeAttempts = new WeakMap();
+  const formResumeAttempts = new WeakMap();
   let undoEntries = [],
     undoUrl = "",
     undoTimer;
@@ -183,7 +185,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
         ["linkedInUrl", /^(?:link to (?:your )?)?linked[ -]?in(?: (?:profile|public profile))?(?: (?:url|link|address))?$/],
         ["githubUrl", /^github(?: profile)?(?: (?:url|link|address))?$/],
         ["portfolioUrl", /^(?:personal )?(?:portfolio|website)(?: (?:url|link|address))?$/],
-        ["region", /^(?:state|province|region)(?:\s*(?:[/,]|or)\s*(?:state|province|region|territory)){1,2}$/],
+        ["region", /^(?:state|province|region)(?:\s*(?:[/,]|or)\s*(?:state|province|region|territory)){1,2}(?: or local equivalent)?$/],
         ["region", /(?:^|[.!]\s*)(?:in )?which (?:us |u\.s\. |canadian )?(?:state|province) do you (?:reside|live)(?: in)?\??$|^(?:state|province) of residence$/],
         ["city", /^(?:current |home )?city(?: of residence)?$|^city\s*\/\s*town$|^(?:current )?location(?:\s*\(city\))?$/],
         ["cityRegion", /^(?:current )?location\s*\(city,?\s*(?:province|state)(?: or (?:province|state))?\)$/],
@@ -202,6 +204,20 @@ export function createInspector(resolveContext, history, autofill, submission, w
     const valueControls =
       'input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"]';
     const choiceSelector = 'button[aria-pressed],[role="radio"][aria-checked]:not(input)';
+    const menuSelectSelector = 'button[type="button"][aria-haspopup="true"],button[type="button"][aria-haspopup="menu"]';
+    // A labelled native select establishes that this menu is a value picker,
+    // not an action menu. Never write to the hidden mirror directly.
+    const menuSelectRoot = field => {
+      if (!field.matches(menuSelectSelector)) return null;
+      for (let root = field.parentElement, depth = 0; root && !root.matches('body,form,[role="form"]') && depth < 6; root = root.parentElement, depth++) {
+        const controls = [...root.querySelectorAll('input:not([type="hidden"]),textarea,select,[role="combobox"],button[aria-haspopup]')];
+        const select = controls.find(node => node instanceof HTMLSelectElement);
+        if (controls.length === 2 && controls.includes(field) && select && !visible(select) &&
+            !select.multiple && !select.disabled && select.labels?.length === 1 && visible(select.labels[0])) return root;
+        if (controls.length > 2) break;
+      }
+      return null;
+    };
     const readonlyTrigger = field => {
       if (!(field instanceof HTMLInputElement) || !field.readOnly || field.tabIndex !== -1 || field.type !== "text") return null;
       const trigger = field.parentElement?.closest('[tabindex="0"]');
@@ -221,6 +237,10 @@ export function createInspector(resolveContext, history, autofill, submission, w
       return null;
     };
     const labelFor = (element) => {
+      if (element.matches(menuSelectSelector)) {
+        const mirror = menuSelectRoot(element)?.querySelector('select');
+        return mirror ? labelFor(mirror) : "";
+      }
       if (element.matches(choiceSelector))
         return (element.getAttribute("aria-label") || element.textContent).trim().replace(/\s+/g, " ");
       if (phoneGroup(element)) return "Phone country";
@@ -302,10 +322,18 @@ export function createInspector(resolveContext, history, autofill, submission, w
       return "";
     };
     const controlSelector =
-      `input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby],${choiceSelector}`;
+      `input, textarea, select, [role="combobox"], button[aria-haspopup="listbox"], [role="button"][aria-haspopup][aria-labelledby],${menuSelectSelector},${choiceSelector}`;
     const flexible = ["generic", "workday", "icims", "workable"].includes(
       context.provider,
     );
+    const accessibleName = node => node.getAttribute("aria-label") ||
+      (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent || "").join(" ");
+    // Application shells are often labelled divs, not HTML forms. Their name
+    // establishes scope; visible applicant identity fields still gate detection.
+    const applicationShells = flexible ? [...document.querySelectorAll('[aria-label],[aria-labelledby]')]
+      .filter(node => !node.matches('body,html,input,button,select,textarea,a') && visible(node) &&
+        /^(?:(?:job|candidate|employment) )?application(?: form)?$/i.test(accessibleName(node).trim())) : [];
     const applicationHeading =
       /\b(application|apply|my information|my experience|candidate info(?:rmation)?)\b/i.test(
         [
@@ -330,9 +358,10 @@ export function createInspector(resolveContext, history, autofill, submission, w
       return facts.has("email") && (facts.has("givenName") || facts.has("fullName")) &&
         !form.querySelector('input[type="password"]');
     };
-    const applicationForm = form => /(?:job[-_]?application|application[-_]?form|applyform)/i.test(`${form.id} ${form.getAttribute("name") || ""}`) && contactEvidence(form);
+    const applicationForm = form => (applicationShells.includes(form) ||
+      /(?:job[-_]?application|application[-_]?form|applyform)/i.test(`${form.id} ${form.getAttribute("name") || ""}`)) && contactEvidence(form);
     const forms = [
-      ...document.querySelectorAll(
+      ...new Set([...applicationShells, ...document.querySelectorAll(
         hibob ? "careers-ui-job-ad-application-form" : context.provider === "ashby"
           ? ".ashby-application-form-container"
           : context.provider === "workable"
@@ -340,7 +369,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
             : context.provider === "workday"
               ? 'form, [data-automation-id="applyFlowPage"]'
               : 'form, [role="form"]',
-      ),
+      )]),
     ]
       .filter(
         (form) =>
@@ -380,7 +409,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
       );
     // Form-less employer pages: require multiple applicant facts and a resume
     // control inside one non-document container, plus explicit application text.
-    if (!forms.length && flexible && applicationHeading) {
+    if (!forms.length && flexible && applicationHeading && !applicationShells.length) {
       const inputs = [...document.querySelectorAll("input")].filter(field => visible(field));
       const emails = inputs.filter(field => meaning(labelFor(field)) === "email");
       if (emails.length === 1) {
@@ -445,100 +474,116 @@ export function createInspector(resolveContext, history, autofill, submission, w
         break;
       }
     }
-    const resumeInputs = [
+    const resumeWidgets = new Map();
+    const resumePrompt = value => /^(?:(?:upload|attach|choose|select) (?:your |a )?)?(?:resume|r\u00e9sum\u00e9|cv|curriculum vitae)(?:\s*[/&]\s*(?:resume|cv))?$/.test(normalize(value));
+    // A complete list of file-type tokens is guidance, not an uploaded filename.
+    const fileTypeHint = value => /^(?:(?:accepted|supported|allowed)\s+(?:file\s+)?(?:types|formats|extensions)\s*:\s*)?(?:\*?\.)?(?:pdf|docx?|rtf|txt)(?:\s*(?:[,;/|]|\bor\b|\band\b)\s*(?:\*?\.)?(?:pdf|docx?|rtf|txt))*$/i.test(value);
+    const attachmentPresent = widget => [...widget.querySelectorAll('button,a,p,span,[data-automation-id="fileName"]')]
+      .some(node => visible(node) && (/^(?:remove|replace|delete)(?:\s+(?:file|resume|cv|attachment))?$/i.test((node.getAttribute('aria-label') || node.textContent).trim()) ||
+        (/^[^\n<>]{1,180}\.(?:pdf|docx?|rtf|txt)$/i.test(node.textContent.trim()) && !fileTypeHint(node.textContent.trim()))));
+    const semanticResumeWidget = field => {
+      // File inputs are commonly hidden and id-less. Bind one local document
+      // prompt to one picker, never the first file input or a page-wide heading.
+      const ownLabel = labelFor(field);
+      const named = resumePrompt(ownLabel);
+      if (/\b(?:cover letter|photo|picture|portfolio|import|autofill)\b/i.test(ownLabel)) return null;
+      for (let widget = field.parentElement, depth = 0; widget && widget !== forms[0] && depth < 7; widget = widget.parentElement, depth++) {
+        if (widget.querySelectorAll('input[type="file"]').length !== 1 ||
+          widget.querySelector('input:not([type="file"]):not([type="hidden"]),textarea,select,[role="combobox"]')) break;
+        if (!visible(widget)) continue;
+        const prompts = [widget, ...widget.querySelectorAll('label,p,legend,h2,h3,h4,[role="heading"],span')]
+          .filter(node => visible(node) && !node.querySelector('input,button,select,textarea') && resumePrompt(node.textContent));
+        const accessible = accessibleName(widget);
+        const buttons = [...widget.querySelectorAll('button,[role="button"]')].filter(visible);
+        const upload = buttons.filter(button => !button.matches(':disabled,[aria-disabled="true"]') &&
+          /^(?:(?:select file\s*[-:]\s*)?(?:upload|attach|choose|select) (?:your )?(?:resume|cv|resume\/cv)|(?:choose|select|upload|attach|browse)(?: (?:a )?files?)?)$/.test(normalize(labelFor(button) || button.textContent)));
+        const explicitAction = upload.some(button => resumePrompt((labelFor(button) || button.textContent).replace(/^select file\s*[-:]\s*/i, '')));
+        const labelled = named || resumePrompt(accessible) || prompts.length > 0 || explicitAction;
+        if (!labelled) continue;
+        if (/\b(?:cover letter|photo|picture|import|autofill)\b/i.test(accessible)) return null;
+        // The visible picker, a local upload action, or a labelled dropzone is
+        // enough evidence; a hidden control without a visible UI is not.
+        if ((visible(field) && getComputedStyle(field).opacity !== '0') || upload.length === 1 ||
+            (!buttons.length && /\b(?:upload|drag.{0,12}drop|choose file|browse)\b/i.test(widget.textContent))) return widget;
+      }
+      return named && visible(field) ? field : null;
+    };
+    const resumeCandidates = [
       ...forms[0].querySelectorAll('input[type="file"]'),
-    ].filter((field) => {
-      // Workable has separate resume/import/photo widgets. Keep file uploads
-      // manual until the complete upload lifecycle is verified.
-      if (context.provider === "workable") return false;
+    ].filter(field => {
+      if (field.closest('.ashby-application-form-autofill-input-root')) return false;
+      let widget = semanticResumeWidget(field);
+      // Older widgets expose their document prompt through provider-owned
+      // groups rather than a native label. They share the same safety checks.
       if (context.provider === "workday") {
         const group = field.closest('[role="group"][aria-labelledby]');
         const names = (group?.getAttribute("aria-labelledby") || "").split(/\s+/)
           .map(id => document.getElementById(id)?.textContent || "").filter(Boolean);
-        return names.length === 1 && /^(resume|resume\/cv|cv)$/.test(normalize(names[0])) &&
-          visible(group) && group.querySelectorAll('input[type="file"]').length === 1 &&
-          !field.disabled && !field.closest('[hidden],[inert],[aria-hidden="true"],[aria-busy="true"]') &&
-          !group.querySelector('[data-automation-id="fileName"],[data-automation-id="delete-file"],[data-automation-id="deleteFile"]');
+        if (names.length === 1 && resumePrompt(names[0]) && visible(group) &&
+            group.querySelectorAll('input[type="file"]').length === 1) widget = group;
       }
       if (rippling) {
-        const widget = field.closest('label[data-testid="resume"]');
-        const labels = (widget?.getAttribute("aria-labelledby") || "").split(/\s+/)
+        const group = field.closest('label[data-testid="resume"]');
+        const labels = (group?.getAttribute("aria-labelledby") || "").split(/\s+/)
           .map(id => document.getElementById(id)?.textContent || "");
-        return field.getAttribute("data-testid") === "input-resume" &&
+        if (field.getAttribute("data-testid") === "input-resume" &&
           forms[0].querySelectorAll('input[type="file"][data-testid="input-resume"]').length === 1 &&
-          widget && visible(widget) && !field.disabled && !field.multiple &&
-          !field.closest('[hidden],[inert],[aria-hidden="true"],[aria-busy="true"]') &&
-          labels.some(label => /^(resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(label)));
+          group && visible(group) && labels.some(resumePrompt)) widget = group;
       }
-      const hiddenUpload = flexible && (!visible(field) || getComputedStyle(field).opacity === "0" ||
-        !field.getBoundingClientRect().width || !field.getBoundingClientRect().height) && (() => {
-        // A local upload widget can expose an accessible button while hiding
-        // its file input. Never infer the target from a page-wide resume label.
-        for (let widget = field.parentElement, depth = 0; widget && widget !== forms[0] && depth < 5; widget = widget.parentElement, depth++) {
-          if (widget.querySelectorAll('input[type="file"]').length !== 1 ||
-            widget.querySelector('input:not([type="file"]):not([type="hidden"]),textarea,select')) break;
-          const buttons = [...widget.querySelectorAll('button')].filter(visible);
-          const upload = buttons.filter(button => button.type === "button" && !button.disabled &&
-            /^(?:select file\s*[-:]\s*)?(?:upload|attach|choose) (?:resume|cv|resume\/cv)$/.test(normalize(labelFor(button) || button.innerText)));
-          const walker = document.createTreeWalker(widget, NodeFilter.SHOW_TEXT), parts = [];
-          while (walker.nextNode()) parts.push(walker.currentNode.textContent);
-          const prompts = [...widget.querySelectorAll('label,p,legend,[role="heading"]')].filter(node => visible(node) &&
-            /^(?:(?:upload|attach|choose) )?(?:resume|r\u00e9sum\u00e9|resume\/cv|cv)$/.test(normalize(node.textContent)));
-          const dropzone = prompts.length === 1 && /\b(?:upload|drag.{0,12}drop|choose file|browse)\b/i.test(parts.join(" "));
-          if (visible(widget) && ((upload.length === 1 && buttons.length === 1) || (!buttons.length && dropzone)) &&
-            !/\b(?:remove|replace|delete)\b|[\w-]+\.(?:pdf|docx?)\b/i.test(parts.join(" "))) return true;
-        }
-        return false;
-      })();
-      if (!hiddenUpload && (
-        [...document.querySelectorAll("input")].filter(
-          (item) => item.id === field.id,
-        ).length !== 1
-      ))
-        return false;
-      if (
-        field.matches(":disabled") ||
-        field.multiple ||
-        field.closest(
-          '[hidden], [inert], [aria-hidden="true"], [aria-busy="true"]',
-        )
-      )
-        return false;
       const label = normalize(labelFor(field));
-      if (flexible)
-        return hiddenUpload || /^(resume|resume\/cv|cv)$/.test(label) && visible(field);
-      if (context.provider === "greenhouse")
-        return (
-          field.id === "resume" &&
-          /^(attach|resume|resume\/cv|cv)$/.test(label) &&
-          visible(field)
-        );
+      if (!widget && context.provider === 'greenhouse' && field.id === 'resume' &&
+          /^(attach|resume|resume\/cv|cv)$/.test(label) && visible(field)) widget = field.parentElement;
       if (context.provider === "lever") {
-        const widget = field.closest(".visible-resume-upload");
-        return (
-          field.name === "resume" &&
-          field.id === "resume-upload-input" &&
-          !!widget &&
-          visible(widget) &&
-          /resume|cv/i.test(
-            widget.querySelector(".default-label")?.textContent || "",
-          ) &&
-          !widget.querySelector(".filename")?.textContent?.trim()
-        );
+        const group = field.closest('.visible-resume-upload');
+        if (field.name === 'resume' && field.id === 'resume-upload-input' && group && visible(group) &&
+            /resume|cv/i.test(group.querySelector('.default-label')?.textContent || '')) widget = group;
       }
-      return (
-        field.id === "_systemfield_resume" &&
-        /^(resume|resume\/cv|cv)$/.test(label) &&
-        !field.closest(".ashby-application-form-autofill-input-root") &&
-        visible(field.closest(".ashby-application-form-input-file") || field)
-      );
+      if (!widget && context.provider === 'ashby' && field.id === '_systemfield_resume' && resumePrompt(label) &&
+          visible(field.closest('.ashby-application-form-input-file') || field)) widget = field.closest('.ashby-application-form-input-file') || field;
+      if (!widget || !visible(widget) || field.parentElement.closest('[hidden],[inert],[aria-hidden="true"]')) return false;
+      resumeWidgets.set(field, widget);
+      return true;
     });
-    const resumeInput = resumeInputs.length === 1 ? resumeInputs[0] : null;
+    const resumeInput = resumeCandidates.length === 1 ? resumeCandidates[0] : null;
+    const resumeWidget = resumeWidgets.get(resumeInput);
+    const uploadOutcome = (field, widget, attempt) => {
+      if (!widget.isConnected || location.href !== attempt.url) return { state: 'unverified', message: 'The form changed during resume upload. Check the attachment on the form.' };
+      const alerts = [...widget.querySelectorAll('[role="alert"],[aria-live="assertive"]')].filter(node => visible(node) && node.textContent.trim());
+      if (field.getAttribute('aria-invalid') === 'true' || field.validity.customError || alerts.some(node => /error|fail|reject|invalid|large|exceed|unsupported|not (?:allowed|accepted)/i.test(node.textContent)))
+        return { state: 'failed', message: 'The employer rejected the resume. Check its upload error and attach an accepted file.' };
+      if (widget.matches('[aria-busy="true"]') || widget.querySelector('[aria-busy="true"]') ||
+          [...widget.querySelectorAll('[role="progressbar"],progress')].some(node => visible(node) && (node.matches('progress')
+            ? !node.hasAttribute('value') || node.value < node.max
+            : !node.hasAttribute('aria-valuenow') || Number(node.getAttribute('aria-valuenow')) < Number(node.getAttribute('aria-valuemax') || 100))) ||
+          /\b(?:uploading|processing file|scanning file)\b/i.test(widget.innerText))
+        return { state: 'pending', message: 'Resume upload is still processing. Check the employer form before continuing.' };
+      const selected = field.files?.[0];
+      const displayed = [...widget.querySelectorAll('a,span,p,[role="status"]')].some(node => visible(node) && node.textContent.trim() === attempt.name);
+      if (displayed) return { state: 'attached', message: 'The employer form displays your resume attachment.' };
+      if (field.isConnected && selected?.name === attempt.name && selected?.size === attempt.size)
+        return { state: 'selected', message: 'Default resume selected. Check the employer form for upload confirmation.' };
+      return { state: 'unverified', message: 'Resume upload could not be confirmed. Check the attachment on the form; it was not uploaded again.' };
+    };
+    const existingResume = !!resumeInput && (Boolean(resumeInput.files?.length || resumeInput.value) || attachmentPresent(resumeWidget) ||
+      Boolean(resumeWidget.querySelector('[data-automation-id="fileName"],[data-automation-id="delete-file"],[data-automation-id="deleteFile"]')) ||
+      Boolean(resumeWidget.querySelector('.filename')?.textContent?.trim()));
+    const previousAttempt = resumeWidget && (resumeAttempts.get(resumeWidget) || formResumeAttempts.get(forms[0]));
+    const resumeAttempt = previousAttempt?.url === location.href ? previousAttempt : undefined;
+    const resumeOutcome = resumeAttempt && uploadOutcome(resumeInput, resumeWidget, resumeAttempt);
     const resumeAvailable =
       !!resumeInput &&
-      !resumeInput.files?.length &&
-      !resumeInput.value &&
+      !existingResume && !resumeAttempt &&
+      !resumeInput.matches(':disabled,[aria-disabled="true"]') &&
+      !resumeInput.closest('[inert],[aria-busy="true"]') &&
+      (!resumeInput.id || document.querySelectorAll(`[id="${CSS.escape(resumeInput.id)}"]`).length === 1) &&
       !attemptedResumes.has(resumeInput);
+    const manualResume = (resumeCandidates.length > 0 && !resumeAvailable && !existingResume && !resumeAttempt) || (!resumeInput && (
+      (forms[0].querySelector('input[type="file"]') && [...forms[0].querySelectorAll('label,p,legend,h2,h3,h4,[role="heading"]')]
+        .some(node => visible(node) && resumePrompt(node.textContent))) ||
+      (hibob && [...forms[0].querySelectorAll('careers-ui-upload-document-control')]
+        .some(widget => visible(widget) && /\b(resume|cv)\b/i.test(widget.textContent))) ||
+      [...(forms[0].closest('main,[role="main"]') || forms[0]).querySelectorAll('button')].some(button => visible(button) &&
+        /^(?:import|upload|attach) (?:resume|cv|resume\/cv)$/.test(normalize(labelFor(button) || button.innerText)))));
     const identityIds = {
       givenName: "first_name",
       familyName: "last_name",
@@ -768,8 +813,8 @@ export function createInspector(resolveContext, history, autofill, submission, w
         const paragraph = [...node.querySelectorAll(':scope > p,:scope > div > p,:scope > header > p')].find(p =>
           (p.parentElement === node || !p.parentElement.querySelector('input,textarea,select,button,a,[role="combobox"]')) &&
           /^(?:experience|work experience|employment(?: history)?|career history|education(?: history)?|references?|emergency contact|supervisor|manager|billing|shipping|signature|attestation)\s*[*:]?$/i.test(p.textContent.trim()));
-        if (node.matches('fieldset,section,[role="group"],careers-ui-experience-form-control') || heading || paragraph) {
-          const title = node.getAttribute("aria-label") || (heading || paragraph)?.textContent || "";
+        if (node.matches('fieldset,section,[role="group"],[role="region"],careers-ui-experience-form-control') || heading || paragraph) {
+          const title = accessibleName(node) || (heading || paragraph)?.textContent || "";
           const eligibilityTitle = /\b(?:work (?:authorization|eligibility)|employment (?:eligibility|visa|authorization))\b/i.test(title);
           const disclosureTitle = /\bequal employment opportunit(?:y|ies)\b/i.test(title) &&
             !/\b(?:references?|emergency|supervisor|work experience|employment history)\b/i.test(title);
@@ -788,12 +833,12 @@ export function createInspector(resolveContext, history, autofill, submission, w
       else if (!profileKey && inferred) profileKey = inferred;
       if (key === "skills") key = undefined;
       if (
-        readonlyTrigger(field) || field.matches(
+        readonlyTrigger(field) || menuSelectRoot(field) || field.matches(
           '[role="combobox"], [aria-autocomplete], [list], button[aria-haspopup="listbox"]',
         )
       )
         key = undefined;
-      return { field, label, key, profileKey, selectTrigger: readonlyTrigger(field), phoneGroup: phoneGroup(field), identityLabel: Boolean(inferred), inHistory: foreignContext,
+      return { field, label, key, profileKey, selectTrigger: readonlyTrigger(field), menuSelectRoot: menuSelectRoot(field), phoneGroup: phoneGroup(field), identityLabel: Boolean(inferred), inHistory: foreignContext,
         manualReason: declaration ? "Review this declaration on the employer form." : undefined };
     };
     const entryFor = field => {
@@ -824,9 +869,9 @@ export function createInspector(resolveContext, history, autofill, submission, w
       ...new Set(
         entries
           .filter(
-            ({ key, field, choiceFields }) =>
+            ({ key, field, choiceFields, menuSelectRoot }) =>
               !key &&
-              (choiceFields || field.type !== "button" ||
+              (choiceFields || menuSelectRoot || field.type !== "button" ||
                 field.matches(
                   '[role="combobox"], [aria-haspopup="listbox"]',
                 )) &&
@@ -883,11 +928,11 @@ export function createInspector(resolveContext, history, autofill, submission, w
       missingFields: [],
       review: questions.length,
       resumeAvailable,
-      resumeDetected: Boolean(resumeInput),
-      manualResume: !resumeInput && ((hibob && [...forms[0].querySelectorAll('careers-ui-upload-document-control')]
-        .some(widget => visible(widget) && /\b(resume|cv)\b/i.test(widget.textContent))) ||
-        [...(forms[0].closest('main,[role="main"]') || forms[0]).querySelectorAll('button')].some(button => visible(button) &&
-          /^(?:import|upload|attach) (?:resume|cv|resume\/cv)$/.test(normalize(labelFor(button) || button.innerText)))),
+      resumeDetected: resumeCandidates.length > 0 || manualResume,
+      resumeStatus: resumeOutcome?.state || (existingResume ? 'existing' : resumeAvailable ? 'available' : manualResume ? 'manual' : undefined),
+      resumeMessage: resumeOutcome?.message || (existingResume ? 'Existing resume kept unchanged.' : manualResume
+        ? 'The resume picker is ambiguous, disabled, or unavailable. Attach your resume on the form.' : undefined),
+      manualResume,
       undoAvailable: undoEntries.some(
         (entry) =>
           !entry.edited &&
@@ -1037,6 +1082,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
         };
       resumeTarget = {
         field: resumeInput,
+        widget: resumeWidget,
         form: forms[0],
         url: location.href,
         token: crypto.randomUUID(),
@@ -1052,6 +1098,7 @@ export function createInspector(resolveContext, history, autofill, submission, w
         target.token !== contact.resumeToken ||
         target.url !== location.href ||
         target.field !== resumeInput ||
+        target.widget !== resumeWidget ||
         target.form !== forms[0] ||
         !resumeAvailable
       )
@@ -1097,7 +1144,9 @@ export function createInspector(resolveContext, history, autofill, submission, w
           error:
             "This resume format is not accepted by the employer. Choose another file.",
         };
-      const binary = atob(contact.base64);
+      let binary;
+      try { binary = atob(contact.base64); }
+      catch { return { error: 'Resume download was incomplete. Try again.' }; }
       if (binary.length !== contact.size)
         return { error: "Resume download was incomplete. Try again." };
       const bytes = Uint8Array.from(binary, (character) =>
@@ -1107,10 +1156,20 @@ export function createInspector(resolveContext, history, autofill, submission, w
       const file = new File([bytes], contact.name, { type: contact.mimeType });
       data.items.add(file);
       attemptedResumes.add(resumeInput);
+      const attempt = { name: file.name, size: file.size, url: target.url };
+      resumeAttempts.set(resumeWidget, attempt);
+      formResumeAttempts.set(forms[0], attempt);
       resumeInput.files = data.files;
       resumeInput.dispatchEvent(new Event("input", { bubbles: true }));
       resumeInput.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 150));
+      let outcome = uploadOutcome(resumeInput, resumeWidget, attempt);
+      const uploadDeadline = Date.now() + 3000;
+      while (['pending', 'unverified'].includes(outcome.state) && Date.now() < uploadDeadline &&
+          location.href === target.url && resumeWidget.isConnected) {
+        await new Promise(resolve => setTimeout(resolve, 150));
+        outcome = uploadOutcome(resumeWidget.querySelector('input[type="file"]') || resumeInput, resumeWidget, attempt);
+      }
       if (rippling && autofill) {
         // Rippling imports contact details asynchronously after resume upload.
         // Keep this bounded; a late employer update still needs user review.
@@ -1120,17 +1179,14 @@ export function createInspector(resolveContext, history, autofill, submission, w
         if (location.href === target.url && forms[0].isConnected)
           await autofill("autofill-reconcile-resume", {}, entries, forms[0], labelFor, visible);
       }
-      const selected = resumeInput.files?.[0];
+      outcome = uploadOutcome(resumeWidget.querySelector('input[type="file"]') || resumeInput, resumeWidget, attempt);
       return {
         ...result,
         resumeAvailable: false,
         resumeParserReview: rippling,
-        resumeSelected:
-          resumeInput.isConnected &&
-          location.href === target.url &&
-          selected?.name === file.name &&
-          selected?.size === file.size &&
-          resumeInput.validity.valid,
+        resumeStatus: outcome.state,
+        resumeMessage: outcome.message,
+        resumeSelected: ['selected', 'attached'].includes(outcome.state),
       };
     }
     if (mode !== "fill") return result;

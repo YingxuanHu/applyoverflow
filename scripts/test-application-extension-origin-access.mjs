@@ -18,6 +18,8 @@ const context = await chromium.launchPersistentContext("", { channel: "chromium"
   args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`] });
 const facts = { givenName: "Jordan", familyName: "Example", email: "jordan@example.test", phone: "4165550100" };
 let apiCalls = 0, submissions = 0;
+let includeResume = false, resumeCalls = 0;
+const resumeBytes = Buffer.from('%PDF-1.4\nsynthetic end-to-end resume\n%%EOF');
 const form = (kind = "form", label = "First Name") => `<h1>Job application</h1><${kind} ${kind === "div" ? 'role="form"' : ""}>
   <label>${label}<input></label><label>Email<input type="email"></label><label>Phone<input type="tel"></label>
   <button type="button">Submit application</button></${kind}>`;
@@ -29,13 +31,22 @@ await context.route("**/*", async route => {
     const action = url.pathname.split("/").at(-1);
     if (action === "connection-status") return route.fulfill({ json: { connected: true } });
     if (action === "onboarding-event") return route.fulfill({ json: { ok: true } });
-    if (action === "autofill-plan") { apiCalls++; return route.fulfill({ json: { contact: facts, answers: [], history: [], revision: "2026-10-12T00:00:00Z", includeResume: false } }); }
+    if (action === "autofill-plan") { apiCalls++; return route.fulfill({ json: { contact: facts, answers: [], history: [], revision: "2026-10-12T00:00:00Z", includeResume } }); }
+    if (action === 'resume-default') { resumeCalls++; return route.fulfill({ json: {
+      name: 'Fixture Resume.pdf', mimeType: 'application/pdf', size: resumeBytes.length, base64: resumeBytes.toString('base64'),
+    } }); }
     throw new Error(`Unexpected API ${action}`);
   }
   if (route.request().method() !== "GET") { submissions++; return route.abort(); }
   if (url.hostname === "parent.example") return route.fulfill({ contentType: "text/html", body:
     '<h1>Careers</h1><iframe title="Application" src="https://embedded.example/jobs/1/apply"></iframe><iframe title="Newsletter" src="https://newsletter.example/subscribe"></iframe>' });
   if (url.hostname === "newsletter.example") return route.fulfill({ contentType: "text/html", body: '<h1>Newsletter</h1><form><label>Email<input type="email"></label></form>' });
+  if (url.hostname === 'resume.example') return route.fulfill({ contentType: 'text/html', body: `${form()}
+    <script>const input=document.querySelector('input');input.addEventListener('input',()=>{
+      if(document.querySelector('input[type=file]'))return;
+      const widget=document.createElement('section');widget.innerHTML='<p>Resume*</p><div><button type="button">Choose File*</button><input type="file" style="opacity:0" aria-label="file-input"></div>';
+      document.querySelector('form').append(widget);
+    });document.querySelector('form').onsubmit=e=>e.preventDefault();</script>` });
   const index = Number(url.searchParams.get("variant") || 0);
   const unlabelled = `<form><div><p>Full Name *</p><input placeholder="First name"><input placeholder="Last name"></div>
     <div><p>Email</p><input type="email" placeholder="Email address"></div><input type="tel" placeholder="Enter phone number"><button>Submit application</button></form>`;
@@ -86,6 +97,28 @@ try {
   }
   assert.equal(submissions, 0);
   console.log(`PASS ${count} unlisted synthetic domains: real MV3 detection, consented scope, toolbar-independent fill, 3-4 values read back per form, including grouped placeholders`);
+  for (const allowed of [false, true]) {
+    includeResume = allowed;
+    await page.goto(`https://resume.example/careers/application?sharing=${allowed}`);
+    await page.getByRole('button', { name: /^(?:Autofill|Application help) available$/ }).click();
+    const assistant = page.locator('#applyoverflow-assistant');
+    const before = resumeCalls;
+    assert.equal(await page.locator('input[type=file]').count(), 0, 'resume picker is absent in the initial scan');
+    await assistant.getByRole('button', { name: 'Autofill', exact: true }).click();
+    await assistant.getByText(/Autofill complete\./).waitFor({ timeout: 15000 });
+    assert.equal(await page.locator('input[type=file]').evaluate(input => input.files.length), allowed ? 1 : 0);
+    assert.equal(resumeCalls - before, allowed ? 1 : 0, 'download only with explicit profile resume-sharing preference');
+    assert.ok(await assistant.getByText(allowed ? /Default resume selected/ : /Resume not shared/).isVisible());
+    if (allowed) {
+      assert.equal(await page.locator('input[type=file]').evaluate(input => input.files[0].text()), resumeBytes.toString());
+      await assistant.getByRole('button', { name: 'Autofill', exact: true }).click();
+      await assistant.getByText(/Autofill complete\./).waitFor({ timeout: 15000 });
+      assert.equal(resumeCalls - before, 1, 'repeated Autofill does not download or replace the attachment');
+    }
+  }
+  includeResume = false;
+  assert.equal(submissions, 0);
+  console.log('PASS real MV3 resume pipeline: conditional picker, sharing consent, default download, exact bytes, UI result, no duplicate upload');
   await page.goto("https://parent.example/careers");
   const child = page.frameLocator('iframe[title="Application"]');
   await child.getByRole("button", { name: /^(?:Autofill|Application help) available$/ }).waitFor();

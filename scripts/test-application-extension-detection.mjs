@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { rm } from "node:fs/promises";
 import { chromium } from "playwright";
-import { SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
+import { APPLICATION_ORIGINS, SITE_ORIGINS } from "../extensions/chrome/sites.mjs";
 import { fixtures, fixtureHtml } from "./fixtures/application-extension.mjs";
 
 // Real MV3 worker, permissions, registered scripts and click-to-fill. All page
@@ -87,7 +87,7 @@ try {
   );
   await worker.evaluate(
     async (origins) => chrome.permissions.remove({ origins }),
-    SITE_ORIGINS,
+    [...APPLICATION_ORIGINS, ...SITE_ORIGINS],
   );
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
@@ -108,8 +108,8 @@ try {
     .getByText("Open an application form. Some fields need manual entry.")
     .waitFor();
   console.log("Requesting site access through the popup");
-  await popup.getByRole("button", { name: "Enable on-page assistant", exact: true }).click();
-  await popup.getByText("Autofill hints enabled on supported sites.").waitFor();
+  await popup.getByRole("button", { name: "Enable on all application sites", exact: true }).click();
+  await popup.getByText("Enabled on all application sites. This choice is saved; no need to enable each site.").waitFor();
   console.log("Site access granted");
   await page.bringToFront();
   await page.getByRole("button", { name: "Autofill available" }).waitFor();
@@ -265,9 +265,9 @@ try {
   responseDelay = 0;
   await popup.bringToFront();
   await popup.getByText("Connection & site access", { exact: true }).click();
-  await popup.getByLabel("Show autofill on supported sites").uncheck();
+  await popup.getByLabel("Show autofill on all application sites").uncheck();
   await popup
-    .getByText("Automatic hints turned off. The toolbar still works.")
+    .getByText("Site access updated. The toolbar still works.")
     .waitFor();
   await page.bringToFront();
   await page.waitForTimeout(400);

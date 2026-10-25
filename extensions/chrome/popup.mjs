@@ -299,39 +299,50 @@ async function updateAccess() {
   currentOrigin = applicationContext(tab?.url, true) ? `${new URL(tab.url).origin}/*` : undefined;
   const currentEnabled = currentOrigin && await chrome.permissions.contains({ origins: [currentOrigin] });
   document.getElementById("enable-current-site").hidden = !currentOrigin || currentEnabled;
-  const preferences = await chrome.storage.local.get(["firstVerifiedFill", "dismissOnPageOffer"]);
-  document.getElementById("detection-reminder").hidden = Boolean(all || currentEnabled || !currentOrigin || !preferences.firstVerifiedFill || preferences.dismissOnPageOffer);
+  const preferences = await chrome.storage.local.get("dismissOnPageOffer");
+  document.getElementById("detection-reminder").hidden = Boolean(all || preferences.dismissOnPageOffer);
   document.getElementById("access-state").textContent = all ? "All application sites" : currentEnabled ? "This site enabled" : !count
     ? "Toolbar only"
     : detection.checked
       ? "Supported sites enabled"
       : "Some sites enabled";
-  document.getElementById("access-help").textContent = "Site access controls where the assistant can appear. Profile data is requested only when you choose Autofill.";
+  document.getElementById("access-help").textContent = all
+    ? "Enabled for future application pages, including after Chrome restarts. Profile data is requested only when you choose Autofill."
+    : "Enable all application sites once to avoid granting access to each new employer. Access is saved in this Chrome profile.";
 }
 async function changeDetection(enable, origins = SITE_ORIGINS) {
   detection.disabled = true;
+  allDetection.disabled = true;
+  document.getElementById("enable-detection").disabled = true;
+  document.getElementById("enable-current-site").disabled = true;
   try {
     // request() must run directly from this user gesture, not in the worker.
     const accepted = enable
       ? await chrome.permissions.request({ origins })
       : await chrome.permissions.remove({ origins });
-    await chrome.runtime.sendMessage({ type: "detection-updated" });
+    if (accepted) {
+      const result = await chrome.runtime.sendMessage({ type: "detection-updated" });
+      if (result?.error) throw new Error(result.error);
+    }
     status.textContent = accepted
       ? enable
-        ? origins === SITE_ORIGINS ? "Autofill hints enabled on supported sites." : origins === APPLICATION_ORIGINS ? "Autofill hints enabled on all application sites." : "Autofill enabled on this site."
-        : "Automatic hints turned off. The toolbar still works."
+        ? origins === SITE_ORIGINS ? "Autofill hints enabled on supported sites." : origins === APPLICATION_ORIGINS ? "Enabled on all application sites. This choice is saved; no need to enable each site." : "Autofill enabled on this site."
+        : "Site access updated. The toolbar still works."
       : "Site access was not granted. You can still use the toolbar.";
   } catch {
-    status.textContent = "Could not change site access. Try again.";
+    status.textContent = "Could not finish enabling the assistant. Check Chrome's site access for ApplyOverflow, then reopen the extension.";
   } finally {
     detection.disabled = false;
+    allDetection.disabled = false;
+    document.getElementById("enable-detection").disabled = false;
+    document.getElementById("enable-current-site").disabled = false;
     await updateAccess();
   }
 }
 detection.addEventListener("change", () => void changeDetection(detection.checked));
 allDetection.addEventListener("change", () => void changeDetection(allDetection.checked, APPLICATION_ORIGINS));
 document.getElementById("enable-current-site").addEventListener("click", () => currentOrigin && void changeDetection(true, [currentOrigin]));
-document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true, currentOrigin ? [currentOrigin] : APPLICATION_ORIGINS));
+document.getElementById("enable-detection").addEventListener("click", () => void changeDetection(true, APPLICATION_ORIGINS));
 document.getElementById("dismiss-detection").addEventListener("click", async () => {
   await chrome.storage.local.set({ dismissOnPageOffer: true });
   await updateAccess();

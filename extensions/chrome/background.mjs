@@ -95,16 +95,17 @@ function syncDetection() {
             js: ["adapter-runtime.js", "indicator.js"],
             runAt: "document_idle",
             allFrames: true,
+            persistAcrossSessions: true,
           },
         ]);
       else if (
         origins.length &&
-        (!existing.allFrames ||
+        (!existing.allFrames || existing.persistAcrossSessions === false ||
           JSON.stringify([...existing.matches].sort()) !==
             JSON.stringify([...origins].sort()))
       )
         await chrome.scripting.updateContentScripts([
-          { id: "application-detection", matches: origins, allFrames: true },
+          { id: "application-detection", matches: origins, allFrames: true, persistAcrossSessions: true },
         ]);
       // Apply permission changes to existing tabs, not just the next navigation.
       for (const tab of await chrome.tabs.query({})) {
@@ -708,14 +709,18 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
     if (written.result.historyDateAdjusted) note += " Month-only dates use the first day for starts and the last day for ends.";
     if (scan.aiRestricted) note += " This employer disallows AI-written answers. Saved facts can still be filled.";
     if (written.result.historyWarnings?.length) note += ` ${written.result.historyWarnings.slice(0, 2).join(" ")}`;
-    if (scan.manualResume) note += " Review the resume on the form; this site's upload button needs manual attachment.";
-    if (scan.resumeAvailable) {
+    // Country, history, and conditional answers can mount or replace the picker.
+    // Reinspect the pinned document, not the snapshot taken before filling.
+    const resumeScan = (await inspect(target, ["inspect", {}, scan.url])).result;
+    if (resumeScan.resumeMessage) note += ` ${resumeScan.resumeMessage}`;
+    else if (resumeScan.manualResume) note += " Resume not attached. Use the employer's resume upload control.";
+    if (resumeScan.resumeAvailable) {
       if (plan.includeResume) {
         try {
           const ready = await inspect(target, ["prepare-resume", {}, scan.url]);
           const file = await api("resume-default", { url: scan.url }, connection.token);
           const attached = await inspect(target, ["attach-resume", { ...file, resumeToken: ready.result.resumeToken }, scan.url]);
-          note += attached.result.resumeSelected ? " Default resume selected; check upload status." : " Check the resume upload on the form.";
+          note += ` ${attached.result.resumeMessage || (attached.result.resumeSelected ? "Default resume selected; check upload status." : "Resume upload could not be confirmed. Check the employer form.")}`;
           if (attached.result.resumeParserReview) note += " Review details imported by the employer's resume parser.";
         } catch (error) {
           if (error.reconnect) throw error;
@@ -931,9 +936,9 @@ async function handle(type, sender, message = {}, workspaceTab = null) {
       );
       return {
         connected: true,
-        message: attached.result.resumeSelected
+        message: attached.result.resumeMessage || (attached.result.resumeSelected
           ? "Resume selected in the form. Check the employer's upload status before submitting."
-          : "The file was handed to the form, but acceptance could not be verified. Check the employer's upload status; attach manually if needed.",
+          : "The file was handed to the form, but acceptance could not be verified. Check the employer's upload status; attach manually if needed."),
       };
     } finally {
       await api("resume-cancel", { id: request.id }, connection.token).catch(

@@ -155,6 +155,52 @@ try {
   }
   console.log('PASS international widget country initialization and rollback of rejected country-code formatting');
 
+  for (const variant of ['true', 'menu', 'pointer', 'keyboard', 'delayed', 'existing', 'disabled', 'unowned', 'duplicate', 'action', 'rejected']) {
+    html = `<h1>Application</h1><form id="job-application-form"><label>First name<input></label><label>Email<input type="email"></label>
+      <div><label for="province">Province<span aria-hidden="true">*</span></label><div id="picker">
+      <div><button id="province-trigger" type="button" aria-haspopup="${variant === 'menu' ? 'menu' : 'true'}" aria-expanded="false" aria-label="Province ${variant === 'existing' ? 'Quebec' : '--Select--'}">${variant === 'existing' ? 'Quebec' : '--Select--'}</button></div>
+      ${variant === 'action' ? '' : `<select id="province" name="state.value" aria-hidden="true" required readonly tabindex="-1" style="width:0;height:0;opacity:0;position:absolute"><option value="${variant === 'existing' ? '62' : ''}"></option></select>`}</div></div>
+      <button>Submit application</button></form><div role="menu" id="unrelated"><div role="menuitem">Ontario</div></div><script>
+      window.submissions=0;window.opens=0;window.selections=0;window.unrelated=0;document.querySelector('form').onsubmit=e=>{e.preventDefault();window.submissions++};
+      document.querySelector('#unrelated').onclick=()=>window.unrelated++;
+      const trigger=document.querySelector('#province-trigger');let activated=false;trigger.onpointerdown=()=>activated=true;
+      const openMenu=()=>{const old=document.querySelector('#owned');if(old){old.remove();trigger.setAttribute('aria-expanded','false');return;}
+        window.opens++;trigger.setAttribute('aria-expanded','true');if('${variant}'!=='unowned')trigger.setAttribute('aria-controls','owned');
+        const menu=document.createElement('div');menu.id='owned';menu.setAttribute('role','menu');
+        for(let i=0;i<('${variant}'==='duplicate'?2:1);i++){const option=document.createElement('div');option.setAttribute('role','menuitem');option.textContent='Ontario';
+          if('${variant}'==='disabled')option.setAttribute('aria-disabled','true');
+          option.onclick=()=>{window.selections++;trigger.textContent='Ontario';trigger.setAttribute('aria-label','Province Ontario');
+            const select=document.querySelector('#province');if(select&&'${variant}'!=='rejected'){select.innerHTML='<option value="60"></option>';select.id='province-new';document.querySelector('label[for="province"]').htmlFor='province-new';}
+            menu.remove();trigger.setAttribute('aria-expanded','false');trigger.removeAttribute('aria-controls');};menu.append(option);}
+        if('${variant}'==='delayed')setTimeout(()=>document.body.append(menu),600);else document.body.append(menu);};
+      trigger.onclick=()=>{if('${variant}'==='keyboard'||('${variant}'==='pointer'&&!activated))return;activated=false;openMenu();};
+      trigger.onkeydown=e=>{if('${variant}'==='keyboard'&&e.key==='ArrowDown')openMenu();};</script>`;
+    await load('https://unlisted-careers.fixture.example/application');
+    const before = await scan();
+    const item = before.fields.find(field => field.label === 'Province');
+    if (variant === 'action') assert.equal(item, undefined, 'action menus are not value fields');
+    else { assert.equal(item?.kind, 'combobox'); assert.equal(item.required, true); }
+    const result = await scan('autofill', { contact: { region: 'ON' } });
+    const field = result.fields.find(field => field.label === 'Province');
+    if (['true', 'menu', 'pointer', 'keyboard', 'delayed'].includes(variant)) {
+      assert.equal(field?.state, 'filled', JSON.stringify(result.fields));
+      assert.equal(await page.locator('#province-trigger').textContent(), 'Ontario');
+      assert.equal(await page.locator('#province-new').inputValue(), '60', 'selection must commit, not only display text');
+      await scan('autofill', { contact: { region: 'ON' } });
+      assert.equal(await page.evaluate(() => window.selections), 1, 'rerun preserves existing selection');
+    } else if (variant === 'existing') {
+      assert.equal(field?.state, 'kept');
+      assert.equal(await page.locator('#province-trigger').textContent(), 'Quebec');
+      assert.equal(await page.evaluate(() => window.opens), 0);
+    } else {
+      assert.notEqual(field?.state, 'filled');
+      assert.equal(await page.evaluate(() => window.selections), variant === 'rejected' ? 1 : 0);
+    }
+    assert.equal(await page.evaluate(() => window.unrelated), 0, 'never click another menu');
+    assert.equal(await page.evaluate(() => window.submissions), 0);
+  }
+  console.log('PASS select-backed menu buttons, native commit verification, stable labels, existing values and ambiguous/action menu protection');
+
   html = `<h1>My Experience</h1><div data-automation-id="applyFlowPage"><div role="group" aria-labelledby="resume-title"><h4 id="resume-title">Resume/CV</h4>
     <input type="file" multiple style="position:absolute;opacity:0;width:1px;height:1px"></div>
     <div role="group" aria-labelledby="cover-title"><h4 id="cover-title">Cover Letter</h4><input type="file" multiple></div>
