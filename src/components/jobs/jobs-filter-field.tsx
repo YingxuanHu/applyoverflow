@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { splitFilterValues } from "@/lib/filter-values";
@@ -36,9 +36,11 @@ export function JobsFilterDropdownField({
   const [selectedValues, setSelectedValues] = useState(initialValues);
   const [optionSearch, setOptionSearch] = useState("");
 
-  useEffect(() => {
+  const [previousSelected, setPreviousSelected] = useState(selected);
+  if (selected !== previousSelected) {
+    setPreviousSelected(selected);
     setSelectedValues(initialValues);
-  }, [initialValues]);
+  }
 
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
   const selectedLabels = collectSelectedLabels(selectedValues, options);

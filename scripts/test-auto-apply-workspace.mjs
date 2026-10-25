@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile, mkdir, cp } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createRequire } from "node:module";
 import { chromium } from "playwright";
+const require = createRequire(import.meta.url);
+const { onboardingEventSchema } = require("../src/lib/onboarding-events.ts");
 
 // All HTTP is intercepted. Submission here is only a synthetic DOM event.
 execFileSync(process.execPath, ["scripts/build-application-extension.mjs", "--test-output"], { stdio: "pipe" });
@@ -17,6 +20,7 @@ const context = await chromium.launchPersistentContext("", { channel: "chromium"
 const origin = "https://applyoverflow.com";
 const employer = "https://careers.fixture.example/jobs/engineer/apply";
 let plans = 0, recorded = 0, unexpectedWrites = 0;
+const measurements = [];
 const form = `<style>body{font:16px system-ui;padding:25px}label,input,textarea,select{display:block;margin:8px}</style>
   <h1>Software Engineer Application</h1><form id="application">
   <label>First Name<input name="givenName" required></label><label>Last Name<input name="familyName" required></label>
@@ -35,6 +39,14 @@ await context.route("**/*", async route => {
   if (!['http:', 'https:'].includes(url.protocol)) return route.continue();
   if (url.origin === origin && url.pathname.startsWith('/api/')) {
     const action = url.pathname.split('/').at(-1);
+    if (action === 'onboarding-event') {
+      assert.equal(request.method(), 'POST');
+      assert.equal(request.headers().authorization, 'Bearer synthetic-fixture');
+      const event = onboardingEventSchema.parse(request.postDataJSON());
+      assert.equal(event.entry, 'extension');
+      measurements.push(event);
+      return route.fulfill({ status: 204, body: '' });
+    }
     if (action === 'connection-status') return route.fulfill({ json: { connected: true } });
     if (action === 'workspace-target') {
       if (request.postDataJSON()?.token !== 'same-account-capability') return route.fulfill({ status: 403, json: { error: 'Wrong account or expired workspace connection.' } });
@@ -128,5 +140,7 @@ try {
   await application.goto(employer);
   assert.match((await send('check')).error, /already attempted/);
   assert.equal(unexpectedWrites, 0);
+  assert.ok(measurements.some(event => event.event === 'autofill_attempted'));
+  assert.ok(measurements.some(event => event.event === 'autofill_completed'));
   console.log('PASS real MV3 workspace: scoped account handoff, separate employer tab, actual autofill/readback, native answer edits, stale edits, declaration gate, stale approval, one synthetic submission, confirmation and duplicate lock');
 } finally { await context.close(); }

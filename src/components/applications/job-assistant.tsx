@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -247,6 +247,7 @@ export function JobAssistant({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const messageSequence = useRef(0);
 
   async function askQuestion(nextQuestion: string) {
     const trimmed = nextQuestion.trim();
@@ -260,7 +261,7 @@ export function JobAssistant({
     }));
 
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${++messageSequence.current}`,
       role: "user",
       content: trimmed,
     };
@@ -297,10 +298,11 @@ export function JobAssistant({
         return;
       }
 
+      const answerId = `assistant-${++messageSequence.current}`;
       setMessages((prev) => [
         ...prev,
         {
-          id: `assistant-${Date.now()}`,
+          id: answerId,
           role: "assistant",
           content: answer,
         },

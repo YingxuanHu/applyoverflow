@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { Agent } from "undici";
+import { PrismaPg } from "@prisma/adapter-pg";
+import nodemailer from "nodemailer";
+import { z } from "zod";
+
+assert.equal(process.env.DATABASE_URL, undefined, "Smoke workers must not inherit database credentials");
+assert.equal(process.env.DATABASE_URL_DO_PRIVATE, undefined);
+assert.equal(process.env.DATABASE_PROCESS_ROLE, "smoke");
+assert.equal(process.env.port, "fixture-env-value", "PM2 option-like values must survive explicit env configuration");
+assert.equal(process.env.PM2_DOTENV_FIXTURE, "loaded");
+assert.equal(process.argv.at(-1), "--fixture-argument");
+assert.equal(typeof PrismaPg, "function");
+assert.equal(typeof nodemailer.createTransport, "function");
+assert.equal(z.string().parse("ready"), "ready");
+const agent = new Agent();
+void agent.close();
+writeFileSync(process.env.PM2_SMOKE_READY!, JSON.stringify({ pid: process.pid, version: process.version }));
+const timer = setInterval(() => {}, 1_000);
+process.on("SIGINT", () => { clearInterval(timer); process.exit(0); });
+process.on("SIGTERM", () => { clearInterval(timer); process.exit(0); });

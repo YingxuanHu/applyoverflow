@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { chromium } from "playwright";
+import { hashPassword } from "better-auth/crypto";
 const require = createRequire(import.meta.url);
 const { prisma } = require("../src/lib/db.ts");
 const { isLocalDevelopmentDatabaseUrl } = require("../src/lib/local-development-auth.ts");
@@ -13,6 +14,8 @@ assert.ok(isLocalDevelopmentDatabaseUrl(process.env.DATABASE_URL));
 assert.ok(!process.env.DATABASE_URL_DO_PRIVATE);
 assert.notEqual(process.env.NODE_ENV, "production");
 const token = `activitytest${randomUUID().replaceAll("-", "")}`;
+const email = `${token}@example.test`;
+const password = randomUUID();
 const browser = await chromium.launch();
 const context = await browser.newContext();
 const page = await context.newPage();
@@ -21,6 +24,12 @@ page.setDefaultNavigationTimeout(120_000);
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 try {
+  await prisma.user.create({ data: {
+    id: token, email, name: "Activity Fixture", emailVerified: true, emailNotificationsEnabled: false,
+    accounts: { create: { accountId: token, providerId: "credential", password: await hashPassword(password) } },
+    profile: { create: { id: token, email, name: "Activity Fixture", headline: "Software Engineer",
+      summary: "Builds reliable services.", location: "Toronto, ON, Canada", skillsText: "TypeScript, SQL" } },
+  } });
   const now = new Date();
   const rows = Array.from({ length: 70 }, (_, index) => ({
     id: `${token}-${index}`, title: `${token} Software Engineer`, company: `Activity Fixture ${index}`,
@@ -37,8 +46,8 @@ try {
     ...row, canonicalJobId: id, searchText: row.title, rankingScore: index,
   })) });
   await page.goto(`${origin}/sign-in?callbackUrl=%2Fjobs`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("textbox", { name: /^Email/ }).fill("admin");
-  await page.getByRole("textbox", { name: "Password", exact: true }).fill("password");
+  await page.getByRole("textbox", { name: /^Email/ }).fill(email);
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForURL(/\/jobs(?:\?|$)/, { timeout: 120_000, waitUntil: "domcontentloaded" });
   await page.goto(`${origin}/jobs?titleSearch=${token}`, { waitUntil: "domcontentloaded" });
@@ -85,5 +94,6 @@ try {
   await context.close();
   await browser.close();
   await prisma.jobCanonical.deleteMany({ where: { id: { startsWith: `${token}-` } } });
+  await prisma.user.deleteMany({ where: { id: token } });
   await prisma.$disconnect();
 }

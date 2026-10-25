@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -24,9 +24,11 @@ export function JobsFeedList({
   const sourceHref = search ? `${pathname}?${search}` : pathname;
   const [jobs, setJobs] = useState(initialJobs);
 
-  useEffect(() => {
+  const [previousJobs, setPreviousJobs] = useState(initialJobs);
+  if (initialJobs !== previousJobs) {
+    setPreviousJobs(initialJobs);
     setJobs(initialJobs);
-  }, [initialJobs]);
+  }
 
   const handleSavedChange = useCallback((jobId: string, saved: boolean) => {
     setJobs((current) =>

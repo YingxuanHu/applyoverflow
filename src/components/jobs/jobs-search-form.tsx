@@ -6,6 +6,7 @@ import {
   type FormEvent,
   type MutableRefObject,
   type SetStateAction,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -508,7 +509,7 @@ function AiSearchSubmitHandler({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  submitHandlerRef.current = async (event) => {
+  const handleSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draftValue.trim();
     if (!text) {
@@ -565,7 +566,14 @@ function AiSearchSubmitHandler({
         onPendingChange(false);
       }
     }
-  };
+  }, [basePath, draftValue, isListening, onError, onPendingChange, requestRef, router, searchParams, stopListening]);
+
+  useEffect(() => {
+    submitHandlerRef.current = handleSubmit;
+    return () => {
+      if (submitHandlerRef.current === handleSubmit) submitHandlerRef.current = null;
+    };
+  }, [handleSubmit, submitHandlerRef]);
 
   return null;
 }

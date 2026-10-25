@@ -1,0 +1,107 @@
+name: Public Health
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_notification:
+        description: Send one fixed owner test email without changing health notification state
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: public-health
+  cancel-in-progress: false
+jobs:
+  readiness:
+    if: >-
+      github.repository == 'YingxuanHu/applyoverflow' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      github.workflow_ref == format('{0}/.github/workflows/public-health.yml@refs/heads/{1}', github.repository, github.event.repository.default_branch)
+    # Configure this environment for the default branch only, with environment-scoped secrets.
+    environment: public-health-alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: '.nvmrc'
+      - name: Verify public HTTP readiness and immutable app revision
+        id: health
+        continue-on-error: true
+        run: node scripts/check-public-health.mjs
+      - name: Plan health notification transition
+        id: plan
+        if: always() && (steps.health.outcome == 'success' || steps.health.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_HEALTH_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PUBLIC_HEALTH_OUTCOME: ${{ steps.health.outcome }}
+        run: node scripts/plan-public-health-alert.mjs
+      # Checkpoint before delivery so an install/SMTP failure retries the same transition.
+      - name: 'Health notification baseline v1: healthy'
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.previous == 'healthy'
+        run: 'true'
+      - name: 'Health notification baseline v1: unhealthy'
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.previous == 'unhealthy'
+        run: 'true'
+      - name: 'Health notification baseline v1: unknown'
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.previous == 'unknown'
+        run: 'true'
+      - name: Install locked SMTP dependencies without lifecycle scripts
+        id: dependencies
+        if: always() && ((steps.plan.outcome == 'success' && steps.plan.outputs.action != 'none') || (github.event_name == 'workflow_dispatch' && inputs.test_notification))
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+      - name: Deliver owner health alert
+        id: alert
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.action == 'alert' && steps.dependencies.outcome == 'success'
+        env:
+          MONITOR_ALERT_EMAIL: alvin.hu@mail.utoronto.ca
+          SMTP_HOST: ${{ secrets.PUBLIC_HEALTH_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.PUBLIC_HEALTH_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.PUBLIC_HEALTH_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.PUBLIC_HEALTH_SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.PUBLIC_HEALTH_SMTP_FROM }}
+        run: node scripts/send-health-alert.mjs < "$RUNNER_TEMP/public-health-alert.json"
+      - name: Deliver owner health recovery
+        id: recovery
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.action == 'recovery' && steps.dependencies.outcome == 'success'
+        env:
+          MONITOR_ALERT_EMAIL: alvin.hu@mail.utoronto.ca
+          SMTP_HOST: ${{ secrets.PUBLIC_HEALTH_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.PUBLIC_HEALTH_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.PUBLIC_HEALTH_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.PUBLIC_HEALTH_SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.PUBLIC_HEALTH_SMTP_FROM }}
+        run: node scripts/send-health-alert.mjs < "$RUNNER_TEMP/public-health-alert.json"
+      - name: 'Health notification state v1: healthy'
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.current == 'healthy' && (steps.plan.outputs.action == 'none' || steps.recovery.outcome == 'success')
+        run: 'true'
+      - name: 'Health notification state v1: unhealthy'
+        if: always() && steps.plan.outcome == 'success' && steps.plan.outputs.current == 'unhealthy' && (steps.plan.outputs.action == 'none' || steps.alert.outcome == 'success')
+        run: 'true'
+      - name: Send owner health test notification
+        id: test_notification
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.test_notification && steps.dependencies.outcome == 'success'
+        env:
+          MONITOR_ALERT_EMAIL: alvin.hu@mail.utoronto.ca
+          SMTP_HOST: ${{ secrets.PUBLIC_HEALTH_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.PUBLIC_HEALTH_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.PUBLIC_HEALTH_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.PUBLIC_HEALTH_SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.PUBLIC_HEALTH_SMTP_FROM }}
+        run: |
+          printf '%s\n' '{"schemaVersion":1,"source":"external","kind":"test","active":[],"opened":[],"recovered":[]}' |
+            node scripts/send-health-alert.mjs
+      # SMTP acceptance must not turn an unhealthy probe into a green workflow.
+      - name: Retain failed health workflow status
+        if: always() && steps.health.outcome != 'success'
+        run: exit 1

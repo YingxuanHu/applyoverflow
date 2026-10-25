@@ -5,7 +5,6 @@ import { CalendarClock, CalendarPlus, ExternalLink, FileText, Pencil, Tag as Tag
 import {
   startTransition,
   useActionState,
-  useEffect,
   useId,
   useRef,
   useState,
@@ -103,20 +102,38 @@ export function ApplicationListCard({
   const [companyDraft, setCompanyDraft] = useState(application.company);
   const [roleTitleDraft, setRoleTitleDraft] = useState(application.roleTitle);
   const [roleUrlDraft, setRoleUrlDraft] = useState(application.roleUrl ?? "");
-  const [state, formAction, isPending] = useActionState(
-    updateApplicationHeader,
+  const { notify } = useNotifications();
+  const [, formAction, isPending] = useActionState(
+    async (previous: typeof INITIAL_STATE, data: FormData) => {
+      const result = await updateApplicationHeader(previous, data);
+      if (result.success) {
+        notify({ title: "Application updated", message: result.success, tone: "success" });
+        setEditing(false);
+      } else if (result.error) {
+        notify({ title: "Couldn't update", message: result.error, tone: "error" });
+      }
+      return result;
+    },
     INITIAL_STATE,
   );
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const tagInputRef = useRef<HTMLInputElement>(null);
-  const [tagState, tagAction, tagPending] = useActionState(
-    addTag,
+  const [, tagAction, tagPending] = useActionState(
+    async (previous: typeof INITIAL_STATE, data: FormData) => {
+      const result = await addTag(previous, data);
+      if (result.success) {
+        notify({ title: "Tag added", message: result.success, tone: "success" });
+        setTagDialogOpen(false);
+      } else if (result.error) {
+        notify({ title: "Couldn't add tag", message: result.error, tone: "error" });
+      }
+      return result;
+    },
     INITIAL_STATE,
   );
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const router = useRouter();
-  const { notify } = useNotifications();
 
   async function handleDelete() {
     if (deletePending) return;
@@ -150,25 +167,6 @@ export function ApplicationListCard({
     }
   }
 
-  // Toast for add-tag results, mirroring the update-header flow.
-  useEffect(() => {
-    if (tagState.success) {
-      notify({
-        title: "Tag added",
-        message: tagState.success,
-        tone: "success",
-      });
-      setTagDialogOpen(false);
-    } else if (tagState.error) {
-      notify({
-        title: "Couldn't add tag",
-        message: tagState.error,
-        tone: "error",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tagState]);
-
   function handleAddTagSubmit() {
     const name = tagInputRef.current?.value?.trim() ?? "";
     if (!name) return;
@@ -178,35 +176,12 @@ export function ApplicationListCard({
     startTransition(() => tagAction(formData));
   }
 
-  // Reset drafts whenever the upstream values change OR when editing toggles
-  // back on, so re-opening the editor starts from current persisted values.
-  useEffect(() => {
-    if (!editing) {
-      setCompanyDraft(application.company);
-      setRoleTitleDraft(application.roleTitle);
-      setRoleUrlDraft(application.roleUrl ?? "");
-    }
-  }, [
-    editing,
-    application.company,
-    application.roleTitle,
-    application.roleUrl,
-  ]);
-
-  // Fire a toast when the action completes; close the editor on success.
-  useEffect(() => {
-    if (state.success) {
-      notify({
-        title: "Application updated",
-        message: state.success,
-        tone: "success",
-      });
-      setEditing(false);
-    } else if (state.error) {
-      notify({ title: "Couldn't update", message: state.error, tone: "error" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  function handleEdit() {
+    setCompanyDraft(application.company);
+    setRoleTitleDraft(application.roleTitle);
+    setRoleUrlDraft(application.roleUrl ?? "");
+    setEditing(true);
+  }
 
   function handleSave() {
     if (isPending) return;
@@ -417,7 +392,7 @@ export function ApplicationListCard({
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setEditing(true)}>
+                  <DropdownMenuItem onClick={handleEdit}>
                     <Pencil aria-hidden="true" /> Edit application
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setTagDialogOpen(true)}>
