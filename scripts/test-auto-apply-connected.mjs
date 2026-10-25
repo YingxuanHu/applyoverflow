@@ -89,9 +89,14 @@ try {
   benchmark = await workflowBenchmark(page, 'output/playwright/auto-apply-connected', 'benchmark', 'Local Next UI/API/database and real MV3; three loopback HTTPS synthetic employer layouts; no external submissions');
   await page.route('**/api/jobs/top-picks/refresh', route => route.fulfill({ json: { status: 'queued' } }));
   await page.goto(`${origin}/sign-in?callbackUrl=%2Fapplications%2Fauto-apply`);
+  // The submit control remains disabled until client hydration is complete.
+  // Filling server-rendered Base UI inputs earlier can reset their values.
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Sign in' && !button.disabled));
   await page.getByRole('textbox', { name: /^Email/ }).fill(user.email);
   await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
+  const signedIn = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/sign-in/email');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  assert.equal((await signedIn).status(), 200, 'fixture sign-in succeeds');
   await page.waitForURL(url => url.pathname !== '/sign-in', { waitUntil: 'domcontentloaded', timeout: 90000 });
   for (const job of jobs) {
     await page.goto(`${origin}/jobs/${job.id}`);

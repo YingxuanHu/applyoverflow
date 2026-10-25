@@ -72,6 +72,7 @@ async function capture(name) {
 }
 try {
   await page.goto(`${origin}/sign-in?callbackUrl=%2Fapplications%2Fauto-apply`);
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Sign in' && !button.disabled));
   await page.getByRole('textbox', { name: /^Email/ }).fill(user.email);
   await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
