@@ -118,13 +118,16 @@ test("concurrency has no unbounded queue and cancellation reaps children", async
 });
 
 test("child receives no inherited credentials or preload flags and cannot read app files/write/spawn", async () => {
-  const previous = { NODE_OPTIONS: process.env.NODE_OPTIONS, DATABASE_URL: process.env.DATABASE_URL };
+  const previous = { NODE_OPTIONS: process.env.NODE_OPTIONS, DATABASE_URL: process.env.DATABASE_URL, UV_USE_IO_URING: process.env.UV_USE_IO_URING };
   process.env.NODE_OPTIONS = "--require=/must-not-load.cjs";
   process.env.DATABASE_URL = "sentinel-must-not-leak";
+  process.env.UV_USE_IO_URING = "sentinel-must-not-leak";
   try {
     const result = JSON.parse((await parse(Buffer.from("probe"), "resume.txt", { workerPath: probe })).text);
-    // CoreFoundation adds this OS-owned value on macOS even with an empty env.
-    assert.deepEqual(result.envKeys.filter((key: string) => key !== "__CF_USER_TEXT_ENCODING"), ["LANG", "NODE_ENV", "TZ", "UV_THREADPOOL_SIZE"]);
+    // These runtime-owned values can appear even when launched with an empty env.
+    assert.ok(result.ioUring === undefined || (process.platform === "linux" && result.ioUring === "0"));
+    const runtimeKeys = process.platform === "linux" ? ["UV_USE_IO_URING"] : process.platform === "darwin" ? ["__CF_USER_TEXT_ENCODING"] : [];
+    assert.deepEqual(result.envKeys.filter((key: string) => !runtimeKeys.includes(key)), ["LANG", "NODE_ENV", "TZ", "UV_THREADPOOL_SIZE"]);
     assert.equal(result.readDenied, true);
     assert.equal(result.writeDenied, true);
     assert.equal(result.childDenied, true);

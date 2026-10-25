@@ -25,6 +25,7 @@ process.stdin.on("end", () => {
   };
   const result = {
     envKeys: Object.keys(process.env).sort(),
+    ioUring: process.env.UV_USE_IO_URING,
     readDenied: denied(() => readFileSync(resolve(process.cwd(), "../../package.json"))),
     writeDenied: denied(() => writeFileSync(resolve(process.cwd(), "probe-output"), "blocked")),
     childDenied: denied(() => spawnSync(process.execPath, ["--version"])),
