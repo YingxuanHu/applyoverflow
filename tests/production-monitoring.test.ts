@@ -6,6 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { collectReportSections } from "../src/lib/ingestion/supply-report-runner";
 
+test("public development hostname cannot proxy to the co-hosted staging runtime", async () => {
+  const caddy = await readFile("deploy/single-vps/Caddyfile", "utf8");
+  const development = caddy.slice(caddy.indexOf("dev.applyoverflow.com {"));
+  assert.match(development, /respond "Development environment is not publicly available\." 403/);
+  assert.doesNotMatch(development, /reverse_proxy/);
+});
+
 test("supply sections run serially and retain healthy results after a failure", async () => {
   let active = 0;
   let maxActive = 0;
@@ -74,6 +81,7 @@ source deploy/single-vps/install-monitoring-cron.sh
 `,
     });
     assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(path.join(dir, "health"), "utf8"), /^MONITOR_ALERT_EMAIL=alvin\.hu@mail\.utoronto\.ca$/m);
     assert.equal(await readFile(path.join(dir, "root-cron"), "utf8"), "0 8 * * * backup-command\n5 * * * * capture-supply-health.sh\n");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

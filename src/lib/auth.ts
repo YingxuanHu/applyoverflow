@@ -1,5 +1,6 @@
 import { prismaAdapter } from "@better-auth/prisma-adapter";
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from "better-auth/api";
 
 import { deliverVerificationEmail } from "@/lib/auth-verification";
 import {
@@ -71,6 +72,32 @@ export const auth = betterAuth({
     expiresIn: SESSION_MAX_LIFETIME_SECONDS,
     updateAge: SESSION_REFRESH_INTERVAL_SECONDS,
     freshAge: SENSITIVE_ACTION_REAUTH_SECONDS,
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/delete-user" && ctx.path !== "/delete-user/callback") return;
+      const session = await getAuthoritativeSessionFromCtx(ctx);
+      if (!session) return; // The endpoint rejects unauthenticated requests.
+      const credential = await ctx.context.internalAdapter.findCredentialAccount(session.user.id);
+      // Better Auth validates a supplied password, but otherwise accepts a fresh
+      // session. Credential accounts must not bypass the UI's password challenge.
+      if (credential?.password &&
+        (ctx.path === "/delete-user/callback" || typeof ctx.body?.password !== "string" || !ctx.body.password)) {
+        throw new APIError("BAD_REQUEST", {
+          code: "PASSWORD_REQUIRED",
+          message: "Enter your current password to delete your account.",
+        });
+      }
+      // OAuth-only accounts reauthenticate with their provider, not a password
+      // they do not have. Keep token callbacks behind the same freshness gate.
+      if (!credential?.password &&
+        Date.now() - new Date(session.session.createdAt).getTime() >= SENSITIVE_ACTION_REAUTH_SECONDS * 1000) {
+        throw new APIError("BAD_REQUEST", {
+          code: "SESSION_EXPIRED",
+          message: "Sign in again before deleting your account.",
+        });
+      }
+    }),
   },
   databaseHooks: {
     user: {

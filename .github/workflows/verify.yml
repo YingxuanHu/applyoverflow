@@ -12,7 +12,7 @@ concurrency:
 jobs:
   application:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18-bookworm
@@ -38,6 +38,13 @@ jobs:
       - name: Check repository hygiene
         run: node scripts/check-repository.mjs
       - run: npm ci
+      - name: Audit production dependencies
+        run: npm run security:audit:production
+      - name: Verify release SHA gate and isolated worker runtime
+        run: |
+          npm run test:release-ci
+          npm run test:public-health
+          npm run test:worker-runtime
       - run: npx prisma generate
       - run: npx prisma migrate deploy
       - run: npm run test:unit
@@ -65,8 +72,11 @@ jobs:
       - run: npm run extension:test:structure
       - run: npm run extension:test:unlabelled
       - run: npm run extension:test:history-layouts
+      - run: npm run extension:test:labelled-shells
+      - run: npm run extension:test:upload-widgets
       - run: npm run extension:test:composite
       - run: npm run extension:test:origins
+      - run: npm run extension:test:enablement
       - run: npm run extension:test:semantic
       - run: npm run extension:test:matrix
       - run: node scripts/test-application-extension-rippling.mjs
@@ -80,11 +90,20 @@ jobs:
       - run: node --import tsx tests/integration/resource-budget.ts
       - run: node --import tsx tests/integration/storage-deletion.ts
       - run: node --import tsx tests/integration/ingestion-feed.ts
+      - name: Verify ranked search and location contracts
+        env:
+          NODE_PATH: ./node_modules/next/dist/compiled
+        run: |
+          node --conditions=react-server --import tsx tests/e2e/search-filters.ts
+          node --conditions=react-server --import tsx tests/integration/location-filters.ts
+          node --conditions=react-server --import tsx tests/integration/ranked-search.ts
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - name: Verify standalone resume parser runtime
+        run: node scripts/resume-parser-smoke.mjs .next/standalone
       - run: node scripts/pdf-parser-smoke.mjs .next/standalone
-      - name: Benchmark Auto Apply UI and recovery workflows
+      - name: Verify browser workflows, search, locations and board activity
         env:
           TEST_APP_URL: http://127.0.0.1:3000
         run: |
@@ -95,9 +114,13 @@ jobs:
             if curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null; then break; fi
             sleep 1
           done
+          curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null || { cat /tmp/workspace-server.log; exit 1; }
           npm run test:auto-apply:ui
           node --import tsx tests/e2e/profile-onboarding.ts
           node --import tsx tests/e2e/connected-onboarding-recovery.ts
+          node --import tsx tests/e2e/location-filters.mjs
+          node --import tsx tests/e2e/deferred-search-count.ts
+          npm run test:jobs:activity
       - name: Keep workflow screenshots, traces and benchmark results
         if: always()
         uses: actions/upload-artifact@v4
@@ -108,5 +131,9 @@ jobs:
             output/playwright/extension-setup-*.png
             output/playwright/onboarding-*.png
             output/playwright/profile-history-*.png
+            output/playwright/location-*.png
+            output/playwright/search-count-*.png
+            output/playwright/jobs-activity-*.png
+            /tmp/workspace-server.log
           retention-days: 14
           if-no-files-found: ignore

@@ -3,6 +3,7 @@
 # then upload the dump to the configured S3-compatible storage.
 
 set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -38,6 +39,7 @@ source "$SCRIPT_DIR/backup-path.sh"
 DB_BACKUP_KEEP_LOCAL="$(compose_env_value DB_BACKUP_KEEP_LOCAL)"
 DB_BACKUP_KEEP_LOCAL="${DB_BACKUP_KEEP_LOCAL:-0}"
 resolve_backup_directory
+require_backup_free_space "${DB_BACKUP_MIN_FREE_BYTES:-32212254720}"
 mkdir -p "$BACKUP_DIR"
 # Do not create overlapping multi-GB dumps when cron and a deploy coincide.
 exec 9>"$BACKUP_DIR/.backup.lock"
@@ -52,17 +54,22 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_BASENAME="${SAFE_LABEL}-${POSTGRES_DB}-${STAMP}.dump"
 BACKUP_FILE="$BACKUP_DIR/$BACKUP_BASENAME"
 backup_completed=0
+dump_completed=0
 
 cleanup_failed_backup() {
-  if [[ "$backup_completed" != "1" && "$DB_BACKUP_KEEP_LOCAL" != "1" ]]; then
+  local result=$?
+  if [[ "$backup_completed" != "1" ]]; then
+    printf '%s\n' "$(date -u +%FT%TZ) backup failed (exit $result); inspect backup logs" > "$BACKUP_DIR/last-backup-failure.txt"
+  fi
+  if [[ "$dump_completed" != "1" && "$DB_BACKUP_KEEP_LOCAL" != "1" ]]; then
     rm -f "$BACKUP_FILE"
   fi
 }
 trap cleanup_failed_backup EXIT
 
 if ! docker image inspect single-vps-backup-runner:latest >/dev/null 2>&1; then
-  echo "Backup runner image missing; building backup-runner"
-  "${COMPOSE[@]}" build backup-runner
+  echo "Backup runner image missing; prepare it outside the maintenance operation." >&2
+  exit 1
 fi
 
 echo "Dumping $POSTGRES_DB to $BACKUP_FILE"
@@ -70,16 +77,13 @@ echo "Dumping $POSTGRES_DB to $BACKUP_FILE"
   -U "$POSTGRES_USER" \
   -d "$POSTGRES_DB" \
   -Fc > "$BACKUP_FILE"
+dump_completed=1
 
 echo "Uploading $BACKUP_BASENAME to object storage"
 # The dump is already complete. The uploader only needs the mounted dump and
 # object-storage credentials, so never let Compose recreate Postgres here.
 upload_command=(
-  "${COMPOSE[@]}"
-  run
-  --rm
-  --no-deps
-  backup-runner
+  backup_runner
   npm
   run
   db:backup:storage
@@ -94,4 +98,5 @@ if [[ "${DB_BACKUP_KEEP_LOCAL:-0}" != "1" ]]; then
 fi
 
 backup_completed=1
-echo "Backup complete."
+rm -f -- "$BACKUP_DIR/last-backup-failure.txt"
+echo "Backup complete: remote bytes and SHA256 manifest verified."

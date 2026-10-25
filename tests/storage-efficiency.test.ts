@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -137,7 +137,9 @@ function resolveBackup(env: Record<string, string> = {}) {
     mountpoint() { [[ "$TEST_MOUNTED" == 1 ]]; }
     stat() {
       [[ "$TEST_STAT_FAIL" != 1 ]] || return 1
-      if [[ "$TEST_DEVICE_MISMATCH" == 1 && "$4" == / ]]; then
+      if [[ "$#" == 3 && "$3" == / ]]; then
+        printf '%s\\n' "$TEST_ROOT_DEVICE"
+      elif [[ "$TEST_DEVICE_MISMATCH" == 1 && "$4" == / ]]; then
         printf '2\\n'
       else printf '1\\n'; fi
     }
@@ -146,12 +148,12 @@ function resolveBackup(env: Record<string, string> = {}) {
   `], {
     cwd: root, encoding: "utf8", timeout: 3000,
     env: { ...process.env, TEST_BACKUP_DIR: "", TEST_VOLUME: "", TEST_MOUNTED: "1",
-      TEST_RESOLVED: "", TEST_STAT_FAIL: "0", TEST_DEVICE_MISMATCH: "0", ...env },
+      TEST_RESOLVED: "", TEST_STAT_FAIL: "0", TEST_DEVICE_MISMATCH: "0", TEST_ROOT_DEVICE: "0", ...env },
   });
 }
 
 test("relative backup paths resolve from the compose directory, not the repository", () => {
-  const result = resolveBackup({ TEST_BACKUP_DIR: "backups" });
+  const result = resolveBackup({ TEST_BACKUP_DIR: "backups", TEST_VOLUME: "/app/deploy" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "/app/deploy/single-vps/backups\n/app/deploy/single-vps/backups\n");
 });
@@ -176,18 +178,25 @@ test("custom mount, symlink escapes, different filesystems and failed inspection
   assert.notEqual(resolveBackup({ ...base, TEST_RESOLVED: "/root/backups" }).status, 0);
   assert.notEqual(resolveBackup({ ...base, TEST_DEVICE_MISMATCH: "1" }).status, 0);
   assert.notEqual(resolveBackup({ ...base, TEST_STAT_FAIL: "1" }).status, 0);
+  assert.notEqual(resolveBackup({ ...base, TEST_ROOT_DEVICE: "1" }).status, 0);
   assert.notEqual(resolveBackup({ TEST_BACKUP_DIR: "/vol-other/backups", TEST_VOLUME: "/vol" }).status, 0);
 });
 
 test("backup paths are not evaluated as shell programs", () => {
-  const dir = "/tmp/backups with spaces $(echo UNSAFE)";
-  const result = resolveBackup({ TEST_BACKUP_DIR: dir });
+  const dir = "/vol/backups with spaces $(echo UNSAFE)";
+  const result = resolveBackup({ TEST_BACKUP_DIR: dir, TEST_VOLUME: "/vol" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, `${dir}\n${dir}\n`);
 });
 
+test("backup staging never silently falls back to the root filesystem", () => {
+  const result = resolveBackup({ TEST_BACKUP_DIR: "backups" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /dedicated mounted filesystem/);
+});
+
 test("backup and restore share path validation and restore avoids Compose dependency recreation", () => {
-  for (const file of ["backup-to-storage.sh", "restore-from-storage.sh"]) {
+  for (const file of ["backup-to-storage.sh", "restore-drill.sh"]) {
     const source = read(`deploy/single-vps/${file}`);
     assert.match(source, /source "\$SCRIPT_DIR\/backup-path\.sh"/);
     assert.doesNotMatch(source, /source "\$ENV_FILE"/);
@@ -196,10 +205,67 @@ test("backup and restore share path validation and restore avoids Compose depend
   const backup = read("deploy/single-vps/backup-to-storage.sh");
   assert.ok(backup.indexOf("flock -n 9") < backup.indexOf('exec -T postgres pg_dump'));
   const restore = read("deploy/single-vps/restore-from-storage.sh");
-  assert.match(restore, /CONFIRM_RESTORE/);
-  assert.doesNotMatch(restore, /run (?:-T )?--rm backup-runner/);
-  assert.ok(restore.indexOf('rm -f -- "$RESTORE_FILE"') > restore.indexOf('prisma migrate deploy'));
+  assert.match(restore, /exec bash "\$SCRIPT_DIR\/restore-drill.sh" "\$1"/);
+  assert.doesNotMatch(restore, /pg_restore|prisma migrate deploy|COMPOSE/);
+  const drill = read("deploy/single-vps/restore-drill.sh");
+  assert.match(drill, /CONFIRM_ISOLATED_RESTORE_DRILL/);
+  assert.match(drill, /--network none --memory 2g --memory-swap 2g/);
+  assert.match(drill, /pg_restore --exit-on-error --single-transaction/);
+  assert.doesNotMatch(drill.split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n"), /prisma migrate deploy|exec -T postgres|--clean/);
+  assert.match(read("deploy/single-vps/backup-path.sh"), /run -T --rm --no-deps/);
 });
+
+function deployRemote() {
+  const source = read("deploy/single-vps/rebuild.sh");
+  return source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0]
+    .replace("VOLUME=/mnt/HC_Volume_105915443", 'VOLUME="$TEST_DEPLOY_VOLUME"');
+}
+
+function runDeployment(input: string, env: Partial<NodeJS.ProcessEnv>) {
+  const volume = mkdtempSync(path.join(tmpdir(), "ao-deploy-volume-"));
+  mkdirSync(path.join(volume, "autoapplication/storage-cutover"), { recursive: true });
+  writeFileSync(path.join(volume, "Caddyfile"), 'dev.example.test {\n  respond "Private" 403\n}\n');
+  try {
+    return spawnSync("bash", ["-s"], {
+      cwd: root, encoding: "utf8", timeout: 5000,
+      input: `
+mountpoint() { [[ "$MOCK_MOUNT" != missing ]]; }
+stat() { if [[ "$MOCK_MOUNT" == wrong && "$*" == *"/var/lib/"* ]]; then printf '1\\n'; else printf '2\\n'; fi; }
+flock() { [[ "$MOCK_MOUNT" != locked ]] || return 1; lock_acquired=1; }
+df() {
+  case "$*" in
+    *--output=avail*) printf '%s\\n' 'Available' "$MOCK_ROOT_FREE";;
+    *--output=size,avail*) printf 'Size Avail\\n400000000000 %s\\n' "\${MOCK_VOLUME_FREE:-200000000000}";;
+  esac
+}
+mock_docker() {
+  case "$*" in
+    *"exec -T caddy caddy "*)
+      [[ "$*" == *" --config /dev/stdin --adapter caddyfile" ]] || return 90
+      cmp -s - "$TEST_DEPLOY_VOLUME/Caddyfile" || return 91
+      printf 'DOCKER %s\\nCADDY_STDIN_MATCH\\n' "$*"
+      if [[ "\${MOCK_CADDY_FAILURE:-}" == validate && "$*" == *" caddy validate "* ]]; then return 42; fi
+      if [[ "\${MOCK_CADDY_FAILURE:-}" == reload && "$*" == *" caddy reload "* ]]; then return 43; fi;;
+    *"config --images"*)
+      [[ "$*" == *"--profile ops"* ]] || return 1
+      printf 'single-vps-app\\nsingle-vps-worker-maintenance\\nsingle-vps-worker-source-workers\\n'
+      [[ "\${MOCK_OPS_IMAGE:-present}" == missing ]] || printf 'single-vps-backup-runner\\n';;
+    *"ps --all --quiet"*) printf 'deployed-container\\n';;
+    "inspect --format {{.Image}} deployed-container") printf 'sha256:deployed-image\\n';;
+    *"image inspect"*"Architecture"*) printf '%s\\n' "\${TEST_PLATFORM:-linux/amd64}";;
+    *"image inspect"*"revision"*) printf '%s\\n' "\${TEST_REVISION:-test-release}";;
+    *"image inspect"*".Id"*"single-vps-backup-runner:latest") printf 'sha256:previous-backup\\n';;
+    *"image inspect"*".Id"*) printf 'sha256:unverified-candidate\\n';;
+    *) printf 'DOCKER %s\\n' "$*";;
+  esac
+}
+docker() { mock_docker "$@"; }
+${input}`,
+      env: { ...process.env, MOCK_MOUNT: "healthy", MOCK_ROOT_FREE: "10000000000", ...env,
+        TEST_DEPLOY_VOLUME: volume, COMPOSE_FILE: path.join(volume, "test.yml") },
+    });
+  } finally { rmSync(volume, { recursive: true, force: true }); }
+}
 
 test("storage inventory is read-only and bounded, with no job contents or full-table counts", () => {
   const sql = read("deploy/single-vps/storage-report.sql");
@@ -213,14 +279,10 @@ test("storage inventory is read-only and bounded, with no job contents or full-t
 });
 
 test("app-only releases build current migrations and never recreate database dependencies", () => {
-  const source = read("deploy/single-vps/rebuild.sh");
-  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
-  const result = spawnSync("bash", ["-s"], {
-    cwd: root, encoding: "utf8", timeout: 5000,
-    input: `docker() { printf 'DOCKER %s\\n' "$*"; }\ndf() { :; }\n${remote}`,
-    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+  const result = runDeployment(deployRemote(), {
+      REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
       COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
-      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "",
   });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(result.stdout.indexOf("build worker-maintenance") < result.stdout.indexOf("prisma migrate deploy"));
@@ -229,31 +291,31 @@ test("app-only releases build current migrations and never recreate database dep
   assert.match(result.stdout, /run -T --rm --no-deps worker-maintenance npx prisma migrate deploy/);
   assert.match(result.stdout, /up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 app/);
   assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d).*postgres/);
+  assert.match(result.stdout, /image tag single-vps-worker-maintenance:latest single-vps-backup-runner:latest/);
+  assert.doesNotMatch(result.stdout, /(?:build|up -d|run -T).*backup-runner/);
+  assert.ok(result.stdout.indexOf("caddy validate") < result.stdout.indexOf("image tag"));
+  assert.ok(result.stdout.indexOf("caddy validate") < result.stdout.indexOf("build app"));
+  assert.ok(result.stdout.indexOf("EXPECTED_REVISION=") < result.stdout.indexOf("caddy reload"));
+  assert.equal(result.stdout.match(/CADDY_STDIN_MATCH/g)?.length, 2);
+  assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d|restart|run -T).*caddy/);
 });
 
 test("failed candidate transport verification blocks migrations and service restarts", () => {
-  const source = read("deploy/single-vps/rebuild.sh");
-  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
-  const result = spawnSync("bash", ["-s"], {
-    cwd: root, encoding: "utf8", timeout: 5000,
-    input: `docker() { printf 'DOCKER %s\\n' "$*"; case "$*" in *ssrf-guard.test.ts*) return 1;; esac; }\ndf() { :; }\n${remote}`,
-    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+  const result = runDeployment(`docker() { case "$*" in *ssrf-guard.test.ts*) return 1;; esac; mock_docker "$@"; }\n${deployRemote()}`, {
+      REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
       COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
-      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+      DOCKER_BUILD_CACHE_MAX_AGE: "24h", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "",
   });
   assert.equal(result.status, 1, result.stderr);
-  assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d/);
+  assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d|caddy reload/);
+  assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest/);
 });
 
 test("deployment can direct builds and pruning to an attached-volume builder", () => {
-  const source = read("deploy/single-vps/rebuild.sh");
-  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
-  const result = spawnSync("bash", ["-s"], {
-    cwd: root, encoding: "utf8", timeout: 5000,
-    input: `docker() { printf 'DOCKER %s\\n' "$*"; }\ndf() { :; }\n${remote}`,
-    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
+  const result = runDeployment(deployRemote(), {
+      REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env",
       COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
-      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "release-volume" },
+      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "release-volume",
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /build --builder release-volume app/);
@@ -263,21 +325,9 @@ test("deployment can direct builds and pruning to an attached-volume builder", (
 });
 
 test("prebuilt deployment verifies revision/platform, keeps smoke tests and migrations, and never builds on the VPS", () => {
-  const source = read("deploy/single-vps/rebuild.sh");
-  const remote = source.split("remote_script=$(cat <<'REMOTE_SCRIPT'\n")[1].split("\nREMOTE_SCRIPT\n")[0];
-  const run = (revision = "test-release", platform = "linux/amd64", services = "app") => spawnSync("bash", ["-s"], {
-    cwd: root, encoding: "utf8", timeout: 5000,
-    input: `docker() {
-      case "$*" in
-        *"config --images"*) printf 'single-vps-app\\nsingle-vps-worker-maintenance\\nsingle-vps-worker-source-workers\\n';;
-        *"image inspect"*"Architecture"*) printf '%s\\n' "$TEST_PLATFORM";;
-        *"image inspect"*"revision"*) printf '%s\\n' "$TEST_REVISION";;
-        *) printf 'DOCKER %s\\n' "$*";;
-      esac
-    }\ndf() { :; }\n${remote}`,
-    env: { ...process.env, REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
+  const run = (revision = "test-release", platform = "linux/amd64", services = "app") => runDeployment(deployRemote(), { REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
       COMPOSE_FILE: "test.yml", BUILD_SERVICES: services, SERVICES: services, LEGACY_SERVICES: "", TEST_REVISION: revision, TEST_PLATFORM: platform,
-      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "" },
+      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "",
   });
   const result = run();
   assert.equal(result.status, 0, result.stderr);
@@ -286,6 +336,9 @@ test("prebuilt deployment verifies revision/platform, keeps smoke tests and migr
   assert.match(result.stdout, /pdf-runtime-smoke.mjs/);
   assert.match(result.stdout, /prisma migrate deploy/);
   assert.match(result.stdout, /up -d --no-deps --no-build/);
+  assert.match(result.stdout, /image tag applyoverflow-release:test-release-worker single-vps-backup-runner:latest/);
+  assert.match(result.stdout, /image tag sha256:previous-backup applyoverflow-rollback:previous-backup-runner/);
+  assert.ok(result.stdout.indexOf("EXPECTED_REVISION=") < result.stdout.indexOf("image tag applyoverflow-release:test-release-worker single-vps-backup-runner:latest"));
   assert.doesNotMatch(result.stdout, /DOCKER.*(?:build app|build worker|builder prune|buildx)/);
   const workerOnly = run("test-release", "linux/amd64", "worker-source-workers");
   assert.equal(workerOnly.status, 0, workerOnly.stderr);
@@ -293,6 +346,103 @@ test("prebuilt deployment verifies revision/platform, keeps smoke tests and migr
   assert.doesNotMatch(workerOnly.stdout, /test-release-web|pdf-runtime-smoke|single-vps-app:latest/);
   for (const rejected of [run("wrong-revision"), run("test-release", "linux/arm64")]) {
     assert.equal(rejected.status, 1);
-    assert.doesNotMatch(rejected.stdout, /image tag|prisma migrate deploy|up -d/);
+    assert.doesNotMatch(rejected.stdout, /image tag applyoverflow-release:|prisma migrate deploy|up -d/);
+    assert.match(rejected.stdout, /image tag sha256:deployed-image applyoverflow-rollback:previous-worker/);
   }
+});
+
+test("deployment storage checks prevent missing mounts, wrong devices, active migration and low root reserve", () => {
+  for (const failure of ["missing", "wrong", "locked", "full"]) {
+    const result = runDeployment(deployRemote(), {
+      REMOTE_APP_DIR: root, BUILD_SHA: "test-release", ENV_FILE: "test.env", COMPOSE_FILE: "test.yml",
+      MOCK_MOUNT: failure, MOCK_ROOT_FREE: failure === "full" ? "1000" : "10000000000",
+    });
+    assert.notEqual(result.status, 0, failure);
+    assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d|DOCKER.*build|DOCKER image tag/);
+  }
+});
+
+test("release retries pin deployed containers, and optional pruning retains rollback tags", () => {
+  const result = runDeployment(deployRemote(), {
+    REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
+    COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
+    DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "1", REMOTE_BUILDER: "",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  for (const variant of ["web", "worker"]) {
+    assert.match(result.stdout, new RegExp(`image tag sha256:deployed-image applyoverflow-rollback:previous-${variant}`));
+  }
+  assert.doesNotMatch(result.stdout, /image tag sha256:unverified-candidate applyoverflow-rollback/);
+  assert.match(result.stdout, /DOCKER image prune -f\n/);
+  assert.doesNotMatch(result.stdout, /DOCKER image prune .*a/);
+});
+
+test("ops image mismatch or failed app health prevents backup-runner promotion", () => {
+  for (const failure of ["ops-name", "health"]) {
+    const result = runDeployment(`docker() {
+      if [[ "$MOCK_FAILURE" == health && "$*" == *"EXPECTED_REVISION="* ]]; then return 1; fi
+      mock_docker "$@"
+    }\n${deployRemote()}`, {
+      REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: "test-release", ENV_FILE: "test.env",
+      COMPOSE_FILE: "test.yml", BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "",
+      DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "0", REMOTE_BUILDER: "",
+      MOCK_FAILURE: failure, MOCK_OPS_IMAGE: failure === "ops-name" ? "missing" : "present",
+    });
+    assert.notEqual(result.status, 0, failure);
+    assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest/);
+    assert.doesNotMatch(result.stdout, /caddy reload/);
+    if (failure === "ops-name") assert.doesNotMatch(result.stdout, /prisma migrate deploy|up -d/);
+  }
+});
+
+test("Caddy validation and reload fail closed without recreating Caddy or the database", () => {
+  for (const prebuilt of ["", "test-release"]) {
+    for (const failure of ["validate", "reload", "restart", "migration"] as const) {
+      const result = runDeployment(`docker() {
+        if [[ "$MOCK_FAILURE" == restart && "$*" == *" up -d "* ]]; then return 44; fi
+        if [[ "$MOCK_FAILURE" == migration && "$*" == *"prisma migrate deploy"* ]]; then return 45; fi
+        mock_docker "$@"
+      }\n${deployRemote()}`, {
+        REMOTE_APP_DIR: root, BUILD_SHA: "test-release", PREBUILT_SHA: prebuilt, ENV_FILE: "test.env",
+        BUILD_SERVICES: "app", SERVICES: "app", LEGACY_SERVICES: "", REMOTE_BUILDER: "",
+        DOCKER_BUILD_CACHE_MAX_AGE: "0", PRUNE_UNUSED_IMAGES: "1",
+        MOCK_FAILURE: failure, MOCK_CADDY_FAILURE: failure,
+      });
+      assert.equal(result.status, { validate: 42, reload: 43, restart: 44, migration: 45 }[failure], `${prebuilt}:${failure}: ${result.stderr}`);
+      assert.match(result.stdout, /exec -T caddy caddy validate --config \/dev\/stdin --adapter caddyfile/);
+      assert.doesNotMatch(result.stdout, /(?:stop|rm -f|up -d|restart|run -T).*\b(?:caddy|postgres)\b/);
+      assert.doesNotMatch(result.stdout, /image tag .*single-vps-backup-runner:latest|image rm|prune/);
+      if (failure === "validate") {
+        assert.doesNotMatch(result.stdout, /network create|image tag|DOCKER.*build|prisma migrate deploy|up -d/);
+      }
+      if (failure === "reload") {
+        assert.ok(result.stdout.indexOf("EXPECTED_REVISION=") < result.stdout.indexOf("caddy reload"));
+        assert.equal(result.stdout.match(/CADDY_STDIN_MATCH/g)?.length, 2);
+      } else {
+        assert.doesNotMatch(result.stdout, /caddy reload/);
+      }
+    }
+  }
+});
+
+test("image transfer holds the migration lock and rechecks storage before loading", () => {
+  const source = read("deploy/single-vps/build-release-local.sh");
+  const transfer = source.split("transfer_script=$(cat <<'TRANSFER_SCRIPT'\n")[1].split("\nTRANSFER_SCRIPT\n")[0]
+    .replace("volume=/mnt/HC_Volume_105915443", 'volume="$TEST_DEPLOY_VOLUME"');
+  for (const failure of ["healthy", "missing", "wrong", "locked", "full"]) {
+    const result = runDeployment(`
+gzip() { printf 'synthetic image stream'; }
+docker() { [[ "\${lock_acquired:-0}" == 1 ]] || return 1; mock_docker "$@"; cat >/dev/null; }
+${transfer}`, {
+      MOCK_MOUNT: failure, MOCK_VOLUME_FREE: failure === "full" ? "1000" : "200000000000",
+    });
+    if (failure === "healthy") {
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /DOCKER image load/);
+    } else {
+      assert.notEqual(result.status, 0, failure);
+      assert.doesNotMatch(result.stdout, /DOCKER image load/);
+    }
+  }
+  assert.match(read("deploy/single-vps/rebuild.sh"), /--rsync-path='flock -n \/mnt\/HC_Volume_105915443\/autoapplication\/storage-cutover\/migration.lock rsync'/);
 });

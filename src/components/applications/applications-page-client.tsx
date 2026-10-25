@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type FormEvent,
 } from "react";
@@ -78,6 +79,7 @@ type ApplicationsPageClientProps = {
 };
 
 const APPLICATIONS_PAGE_SIZE = 50;
+const subscribeToHydration = () => () => {};
 
 type SelectedFlow = {
   selection: FlowSelection;
@@ -99,20 +101,20 @@ export function ApplicationsPageClient({
   const [view, setView] = useState<ApplicationView>("all");
   const [showReminders, setShowReminders] = useState(false);
   const pageStorageKey = `autoapplication.applications.page:${viewerId}:${stateKey}:${view}`;
-  const [currentPage, setCurrentPage] = useState(1);
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
+  const [pageSelection, setPageSelection] = useState<{ key: string; page: number } | null>(null);
+  const currentPage = pageSelection?.key === pageStorageKey
+    ? pageSelection.page
+    : hydrated ? readStoredPage(pageStorageKey) : 1;
+  function setCurrentPage(page: number) {
+    setPageSelection({ key: pageStorageKey, page });
+  }
   const [showFlow, setShowFlow] = useState(false);
   const [flowRange, setFlowRange] = useState<ApplicationFlowRange>("all");
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlow | null>(null);
   // Captured once so the chart's relative time-range windows stay stable across
   // re-renders (only recomputed when the range or dataset changes).
   const nowMs = referenceNow;
-
-  // Restore the persisted page only after mount. Reading sessionStorage during
-  // the initial render would diverge from the server (which always renders page
-  // 1) and cause a hydration mismatch of the list.
-  useEffect(() => {
-    setCurrentPage(readStoredPage(pageStorageKey));
-  }, [pageStorageKey]);
 
   const flowData = useMemo(
     () =>
@@ -161,12 +163,13 @@ export function ApplicationsPageClient({
   }, [displayedApplications, safeCurrentPage]);
 
   useEffect(() => {
+    if (!hydrated) return;
     try {
       sessionStorage.setItem(pageStorageKey, String(safeCurrentPage));
     } catch {
       /* Optional navigation memory. */
     }
-  }, [pageStorageKey, safeCurrentPage]);
+  }, [hydrated, pageStorageKey, safeCurrentPage]);
 
   function handleFlowRangeChange(range: ApplicationFlowRange) {
     setFlowRange(range);

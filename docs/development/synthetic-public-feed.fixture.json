@@ -1,0 +1,13 @@
+{
+  "environment": "local",
+  "isolatedSyntheticData": true,
+  "noProductionInfrastructure": true,
+  "allowDisposableLocalPostgres": true,
+  "rows": 32000,
+  "repetitions": 20,
+  "statementTimeoutMs": 3000,
+  "thresholds": {
+    "p95Ms": 250,
+    "maxErrorRate": 0
+  }
+}

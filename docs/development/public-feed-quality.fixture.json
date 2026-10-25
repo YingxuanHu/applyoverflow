@@ -1,0 +1,15 @@
+{
+  "environment": "local",
+  "isolatedSyntheticData": true,
+  "noProductionInfrastructure": true,
+  "allowedDatabaseTarget": "postgresql://127.0.0.1:5439/launch_evidence_fixture_test",
+  "mode": "sample",
+  "sampleLimit": 1000,
+  "statementTimeoutMs": 5000,
+  "thresholds": {
+    "maxStaleSourceRate": 0.15,
+    "minRoleCoverage": 0.9,
+    "maxMissingEligibilityRate": 0,
+    "minPublicRows": 1
+  }
+}

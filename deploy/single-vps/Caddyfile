@@ -36,16 +36,7 @@ applyoverflow.com {
 
 dev.applyoverflow.com {
 	import security_headers
-	encode zstd gzip
-	log {
-		output stdout
-		format json
-	}
-	request_body {
-		max_size 12MB
-	}
-	reverse_proxy applyoverflow-staging-app:3000 {
-		header_up X-Real-IP {remote_host}
-		header_up -Cf-Connecting-Ip
-	}
+	# Staging shares production resources and may run older candidate code.
+	# Keep it accessible only through the host's loopback port over SSH.
+	respond "Development environment is not publicly available." 403
 }

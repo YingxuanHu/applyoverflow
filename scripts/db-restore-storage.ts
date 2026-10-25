@@ -1,366 +1,202 @@
-import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
-import * as os from "node:os";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import {
-  GetObjectCommand,
-  ListObjectsV2Command,
-  S3Client,
-  type _Object,
-} from "@aws-sdk/client-s3";
+import { Readable, Transform, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { pathToFileURL } from "node:url";
+import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 
-type ParsedArgs = {
-  key: string | null;
-  latest: boolean;
-  file: string | null;
-  downloadOnly: boolean;
-  outputFile: string | null;
-};
-
-type StorageConfig = {
+export type BackupManifest = {
+  schemaVersion: 1;
   bucket: string;
-  region: string;
-  endpoint?: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  forcePathStyle: boolean;
+  key: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
+  database: string;
+  remoteVerifiedAt?: string;
+  versionId?: string;
 };
 
-const DEFAULT_RESTORE_IMAGE = "postgres:18-bookworm";
-
-function parseArgs(argv: string[]): ParsedArgs {
-  const parsed: ParsedArgs = {
-    key: null,
-    latest: false,
-    file: null,
-    downloadOnly: false,
-    outputFile: null,
+export function storageConfig() {
+  const required = (name: string) => {
+    const value = process.env[name]?.trim();
+    if (!value) throw new Error(`${name} is not set`);
+    return value;
   };
-
-  for (const rawArg of argv) {
-    if (rawArg === "--latest") {
-      parsed.latest = true;
-      continue;
-    }
-
-    if (rawArg === "--download-only") {
-      parsed.downloadOnly = true;
-      continue;
-    }
-
-    const [key, value] = rawArg.replace(/^--/, "").split("=");
-    if (key === "key" && value) {
-      parsed.key = value;
-      continue;
-    }
-
-    if (key === "file" && value) {
-      parsed.file = value;
-      continue;
-    }
-
-    if (key === "output-file" && value) {
-      parsed.outputFile = value;
-    }
-  }
-
-  return parsed;
-}
-
-function sanitizeSegment(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").slice(0, 80);
-}
-
-function requireEnv(name: string) {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is not set`);
-  }
-  return value;
-}
-
-function optionalEnv(name: string) {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
-}
-
-function readStorageConfig(): StorageConfig {
+  const bucket = required("STORAGE_BUCKET");
   return {
-    bucket: requireEnv("STORAGE_BUCKET"),
-    region: requireEnv("STORAGE_REGION"),
-    endpoint: optionalEnv("STORAGE_ENDPOINT"),
-    accessKeyId: requireEnv("STORAGE_ACCESS_KEY_ID"),
-    secretAccessKey: requireEnv("STORAGE_SECRET_ACCESS_KEY"),
-    forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE === "true",
+    bucket,
+    client: new S3Client({
+      region: required("STORAGE_REGION"),
+      endpoint: process.env.STORAGE_ENDPOINT?.trim() || undefined,
+      forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE === "true",
+      credentials: {
+        accessKeyId: required("STORAGE_ACCESS_KEY_ID"),
+        secretAccessKey: required("STORAGE_SECRET_ACCESS_KEY"),
+      },
+    }),
   };
 }
 
-function createStorageClient(config: StorageConfig) {
-  return new S3Client({
-    region: config.region,
-    endpoint: config.endpoint,
-    forcePathStyle: config.forcePathStyle,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
+export function parseManifest(value: unknown, bucket?: string, key?: string): BackupManifest {
+  const m = value as BackupManifest | null;
+  if (!m || m.schemaVersion !== 1 || typeof m.bucket !== "string" || !m.bucket ||
+      typeof m.key !== "string" || !m.key.endsWith(".dump") ||
+      !Number.isSafeInteger(m.sizeBytes) || m.sizeBytes <= 0 ||
+      typeof m.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(m.sha256) ||
+      typeof m.createdAt !== "string" || !Number.isFinite(Date.parse(m.createdAt)) ||
+      typeof m.database !== "string" || !m.database ||
+      (m.versionId !== undefined && (typeof m.versionId !== "string" || !m.versionId)) ||
+      (m.remoteVerifiedAt !== undefined && !Number.isFinite(Date.parse(m.remoteVerifiedAt)))) {
+    throw new Error("Invalid backup manifest; restore verification failed closed.");
+  }
+  if ((bucket && m.bucket !== bucket) || (key && m.key !== key)) {
+    throw new Error("Backup manifest bucket/key does not match the requested object.");
+  }
+  return m;
+}
+
+export async function readRemoteManifest(client: S3Client, bucket: string, key: string) {
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `${key}.manifest.json` }));
+  if (!result.Body) throw new Error("Missing manifest body.");
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of result.Body as Readable) {
+    const buffer = Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 64 * 1024) throw new Error("Backup manifest exceeds 64 KiB.");
+    chunks.push(buffer);
+  }
+  return parseManifest(JSON.parse(Buffer.concat(chunks).toString("utf8")), bucket, key);
+}
+
+export async function digestStream(source: Readable, output?: Writable) {
+  const hash = createHash("sha256");
+  let sizeBytes = 0;
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      sizeBytes += chunk.length;
+      hash.update(chunk);
+      callback(null, chunk);
     },
   });
+  await pipeline(source, meter, output ?? new Writable({ write(_chunk, _encoding, callback) { callback(); } }));
+  return { sizeBytes, sha256: hash.digest("hex") };
 }
 
-function getDatabaseName(connectionString: string) {
-  const parsed = new URL(connectionString);
-  return parsed.pathname.replace(/^\//, "") || "database";
+export function assertDigest(actual: { sizeBytes: number; sha256: string }, expected: BackupManifest) {
+  if (actual.sizeBytes !== expected.sizeBytes || actual.sha256 !== expected.sha256) {
+    throw new Error(`Backup verification failed: expected ${expected.sizeBytes} bytes / ${expected.sha256}, received ${actual.sizeBytes} bytes / ${actual.sha256}`);
+  }
 }
 
-function commandExists(command: string) {
-  const result = spawnSync(command, ["--version"], { stdio: "ignore" });
-  return result.status === 0;
+export async function inspectRemoteBackup(client: S3Client, manifest: BackupManifest) {
+  const head = await client.send(new HeadObjectCommand({ Bucket: manifest.bucket, Key: manifest.key, VersionId: manifest.versionId }));
+  if (head.ContentLength !== manifest.sizeBytes) throw new Error("Remote backup size does not match manifest.");
+  if (!head.ETag && !head.VersionId) throw new Error("Storage cannot pin the object for verified download.");
+  return head;
 }
 
-function listBackupObjects(input: {
-  client: S3Client;
-  bucket: string;
-  prefix: string;
-}) {
-  return new Promise<_Object[]>(async (resolve, reject) => {
-    const objects: _Object[] = [];
-    let continuationToken: string | undefined;
-
-    try {
-      do {
-        const response = await input.client.send(
-          new ListObjectsV2Command({
-            Bucket: input.bucket,
-            Prefix: input.prefix,
-            ContinuationToken: continuationToken,
-          })
-        );
-
-        objects.push(...(response.Contents ?? []));
-        continuationToken = response.NextContinuationToken;
-      } while (continuationToken);
-
-      resolve(objects);
-    } catch (error) {
-      reject(error);
+export async function verifyRemoteBackup(client: S3Client, manifest: BackupManifest, outputFile?: string) {
+  const head = await inspectRemoteBackup(client, manifest);
+  if (outputFile) await mkdir(path.dirname(outputFile), { recursive: true, mode: 0o700 });
+  const temporary = outputFile ? `${outputFile}.${randomUUID()}.partial` : undefined;
+  try {
+    const result = await client.send(new GetObjectCommand({
+      Bucket: manifest.bucket, Key: manifest.key,
+      VersionId: manifest.versionId ?? head.VersionId,
+      IfMatch: head.ETag,
+    }));
+    if (!result.Body) throw new Error("Backup object has no body.");
+    if (result.ContentLength !== manifest.sizeBytes) {
+      (result.Body as Readable).destroy();
+      throw new Error("Downloaded Content-Length does not match manifest.");
     }
-  });
-}
-
-async function findLatestBackup(input: {
-  config: StorageConfig;
-  sourceDatabaseName: string;
-}) {
-  const client = createStorageClient(input.config);
-  const prefixRoot = (
-    process.env.DB_BACKUP_STORAGE_PREFIX?.trim() || "database-backups"
-  ).replace(/^\/+|\/+$/g, "");
-  const prefix = `${prefixRoot}/${sanitizeSegment(input.sourceDatabaseName)}/`;
-  const objects = await listBackupObjects({
-    client,
-    bucket: input.config.bucket,
-    prefix,
-  });
-
-  const latest = objects
-    .filter((object) => object.Key && object.LastModified)
-    .sort((left, right) => right.LastModified!.getTime() - left.LastModified!.getTime())[0];
-
-  if (!latest?.Key) {
-    throw new Error(`No backup objects found under ${input.config.bucket}/${prefix}`);
+    const actual = await digestStream(result.Body as Readable,
+      temporary ? createWriteStream(temporary, { flags: "wx", mode: 0o600 }) : undefined);
+    assertDigest(actual, manifest);
+    if (temporary && outputFile) {
+      // link is atomic and refuses to overwrite an existing target or symlink.
+      await link(temporary, outputFile);
+    }
+    return { ...actual, versionId: result.VersionId, verifiedAt: new Date().toISOString() };
+  } finally {
+    if (temporary) await unlink(temporary).catch(() => undefined);
   }
-
-  return latest.Key;
 }
 
-async function downloadBackup(input: {
-  config: StorageConfig;
-  key: string;
-  outputFile: string;
-}) {
-  const client = createStorageClient(input.config);
-  const response = await client.send(
-    new GetObjectCommand({
-      Bucket: input.config.bucket,
-      Key: input.key,
-    })
-  );
-
-  if (!response.Body) {
-    throw new Error(`Backup object ${input.key} has no body.`);
-  }
-
-  await mkdir(path.dirname(input.outputFile), { recursive: true });
-
-  await new Promise<void>((resolve, reject) => {
-    const output = createWriteStream(input.outputFile);
-    const body = response.Body as NodeJS.ReadableStream;
-    body.pipe(output);
-    body.on("error", reject);
-    output.on("error", reject);
-    output.on("finish", resolve);
-  });
-}
-
-function runRestoreWithLocalBinary(input: {
-  databaseUrl: string;
-  backupFile: string;
-  pgRestoreBin: string;
-}) {
-  return new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      input.pgRestoreBin,
-      [
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        "-d",
-        input.databaseUrl,
-        input.backupFile,
-      ],
-      {
-        stdio: ["ignore", "inherit", "inherit"],
-        env: process.env,
-      }
-    );
-
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${input.pgRestoreBin} exited with code ${code ?? "unknown"}`));
-    });
-  });
-}
-
-function runRestoreWithDocker(input: {
-  databaseUrl: string;
-  backupFile: string;
-  image: string;
-}) {
-  return new Promise<void>((resolve, reject) => {
-    const backupStream = createReadStream(input.backupFile);
-    const child = spawn(
-      "docker",
-      [
-        "run",
-        "--rm",
-        "-i",
-        input.image,
-        "pg_restore",
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        "-d",
-        input.databaseUrl,
-      ],
-      {
-        stdio: ["pipe", "inherit", "inherit"],
-        env: process.env,
-      }
-    );
-
-    backupStream.pipe(child.stdin);
-    backupStream.on("error", reject);
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`docker pg_restore exited with code ${code ?? "unknown"}`));
-    });
-  });
-}
-
-async function restoreDatabase(input: {
-  databaseUrl: string;
-  backupFile: string;
-}) {
-  const pgRestoreBin = process.env.PG_RESTORE_BIN?.trim() || "pg_restore";
-  if (commandExists(pgRestoreBin)) {
-    await runRestoreWithLocalBinary({
-      databaseUrl: input.databaseUrl,
-      backupFile: input.backupFile,
-      pgRestoreBin,
-    });
-    return;
-  }
-
-  const dockerImage =
-    process.env.DB_BACKUP_PG_RESTORE_DOCKER_IMAGE?.trim() || DEFAULT_RESTORE_IMAGE;
-  if (!commandExists("docker")) {
-    throw new Error(
-      `Neither ${pgRestoreBin} nor docker is available. Install PostgreSQL client tools or set DB_BACKUP_PG_RESTORE_DOCKER_IMAGE.`
-    );
-  }
-
-  await runRestoreWithDocker({
-    databaseUrl: input.databaseUrl,
-    backupFile: input.backupFile,
-    image: dockerImage,
-  });
+async function latestBackup(client: S3Client, bucket: string) {
+  const database = process.env.DB_RESTORE_SOURCE_DATABASE_NAME?.trim();
+  if (!database || !/^[a-zA-Z0-9._-]+$/.test(database)) throw new Error("--latest requires DB_RESTORE_SOURCE_DATABASE_NAME.");
+  const prefix = `${(process.env.DB_BACKUP_STORAGE_PREFIX || "database-backups").replace(/^\/+|\/+$/g, "")}/${database}/`;
+  let token: string | undefined;
+  const dumps: { key: string; time: number }[] = [];
+  do {
+    const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+    for (const object of page.Contents ?? []) {
+      if (object.Key?.endsWith(".dump") && object.LastModified) dumps.push({ key: object.Key, time: object.LastModified.getTime() });
+    }
+    token = page.NextContinuationToken;
+  } while (token);
+  const latest = dumps.sort((a, b) => b.time - a.time)[0];
+  if (!latest) throw new Error("No backup dumps found.");
+  // Do not silently fall back to an older backup if the newest is unverified.
+  return latest.key;
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const databaseUrl =
-    process.env.DATABASE_URL_FOR_RESTORE?.trim() || requireEnv("DATABASE_URL");
-  const databaseName = getDatabaseName(databaseUrl);
-  const sourceDatabaseName =
-    process.env.DB_RESTORE_SOURCE_DATABASE_NAME?.trim() || databaseName;
-
-  let backupFile = args.file;
-
-  if (!backupFile) {
-    const config = readStorageConfig();
-    const key = args.latest
-      ? await findLatestBackup({ config, sourceDatabaseName })
-      : args.key;
-
-    if (!key) {
-      throw new Error("Provide --latest, --key=<object-key>, or --file=<dump-file>.");
-    }
-
-    backupFile =
-      args.outputFile ||
-      path.join(
-        os.tmpdir(),
-        "applyoverflow-db-restores",
-        sanitizeSegment(databaseName),
-        path.basename(key)
-      );
-
-    console.log(`Downloading ${config.bucket}/${key} to ${backupFile}`);
-    await downloadBackup({ config, key, outputFile: backupFile });
+  const flags = new Set(["--latest", "--verify-only", "--download-only", "--inspect"]);
+  const values = new Map<string, string>();
+  const selected = new Set<string>();
+  for (const arg of process.argv.slice(2)) {
+    if (flags.has(arg)) { selected.add(arg); continue; }
+    const match = /^(--(?:key|file|output-file|manifest|expected-size|expected-sha256))=(.+)$/.exec(arg);
+    if (!match || values.has(match[1])) throw new Error(`Unknown or duplicate argument: ${arg}`);
+    values.set(match[1], match[2]);
   }
-
-  await stat(backupFile);
-  console.log(`Restore file ready: ${backupFile}`);
-
-  if (args.downloadOnly) {
+  if (["--verify-only", "--download-only", "--inspect"].filter((key) => selected.has(key)).length !== 1) {
+    throw new Error("Choose --verify-only, --download-only, or --inspect. Direct/live database restores are disabled; use deploy/single-vps/restore-drill.sh.");
+  }
+  if ([values.has("--key"), values.has("--file"), selected.has("--latest")].filter(Boolean).length !== 1) {
+    throw new Error("Choose exactly one of --key=<exact-object-key>, --latest, or --file=<local-dump>.");
+  }
+  if (values.has("--file")) {
+    if (!selected.has("--verify-only")) throw new Error("Local files support --verify-only only.");
+    const manifest = parseManifest(JSON.parse(await readFile(values.get("--manifest") || `${values.get("--file")}.manifest.json`, "utf8")));
+    assertDigest(await digestStream(createReadStream(values.get("--file")!)), manifest);
+    console.log(JSON.stringify({ status: "verified", manifest, verifiedAt: new Date().toISOString() }));
     return;
   }
-
-  if (process.env.CONFIRM_RESTORE !== databaseName) {
-    throw new Error(
-      `Refusing to restore ${databaseName}. Re-run with CONFIRM_RESTORE=${databaseName}.`
-    );
-  }
-
-  console.log(`Restoring ${databaseName} from ${backupFile}`);
-  await restoreDatabase({ databaseUrl, backupFile });
-  console.log("Restore complete.");
+  const { client, bucket } = storageConfig();
+  try {
+    const key = values.get("--key") || await latestBackup(client, bucket);
+    let manifest: BackupManifest;
+    if (values.has("--expected-size") || values.has("--expected-sha256")) {
+      if (!selected.has("--verify-only") || values.has("--manifest")) throw new Error("Explicit trusted size/hash are only for read-only legacy verification.");
+      manifest = parseManifest({ schemaVersion: 1, bucket, key,
+        sizeBytes: Number(values.get("--expected-size")), sha256: values.get("--expected-sha256"),
+        createdAt: new Date().toISOString(), database: "legacy-operator-asserted" }, bucket, key);
+    } else {
+      manifest = values.has("--manifest")
+        ? parseManifest(JSON.parse(await readFile(values.get("--manifest")!, "utf8")), bucket, key)
+        : await readRemoteManifest(client, bucket, key);
+    }
+    if (selected.has("--inspect")) {
+      await inspectRemoteBackup(client, manifest);
+      console.log(JSON.stringify({ status: "metadata-only-not-content-verified", manifest }));
+      return;
+    }
+    const outputFile = selected.has("--download-only") ? values.get("--output-file") : undefined;
+    if (selected.has("--download-only") && !outputFile) throw new Error("--download-only requires --output-file on a capacity-checked volume.");
+    const started = Date.now();
+    const verified = await verifyRemoteBackup(client, manifest, outputFile);
+    if (outputFile) await writeFile(`${outputFile}.manifest.json`, JSON.stringify(manifest, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    console.log(JSON.stringify({ status: "verified", manifest, ...verified, elapsedSeconds: (Date.now() - started) / 1000, outputFile }));
+  } finally { client.destroy(); }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
+}

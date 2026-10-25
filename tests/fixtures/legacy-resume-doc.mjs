@@ -1,0 +1,27 @@
+import { inflateSync } from "node:zlib";
+
+// Real Word .doc fixture: node-word-extractor, commit d971d9f69056245ae129bd2ce31436d518293854,
+// __tests__/data/test11.doc. SHA-256: 69518782e37ac2d38a519857abae4bf7b5f10320fb7be3176bcd7751643d480e.
+// Stored compressed so the binary test asset can be reviewed as a text-only change.
+/*
+The MIT License (MIT)
+Copyright (c) 2016-2021 Stuart Watt
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+export function legacyDocFixture() {
+  return inflateSync(Buffer.from("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", "base64"));
+}

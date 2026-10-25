@@ -80,11 +80,12 @@ export function TopPicksRefreshCoordinator({
   storageKey: string;
 }) {
   const router = useRouter();
-  const [isInitialLoad, setIsInitialLoad] = useState(initialLoad);
+  const [settledRefresh, setSettledRefresh] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const refreshKey = JSON.stringify([initialLoad, refreshEnabled, refreshInProgress, retryCount, storageKey]);
+  const isInitialLoad = initialLoad && settledRefresh !== refreshKey;
 
   useEffect(() => {
-    setIsInitialLoad(initialLoad);
     if (!refreshEnabled) return;
 
     let cancelled = false;
@@ -115,7 +116,7 @@ export function TopPicksRefreshCoordinator({
 
         if (status) {
           router.refresh();
-          if (initialLoad) setIsInitialLoad(false);
+          if (initialLoad) setSettledRefresh(refreshKey);
           return;
         }
 
@@ -126,7 +127,7 @@ export function TopPicksRefreshCoordinator({
         }
       } catch (error) {
         console.error("Top picks background refresh failed", error);
-        if (!cancelled && initialLoad) setIsInitialLoad(false);
+        if (!cancelled && initialLoad) setSettledRefresh(refreshKey);
       }
     }
 
@@ -135,7 +136,7 @@ export function TopPicksRefreshCoordinator({
       cancelled = true;
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [initialLoad, refreshEnabled, refreshInProgress, retryCount, router, storageKey]);
+  }, [initialLoad, refreshEnabled, refreshInProgress, refreshKey, retryCount, router, storageKey]);
 
   return (
     <TopPicksRefreshContext.Provider value={{ isInitialLoad }}>
@@ -164,9 +165,11 @@ export function TopPicksList({
     string | null
   >(null);
 
-  useEffect(() => {
+  const [previousPicks, setPreviousPicks] = useState(initialPicks);
+  if (initialPicks !== previousPicks) {
+    setPreviousPicks(initialPicks);
     setPicks(initialPicks);
-  }, [initialPicks]);
+  }
 
   function handleSavedChange(jobId: string, saved: boolean) {
     setPicks((current) =>

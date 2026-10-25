@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Route } from "playwright";
+import { hashPassword } from "better-auth/crypto";
 import { prisma } from "../../src/lib/db";
 import { isLocalDevelopmentDatabaseUrl } from "../../src/lib/local-development-auth";
 
@@ -13,6 +14,8 @@ assert.notEqual(process.env.NODE_ENV, "production");
 
 async function main() {
   const token = `counttest${randomUUID().replaceAll("-", "")}`;
+  const email = `${token}@example.test`;
+  const password = randomUUID();
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
@@ -21,6 +24,12 @@ async function main() {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {
+    await prisma.user.create({ data: {
+      id: token, email, name: "Search Count Fixture", emailVerified: true, emailNotificationsEnabled: false,
+      accounts: { create: { accountId: token, providerId: "credential", password: await hashPassword(password) } },
+      profile: { create: { id: token, email, name: "Search Count Fixture", headline: "Software Engineer",
+        summary: "Builds reliable services.", location: "Toronto, ON, Canada", skillsText: "TypeScript, SQL" } },
+    } });
     const now = new Date();
     const rows = Array.from({ length: 70 }, (_, index) => ({
       id: `${token}-${index}`, title: `${token} Software Engineer`, company: `Count Fixture Labs ${index}`,
@@ -41,8 +50,8 @@ async function main() {
     const anonymous = await context.request.get(`${root}/api/jobs/count?titleSearch=${token}`);
     assert.equal(anonymous.status(), 401);
     await page.goto(`${root}/sign-in`, { waitUntil: "domcontentloaded" });
-    await page.getByLabel(/^Email/).fill("admin@applyoverflow.local");
-    await page.getByLabel("Password", { exact: true }).fill("password");
+    await page.getByLabel(/^Email/).fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL(/\/jobs(?:\?|$)/);
 
@@ -146,6 +155,7 @@ async function main() {
     await context.close();
     await browser.close();
     await prisma.jobCanonical.deleteMany({ where: { id: { startsWith: `${token}-` } } });
+    await prisma.user.deleteMany({ where: { id: token } });
     await prisma.$disconnect();
   }
 }

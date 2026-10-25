@@ -14,6 +14,7 @@ import { isAiFeatureAllowed } from "@/lib/ai-access";
 import { requireCurrentUserProfile } from "@/lib/current-user";
 import { prisma } from "@/lib/db";
 import { importUploadedResumeForProfile } from "@/lib/profile-resume-service";
+import { resumeParserErrorResponse } from "@/lib/resume-parser";
 import { revalidateProfileViews } from "@/lib/revalidation";
 import { getStorageReadiness } from "@/lib/storage";
 
@@ -85,12 +86,15 @@ export async function POST(request: NextRequest) {
       allowAiParse: isAiFeatureAllowed(user.email),
       reviewOnly: formData.get("reviewOnly") === "true",
       setupRevision: Number(formData.get("setupRevision")),
+      signal: request.signal,
     });
 
     revalidateProfileViews();
     return successResponse(result, 201);
   } catch (error) {
     if (isUnauthorizedApiError(error)) return unauthorizedResponse();
+    const parserFailure = resumeParserErrorResponse(error);
+    if (parserFailure) return parserFailure;
     return errorResponse(
       error instanceof Error ? error.message : "Resume upload failed.",
       400

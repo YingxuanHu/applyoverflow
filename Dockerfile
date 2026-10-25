@@ -39,8 +39,11 @@ COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/pdf-smoke ./pdf-smoke
 COPY --chown=node:node scripts/pdf-runtime-smoke.mjs ./pdf-smoke/
 COPY --chown=node:node scripts/pdf-parser-smoke.mjs ./pdf-smoke/
+COPY --chown=node:node scripts/resume-parser-smoke.mjs scripts/resume-parser-fixtures.mjs ./pdf-smoke/
+COPY --chown=node:node tests/fixtures/legacy-resume-doc.mjs ./tests/fixtures/
 USER node
 RUN node pdf-smoke/pdf-parser-smoke.mjs
+RUN node pdf-smoke/resume-parser-smoke.mjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1
 ENTRYPOINT ["dumb-init", "--"]

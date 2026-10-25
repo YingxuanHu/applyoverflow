@@ -12,6 +12,7 @@ import {
   makeEmptyEditableProfile,
 } from "@/lib/resume-ingestion";
 import { supportedResumeAcceptValue } from "@/lib/resume-shared";
+import { RESUME_PARSER_LIMITS, validateResumeFile } from "@/lib/resume-parser";
 import {
   ONBOARDING_KEY, parseOnboardingState, setupProfileSchema,
 } from "@/lib/profile-setup";
@@ -22,7 +23,7 @@ import {
   saveFile,
 } from "@/lib/storage";
 
-const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE_BYTES = RESUME_PARSER_LIMITS.inputBytes;
 
 type ProfileUser = {
   id: string;
@@ -151,6 +152,7 @@ export async function importUploadedResumeForProfile(input: {
   allowAiParse: boolean;
   reviewOnly?: boolean;
   setupRevision?: number;
+  signal?: AbortSignal;
 }) {
   if (input.file.size === 0) {
     throw resumeUploadError(`Choose a supported resume file (${supportedResumeAcceptValue}).`);
@@ -160,7 +162,7 @@ export async function importUploadedResumeForProfile(input: {
     throw resumeUploadError("Resume files must stay under 10 MB.");
   }
 
-  const mimeType = inferProfileDocumentMimeType(input.file.name, input.file.type);
+  let mimeType = inferProfileDocumentMimeType(input.file.name, input.file.type);
   if (!isSupportedResumeFile(input.file.name, mimeType)) {
     throw resumeUploadError(
       "Unsupported resume format. Use PDF, DOCX, DOC, TXT, RTF, PNG, JPG, JPEG, or WEBP."
@@ -168,6 +170,7 @@ export async function importUploadedResumeForProfile(input: {
   }
 
   const fileBuffer = Buffer.from(await input.file.arrayBuffer());
+  mimeType = validateResumeFile(fileBuffer, input.file.name, mimeType).mimeType;
   let existingProfile = await loadEditableProfileValues(input.user);
   if (input.reviewOnly) {
     const record = await prisma.userPreference.findUnique({
@@ -186,6 +189,7 @@ export async function importUploadedResumeForProfile(input: {
     fileName: input.file.name,
     mimeType,
     allowAi: input.allowAiParse,
+    signal: input.signal,
   });
   const reviewDraft = input.reviewOnly
     ? setupProfileSchema.parse({ location: "", workAuthorization: "", ...ingestion.mergedProfile })
@@ -336,6 +340,7 @@ export async function syncStoredResumeForProfile(input: {
   documentId: string;
   /** When false, resume parsing skips OpenAI and uses the local heuristic parser. */
   allowAiParse: boolean;
+  signal?: AbortSignal;
 }) {
   const document = await prisma.document.findFirst({
     where: {
@@ -349,6 +354,7 @@ export async function syncStoredResumeForProfile(input: {
       originalFileName: true,
       mimeType: true,
       storageKey: true,
+      sizeBytes: true,
       isPrimary: true,
       resumeVariant: {
         select: {
@@ -360,6 +366,10 @@ export async function syncStoredResumeForProfile(input: {
 
   if (!document) {
     throw resumeUploadError("Resume not found.");
+  }
+
+  if (document.sizeBytes <= 0 || document.sizeBytes > MAX_DOCUMENT_SIZE_BYTES) {
+    throw resumeUploadError("Resume files must be nonempty and no larger than 10 MB.");
   }
 
   const fileBuffer = await readStoredFile(document.storageKey);
@@ -374,6 +384,7 @@ export async function syncStoredResumeForProfile(input: {
     fileName: document.originalFileName,
     mimeType: document.mimeType,
     allowAi: input.allowAiParse,
+    signal: input.signal,
   });
 
   await prisma.$transaction(async (tx) => {

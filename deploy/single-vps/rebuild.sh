@@ -26,6 +26,11 @@ if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]]
   echo "Commit the release checkout before deploying so its build revision is reproducible." >&2
   exit 1
 fi
+node "$REPO_ROOT/scripts/verify-release-ci.mjs" "$BUILD_SHA"
+if [[ -z "$PREBUILT_SHA" && "${SINGLE_VPS_ALLOW_REMOTE_BUILD:-0}" != 1 ]]; then
+  echo 'Build away from production with npm run deploy:build-local. A reviewed emergency remote build requires SINGLE_VPS_ALLOW_REMOTE_BUILD=1.' >&2
+  exit 1
+fi
 
 # Remove unused Docker build cache after each successful rebuild so the single
 # VPS does not slowly fill up. Set DOCKER_BUILD_CACHE_MAX_AGE=24h if you want to
@@ -52,7 +57,8 @@ RSYNC_EXCLUDES=(
 )
 
 echo "Syncing $REPO_ROOT to $REMOTE_HOST:$REMOTE_APP_DIR/"
-rsync -az --delete "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$REMOTE_HOST:$REMOTE_APP_DIR/"
+rsync -az --delete --rsync-path='flock -n /mnt/HC_Volume_105915443/autoapplication/storage-cutover/migration.lock rsync' \
+  "${RSYNC_EXCLUDES[@]}" "$REPO_ROOT/" "$REMOTE_HOST:$REMOTE_APP_DIR/"
 
 remote_script=$(cat <<'REMOTE_SCRIPT'
 set -euo pipefail
@@ -68,6 +74,21 @@ docker system df || true
 echo
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+# Do not deploy into an ongoing cutover or onto a root-backed database runtime.
+VOLUME=/mnt/HC_Volume_105915443
+mountpoint -q "$VOLUME" || { echo 'Attached volume is missing.' >&2; exit 1; }
+for runtime in /var/lib/docker /var/lib/containerd; do
+  mountpoint -q "$runtime" && [[ "$(stat -c %d "$runtime")" == "$(stat -c %d "$VOLUME")" ]] || { echo "Runtime storage is not on the attached volume: $runtime" >&2; exit 1; }
+done
+exec 8>"$VOLUME/autoapplication/storage-cutover/migration.lock"
+flock -n 8 || { echo 'Storage migration is in progress.' >&2; exit 1; }
+root_free=$(df -B1 --output=avail / | tail -1)
+read -r volume_size volume_free < <(df -B1 --output=size,avail "$VOLUME" | tail -1)
+(( root_free >= 5368709120 && volume_free >= volume_size / 5 )) || { echo 'Insufficient deployment disk reserve (5 GiB root and 20% attached required).' >&2; exit 1; }
+CADDYFILE="$(dirname "$COMPOSE_FILE")/Caddyfile"
+echo "Validating the candidate Caddy configuration"
+"${COMPOSE[@]}" exec -T caddy caddy validate --config /dev/stdin --adapter caddyfile < "$CADDYFILE"
+
 BUILD_COMMAND=("${COMPOSE[@]}" build)
 if [[ -n "${REMOTE_BUILDER:-}" ]]; then
   BUILD_COMMAND+=(--builder "$REMOTE_BUILDER")
@@ -75,8 +96,22 @@ fi
 
 docker network inspect applyoverflow-edge >/dev/null 2>&1 || docker network create applyoverflow-edge >/dev/null
 
+# Keep the prior images independently of mutable Compose tags and cache cleanup.
+for variant in web worker; do
+  service=worker-maintenance
+  [[ "$variant" != web ]] || service=app
+  # Mutable tags may already point at a candidate from a failed earlier deploy.
+  previous_container=$("${COMPOSE[@]}" ps --all --quiet "$service")
+  if [[ -n "$previous_container" ]]; then
+    previous=$(docker inspect --format '{{.Image}}' "$previous_container")
+    docker image tag "$previous" "applyoverflow-rollback:previous-$variant"
+  fi
+done
+
+EXPECTED_IMAGES="$("${COMPOSE[@]}" --profile ops config --images)"
+printf '%s\n' "$EXPECTED_IMAGES" | grep -Fx -e 'single-vps-backup-runner:latest' -e 'single-vps-backup-runner' >/dev/null || { echo 'Unexpected compose image name for backup-runner; refusing to retag.' >&2; exit 1; }
 if [[ -n "$PREBUILT_SHA" ]]; then
-  EXPECTED_IMAGES="$("${COMPOSE[@]}" config --images)"
+  WORKER_IMAGE="applyoverflow-release:$PREBUILT_SHA-worker"
   PREBUILT_VARIANTS=(worker)
   if [[ " $BUILD_SERVICES " == *" app "* ]]; then
     PREBUILT_VARIANTS+=(web)
@@ -107,6 +142,7 @@ else
   if [[ " $BUILD_SERVICES " != *" worker-maintenance "* ]]; then
     "${BUILD_COMMAND[@]}" worker-maintenance
   fi
+  WORKER_IMAGE=single-vps-worker-maintenance:latest
 fi
 echo "Verifying guarded HTTP transport in the candidate runtime"
 "${COMPOSE[@]}" run -T --rm --no-deps worker-maintenance node --import tsx --test tests/ssrf-guard.test.ts </dev/null
@@ -119,6 +155,27 @@ echo "Applying database migrations"
 
 echo "Restarting: $SERVICES"
 "${COMPOSE[@]}" up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 $SERVICES
+
+if [[ " $SERVICES " == *" app "* ]]; then
+  "${COMPOSE[@]}" exec -T -e EXPECTED_REVISION="$BUILD_SHA" app node -e '
+    fetch("http://127.0.0.1:3000/api/health", {signal: AbortSignal.timeout(10000)})
+      .then(async response => { const body = await response.json(); if (!response.ok || body.status !== "ready" || body.revision !== process.env.EXPECTED_REVISION) throw new Error("Released health/revision verification failed"); })
+      .catch(error => { console.error(error.message); process.exit(1); });'
+fi
+
+# Read the host file directly: rsync may have replaced its bind-mounted inode.
+echo "Reloading the validated Caddy configuration"
+"${COMPOSE[@]}" exec -T caddy caddy reload --config /dev/stdin --adapter caddyfile < "$CADDYFILE"
+
+# Cron's ops runner must use the verified worker dependencies, including on an
+# app-only release. Promote only after runtime checks, and retain its old alias.
+candidate_worker=$(docker image inspect --format '{{.Id}}' "$WORKER_IMAGE")
+if previous_backup=$(docker image inspect --format '{{.Id}}' single-vps-backup-runner:latest 2>/dev/null); then
+  if [[ "$previous_backup" != "$candidate_worker" ]]; then
+    docker image tag "$previous_backup" applyoverflow-rollback:previous-backup-runner
+  fi
+fi
+docker image tag "$WORKER_IMAGE" single-vps-backup-runner:latest
 
 if [[ -n "$PREBUILT_SHA" ]]; then
   # Compose's verified runtime tags keep these layers. Drop only the temporary
@@ -151,8 +208,8 @@ fi
 
 if [[ "$PRUNE_UNUSED_IMAGES" == "1" || "$PRUNE_UNUSED_IMAGES" == "true" ]]; then
   echo
-  echo "Pruning unused Docker images..."
-  docker image prune -af
+  echo "Pruning untagged Docker images; retaining rollback and other tagged images..."
+  docker image prune -f
 fi
 
 echo

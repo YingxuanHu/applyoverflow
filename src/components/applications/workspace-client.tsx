@@ -732,20 +732,20 @@ function WorkspaceActionsMenu({
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
-  const [tagState, tagAction, tagPending] = useActionState(addTag, INITIAL_ACTION_STATE);
+  const [, tagAction, tagPending] = useActionState(async (previous: typeof INITIAL_ACTION_STATE, data: FormData) => {
+    const result = await addTag(previous, data);
+    if (result.success) {
+      notify({ title: "Tag added", message: result.success, tone: "success" });
+      setTagDialogOpen(false);
+    } else if (result.error) {
+      notify({ title: "Couldn't add tag", message: result.error, tone: "error" });
+    }
+    return result;
+  }, INITIAL_ACTION_STATE);
 
   const suggestableTags = userTags.filter(
     (tag) => !existingTags.some((existingTag) => existingTag.id === tag.id)
   );
-
-  useEffect(() => {
-    if (tagState.success) {
-      notify({ title: "Tag added", message: tagState.success, tone: "success" });
-      setTagDialogOpen(false);
-    } else if (tagState.error) {
-      notify({ title: "Couldn't add tag", message: tagState.error, tone: "error" });
-    }
-  }, [notify, tagState]);
 
   function handleAddTagSubmit() {
     const name = tagInputRef.current?.value?.trim() ?? "";

@@ -91,8 +91,8 @@ export function ExtensionSetup({ accountId, email, context, extensionIds, initia
 
   useEffect(() => {
     const counter = generation;
-    void check();
-    return () => { counter.current++; };
+    const timer = window.setTimeout(() => { void check(); }, 0);
+    return () => { window.clearTimeout(timer); counter.current++; };
   }, [check]);
   useEffect(() => {
     const resume = () => { if (!busy) void check(bridge.current?.id, true); };

@@ -6,6 +6,9 @@ import { unzipSync, strFromU8 } from "fflate";
 import { SITE_ORIGINS, APPLICATION_ORIGINS } from "../extensions/chrome/sites.mjs";
 
 const root = "output/extension/package-test";
+const release = JSON.parse(await readFile("extensions/chrome/release.json", "utf8"));
+assert.match(release.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+assert.ok(release.version.split(".").every(part => Number(part) <= 65535));
 const installedPaths = ["production", "store", "store-test"].map(name => `output/extension/${name}/config.mjs`);
 const before = await Promise.all(installedPaths.map(path => readFile(path).catch(error => {
   if (error.code === "ENOENT") return null;
@@ -51,6 +54,7 @@ for (const [args, name] of [
   );
   const manifest = JSON.parse(strFromU8(files["manifest.json"]));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.version, release.version, "Every package channel must use the current release version");
   assert.deepEqual(manifest.host_permissions, ["https://applyoverflow.com/*"]);
   assert.deepEqual(manifest.optional_host_permissions, [...SITE_ORIGINS, ...APPLICATION_ORIGINS]);
   assert.deepEqual(manifest.permissions, [
@@ -85,6 +89,8 @@ for (const [args, name] of [
     strFromU8(files["config.mjs"]),
     /^export const APP_ORIGIN = "https:\/\/applyoverflow\.com";\nexport const BUILD_ID = "[a-f0-9]{20}";\n$/,
   );
+  execFileSync(process.execPath, ["scripts/build-application-extension.mjs", "--test-output", ...args]);
+  assert.deepEqual(await readFile(`${root}/${name}.zip`), zip, "Identical release sources must build byte-identical ZIPs");
   console.log(
     `PASS: ${name} package, ${zip.length} bytes, fixed origin and minimal permissions`,
   );
