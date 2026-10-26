@@ -7,7 +7,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/single-vps/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-deploy/single-vps/.env.production}"
 LOG_FILE="${MONITOR_LOG_FILE:-/var/log/autoapplication/health-alerts.log}"
 STATE_FILE="${MONITOR_STATE_FILE:-$LOG_FILE.state.json}"
-REPEAT_SECONDS="${MONITOR_ALERT_REPEAT_SECONDS:-21600}"
+REPEAT_SECONDS="${MONITOR_ALERT_REPEAT_SECONDS:-86400}"
+RECOVERY_SECONDS="${MONITOR_RECOVERY_STABLE_SECONDS:-600}"
+RETRY_SECONDS="${MONITOR_DELIVERY_RETRY_SECONDS:-900}"
+NOTIFICATION_POLICY="${MONITOR_NOTIFICATION_POLICY_FILE:-$(dirname "${BASH_SOURCE[0]}")/monitor-notification-policy.jq}"
 BACKUP_MAX_AGE_SECONDS="${MONITOR_BACKUP_MAX_AGE_SECONDS:-93600}"
 
 DISK_WARN_PERCENT="${MONITOR_DISK_USAGE_WARN_PERCENT:-85}"
@@ -23,7 +26,9 @@ if ! command -v jq >/dev/null; then
   printf '%s delivery-unverified: jq unavailable; health checks could not run\n' "$(date -Is)" >> "$LOG_FILE"
   exit 1
 fi
-[[ "$REPEAT_SECONDS" =~ ^[1-9][0-9]*$ && "$BACKUP_MAX_AGE_SECONDS" =~ ^[1-9][0-9]*$ ]] || exit 1
+for seconds in "$REPEAT_SECONDS" "$BACKUP_MAX_AGE_SECONDS" "$RECOVERY_SECONDS" "$RETRY_SECONDS"; do
+  [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || exit 1
+done
 if command -v flock >/dev/null; then
   exec 9>"$STATE_FILE.lock"
   flock -n 9 || exit 0
@@ -194,22 +199,39 @@ changes="$(jq -cn --argjson prior "$previous" --argjson active "$current" '
 last_logged="$(jq -r '.lastLoggedAt' <<< "$previous")"
 last_delivered="$(jq -r '.lastDeliveredAt' <<< "$previous")"
 delivery="$(jq -r '.delivery' <<< "$previous")"
-pending="$(jq -r '.pendingDelivery // false' <<< "$previous")"
 if [[ -z "${MONITOR_ALERT_WEBHOOK_URL:-}" && -z "${MONITOR_ALERT_EMAIL:-}" ]]; then delivery=delivery-unverified; fi
-event=false
-if [[ "${MONITOR_TEST_ALERT:-0}" == 1 ]] || jq -e '(.opened | length) + (.recovered | length) > 0' <<< "$changes" >/dev/null; then event=true; fi
-if (( ${#alerts[@]} > 0 && now - last_logged >= REPEAT_SECONDS )); then event=true; fi
-# Failed HTTP delivery is retried, never cached as a successful notification.
-if [[ -n "${MONITOR_ALERT_WEBHOOK_URL:-}${MONITOR_ALERT_EMAIL:-}" && "$delivery" != webhook-accepted && "$delivery" != smtp-accepted ]] && { (( ${#alerts[@]} > 0 )) || [[ "$pending" == true ]]; }; then event=true; fi
-if [[ "$event" == true ]]; then
-  message="$(jq -rn --arg host "$(hostname)" --argjson active "$current" --argjson changes "$changes" '
-    "ApplyOverflow health on " + $host + ": " +
-    (if ($active | length) == 0 then "all monitored conditions recovered" else ($active | to_entries | map(.value) | join("; ")) end) +
-    (if ($changes.recovered | length) > 0 then "; RECOVERED: " + ($changes.recovered | keys | join(", ")) else "" end)')"
+plan="$(jq -cn --argjson previous "$previous" --argjson active "$current" --argjson now "$now" \
+  --argjson repeatSeconds "$REPEAT_SECONDS" --argjson recoverySeconds "$RECOVERY_SECONDS" \
+  --argjson retrySeconds "$RETRY_SECONDS" --argjson test "$([[ "${MONITOR_TEST_ALERT:-0}" == 1 ]] && echo true || echo false)" \
+  -f "$NOTIFICATION_POLICY")"
+# Read-only operator preview: do not send, consume notification state, or log a delivery.
+if [[ "${MONITOR_NOTIFICATION_DRY_RUN:-0}" == 1 ]]; then
+  jq '{send,pending,payload}' <<< "$plan"
+  exit 0
+fi
+notifications="$(jq -c '.attempted' <<< "$plan")"
+pending="$(jq -r '.pending' <<< "$plan")"
+send="$(jq -r '.send' <<< "$plan")"
+log_event=false
+if jq -e '(.opened | length) + (.recovered | length) > 0' <<< "$changes" >/dev/null || \
+  (( ${#alerts[@]} > 0 && now - last_logged >= REPEAT_SECONDS )); then log_event=true; fi
+message="$(jq -rn --arg host "$(hostname)" --argjson active "$current" --argjson changes "$changes" '
+  "ApplyOverflow health on " + $host + ": " +
+  (if ($active | length) == 0 then "all monitored conditions recovered" else ($active | to_entries | map(.value) | join("; ")) end) +
+  (if ($changes.recovered | length) > 0 then "; RECOVERED: " + ($changes.recovered | keys | join(", ")) else "" end)')"
+notification=suppressed
+if [[ "$send" == true ]]; then
+  payload="$(jq -c '.payload' <<< "$plan")"
+  # Delivery recoveries compare against the last accepted notification, not the
+  # preceding poll. Failed sends retain that baseline and retry with a cooldown.
+  notification="$(jq -r '.payload.kind' <<< "$plan")"
+  mail_recovered="$(jq -r '.payload.recovered | join(", ")' <<< "$plan")"
+  webhook_message="$message"
+  [[ -z "$mail_recovered" ]] || webhook_message="$webhook_message; NOTIFIED RECOVERIES: $mail_recovered"
   pending=true
   delivery=delivery-unverified
   if [[ -n "${MONITOR_ALERT_WEBHOOK_URL:-}" ]]; then
-    http_status="$(curl -fsS -m 8 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$(jq -cn --arg text "$message" '{text:$text}')" "$MONITOR_ALERT_WEBHOOK_URL" 2>/dev/null)" || http_status=failed
+    http_status="$(curl -fsS -m 8 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$(jq -cn --arg text "$webhook_message" '{text:$text}')" "$MONITOR_ALERT_WEBHOOK_URL" 2>/dev/null)" || http_status=failed
     if [[ "$http_status" =~ ^2[0-9][0-9]$ ]]; then
       delivery=webhook-accepted
       last_delivered="$now"
@@ -217,13 +239,16 @@ if [[ "$event" == true ]]; then
     else delivery=delivery-unverified; fi
   fi
   if [[ "$delivery" != webhook-accepted && -n "${MONITOR_ALERT_EMAIL:-}" ]]; then
-    payload="$(jq -cn --argjson active "$current" --argjson changes "$changes" --arg test "${MONITOR_TEST_ALERT:-0}" \
-      '{schemaVersion:1,source:"host",kind:(if $test == "1" then "test" elif ($active|length)>0 then "alert" else "recovery" end),active:($active|keys),opened:($changes.opened|keys),recovered:($changes.recovered|keys)}')"
     if send_smtp_alert "$payload"; then delivery=smtp-accepted; pending=false; last_delivered="$now"; fi
   fi
-  printf '%s %s delivery=%s\n' "$(date -Is)" "$message" "$delivery" >> "$LOG_FILE"
+  if [[ "$pending" == false ]]; then notifications="$(jq -c '.delivered' <<< "$plan")"; fi
+  log_event=true
+fi
+if [[ "$log_event" == true ]]; then
+  printf '%s %s notification=%s delivery=%s\n' "$(date -Is)" "$message" "$notification" "$delivery" >> "$LOG_FILE"
   last_logged="$now"
 fi
 jq -n --argjson alerts "$current" --argjson lastLoggedAt "$last_logged" --argjson lastDeliveredAt "$last_delivered" \
-  --argjson pendingDelivery "$pending" --arg delivery "$delivery" '{alerts:$alerts,lastLoggedAt:$lastLoggedAt,lastDeliveredAt:$lastDeliveredAt,delivery:$delivery,pendingDelivery:$pendingDelivery}' > "$STATE_FILE.$$.tmp"
+  --argjson pendingDelivery "$pending" --arg delivery "$delivery" --argjson notifications "$notifications" \
+  '{alerts:$alerts,lastLoggedAt:$lastLoggedAt,lastDeliveredAt:$lastDeliveredAt,delivery:$delivery,pendingDelivery:$pendingDelivery,notifications:$notifications}' > "$STATE_FILE.$$.tmp"
 mv "$STATE_FILE.$$.tmp" "$STATE_FILE"

@@ -29,7 +29,7 @@ export const ALERT_TEXT = Object.freeze({
 
 export function parseAlert(value) {
   if (!value || value.schemaVersion !== 1 || !["host", "external"].includes(value.source) ||
-      !["alert", "recovery", "test"].includes(value.kind) ||
+      !["alert", "recovery", "summary", "test"].includes(value.kind) ||
       Object.keys(value).some((key) => !["schemaVersion", "source", "kind", "active", "opened", "recovered"].includes(key))) {
     throw new Error("Invalid alert envelope.");
   }
@@ -65,7 +65,7 @@ export async function sendHealthAlert(value, env = process.env, createTransport 
   ];
   try {
     const result = await transport.sendMail({
-      from: env.SMTP_FROM, to: OWNER, subject: `[ApplyOverflow] Operations ${alert.kind}`,
+      from: env.SMTP_FROM, to: OWNER, subject: `[ApplyOverflow] Operations ${alert.kind === "summary" ? "daily summary" : alert.kind}`,
       text: lines.join("\n"), disableFileAccess: true, disableUrlAccess: true,
     });
     if (!result.accepted?.some((address) => String(address).toLowerCase() === OWNER) || result.rejected?.length) {

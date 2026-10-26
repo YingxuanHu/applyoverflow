@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const harness = String.raw`
+date() { if [[ "$1" == +%s && -n "$MOCK_NOW" ]]; then printf '%s\n' "$MOCK_NOW"; else command date "$@"; fi; }
 df() { printf 'Filesystem Blocks Used Available Capacity Mounted\n/dev/test 100 90 10 %s%% /\n' "$MOCK_USAGE"; }
 free() { printf 'Mem: 8000 2000 4000 0 0 2000\nSwap: 0 0 0\n'; }
 mountpoint() { [[ "$MOCK_MOUNT" == 1 ]]; }
@@ -27,7 +28,7 @@ function run(dir: string, env: Record<string, string> = {}) {
     encoding: "utf8", timeout: 5000, input: harness,
     env: { ...process.env, APP_DIR: dir, REPO: process.cwd(), MONITOR_LOG_FILE: path.join(dir, "alerts.log"),
       MONITOR_STATE_FILE: path.join(dir, "state.json"), MONITOR_BACKUP_DIR: dir, MONITOR_ALERT_WEBHOOK_URL: "", MONITOR_ALERT_EMAIL: "",
-      MONITOR_ALERT_REPEAT_SECONDS: "21600", MOCK_USAGE: "90", MOCK_MOUNT: "1", MOCK_HTTP: "200", ...env },
+      MONITOR_ALERT_REPEAT_SECONDS: "86400", MOCK_NOW: "", MOCK_USAGE: "90", MOCK_MOUNT: "1", MOCK_HTTP: "200", ...env },
   });
   assert.equal(result.status, 0, result.stderr);
 }
@@ -80,25 +81,45 @@ test("host falls back to SMTP with code-only payload and records acceptance", as
 test("HTTP failure/redirect stays unverified and failed recovery delivery retries", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "ao-backup-delivery-"));
   const webhook = { MONITOR_ALERT_WEBHOOK_URL: "https://alerts.invalid/test" };
+  const now = Math.floor(Date.now() / 1000);
   try {
     await mkdir(path.join(dir, "logs"));
     await writeFile(path.join(dir, "logs/supply-health-fixture.json"), '{"complete":true}');
     await freshReceipt(dir);
-    run(dir, { ...webhook, MOCK_HTTP: "302" });
+    run(dir, { ...webhook, MOCK_HTTP: "302", MOCK_NOW: String(now) });
     let state = JSON.parse(await readFile(path.join(dir, "state.json"), "utf8"));
     assert.equal(state.delivery, "delivery-unverified");
     assert.equal(state.lastDeliveredAt, 0);
-    run(dir, webhook);
-    run(dir, webhook);
+    run(dir, { ...webhook, MOCK_NOW: String(now + 900) });
+    run(dir, { ...webhook, MOCK_NOW: String(now + 1200) });
     assert.equal((await readFile(path.join(dir, "delivery-attempts"), "utf8")).trim().split("\n").length, 2);
-    run(dir, { ...webhook, MOCK_USAGE: "20", MOCK_HTTP: "500" });
+    run(dir, { ...webhook, MOCK_USAGE: "20", MOCK_NOW: String(now + 1500) });
+    assert.equal((await readFile(path.join(dir, "delivery-attempts"), "utf8")).trim().split("\n").length, 2);
+    run(dir, { ...webhook, MOCK_USAGE: "20", MOCK_HTTP: "500", MOCK_NOW: String(now + 2100) });
     state = JSON.parse(await readFile(path.join(dir, "state.json"), "utf8"));
     assert.equal(state.pendingDelivery, true);
     assert.deepEqual(state.alerts, {});
-    run(dir, { ...webhook, MOCK_USAGE: "20" });
+    run(dir, { ...webhook, MOCK_USAGE: "20", MOCK_NOW: String(now + 3000) });
     state = JSON.parse(await readFile(path.join(dir, "state.json"), "utf8"));
     assert.equal(state.delivery, "webhook-accepted");
     assert.equal(state.pendingDelivery, false);
     assert.equal((await readFile(path.join(dir, "delivery-attempts"), "utf8")).trim().split("\n").length, 4);
+    const lastLog = (await readFile(path.join(dir, "alerts.log"), "utf8")).trim().split("\n").at(-1);
+    assert.match(lastLog!, /notification=recovery/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("notification preview sends nothing and leaves delivery state unchanged", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "ao-monitor-preview-"));
+  try {
+    await freshReceipt(dir);
+    run(dir, { MONITOR_ALERT_WEBHOOK_URL: "https://alerts.invalid/test" });
+    const state = await readFile(path.join(dir, "state.json"), "utf8");
+    const attempts = await readFile(path.join(dir, "delivery-attempts"), "utf8");
+    const log = await readFile(path.join(dir, "alerts.log"), "utf8");
+    run(dir, { MONITOR_ALERT_WEBHOOK_URL: "https://alerts.invalid/test", MOCK_MOUNT: "0", MONITOR_NOTIFICATION_DRY_RUN: "1" });
+    assert.equal(await readFile(path.join(dir, "state.json"), "utf8"), state);
+    assert.equal(await readFile(path.join(dir, "delivery-attempts"), "utf8"), attempts);
+    assert.equal(await readFile(path.join(dir, "alerts.log"), "utf8"), log);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

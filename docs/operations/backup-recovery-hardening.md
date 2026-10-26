@@ -108,7 +108,22 @@ Optional `DB_RESTORE_DRILL_BASELINE_FILE` is a JSON object mapping table names t
 
 ## Host Alerts And SMTP
 
-Host monitoring checks backup receipt age (default 26 hours), last-backup failure, missing attached mount, disk/memory/load, existing service/HTTP checks and supply report freshness. Alert identity is stable across changing numeric values. New conditions/recoveries notify immediately; unchanged conditions repeat after six hours by default. Failed delivery, including failed recovery notification, retries. State and pending delivery are stored atomically beside the log unless `MONITOR_STATE_FILE` is set.
+Host monitoring still checks every five minutes and logs condition changes. CPU load,
+memory/swap warnings and supply-report warnings are grouped into at most one routine
+summary per rolling 24 hours. Their appearance or recovery never sends a separate
+immediate email. Critical conditions (service/HTTP failures, storage/mount problems,
+backup failures or missing verification) notify when first detected, then at most
+daily while unchanged. Critical recoveries require ten continuous minutes clear;
+brief flaps stay part of the same incident. A new critical condition can bypass the
+daily summary budget. The independent external outage monitor remains enabled.
+
+`MONITOR_ALERT_REPEAT_SECONDS` defaults to 86400, `MONITOR_RECOVERY_STABLE_SECONDS`
+to 600, and `MONITOR_DELIVERY_RETRY_SECONDS` to 900. Failed sends preserve the last
+accepted condition baseline and retry after the cooldown; warning fluctuations do
+not bypass it. SMTP acceptance cannot prove inbox delivery, and an ambiguous SMTP
+timeout can still result in a duplicate on retry. State, delivery evidence and
+recovery timers are stored atomically beside the log unless `MONITOR_STATE_FILE`
+is set. Existing accepted state migrates without another notification.
 
 Webhook is tried first; only HTTP 2xx counts as `webhook-accepted`. If webhook is absent/fails, SMTP is tried when `MONITOR_ALERT_EMAIL=alvin.hu@mail.utoronto.ca`. This is the sole allowlisted recipient. The host reads that setting without needing a worker restart. Existing `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` remain in `worker-maintenance`; they are not extracted, printed or passed on command lines. TLS and finite timeouts are required.
 
@@ -118,7 +133,16 @@ Parent/operator configuration in the deployment dotenv file:
 MONITOR_ALERT_EMAIL=alvin.hu@mail.utoronto.ca
 ```
 
-Install both the host monitor and `scripts/send-health-alert.mjs`. Then explicitly send one host test (implementation did not run this):
+Install the host monitor, its adjacent `monitor-notification-policy.jq`, and
+`scripts/send-health-alert.mjs` together. Preview notification eligibility without
+sending mail or changing the state/log:
+
+```bash
+MONITOR_ALERT_EMAIL=alvin.hu@mail.utoronto.ca MONITOR_NOTIFICATION_DRY_RUN=1 APP_DIR=/opt/autoapplication \
+bash deploy/single-vps/monitor-health.sh
+```
+
+Only when explicitly requested, send one host test (not needed for routine deployment):
 
 ```bash
 MONITOR_ALERT_EMAIL=alvin.hu@mail.utoronto.ca MONITOR_TEST_ALERT=1 \
@@ -137,7 +161,7 @@ printf '%s\n' '{"schemaVersion":1,"source":"external","kind":"test","active":[],
   | MONITOR_ALERT_EMAIL=alvin.hu@mail.utoronto.ca node scripts/send-health-alert.mjs
 ```
 
-This command sends a real test; parent owns execution. The helper accepts only `schemaVersion`, `source` (`host`/`external`), `kind` (`alert`/`recovery`/`test`), and `active`/`opened`/`recovered` arrays. External codes: `public-health`, `public-http`, `tls-expiry`, `monitor-stale`. Host codes are enumerated in `ALERT_TEXT`. Arbitrary prose, hostnames, URLs, log snippets, unknown keys/codes and unapproved recipients are rejected. Message text is fixed and redacted; SMTP errors are reduced to a generic failure. The helper closes its transport and returns nonzero on refusal/failure. Deduplication/recovery state belongs to the calling monitor, not the mail helper.
+This command sends a real test; parent owns execution. The helper accepts only `schemaVersion`, `source` (`host`/`external`), `kind` (`alert`/`recovery`/`summary`/`test`), and `active`/`opened`/`recovered` arrays. External codes: `public-health`, `public-http`, `tls-expiry`, `monitor-stale`. Host codes are enumerated in `ALERT_TEXT`. Arbitrary prose, hostnames, URLs, log snippets, unknown keys/codes and unapproved recipients are rejected. Message text is fixed and redacted; SMTP errors are reduced to a generic failure. The helper closes its transport and returns nonzero on refusal/failure. Deduplication/recovery state belongs to the calling monitor, not the mail helper.
 
 ## Local Verification
 
