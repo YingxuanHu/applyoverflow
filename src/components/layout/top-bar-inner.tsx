@@ -7,6 +7,8 @@ import { Bell } from "lucide-react";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { MobileNavSheet } from "@/components/layout/mobile-nav-sheet";
 import { UserMenu } from "@/components/layout/user-menu";
+import { GettingStarted } from "@/components/onboarding/getting-started";
+import type { GuideSnapshot } from "@/lib/getting-started";
 import {
   Tooltip,
   TooltipContent,
@@ -34,9 +36,11 @@ type SessionSnapshot = {
 export function TopBarInner({
   unreadNotificationCount = 0,
   user,
+  guide,
 }: {
   unreadNotificationCount?: number;
   user: SessionSnapshot | null;
+  guide?: GuideSnapshot;
 }) {
   const pathname = usePathname();
   const hide = Array.from(AUTH_ROUTES).some(
@@ -62,6 +66,7 @@ export function TopBarInner({
       <div className="flex shrink-0 items-center gap-2">
         {user ? (
           <>
+            {guide ? <GettingStarted key={guide.accountId} snapshot={guide} /> : null}
             <Tooltip>
               <TooltipTrigger
                 render={

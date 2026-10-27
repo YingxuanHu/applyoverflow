@@ -1,5 +1,6 @@
 import { prisma, withPrismaConnectionRetry } from "@/lib/db";
 import { getOptionalSessionUser } from "@/lib/current-user";
+import { GETTING_STARTED_KEY, parseGuideState } from "@/lib/getting-started";
 
 import { TopBarInner } from "./top-bar-inner";
 
@@ -10,7 +11,7 @@ export async function TopBar() {
     return <TopBarInner user={null} />;
   }
 
-  const [userRecord, unreadNotificationCount] = await Promise.all([
+  const [userRecord, unreadNotificationCount, guideRecord] = await Promise.all([
     withPrismaConnectionRetry(() =>
       prisma.user.findUnique({
         where: { id: sessionUser.id },
@@ -30,6 +31,10 @@ export async function TopBar() {
         },
       })
     ).catch(() => 0),
+    withPrismaConnectionRetry(() => prisma.userPreference.findFirst({
+      where: { key: GETTING_STARTED_KEY, user: { authUserId: sessionUser.id } },
+      select: { value: true },
+    })).catch(() => null),
   ]);
 
   const user = userRecord
@@ -46,5 +51,6 @@ export async function TopBar() {
         name: sessionUser.name,
       };
 
-  return <TopBarInner unreadNotificationCount={unreadNotificationCount} user={user} />;
+  return <TopBarInner unreadNotificationCount={unreadNotificationCount} user={user}
+    guide={{ accountId: sessionUser.id, state: parseGuideState(guideRecord?.value) }} />;
 }

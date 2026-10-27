@@ -1,27 +1,29 @@
-import type { PrismaClient } from "../../generated/prisma/client";
+import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import { AUTOFILL_ANNOUNCEMENT, autofillAnnouncementEmail } from "./content";
 import { productUnsubscribeToken } from "./unsubscribe";
 
 type Mail = ReturnType<typeof autofillAnnouncementEmail> & { to: string; headers: Record<string, string> };
 type Options = { db: PrismaClient; userId: string; channel: "in-app" | "email"; origin: string; send: (mail: Mail) => Promise<boolean> };
 
+export async function createAutofillNotice(tx: Prisma.TransactionClient, userId: string) {
+  const user = await tx.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true } });
+  if (!user) return "ineligible" as const;
+  await tx.announcementDelivery.createMany({ data: [{ userId, campaignKey: AUTOFILL_ANNOUNCEMENT.key }], skipDuplicates: true });
+  const claimed = await tx.announcementDelivery.updateMany({
+    where: { userId, campaignKey: AUTOFILL_ANNOUNCEMENT.key, notifiedAt: null }, data: { notifiedAt: new Date() },
+  });
+  if (!claimed.count) return "already-notified" as const;
+  await tx.notification.create({ data: {
+    userId, type: "SYSTEM", title: AUTOFILL_ANNOUNCEMENT.title,
+    message: AUTOFILL_ANNOUNCEMENT.message, actionPath: AUTOFILL_ANNOUNCEMENT.path,
+  } });
+  return "notified" as const;
+}
+
 export async function deliverAutofillAnnouncement({ db, userId, channel, origin, send }: Options) {
   const where = { userId_campaignKey: { userId, campaignKey: AUTOFILL_ANNOUNCEMENT.key } };
   if (channel === "in-app") {
-    return db.$transaction(async (tx) => {
-      const user = await tx.user.findFirst({ where: { id: userId, status: "ACTIVE" }, select: { id: true } });
-      if (!user) return "ineligible" as const;
-      await tx.announcementDelivery.createMany({ data: [{ userId, campaignKey: AUTOFILL_ANNOUNCEMENT.key }], skipDuplicates: true });
-      const claimed = await tx.announcementDelivery.updateMany({
-        where: { userId, campaignKey: AUTOFILL_ANNOUNCEMENT.key, notifiedAt: null }, data: { notifiedAt: new Date() },
-      });
-      if (!claimed.count) return "already-notified" as const;
-      await tx.notification.create({ data: {
-        userId, type: "SYSTEM", title: AUTOFILL_ANNOUNCEMENT.title,
-        message: AUTOFILL_ANNOUNCEMENT.message, actionPath: AUTOFILL_ANNOUNCEMENT.path,
-      } });
-      return "notified" as const;
-    });
+    return db.$transaction((tx) => createAutofillNotice(tx, userId));
   }
 
   const user = await db.user.findFirst({ where: { id: userId, status: "ACTIVE", emailVerified: true, productUpdatesEnabled: true }, select: { id: true, email: true } });
