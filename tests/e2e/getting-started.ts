@@ -86,6 +86,7 @@ async function main() {
     await popup.getByRole("heading", { name: "Choose your resume", exact: true }).waitFor();
     await popup.getByRole("button", { name: "Add or choose resume", exact: true }).click();
     await page.waitForURL(`${root}/documents`);
+    await popup.waitFor({ state: "detached" });
     assert.equal(await popup.count(), 0, "navigation releases the page for real setup");
     await page.getByRole("button", { name: "Getting started", exact: true }).click();
     await popup.getByRole("button", { name: "Step 3: Tell us what fits", exact: true }).click();
@@ -99,6 +100,7 @@ async function main() {
     await shot("desktop-connect");
     await popup.getByRole("button", { name: "Check my connection", exact: true }).click();
     await page.waitForURL(`${root}/extension/setup`);
+    await popup.waitFor({ state: "detached" });
     assert.equal(await popup.count(), 0);
     assert.equal(await prisma.extensionConnection.count({ where: { userId: user.id } }), 0);
     await page.getByRole("button", { name: "Getting started", exact: true }).click();
