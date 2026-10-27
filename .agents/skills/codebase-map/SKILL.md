@@ -33,6 +33,7 @@ UserProfile, ResumeVariant, JobRaw, JobCanonical, JobSourceMapping, JobEligibili
 - `/applications` → package and submission history across tracked jobs
 - `/profile` → current profile, preferences, and structured resume source content
 - `/onboarding` → account-bound draft autosave, scoped review confirmation, optional job goals, and concurrent-edit reconciliation
+- `src/components/onboarding/getting-started.tsx` → skippable, account-bound profile/resume/extension tour; new accounts receive a one-time in-app guide notice via `src/lib/new-user-setup.ts`. Tour progress is separate from actual profile and extension readiness.
 - `/extension/setup` → normal-tab setup coordinator with capability status and same-account extension proof; `/extension/connect` remains the brief PKCE consent step
 - `extensions/chrome/setup-bridge.mjs` → exact-origin/top-document setup messages and one-use return focus; separate from the application workspace bridge
 - `/documents` → document hub for resume files, templates, and cover letters

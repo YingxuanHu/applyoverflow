@@ -47,7 +47,7 @@ async function authFixture() {
     "@/lib/email": { sendEmail: forbiddenDependency },
     "@/lib/runtime-origin": runtimeOrigin,
     "@/lib/user-profile-sync": { syncProfileForAuthUser: forbiddenDependency },
-    "@/lib/profile-setup": { INITIAL_ONBOARDING: {}, ONBOARDING_KEY: "onboarding" },
+    "@/lib/new-user-setup": { initializeNewUserSetup: forbiddenDependency },
   }, { process: { env } });
   const auth = betterAuth({ ...options, logger: { disabled: true } });
   function cookie(token: string) {

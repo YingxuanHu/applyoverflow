@@ -21,6 +21,7 @@
     "test:unit": "node --import tsx --test tests/*.test.ts",
     "announce:autofill": "tsx -r dotenv/config scripts/announce-autofill.ts",
     "test:announcements": "tsx -r dotenv/config tests/e2e/announcements.ts",
+    "test:getting-started": "tsx -r dotenv/config tests/e2e/getting-started.ts",
     "test:release-ci": "node --test scripts/test-release-ci.mjs",
     "test:public-health": "node --test scripts/test-public-health.mjs scripts/test-public-health-alert.mjs",
     "test:worker-runtime": "node scripts/test-worker-runtime.mjs",
