@@ -180,6 +180,7 @@ function NavGroup({
               : "hover:bg-sidebar-accent hover:text-foreground"
           )}
           href={href}
+          data-setup-target={href}
         >
           <Icon className="h-4 w-4" />
           <span>{label}</span>

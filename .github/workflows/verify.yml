@@ -123,6 +123,7 @@ jobs:
           node --import tsx tests/e2e/profile-onboarding.ts
           node --import tsx tests/e2e/connected-onboarding-recovery.ts
           node --import tsx tests/e2e/announcements.ts
+          node --import tsx tests/e2e/getting-started.ts
           node --import tsx tests/e2e/location-filters.mjs
           node --import tsx tests/e2e/deferred-search-count.ts
           npm run test:jobs:activity
@@ -142,6 +143,7 @@ jobs:
             output/playwright/jobs-activity-*.png
             output/playwright/autofill-guide-*.png
             output/playwright/autofill-email-*.png
+            output/playwright/getting-started-*.png
             /tmp/workspace-server.log
           retention-days: 14
           if-no-files-found: ignore
