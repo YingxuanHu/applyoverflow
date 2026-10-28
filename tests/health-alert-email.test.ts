@@ -41,3 +41,13 @@ test("SMTP refusal is not success and still closes the transport", async () => {
   })) as never), /did not accept/);
   assert.equal(closed, true);
 });
+
+test("routine summaries are clearly labelled and retain code-only content", async () => {
+  await sendHealthAlert({ ...envelope, kind: "summary", active: ["load"], opened: ["load"] }, env, (() => ({
+    sendMail: async (message: Record<string, unknown>) => {
+      assert.equal(message.subject, "[ApplyOverflow] Operations daily summary");
+      assert.match(String(message.text), /System load/);
+      return { accepted: [OWNER], rejected: [] };
+    }, close: () => {},
+  })) as never);
+});
